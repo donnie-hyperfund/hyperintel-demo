@@ -1,0 +1,29 @@
+diff --git a/MonkeyPatchable.js b/MonkeyPatchable.js
+index 3b5aeed..1fd0c13 100644
+--- a/MonkeyPatchable.js
++++ b/MonkeyPatchable.js
+@@ -36,6 +36,15 @@ const better_sqlite3_1 = __importDefault(require("knex/lib/dialects/better-sqlit
+ const sqlite_tablecompiler_1 = __importDefault(require("knex/lib/dialects/sqlite3/schema/sqlite-tablecompiler"));
+ // @ts-ignore
+ const tablecompiler_1 = __importDefault(require("knex/lib/schema/tablecompiler"));
++const pg = require("pg");
++class PatchedPostgresDialect extends postgres_1.default {
++    _acquireOnlyConnection() {
++        // console.log('MONKEY BUSINESS', this.driver, this.driver.Client);
++        this.driver = {Client: pg.Client};
++        // console.log('MONKEY BUSINESS', this.driver, this.driver.Client);
++        return super._acquireOnlyConnection();
++    }
++}
+ // These specific portions of knex are overridden by the different
+ // database packages. We need to be sure the knex files they get to
+ // monkey patch are the same version as our overall knex instance
+@@ -50,7 +59,7 @@ exports.MonkeyPatchable = {
+     MsSqlTableCompiler: mssql_tablecompiler_1.default,
+     MsSqlQueryCompiler: mssql_querycompiler_1.default,
+     MsSqlDialect: mssql_1.default,
+-    PostgresDialect: postgres_1.default,
++    PostgresDialect: PatchedPostgresDialect,//postgres_1.default,
+     PostgresDialectTableCompiler: pg_tablecompiler_1.default,
+     PostgresQueryCompiler: pg_querycompiler_1.default,
+     Sqlite3Dialect: sqlite3_1.default,

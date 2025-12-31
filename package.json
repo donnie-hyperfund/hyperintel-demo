@@ -5,8 +5,17 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "lint": "eslint .",
-    "start": "next start"
+    "local:prd": "cross-env NODE_ENV=development NODE_OPTIONS=\"--enable-source-maps --inspect\" env-cmd -f .env.prd yarn dev",
+    "local:dev": "cross-env NODE_ENV=development NODE_OPTIONS=\"--enable-source-maps --inspect\" env-cmd -f .env.dev yarn dev",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format .",
+    "format:fix": "biome format --write .",
+    "lfix": "biome check --write .",
+    "start": "next start",
+    "tsn": "tsx",
+    "env:dev": "env-cmd -f .env.dev npm run ",
+    "env:prd": "env-cmd -f .env.prd npm run "
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -58,16 +67,36 @@
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^1.1.2",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "hono": "^4.7.11",
+    "@mikro-orm/core": "6.4.16",
+    "@mikro-orm/postgresql": "6.4.16",
+    "knex": "3.1.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.10",
+    "@cloudflare/workers-types": "^4.20251230.0",
+    "@mikro-orm/cli": "6.4.16",
+    "@mikro-orm/entity-generator": "6.4.16",
+    "@mikro-orm/migrations": "6.4.16",
+    "@mikro-orm/sql-highlighter": "^1.0.1",
     "@tailwindcss/postcss": "^4.1.9",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^10.1.0",
+    "env-cmd": "^11.0.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
+    "tsx": "^4.21.0",
     "tw-animate-css": "1.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.18.0"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@mikro-orm/knex@6.4.16": "patches/@mikro-orm+knex@6.4.16.patch",
+      "knex@3.1.0": "patches/knex@3.1.0.patch"
+    }
   }
 }
