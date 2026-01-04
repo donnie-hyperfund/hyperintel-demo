@@ -1,0 +1,3 @@
+[submodule "workers/_common"]
+	path = workers/_common
+	url = https://github.com/HyperFund-AI/cloudflare-worker-common.git
