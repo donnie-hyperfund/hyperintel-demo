@@ -5,13 +5,12 @@ import {
     OneToMany,
     OneToOne,
     Property,
-    raw,
     Rel,
+    raw,
     SelectQueryBuilder,
 } from '@mikro-orm/postgresql';
-import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import { type Nullable } from '@/common/orm/utils';
-
+import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 
 @Entity({ tableName: 'users' })
 export class UserEntity extends IdCreatedUpdatedColumns {
@@ -26,6 +25,4 @@ export class UserEntity extends IdCreatedUpdatedColumns {
 
     @Property({ type: 'text', nullable: true })
     name?: Nullable<string>;
-
 }
-

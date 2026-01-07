@@ -1,8 +1,8 @@
 import { Options } from '@mikro-orm/core';
-import { config as baseConfig } from './mikro-orm.config';
-import { SqlHighlighter } from '@mikro-orm/sql-highlighter';
 import { EntityGenerator } from '@mikro-orm/entity-generator';
 import { Migrator } from '@mikro-orm/migrations';
+import { SqlHighlighter } from '@mikro-orm/sql-highlighter';
+import { config as baseConfig } from './mikro-orm.config';
 
 export const config: Options = {
     ...baseConfig,

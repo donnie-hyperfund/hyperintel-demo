@@ -4,12 +4,8 @@
         "target": "ESNext",
         "module": "ESNext",
         "moduleResolution": "bundler",
-        "lib": [
-            "ESNext"
-        ],
-        "types": [
-            "@cloudflare/workers-types"
-        ],
+        "lib": ["ESNext"],
+        "types": ["@cloudflare/workers-types"],
         "strict": true,
         "skipLibCheck": true,
         "noEmit": true,
@@ -19,9 +15,7 @@
         "verbatimModuleSyntax": true,
         "baseUrl": ".",
         "paths": {
-            "@worker/*": [
-                "../_common/*"
-            ]
+            "@worker/*": ["../_common/*"]
         }
     }
 }

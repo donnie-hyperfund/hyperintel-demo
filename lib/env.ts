@@ -20,10 +20,7 @@ const parsedFrontendEnv = envFrontendSchema.safeParse({
 });
 
 if (!parsedFrontendEnv.success) {
-    console.error(
-        '❌ Invalid environment variables:',
-        parsedFrontendEnv.error.format(),
-    );
+    console.error('❌ Invalid environment variables:', parsedFrontendEnv.error.format());
     throw new Error('Invalid environment variables');
 }
 

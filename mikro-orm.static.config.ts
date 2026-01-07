@@ -1,6 +1,6 @@
-import { Options, GeneratedCacheAdapter } from '@mikro-orm/postgresql';
-import { config as baseConfig } from './mikro-orm.config';
+import { GeneratedCacheAdapter, Options } from '@mikro-orm/postgresql';
 import ormdata from './lib/orm/metadata.json';
+import { config as baseConfig } from './mikro-orm.config';
 
 export const config: Options = {
     ...baseConfig,
