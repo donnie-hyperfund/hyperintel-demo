@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prepare": "husky",
     "build": "next build",
     "dev": "next dev",
     "local:prd": "cross-env NODE_ENV=development NODE_OPTIONS=\"--enable-source-maps --inspect\" env-cmd -f .env.prd yarn dev",
@@ -95,6 +96,7 @@
     "@types/underscore": "^1.13.0",
     "cross-env": "^10.1.0",
     "env-cmd": "^11.0.0",
+    "husky": "^9.1.7",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "ts-node": "^10.9.2",

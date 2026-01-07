@@ -1,7 +1,10 @@
 {
     "$schema": "https://biomejs.dev/schemas/2.3.10/schema.json",
     "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-    "files": { "ignoreUnknown": false, "includes": ["**/*.ts", "**/*.json", "!**/node_modules", "!**/dist"] },
+    "files": {
+        "ignoreUnknown": false,
+        "includes": ["**/*.ts", "**/*.json", "!**/node_modules", "!common", "!**/dist"]
+    },
     "formatter": {
         "enabled": true,
         "indentStyle": "space",
@@ -177,14 +180,7 @@
                 "noWith": "error",
                 "noVar": "error"
             }
-        },
-        "includes": [
-            "**",
-            "!**/.eslintrc.js",
-            "!**/metro.config.js",
-            "!**/graphql-env.d.ts",
-            "!**/android/app/**"
-        ]
+        }
     },
     "javascript": {
         "formatter": {
@@ -196,7 +192,6 @@
     },
     "overrides": [
         {
-            "includes": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
             "linter": {
                 "rules": {
                     "correctness": {
