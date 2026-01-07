@@ -176,6 +176,30 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                     </div>
                 );
             },
+            code: ({ className, children, ...props }) => {
+                const isInline = !className?.includes('language-');
+                if (isInline) {
+                    return (
+                        <code className={cn('px-1 py-0.5 rounded bg-neutral-900 text-sm', className)} {...props}>
+                            {children}
+                        </code>
+                    );
+                }
+                return (
+                    <code className={className} {...props}>
+                        {children}
+                    </code>
+                );
+            },
+            pre: ({ children, className, ...props }) => {
+                return (
+                    <div className="overflow-x-auto w-full mb-3 p-2 min-w-0 max-w-full rounded-4 bg-neutral-900 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-md">
+                        <pre className={cn("w-full min-w-0 max-w-full overflow-x-auto p-4 bg-transparent", className)} {...props}>
+                            {children}
+                        </pre>
+                    </div>
+                );
+            },
         } satisfies Components;
     }, [id]);
 

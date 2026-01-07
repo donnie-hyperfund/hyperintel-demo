@@ -1,9 +1,11 @@
 "use client"
 
+import { forwardRef } from "react"
 import { Loader2, Layers } from "lucide-react"
-import ChatMessage from "../chat-message/index"
+import MessagesList from "./messages-list"
 
 export type Message = {
+  id: string
   role: "user" | "assistant"
   content: string
 }
@@ -11,7 +13,6 @@ export type Message = {
 type ChatConversationProps = {
   messages: Message[]
   isLoading: boolean
-  username: string
   emptyState?: {
     icon?: React.ReactNode
     title?: string
@@ -19,15 +20,11 @@ type ChatConversationProps = {
   }
 }
 
-export default function ChatConversation({
-  messages,
-  isLoading,
-  username,
-  emptyState,
-}: ChatConversationProps) {
-  return (
-    <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-4xl mx-auto space-y-4">
+const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(
+  ({ messages, isLoading, emptyState }, ref) => {
+    return (
+      <div ref={ref} className="flex-1 overflow-y-auto p-6">
+      <div className="w-full max-w-4xl mx-auto space-y-4 min-w-0">
       {messages.length === 0 && !isLoading && (
         <div className="h-full flex items-center justify-center">
           {emptyState ? (
@@ -55,9 +52,7 @@ export default function ChatConversation({
         </div>
       )}
 
-      {messages.map((message, msgIndex) => (
-        <ChatMessage key={msgIndex} message={message} username={username} />
-      ))}
+      <MessagesList messages={messages} />
 
       {isLoading && (
         <div className="flex gap-3 justify-start">
@@ -84,6 +79,11 @@ export default function ChatConversation({
       )}
       </div>
     </div>
-  )
-}
+    )
+  },
+)
+
+ChatConversation.displayName = "ChatConversation"
+
+export default ChatConversation
 
