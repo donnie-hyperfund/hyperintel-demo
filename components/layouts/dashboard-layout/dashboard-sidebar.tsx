@@ -2,6 +2,18 @@
 
 import { useState } from "react"
 import { MessageSquare, Code, Layers, FileCode } from "lucide-react"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarGroup,
+  SidebarGroupContent,
+  useSidebar,
+} from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
 
 const navItems = [
@@ -14,79 +26,97 @@ const navItems = [
 const projectNames = ["Project Name Goes Here", "Project Name Goes Here", "Project Name Goes Here"]
 
 export function DashboardSidebar() {
-  const [sidebarExpanded, setSidebarExpanded] = useState(false)
+  const { state } = useSidebar()
+  const isCollapsed = state === "collapsed"
   const [username] = useState("Username")
+  const [isHovered, setIsHovered] = useState(false)
+  const isExpanded = !isCollapsed || isHovered
 
   return (
-    <aside
-      className={cn(
-        "bg-sidebar border-r border-sidebar-border flex flex-col py-6 transition-all duration-300 ease-in-out",
-        sidebarExpanded ? "w-64 px-4" : "w-16 px-3",
-      )}
-      onMouseEnter={() => setSidebarExpanded(true)}
-      onMouseLeave={() => setSidebarExpanded(false)}
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-sidebar-border"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
-      <div
-        className={cn(
-          "flex items-center mb-6 transition-all duration-300",
-          sidebarExpanded ? "justify-start gap-3 px-2" : "justify-center",
-        )}
-      >
-        <div className="flex items-center justify-center w-10 h-10 bg-primary rounded-lg shrink-0">
-          <span className="text-sm font-bold text-primary-foreground">H</span>
+      <SidebarHeader className="p-2">
+        <div
+          className={cn(
+            "flex items-center transition-all duration-300",
+            isExpanded ? "justify-start gap-3 px-2" : "justify-center",
+          )}
+        >
+          <div className="flex items-center justify-center w-10 h-10 bg-primary rounded-lg shrink-0">
+            <span className="text-sm font-bold text-primary-foreground">H</span>
+          </div>
+          {isExpanded && (
+            <span className="text-lg font-semibold whitespace-nowrap text-sidebar-foreground">
+              HYPER<span className="text-primary">INTEL</span>
+              <sup className="text-[10px] align-super">™</sup>
+            </span>
+          )}
         </div>
-        {sidebarExpanded && (
-          <span className="text-lg font-semibold whitespace-nowrap">
-            HYPER<span className="text-primary">INTEL</span>
-            <sup className="text-[10px] align-super">™</sup>
-          </span>
+      </SidebarHeader>
+
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {navItems.map((item) => {
+                const Icon = item.icon
+                return (
+                  <SidebarMenuItem key={item.label}>
+                    <SidebarMenuButton
+                      isActive={item.active}
+                      tooltip={isCollapsed && !isHovered ? item.label : undefined}
+                      className={cn(
+                        item.active && "bg-sidebar-accent text-sidebar-accent-foreground"
+                      )}
+                    >
+                      <Icon />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {isExpanded && (
+          <SidebarGroup className="mt-auto">
+            <SidebarGroupContent>
+              <div className="space-y-1 px-2">
+                {projectNames.map((name, idx) => (
+                  <button
+                    key={idx}
+                    className="w-full text-xs text-sidebar-foreground/60 px-2 py-1.5 hover:bg-sidebar-accent/30 rounded cursor-pointer transition-colors truncate text-left"
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </SidebarGroupContent>
+          </SidebarGroup>
         )}
-      </div>
+      </SidebarContent>
 
-      <nav className="flex flex-col gap-2 flex-1">
-        {navItems.map((item) => (
-          <button
-            key={item.label}
-            className={cn(
-              "flex items-center rounded-lg transition-colors h-10",
-              sidebarExpanded ? "gap-3 px-3 justify-start" : "justify-center",
-              item.active
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-sidebar-foreground hover:bg-sidebar-accent/50",
-            )}
-            title={item.label}
-          >
-            <item.icon className="w-5 h-5 shrink-0" />
-            {sidebarExpanded && <span className="text-sm">{item.label}</span>}
-          </button>
-        ))}
-      </nav>
-
-      {sidebarExpanded && (
-        <div className="mb-4 space-y-2">
-          {projectNames.map((name, idx) => (
-            <div
-              key={idx}
-              className="text-xs text-sidebar-foreground/60 px-3 py-1.5 hover:bg-sidebar-accent/30 rounded cursor-pointer transition-colors truncate"
-            >
-              {name}
-            </div>
-          ))}
+      <SidebarFooter className="p-2">
+        <div
+          className={cn(
+            "flex items-center transition-all duration-300",
+            isExpanded ? "justify-start gap-3 px-2" : "justify-center",
+          )}
+        >
+          <div className="flex items-center justify-center w-10 h-10 bg-muted rounded-full text-xs font-medium shrink-0 text-foreground">
+            {username.charAt(0).toUpperCase()}
+          </div>
+          {isExpanded && (
+            <span className="text-sm truncate text-sidebar-foreground">{username}</span>
+          )}
         </div>
-      )}
-
-      <div
-        className={cn(
-          "flex items-center transition-all duration-300",
-          sidebarExpanded ? "justify-start gap-3 px-2" : "justify-center",
-        )}
-      >
-        <div className="flex items-center justify-center w-10 h-10 bg-muted rounded-full text-xs font-medium shrink-0">
-          {username.charAt(0).toUpperCase()}
-        </div>
-        {sidebarExpanded && <span className="text-sm truncate">{username}</span>}
-      </div>
-    </aside>
+      </SidebarFooter>
+    </Sidebar>
   )
 }
 

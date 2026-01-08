@@ -1,5 +1,6 @@
 "use client"
 
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { DashboardSidebar } from "./dashboard-sidebar"
 import { DashboardHeader } from "./dashboard-header"
 
@@ -9,16 +10,17 @@ type DashboardLayoutProps = {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      <DashboardSidebar />
-
-      <div className="flex-1 flex flex-col">
-        <DashboardHeader />
-        <div className="flex-1 overflow-hidden">
-          {children}
-        </div>
+    <SidebarProvider>
+      <div className="flex h-dvh w-full">
+        <DashboardSidebar />
+        <SidebarInset className="flex flex-col">
+          <DashboardHeader />
+          <div className="flex-1 overflow-hidden">
+            {children}
+          </div>
+        </SidebarInset>
       </div>
-    </div>
+    </SidebarProvider>
   )
 }
 
