@@ -1,0 +1,116 @@
+# Master configuration for all workers
+# Generator reads this + per-worker worker.yaml to produce wrangler.jsonc, package.json, tsconfig.json
+
+store_id: b0b79b79a9e4400384c1e86239b96635
+
+# Environments with suffixes for service/queue/DO names
+envs:
+  production:
+    suffix: ""
+  dev:
+    suffix: "-dev"
+  experimental:
+    suffix: "-experimental"
+    inherits: dev
+
+# All available secrets with per-env secret_name mappings
+# Simple string = same name all envs
+# Object = per-env mapping
+secrets:
+  DATABASE_URL:
+    production: HI_DATABASE_URL # TODO ...
+    dev: DEV_HI_DATABASE_URL
+  CLERK_SECRET_KEY: CLERK_SECRET_KEY
+  ANTHROPIC_API_KEY: ANTHROPIC_API_KEY
+  OPENAI_KEY: OPENAI_KEY
+  OPENROUTER_API_KEY: DEV_OPENROUTER_API_KEY  # TODO: using dev key for now
+  LANGFUSE_SECRET_KEY: LANGFUSE_SECRET_KEY
+  CF_TOKEN: CF_TOKEN
+  AUTH_SECRET: QUEUE_AUTH_SECRET
+  VERCEL_BYPASS_SECRET: VERCEL_BYPASS_SECRET
+
+# Default secrets included in EVERY worker
+default_secrets: []
+
+# All available vars with per-env values
+# Simple string = same value all envs
+# Object = per-env value (missing env = not included for that env)
+vars:
+  CORS_ALLOWED_ORIGIN:
+    dev: "https://dev-app.hyperfund.ai"
+  CLERK_PUBLISHABLE_KEY: "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA"
+  LANGFUSE_HOST: "https://us.cloud.langfuse.com"
+  LANGFUSE_PUBLIC_KEY: "pk-lf-82870529-7f46-4e5e-9195-ada413019895"
+  LANGFUSE_ENVIRONMENT:
+    production: "production"
+    dev: "dev"
+  ENV:
+    dev: "dev"  # prod is unset - code defaults to 'prod'
+  APP_BASE:
+    production: "https://app.hyperfund.ai/"
+    dev: "https://dev-app.hyperfund.ai/"
+
+
+# Default vars included in EVERY worker
+default_vars:
+  - CLERK_PUBLISHABLE_KEY
+  - ENV
+  - LANGFUSE_HOST
+  - LANGFUSE_PUBLIC_KEY
+  - LANGFUSE_ENVIRONMENT
+  - CORS_ALLOWED_ORIGIN
+
+# Template files to copy to each worker if they don't exist
+# Filename only = from _common/config/templates/
+# Starts with ./ = relative to this config file
+templates:
+  - .gitignore
+
+# Shared tsconfig settings
+tsconfig:
+  target: "es2021"
+  lib: ["es2021"]
+  jsx: "react-jsx"
+  module: "es2022"
+  moduleResolution: "Bundler"
+  types: ["@cloudflare/workers-types/2023-07-01"]
+  resolveJsonModule: true
+  allowJs: true
+  checkJs: false
+  noEmit: true
+  isolatedModules: true
+  allowSyntheticDefaultImports: true
+  forceConsistentCasingInFileNames: true
+  strict: true
+  skipLibCheck: true
+  paths:
+    "@/*": ["../../*"]
+    "@common/*": ["../../common/*"]
+    "@worker/*": ["../_common/*"]
+
+# Shared package.json scripts
+package_scripts:
+  deploy: "wrangler deploy"
+  dev: "wrangler dev"
+  start: "wrangler dev"
+  test: "vitest"
+  typegen: "wrangler types --include-runtime=false"
+
+# Wrangler defaults
+wrangler_defaults:
+  compatibility_flags: ["nodejs_compat"]
+  compatibility_date: "2025-04-29"
+  observability:
+    enabled: true
+
+# Module aliases for esbuild bundler (stubs for unused packages)
+# These are applied at bundle-time, not TypeScript check time
+# Paths are relative to each worker folder (e.g., workers/chat/)
+aliases:
+  "@supabase/supabase-js": "../_common/vendor/stubs/supabase-js.ts"
+  "stripe": "../_common/vendor/stubs/stripe.ts"
+  "@sendgrid/mail": "../_common/vendor/stubs/sendgrid-mail.ts"
+  "@cerebras/cerebras_cloud_sdk": "../_common/vendor/stubs/cerebras.ts"
+  "mariadb/callback": "../_common/vendor/stubs/empty.ts"
+  "better-sqlite3": "../_common/vendor/stubs/empty.ts"
+  "libsql": "../_common/vendor/stubs/empty.ts"

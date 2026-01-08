@@ -1,0 +1,35 @@
+# chat worker definition
+name: hi-chat
+secrets:
+  - DATABASE_URL
+  - CLERK_SECRET_KEY
+  - ANTHROPIC_API_KEY
+  - OPENROUTER_API_KEY
+  - LANGFUSE_SECRET_KEY
+  - AUTH_SECRET
+
+# vars:
+#   - SOME_VAR
+
+# ai: true
+# browser: true
+
+# services:
+#   - binding: SOME_SERVICE
+#     entrypoint: SomeEntrypoint
+
+# durable_objects:
+#   - name: SOME_DO
+#     class_name: SomeClass
+#     script_name: services  # external, or local: true
+
+# queues:
+#   producers:
+#     - binding: SOME_QUEUE
+#       queue: some-queue
+#   consumers:
+#     - queue: some-queue
+#       max_batch_size: 5
+
+# triggers:
+#   crons: ["0 * * * *"]
