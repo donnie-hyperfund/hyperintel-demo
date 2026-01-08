@@ -8,3 +8,5 @@ node_modules
 !.env.example
 lib/orm/compiled.jit.ts
 lib/orm/metadata.json
+# clerk configuration (can include secrets)
+/.clerk/
