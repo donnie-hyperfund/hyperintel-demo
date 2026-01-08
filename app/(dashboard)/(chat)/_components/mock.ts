@@ -1,4 +1,4 @@
-import { Message } from "@/app/(chat)/_components/chat-conversation/chat-conversation";
+import { Message } from "@/app/(dashboard)/(chat)/_components/chat-conversation/chat-conversation";
 
 export const MOCK_MESSAGES = [
   {

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react"
-import { Message } from "@/app/(chat)/_components/chat-conversation/chat-conversation"
+import { Message } from "@/app/(dashboard)/(chat)/_components/chat-conversation/chat-conversation"
 import ChatMessage from "../chat-message"
 
 type MessagesProps = {
