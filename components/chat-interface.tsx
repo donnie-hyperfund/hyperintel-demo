@@ -1,5 +1,7 @@
 'use client';
 
+import { UserButton } from '@clerk/nextjs';
+import { dark } from '@clerk/themes';
 import { Code, FileCode, Layers, Loader2, MessageSquare } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -213,10 +215,14 @@ export default function ChatInterface() {
                         sidebarExpanded ? 'justify-start gap-3 px-2' : 'justify-center',
                     )}
                 >
-                    <div className="flex items-center justify-center w-10 h-10 bg-muted rounded-full text-xs font-medium flex-shrink-0">
-                        {username.charAt(0).toUpperCase()}
-                    </div>
-                    {sidebarExpanded && <span className="text-sm truncate">{username}</span>}
+                    <UserButton
+                        appearance={{
+                            baseTheme: dark,
+                            elements: {
+                                avatarBox: 'w-10 h-10',
+                            },
+                        }}
+                    />
                 </div>
             </aside>
 

@@ -4,6 +4,7 @@ const envBackendSchema = z.object({
     // Main
     DATABASE_URL: z.string().min(1),
     CLERK_SECRET_KEY: z.string(),
+    CLERK_WEBHOOK_SECRET: z.string(),
 });
 
 const parsedBackendEnv = envBackendSchema.safeParse(process.env);

@@ -25,4 +25,7 @@ export class UserEntity extends IdCreatedUpdatedColumns {
 
     @Property({ type: 'text', nullable: true })
     name?: Nullable<string>;
+
+    @Property({ type: 'text', nullable: true, unique: true })
+    clerkId?: Nullable<string>;
 }
