@@ -7,6 +7,7 @@ import ChatConversation, { type Message } from "./chat-conversation/chat-convers
 import ChatMessageForm from "./chat-message-form"
 import type { ChatMessageFormValues } from "./chat-message-form/schema"
 import { MOCK_MESSAGES } from "@/app/(chat)/_components/mock"
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 
 type Conversation = {
   id: string
@@ -26,46 +27,8 @@ const projectNames = ["Project Name Goes Here", "Project Name Goes Here", "Proje
 export default function ChatInterface() {
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [username, setUsername] = useState("Username")
-  const [leftPanelWidth, setLeftPanelWidth] = useState(50) // percentage
-  const [isResizing, setIsResizing] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
   const chatConversationRef = useRef<HTMLDivElement>(null)
   const chatMessageFormRef = useRef<HTMLFormElement>(null)
-
-  const handleMouseDown = () => {
-    setIsResizing(true)
-  }
-
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!isResizing || !containerRef.current) return
-
-    const containerRect = containerRef.current.getBoundingClientRect()
-    const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100
-
-    // Constrain between 20% and 80%
-    if (newLeftWidth >= 20 && newLeftWidth <= 80) {
-      setLeftPanelWidth(newLeftWidth)
-    }
-  }
-
-  const handleMouseUp = () => {
-    setIsResizing(false)
-  }
-
-  useEffect(() => {
-    if (isResizing) {
-      document.addEventListener("mousemove", handleMouseMove as any)
-      document.addEventListener("mouseup", handleMouseUp)
-    } else {
-      document.removeEventListener("mousemove", handleMouseMove as any)
-      document.removeEventListener("mouseup", handleMouseUp)
-    }
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove as any)
-      document.removeEventListener("mouseup", handleMouseUp)
-    }
-  }, [isResizing])
 
   useEffect(() => {
     const formElement = chatMessageFormRef.current
@@ -266,35 +229,34 @@ export default function ChatInterface() {
           </div>
         </header>
 
-        {/* Chat Panels */}
-        <div ref={containerRef} className="flex-1 flex overflow-hidden relative">
-          {/* Left Panel */}
-          <div className="bg-card flex flex-col border-r border-border relative" style={{ width: `${leftPanelWidth}%` }}>
-            <ChatConversation
-              messages={conversations[0].messages}
-              isLoading={conversations[0].isLoading}
-              ref={chatConversationRef}
-            />
+        <ResizablePanelGroup 
+          direction="horizontal" 
+          className="flex-1"
+        >
+          {/* Chat Panel */}
+          <ResizablePanel defaultSize={75} minSize={40} maxSize={80}>
+            <div className="bg-card flex flex-col border-r border-border relative h-full">
+              <ChatConversation
+                messages={conversations[0].messages}
+                isLoading={conversations[0].isLoading}
+                ref={chatConversationRef}
+              />
 
-            <ChatMessageForm ref={chatMessageFormRef} onSubmit={handleSend} className="absolute bottom-0 left-0 right-0"/>
-          </div>
+              <ChatMessageForm ref={chatMessageFormRef} onSubmit={handleSend} className="absolute bottom-0 left-0 right-0"/>
+            </div>
+          </ResizablePanel>
 
-          {/* Resize Handle */}
-          <div
-            className={cn(
-              "w-1 bg-border hover:bg-primary/50 cursor-col-resize transition-colors relative group",
-              isResizing && "bg-primary",
-            )}
-            onMouseDown={handleMouseDown}
-          >
-            <div className="absolute inset-y-0 -left-1 -right-1" />
-          </div>
+          <ResizableHandle 
+            className="w-1 bg-border hover:bg-primary/50 transition-colors"
+          />
 
-          {/* Right Panel */}
-          <div className="bg-card flex flex-col flex-1" style={{ width: `${100 - leftPanelWidth}%` }}>
-            {/* TODO: Add right panel content */}
-          </div>
-        </div>
+          {/* Artifacts Panel */}
+          <ResizablePanel defaultSize={25} minSize={20}>
+            <div className="bg-card flex flex-col h-full">
+              {/* TODO: Add right panel content */}
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </div>
   )
