@@ -1,2 +1,2 @@
-export * from './orm';
 export * from './entities';
+export * from './orm';

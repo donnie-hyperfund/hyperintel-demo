@@ -1,8 +1,8 @@
-import { MikroORM, Options, EntityManager } from '@mikro-orm/postgresql';
+import { EntityManager, MikroORM, Options } from '@mikro-orm/postgresql';
+import { cache } from 'react';
+import _ from 'underscore';
 import config from '@/mikro-orm.config';
 import staticConfig from '@/mikro-orm.static.config';
-import _ from 'underscore';
-import { cache } from 'react';
 
 // Fix to not leak connections on local dev server
 declare global {
@@ -20,24 +20,18 @@ let ormPromise: Promise<MikroORM> | null = null;
 const reqStore = cache(() => ({ verified: false }));
 
 export function rawOrmGuard(verify: string) {
-    if (verify !== "I know what I'm doing")
-        throw new Error("You don't know what you're doing");
+    if (verify !== "I know what I'm doing") throw new Error("You don't know what you're doing");
     reqStore().verified = true;
 }
 
 // raw does not auto-fork
 export async function getOrm(): Promise<{ em: EntityManager }>;
 export async function getOrm(raw: true): Promise<MikroORM>;
-export async function getOrm(
-    injectConfig?: Options,
-): Promise<{ em: EntityManager }>;
-export async function getOrm(
-    injectConfig: Options,
-    raw: true,
-): Promise<MikroORM>;
+export async function getOrm(injectConfig?: Options): Promise<{ em: EntityManager }>;
+export async function getOrm(injectConfig: Options, raw: true): Promise<MikroORM>;
 export async function getOrm(
     injectConfigOrRaw: Options | boolean = false,
-    raw: boolean = false,
+    raw = false,
 ): Promise<MikroORM | { em: EntityManager }> {
     let injectConfig: Options;
     if (_.isBoolean(injectConfigOrRaw)) {

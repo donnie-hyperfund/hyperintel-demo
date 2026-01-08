@@ -3,15 +3,9 @@
     "compilerOptions": {
         "baseUrl": ".",
         "paths": {
-            "@/*": [
-                "./src/*"
-            ],
-            "@worker/*": [
-                "../_common/*"
-            ]
+            "@/*": ["./src/*"],
+            "@worker/*": ["../_common/*"]
         }
     },
-    "include": [
-        "src/**/*.ts"
-    ]
+    "include": ["src/**/*.ts"]
 }

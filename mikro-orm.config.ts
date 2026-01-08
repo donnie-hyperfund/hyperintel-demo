@@ -1,11 +1,7 @@
 import 'dotenv/config';
-import {
-    PostgreSqlDriver,
-    UnderscoreNamingStrategy,
-} from '@mikro-orm/postgresql';
-import * as entities from '@/lib/orm/entities';
-import { Options } from '@mikro-orm/postgresql';
 import type { AnyEntity, EntityClass } from '@mikro-orm/core';
+import { Options, PostgreSqlDriver, UnderscoreNamingStrategy } from '@mikro-orm/postgresql';
+import * as entities from '@/lib/orm/entities';
 
 class CustomUnderscoreNamingStrategy extends UnderscoreNamingStrategy {
     indexName(
