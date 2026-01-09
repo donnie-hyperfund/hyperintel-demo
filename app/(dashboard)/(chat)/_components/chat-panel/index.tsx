@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MOCK_MESSAGES } from '@/app/(dashboard)/(chat)/_components/chat-panel/mock';
+import { MOCK_MESSAGES } from '@/app/modules/chat/mocks';
+import type { Message } from '@/app/modules/chat/types';
 import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
-import ChatConversation, { type Message } from './chat-conversation/chat-conversation';
+import ChatConversation from './chat-conversation/chat-conversation';
 import ChatMessageForm from './chat-message-form';
 import type { ChatMessageFormValues } from './chat-message-form/schema';
 

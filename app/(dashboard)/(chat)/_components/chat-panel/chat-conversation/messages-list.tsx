@@ -1,10 +1,20 @@
+import { cva } from 'class-variance-authority';
 import { AnimatePresence, motion } from 'motion/react';
-import { Message } from '@/app/(dashboard)/(chat)/_components/chat-panel/chat-conversation/chat-conversation';
+import type { Message } from '@/app/modules/chat/types';
 import ChatMessage from '../chat-message';
 
 type MessagesProps = {
     messages: Message[];
 };
+
+const messageContainerVariants = cva('w-full min-w-0 last:mb-0', {
+    variants: {
+        role: {
+            user: 'mb-6',
+            assistant: 'mb-14',
+        },
+    },
+});
 
 export default function MessagesList({ messages }: MessagesProps) {
     return (
@@ -27,7 +37,7 @@ export default function MessagesList({ messages }: MessagesProps) {
                         duration: 0.3,
                         ease: 'easeInOut',
                     }}
-                    className="w-full min-w-0"
+                    className={messageContainerVariants({ role: message.role })}
                 >
                     <ChatMessage message={message} />
                 </motion.div>

@@ -1,11 +1,13 @@
 'use client';
 
+import { ArtifactProvider, useArtifacts } from '@/app/modules/chat/providers/artifact-provider';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { cn } from '@/lib/utils';
+import ArtifactsPanel from './_components/artifacts-panel';
 import ChatPanel from './_components/chat-panel';
 
-export default function Page() {
-    const IS_PREVIEW_PANEL_OPEN = true;
+function ChatPageContent() {
+    const { isVisible: isArtifactsPanelVisible } = useArtifacts();
 
     return (
         <ResizablePanelGroup direction="horizontal" className="h-full">
@@ -13,26 +15,32 @@ export default function Page() {
             <ResizablePanel
                 id="chat-panel"
                 order={1}
-                defaultSize={75}
+                defaultSize={60}
                 minSize={40}
                 maxSize={80}
-                className={cn(IS_PREVIEW_PANEL_OPEN && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
+                className={cn(isArtifactsPanelVisible && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
             >
                 <ChatPanel />
             </ResizablePanel>
 
-            {IS_PREVIEW_PANEL_OPEN && (
+            {isArtifactsPanelVisible && (
                 <>
                     <ResizableHandle />
 
-                    {/* Preview Panel */}
-                    <ResizablePanel id="preview-panel" order={2} defaultSize={25} minSize={20}>
-                        <div className="flex flex-col h-full shadow-lg bg-neutral-975">
-                            {/* TODO: Add preview panel content */}
-                        </div>
+                    {/* Artifacts Panel */}
+                    <ResizablePanel id="artifacts-panel" order={2} defaultSize={40} minSize={20}>
+                        <ArtifactsPanel />
                     </ResizablePanel>
                 </>
             )}
         </ResizablePanelGroup>
+    );
+}
+
+export default function Page() {
+    return (
+        <ArtifactProvider>
+            <ChatPageContent />
+        </ArtifactProvider>
     );
 }

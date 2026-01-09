@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -115,4 +116,346 @@
 
 *::-webkit-scrollbar-thumb:hover {
   background-color: oklch(from var(--color-muted-foreground) l c h / 0.5);
+}
+
+/* Custom Prose Variants */
+
+/* prose-message: For chat messages - 16px base, slower header scaling, compact spacing */
+.prose-message {
+  font-size: 1rem;
+  line-height: 1.625;
+  color: inherit;
+}
+
+.prose-message > :first-child {
+  margin-top: 0;
+}
+
+.prose-message > :last-child {
+  margin-bottom: 0;
+}
+
+.prose-message :where(p):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.75em;
+  margin-bottom: 0.125em;
+}
+
+.prose-message :where([class~="lead"]):not(:where([class~="not-prose"] *)) {
+  font-size: 1.125em;
+  line-height: 1.5;
+  margin-top: 0.75em;
+  margin-bottom: 0.125em;
+}
+
+.prose-message :where(h1):not(:where([class~="not-prose"] *)) {
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 1em;
+  margin-bottom: 0.125em;
+}
+
+.prose-message :where(h2):not(:where([class~="not-prose"] *)) {
+  font-size: 1.25em;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1em;
+  margin-bottom: 0.125em;
+}
+
+.prose-message :where(h3):not(:where([class~="not-prose"] *)) {
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-top: 0.875em;
+  margin-bottom: 0.125em;
+}
+
+.prose-message :where(h4):not(:where([class~="not-prose"] *)) {
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.5;
+  margin-top: 0.75em;
+  margin-bottom: 0.125em;
+}
+
+.prose-message :where(strong):not(:where([class~="not-prose"] *)) {
+  font-weight: 700;
+  color: inherit;
+}
+
+.prose-message :where(a):not(:where([class~="not-prose"] *)) {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-message :where(a):not(:where([class~="not-prose"] *)):hover {
+  opacity: 0.8;
+}
+
+.prose-message :where(ul):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.5em;
+  margin-bottom: 0.125em;
+  padding-left: 1.5em;
+  list-style-type: disc;
+}
+
+.prose-message :where(ol):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.5em;
+  margin-bottom: 0.125em;
+  padding-left: 1.5em;
+  list-style-type: decimal;
+}
+
+.prose-message :where(li):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.25em;
+  margin-bottom: 0;
+  padding-left: 0.25em;
+}
+
+.prose-message :where(li)::marker {
+  color: currentColor;
+}
+
+.prose-message :where(blockquote):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.75em;
+  margin-bottom: 0.125em;
+  padding-left: 1em;
+  border-left: 3px solid currentColor;
+  opacity: 0.85;
+  font-style: inherit;
+}
+
+.prose-message :where(pre):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+  padding: 0.625em 0.875em;
+  font-size: 0.875em;
+  line-height: 1.6;
+  border-radius: 0.375rem;
+}
+
+.prose-message :where(code):not(:where([class~="not-prose"] *)) {
+  font-size: 0.875em;
+}
+
+.prose-message :where(.prose-table-wrapper):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+  overflow-x: auto;
+  width: 100%;
+}
+
+.prose-message :where(table):not(:where([class~="not-prose"] *)) {
+  width: 100%;
+  min-width: 100%;
+  font-size: 0.875em;
+  border-collapse: collapse;
+}
+
+.prose-message :where(th):not(:where([class~="not-prose"] *)) {
+  padding: 0.5em 0.75em;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 1px solid oklch(from var(--color-foreground) l c h / 0.15);
+}
+
+.prose-message :where(td):not(:where([class~="not-prose"] *)) {
+  padding: 0.5em 0.75em;
+  border-bottom: 1px solid oklch(from var(--color-foreground) l c h / 0.08);
+}
+
+.prose-message :where(tr:last-child td):not(:where([class~="not-prose"] *)) {
+  border-bottom: none;
+}
+
+.prose-message :where(hr):not(:where([class~="not-prose"] *)) {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose-message :where(img):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+}
+
+.prose-message :where(figure):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+}
+
+.prose-message :where(figcaption):not(:where([class~="not-prose"] *)) {
+  font-size: 0.875em;
+  margin-top: 0.375em;
+}
+
+/* prose-document: For document preview - default sizing, compact spacing */
+.prose-document {
+  font-size: 1rem;
+  line-height: 1.625;
+  color: inherit;
+}
+
+.prose-document > :first-child {
+  margin-top: 0;
+}
+
+.prose-document > :last-child {
+  margin-bottom: 0;
+}
+
+.prose-document :where(p):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.875em;
+  margin-bottom: 0.25em;
+}
+
+.prose-document :where([class~="lead"]):not(:where([class~="not-prose"] *)) {
+  font-size: 1.25em;
+  line-height: 1.5;
+  margin-top: 0.875em;
+  margin-bottom: 0.25em;
+}
+
+.prose-document :where(h1):not(:where([class~="not-prose"] *)) {
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 0;
+  margin-bottom: 0.25em;
+}
+
+.prose-document :where(h2):not(:where([class~="not-prose"] *)) {
+  font-size: 1.25em;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1.25em;
+  margin-bottom: 0.25em;
+}
+
+.prose-document :where(h3):not(:where([class~="not-prose"] *)) {
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-top: 1em;
+  margin-bottom: 0.125em;
+}
+
+.prose-document :where(h4):not(:where([class~="not-prose"] *)) {
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.5;
+  margin-top: 0.875em;
+  margin-bottom: 0.125em;
+}
+
+.prose-document :where(strong):not(:where([class~="not-prose"] *)) {
+  font-weight: 700;
+  color: inherit;
+}
+
+.prose-document :where(a):not(:where([class~="not-prose"] *)) {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-document :where(a):not(:where([class~="not-prose"] *)):hover {
+  opacity: 0.8;
+}
+
+.prose-document :where(ul):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.625em;
+  margin-bottom: 0.125em;
+  padding-left: 1.5em;
+  list-style-type: disc;
+}
+
+.prose-document :where(ol):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.625em;
+  margin-bottom: 0.125em;
+  padding-left: 1.5em;
+  list-style-type: decimal;
+}
+
+.prose-document :where(li):not(:where([class~="not-prose"] *)) {
+  margin-top: 0.25em;
+  margin-bottom: 0;
+  padding-left: 0.25em;
+}
+
+.prose-document :where(li)::marker {
+  color: currentColor;
+}
+
+.prose-document :where(blockquote):not(:where([class~="not-prose"] *)) {
+  margin-top: 1em;
+  margin-bottom: 0.25em;
+  padding-left: 1em;
+  border-left: 3px solid currentColor;
+  opacity: 0.85;
+  font-style: inherit;
+}
+
+.prose-document :where(pre):not(:where([class~="not-prose"] *)) {
+  margin-top: 1em;
+  margin-bottom: 0.25em;
+  padding: 0.75em 1em;
+  font-size: 0.875em;
+  line-height: 1.6;
+  border-radius: 0.5rem;
+}
+
+.prose-document :where(code):not(:where([class~="not-prose"] *)) {
+  font-size: 0.875em;
+}
+
+.prose-document :where(.prose-table-wrapper):not(:where([class~="not-prose"] *)) {
+  margin-top: 1em;
+  margin-bottom: 0.25em;
+  overflow-x: auto;
+  width: 100%;
+}
+
+.prose-document :where(table):not(:where([class~="not-prose"] *)) {
+  width: 100%;
+  min-width: 100%;
+  font-size: 0.875em;
+  border-collapse: collapse;
+}
+
+.prose-document :where(th):not(:where([class~="not-prose"] *)) {
+  padding: 0.5em 0.75em;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 1px solid oklch(from var(--color-foreground) l c h / 0.15);
+}
+
+.prose-document :where(td):not(:where([class~="not-prose"] *)) {
+  padding: 0.5em 0.75em;
+  border-bottom: 1px solid oklch(from var(--color-foreground) l c h / 0.08);
+}
+
+.prose-document :where(tr:last-child td):not(:where([class~="not-prose"] *)) {
+  border-bottom: none;
+}
+
+.prose-document :where(hr):not(:where([class~="not-prose"] *)) {
+  margin-top: 2em;
+  margin-bottom: 0.5em;
+}
+
+.prose-document :where(img):not(:where([class~="not-prose"] *)) {
+  margin-top: 1em;
+  margin-bottom: 0.25em;
+}
+
+.prose-document :where(figure):not(:where([class~="not-prose"] *)) {
+  margin-top: 1em;
+  margin-bottom: 0.25em;
+}
+
+.prose-document :where(figcaption):not(:where([class~="not-prose"] *)) {
+  font-size: 0.875em;
+  margin-top: 0.375em;
 }
