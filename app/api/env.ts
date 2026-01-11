@@ -5,6 +5,11 @@ const envBackendSchema = z.object({
     DATABASE_URL: z.string().min(1),
     CLERK_SECRET_KEY: z.string(),
     CLERK_WEBHOOK_SECRET: z.string(),
+    // Langfuse
+    LANGFUSE_SECRET_KEY: z.string().optional(),
+    LANGFUSE_PUBLIC_KEY: z.string().optional(),
+    LANGFUSE_HOST: z.string().url().optional(),
+    LANGFUSE_ENVIRONMENT: z.enum(['Development', 'Production']).optional(),
 });
 
 const parsedBackendEnv = envBackendSchema.safeParse(process.env);
