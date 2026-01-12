@@ -3,8 +3,8 @@ import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { PROJECT_ERRORS } from '../errors';
-import type { ProjectResponseDto } from '../schemas';
+import { PROJECT_ERRORS } from '@/app/api/projects/errors';
+import type { ProjectResponseDto } from '@/app/api/projects/schemas';
 
 async function handleGetProject(
     req: NextRequest,

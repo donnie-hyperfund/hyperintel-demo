@@ -3,7 +3,7 @@ import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { PROJECT_ERRORS } from '../errors';
+import { PROJECT_ERRORS } from '@/app/api/projects/errors';
 
 async function handleDeleteProject(
     req: NextRequest,

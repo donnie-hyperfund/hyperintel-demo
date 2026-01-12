@@ -4,8 +4,8 @@ import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { validatePayload } from '@/lib/api/validation';
-import { UpdateProjectBodySchema, type ProjectResponseDto } from '../schemas';
-import { PROJECT_ERRORS } from '../errors';
+import { UpdateProjectBodySchema, type ProjectResponseDto } from '@/app/api/projects/schemas';
+import { PROJECT_ERRORS } from '@/app/api/projects/errors';
 
 async function handleUpdateProject(
     req: NextRequest,
