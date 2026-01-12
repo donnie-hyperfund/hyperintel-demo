@@ -1,9 +1,5 @@
 import type { ArtifactMetadata, ParsedSSEChunk, SSEMessage, StreamEvent } from '../types';
 
-/**
- * Parse raw SSE text into structured messages.
- * Handles incomplete chunks by returning remainder for next parse.
- */
 export function parseSSEChunk(buffer: string): ParsedSSEChunk {
     const messages: SSEMessage[] = [];
     const lines = buffer.split('\n');

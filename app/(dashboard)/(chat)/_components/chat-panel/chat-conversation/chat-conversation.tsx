@@ -1,8 +1,9 @@
 'use client';
 
 import { Layers, Loader2 } from 'lucide-react';
-import { forwardRef } from 'react';
+import { forwardRef, useImperativeHandle } from 'react';
 import type { Message } from '@/app/modules/chat/types';
+import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import MessagesList from './messages-list';
 
 type ChatConversationProps = {
@@ -17,8 +18,14 @@ type ChatConversationProps = {
 
 const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(
     ({ messages, isLoading, emptyState }, ref) => {
+        const { containerRef } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
+            threshold: 100,
+        });
+
+        useImperativeHandle(ref, () => containerRef.current!, [containerRef]);
+
         return (
-            <div ref={ref} className="flex-1 overflow-y-auto p-6">
+            <div ref={containerRef} className="relative flex-1 overflow-y-auto p-6">
                 <div className="w-full max-w-4xl mx-auto space-y-4 min-w-0">
                     {messages.length === 0 && !isLoading && (
                         <div className="h-full flex items-center justify-center">

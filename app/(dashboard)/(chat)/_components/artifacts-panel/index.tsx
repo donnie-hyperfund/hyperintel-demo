@@ -1,12 +1,17 @@
 'use client';
 
-import { FileText } from 'lucide-react';
+import { ChevronDown, FileText } from 'lucide-react';
 import { useArtifactContext } from '@/app/modules/chat/providers/artifact-provider';
+import { Button } from '@/components/ui/button';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { ArtifactHeader } from './artifact-header';
 
 export default function ArtifactsPanel() {
     const { togglePanel, currentArtifact } = useArtifactContext();
+    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([currentArtifact?.content], {
+        threshold: 100,
+    });
 
     if (!currentArtifact) {
         return (
@@ -30,8 +35,23 @@ export default function ArtifactsPanel() {
             />
 
             {/* Preview */}
-            <div className="flex-1 overflow-y-auto min-h-0 p-6">
-                <MarkdownRenderer markdown={currentArtifact.content} />
+            <div className="relative flex-1 min-h-0">
+                <div ref={containerRef} className="h-full overflow-y-auto p-6">
+                    <MarkdownRenderer markdown={currentArtifact.content} />
+                </div>
+
+                {/* Scroll to bottom button - fixed relative to container */}
+                {!isAtBottom && currentArtifact.content.length > 0 && (
+                    <Button
+                        onClick={() => scrollToBottom({ behavior: 'smooth' })}
+                        size="icon-lg"
+                        variant="secondary"
+                        className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-xl z-10"
+                        aria-label="Scroll to bottom"
+                    >
+                        <ChevronDown className="size-4" />
+                    </Button>
+                )}
             </div>
         </div>
     );
