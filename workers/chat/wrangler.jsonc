@@ -26,7 +26,7 @@
 	"vars": {
 		"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
 		"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
-		"LANGFUSE_PUBLIC_KEY": "pk-lf-82870529-7f46-4e5e-9195-ada413019895",
+		"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 		"LANGFUSE_ENVIRONMENT": "Production"
 	},
 	"secrets_store_secrets": [
@@ -53,7 +53,7 @@
 		{
 			"binding": "LANGFUSE_SECRET_KEY",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
-			"secret_name": "LANGFUSE_SECRET_KEY"
+			"secret_name": "HI_LANGFUSE_SECRET_KEY"
 		},
 		{
 			"binding": "AUTH_SECRET",
@@ -67,7 +67,7 @@
 				"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
-				"LANGFUSE_PUBLIC_KEY": "pk-lf-82870529-7f46-4e5e-9195-ada413019895",
+				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "Development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hyperfund.ai"
 			},
@@ -95,7 +95,7 @@
 				{
 					"binding": "LANGFUSE_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "LANGFUSE_SECRET_KEY"
+					"secret_name": "HI_LANGFUSE_SECRET_KEY"
 				},
 				{
 					"binding": "AUTH_SECRET",
@@ -109,7 +109,7 @@
 				"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
-				"LANGFUSE_PUBLIC_KEY": "pk-lf-82870529-7f46-4e5e-9195-ada413019895",
+				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "Development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hyperfund.ai"
 			},
@@ -137,7 +137,7 @@
 				{
 					"binding": "LANGFUSE_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "LANGFUSE_SECRET_KEY"
+					"secret_name": "HI_LANGFUSE_SECRET_KEY"
 				},
 				{
 					"binding": "AUTH_SECRET",

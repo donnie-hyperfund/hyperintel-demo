@@ -1,6 +1,6 @@
 
 export enum WORKERS_LOCAL_ENDPOINTS {
-    ChatAction = '/api/chat',
+    ChatAction = '/api/chat/handler',
 }
 
 export enum WORKERS {

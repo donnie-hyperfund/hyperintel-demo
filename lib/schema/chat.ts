@@ -1,11 +1,8 @@
 import z from 'zod';
 
-export const SendConversationActionSchema = z.object({
-    messages: z.array(z.object({
-        role: z.enum(['user', 'assistant', 'system']),
-        content: z.string(),
-    })),
-    conversationId: z.string(),
+export const SendChatActionSchema = z.object({
+    message: z.string(),
+    chatId: z.string().uuid(),
 });
 
-export type SendConversationActionDto = z.infer<typeof SendConversationActionSchema>;
+export type SendChatActionDto = z.infer<typeof SendChatActionSchema>;

@@ -1,6 +1,6 @@
 "use client"
 
-import { forwardRef } from "react"
+import { forwardRef, useEffect, useRef, useCallback } from "react"
 import { Loader2, Layers } from "lucide-react"
 import MessagesList from "./messages-list"
 
@@ -22,8 +22,53 @@ type ChatConversationProps = {
 
 const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(
   ({ messages, isLoading, emptyState }, ref) => {
+    const scrollRef = useRef<HTMLDivElement>(null)
+    const userScrolledRef = useRef(false)
+    const lastScrollTop = useRef(0)
+
+    const scrollToBottom = useCallback(() => {
+      if (scrollRef.current && !userScrolledRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      }
+    }, [])
+
+    // Handle scroll events - detect if user scrolled up
+    const handleScroll = useCallback(() => {
+      if (!scrollRef.current) return
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50
+      
+      // User scrolled up if scrollTop decreased and not at bottom
+      if (scrollTop < lastScrollTop.current && !isAtBottom) {
+        userScrolledRef.current = true
+      }
+      // Reset if user scrolled back to bottom
+      if (isAtBottom) {
+        userScrolledRef.current = false
+      }
+      lastScrollTop.current = scrollTop
+    }, [])
+
+    // Scroll to bottom when messages change (if not user-scrolled)
+    useEffect(() => {
+      scrollToBottom()
+    }, [messages, scrollToBottom])
+
+    // Scroll to bottom on initial load
+    useEffect(() => {
+      scrollToBottom()
+    }, [scrollToBottom])
+
     return (
-      <div ref={ref} className="flex-1 overflow-y-auto p-6">
+      <div 
+        ref={(node) => {
+          scrollRef.current = node
+          if (typeof ref === 'function') ref(node)
+          else if (ref) ref.current = node
+        }} 
+        className="flex-1 overflow-y-auto p-6"
+        onScroll={handleScroll}
+      >
       <div className="w-full max-w-4xl mx-auto space-y-4 min-w-0">
       {messages.length === 0 && !isLoading && (
         <div className="h-full flex items-center justify-center">

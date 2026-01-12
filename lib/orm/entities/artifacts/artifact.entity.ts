@@ -23,10 +23,10 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @ManyToOne(() => ProjectEntity, { fieldName: 'project_id' })
     project!: ProjectEntity;
 
-    @OneToOne('ArtifactVersionEntity', { fieldName: 'current_version_id', eager: true })
+    @OneToOne(() => 'ArtifactVersionEntity', { fieldName: 'current_version_id', eager: true })
     currentVersion!: ArtifactVersionEntity;
 
-    @OneToMany('ArtifactVersionEntity', (v: ArtifactVersionEntity) => v.artifact)
+    @OneToMany(() => 'ArtifactVersionEntity', (v: ArtifactVersionEntity) => v.artifact)
     versions = new Collection<ArtifactVersionEntity>(this);
 
     @Property({ type: 'json', nullable: true })

@@ -4,7 +4,7 @@ import type { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entit
 
 @Entity({ tableName: 'artifact_versions' })
 export class ArtifactVersionEntity extends IdCreatedColumns {
-    @ManyToOne('ArtifactEntity', { fieldName: 'artifact_id' })
+    @ManyToOne(() => 'ArtifactEntity', { fieldName: 'artifact_id' })
     artifact!: ArtifactEntity;
 
     @Property({ type: 'int' })

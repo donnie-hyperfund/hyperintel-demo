@@ -5,18 +5,12 @@ import { getCorsHonoMiddleware } from '@worker/cors.helpers';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import { zValidator } from '@hono/zod-validator';
-import z from 'zod';
-import { WorkerEntrypoint } from 'cloudflare:workers';
-import { AIGateway } from '@worker/ai/gateway';
-import { initMikroOrmWorker } from '@worker/vendor/mikro';
-import { MikroORM } from '@mikro-orm/postgresql';
-import createOpenRouterClient from '@worker/vendor/openrouter';
 import { chatActionHandler } from "./chat-handler";
-import { SendConversationActionSchema } from '@/lib/schema/chat';
+import { SendChatActionSchema } from '@/lib/schema/chat';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
 
-app.use(prettyJSON()); // TODO only on dev?
+app.use(prettyJSON());
 app.use(requestId());
 app.use('*', getCorsHonoMiddleware(['GET', 'POST']));
 app.get("/health", honoMiddlewareWithOrm, async (c) => {
@@ -27,15 +21,14 @@ app.get("/health", honoMiddlewareWithOrm, async (c) => {
 app.use('*', honoMiddlewareAuthedWithOrm);
 app.notFound((c) => c.json({ message: 'Not Found', ok: false }, 404));
 app.onError((err) => {
-	return workerHonoOnError(err);
+    return workerHonoOnError(err);
 });
 
-app.post("/chat", zValidator('json', SendConversationActionSchema), async (c) => {
+app.post("/chat", zValidator('json', SendChatActionSchema), async (c) => {
 	return wrapWorker(async () => {
-		return await chatActionHandler(c.req.valid('json'), c.var);
-	});
+        return await chatActionHandler(c.req.valid('json'), c.var);
+    });
 });
-
 
 app.get("/", (c) => {
     return c.json({ status: "ok", worker: "chat", userId: c.var.user.userId });

@@ -44,9 +44,10 @@ export async function getOrm(
         injectConfig = injectConfigOrRaw ?? {};
     }
     if (!ormPromise) {
-        const useStatic = process.env.VERCEL_ENV === 'production';
+        const useStatic = !!process.env.VERCEL_ENV;
+        const configToUse = useStatic ? staticConfig : config;
         const myPromise = MikroORM.init({
-            ...(useStatic ? staticConfig : config),
+            ...configToUse,
             ...injectConfig,
             // TODO env var, prevent on prod
             // debug: true,
@@ -57,7 +58,7 @@ export async function getOrm(
             if (!globalThis.ormCleanups) globalThis.ormCleanups = [];
             // prettier really hates this part
             globalThis.ormCleanups.push(() => {
-                myPromise
+                ormPromise!
                     .then((orm) => {
                         setTimeout(() => {
                             orm.close()

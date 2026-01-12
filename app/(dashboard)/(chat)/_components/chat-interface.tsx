@@ -5,22 +5,20 @@ import { useAuth } from "@clerk/nextjs"
 import ChatConversation, { type Message } from "./chat-conversation/chat-conversation"
 import ChatMessageForm from "./chat-message-form"
 import type { ChatMessageFormValues } from "./chat-message-form/schema"
-import { MOCK_MESSAGES } from "@/app/(dashboard)/(chat)/_components/mock"
+
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
-import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { Button } from "@/components/ui/button"
 import { sendAction } from "@/lib/api/requests/worker/chat"
-
-type Conversation = {
-  id: string
-  messages: Message[]
-  isLoading: boolean
-}
 
 export default function ChatInterface() {
   const { getToken } = useAuth()
   const chatConversationRef = useRef<HTMLDivElement>(null)
   const chatMessageFormRef = useRef<HTMLFormElement>(null)
+
+  const [chatId, setChatId] = useState<string | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [isInitialLoading, setIsInitialLoading] = useState(true)
 
   useEffect(() => {
     const formElement = chatMessageFormRef.current
@@ -44,29 +42,137 @@ export default function ChatInterface() {
     }
   }, [])
 
-  const [conversations, setConversations] = useState<Conversation[]>([
-    {
-      id: "left",
-      messages: MOCK_MESSAGES,
-      isLoading: false,
-    },
-    {
-      id: "right",
-      messages: [
-        {
-          role: "assistant",
-          content: "```tsx\n// components/ui/button.tsx\nimport { cn } from '@/lib/utils'\n\ninterface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {\n  variant?: 'primary' | 'secondary' | 'outline'\n  size?: 'sm' | 'md' | 'lg'\n}\n\nexport const Button = ({ \n  variant = 'primary', \n  size = 'md',\n  className,\n  children,\n  ...props \n}: ButtonProps) => {\n  return (\n    <button\n      className={cn(\n        'rounded-lg font-medium transition-colors',\n        variant === 'primary' && 'bg-blue-600 text-white hover:bg-blue-700',\n        variant === 'secondary' && 'bg-gray-200 text-gray-900 hover:bg-gray-300',\n        variant === 'outline' && 'border-2 border-blue-600 text-blue-600 hover:bg-blue-50',\n        size === 'sm' && 'px-3 py-1.5 text-sm',\n        size === 'md' && 'px-4 py-2',\n        size === 'lg' && 'px-6 py-3 text-lg',\n        className\n      )}\n      {...props}\n    >\n      {children}\n    </button>\n  )\n}\n```",
-          id: "1",
-        },
-      ],
-      isLoading: false,
-    },
-  ])
+  // Fetch chat history on mount
+  useEffect(() => {
+    const fetchChat = async () => {
+      try {
+        const res = await fetch("/api/chat")
+        if (res.ok) {
+          const data = await res.json()
+          setChatId(data.chatId)
+          setMessages(data.messages || [])
+        }
+      } catch (error) {
+        console.error("Error fetching chat:", error)
+      } finally {
+        setIsInitialLoading(false)
+      }
+    }
+    fetchChat()
+  }, [])
 
+  // Stream reader for SSE responses from worker
+  const readStream = async (stream: ReadableStream<Uint8Array>) => {
+    const reader = stream.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ""
+
+    // Add empty assistant message to start streaming into
+    setMessages((prev) => [
+      ...prev,
+      { id: `streaming-${Date.now()}`, role: "assistant" as const, content: "" },
+    ])
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split("\n")
+      buffer = lines.pop() || ""
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue
+        const jsonString = line.replace("data: ", "").trim()
+        if (jsonString === "[DONE]") continue
+
+        try {
+          const json = JSON.parse(jsonString)
+
+          if (json.error) {
+            console.error("Stream error:", json.error)
+            break
+          }
+
+          switch (json.type) {
+            case "delta":
+              // Append text chunk to last assistant message
+              if (json.text) {
+                // console.log("Delta received:", JSON.stringify(json.text))
+                setMessages((prev) => {
+                  const lastIdx = prev.length - 1
+                  const lastMsg = prev[lastIdx]
+                  if (lastMsg?.role === "assistant") {
+                    return [
+                      ...prev.slice(0, lastIdx),
+                      { ...lastMsg, content: lastMsg.content + json.text }
+                    ]
+                  }
+                  return prev
+                })
+              }
+              break
+
+            case "created":
+              // Update message ID from server
+              if (json.id) {
+                setMessages((prev) => {
+                  const msgs = [...prev]
+                  const lastMsg = msgs[msgs.length - 1]
+                  if (lastMsg?.id?.startsWith("streaming-")) {
+                    lastMsg.id = json.id
+                  }
+                  return msgs
+                })
+              }
+              break
+
+            case "state":
+              // TODO: Handle conversation state changes (intake, generating, finished)
+              console.log("State change:", json.state)
+              break
+
+            case "synthetic":
+              // TODO: Handle synthetic/typewriter-effect messages
+              console.log("Synthetic message:", json.text)
+              break
+
+            case "web_search_starting":
+              // TODO: Show web search indicator
+              console.log("Web search started")
+              break
+
+            case "web_search_done":
+              // TODO: Hide web search indicator
+              console.log("Web search done")
+              break
+
+            case "preview-ready":
+              // TODO: Handle preview ready notification
+              console.log("Preview ready:", json.data?.isReady)
+              break
+
+            case "action":
+              // TODO: Handle action events (edit-proposal, etc.)
+              console.log("Action:", json.data?.type)
+              break
+
+            default:
+              console.log("Unknown event type:", json.type)
+          }
+        } catch (e) {
+          console.error("Failed to parse SSE data:", e)
+        }
+      }
+    }
+
+    setIsLoading(false)
+  }
+
+  // Artifact state (separate from messages)
   const [artifactContent, setArtifactContent] = useState<string>("")
   const [artifactRaw, setArtifactRaw] = useState<string>("")
   const [isStreamingArtifact, setIsStreamingArtifact] = useState(false)
-  const [streamedText, setStreamedText] = useState<string>("")
 
   const handleSend = async (data: ChatMessageFormValues) => {
     if (!data.message.trim()) return
@@ -74,68 +180,35 @@ export default function ChatInterface() {
     const userMessage: Message = {
       role: "user",
       content: data.message,
-      id: "13",
+      id: `user-${Date.now()}`,
     }
 
-    // Add user message to both conversations
-    setConversations((prev) =>
-      prev.map((conv) => ({
-        ...conv,
-        messages: [...conv.messages, userMessage],
-        isLoading: true,
-      })),
-    )
+    // Add user message
+    setMessages((prev) => [...prev, userMessage])
+    setIsLoading(true)
 
     // Get access token for worker auth
     const accessToken = await getToken() ?? ""
 
-    // Send to worker (or local endpoint based on env)
     try {
-      const responses = await Promise.all([
-        sendAction({
-          messages: [...conversations[0].messages, userMessage].map(m => ({ role: m.role, content: m.content })),
-          conversationId: "left",
-        }, accessToken),
-        sendAction({
-          messages: [...conversations[1].messages, userMessage].map(m => ({ role: m.role, content: m.content })),
-          conversationId: "right",
-        }, accessToken),
-      ])
+      const response = await sendAction({
+        message: data.message,
+        chatId: chatId ?? "default",
+      }, accessToken)
 
-      const [leftData, rightData] = await Promise.all([responses[0].json(), responses[1].json()])
-
-      setConversations((prev) => [
-        {
-          ...prev[0],
-          messages: [
-            ...prev[0].messages,
-            { role: "assistant", content: leftData.message, id: `${Date.now()}-left` },
-          ],
-          isLoading: false,
-        },
-        {
-          ...prev[1],
-          messages: [
-            ...prev[1].messages,
-            { role: "assistant", content: rightData.message, id: `${Date.now()}-right` },
-          ],
-          isLoading: false,
-        },
-      ])
+      // Use streaming response
+      if (response.body) {
+        await readStream(response.body)
+      }
+      setIsLoading(false)
     } catch (error) {
-      console.error("Error fetching responses:", error)
-      setConversations((prev) =>
-        prev.map((conv) => ({
-          ...conv,
-          isLoading: false,
-        })),
-      )
+      console.error("Error fetching response:", error)
+      setIsLoading(false)
     }
   }
 
   const handleStreamArtifact = async () => {
     setIsStreamingArtifact(true)
-    setStreamedText("")
     setArtifactContent("")
     setArtifactRaw("")
 
@@ -171,52 +244,10 @@ export default function ChatInterface() {
             try {
               const parsed = JSON.parse(data)
               if (parsed.type === "text") {
-                // Add streamed text to left conversation
-                setConversations((prev) => {
-                  const newMessages = [...prev[0].messages]
-                  const lastMessage = newMessages[newMessages.length - 1]
-                  if (lastMessage && lastMessage.role === "assistant" && lastMessage.id === "streaming") {
-                    newMessages[newMessages.length - 1] = {
-                      ...lastMessage,
-                      content: lastMessage.content + parsed.content,
-                    }
-                  } else {
-                    newMessages.push({
-                      role: "assistant",
-                      content: parsed.content,
-                      id: "streaming",
-                    })
-                  }
-                  return [
-                    {
-                      ...prev[0],
-                      messages: newMessages,
-                    },
-                    prev[1],
-                  ]
-                })
-                setStreamedText((prev) => prev + parsed.content)
+                // Text goes to messages if we want, or ignore for now
               } else if (parsed.type === "artifact_start") {
                 setArtifactRaw(parsed.raw)
                 setArtifactContent("")
-                setConversations((prev) => {
-                  const streamingMessage = prev[0].messages.find((msg) => msg.id === "streaming")
-                  const newMessages = prev[0].messages.filter((msg) => msg.id !== "streaming")
-                  if (streamingMessage) {
-                    newMessages.push({
-                      role: "assistant",
-                      content: streamingMessage.content,
-                      id: `${Date.now()}-left`,
-                    })
-                  }
-                  return [
-                    {
-                      ...prev[0],
-                      messages: newMessages,
-                    },
-                    prev[1],
-                  ]
-                })
               } else if (parsed.type === "artifact_chunk") {
                 setArtifactContent((prev) => prev + parsed.content)
               } else if (parsed.type === "artifact_end") {
@@ -246,8 +277,8 @@ export default function ChatInterface() {
       <ResizablePanel defaultSize={75} minSize={40} maxSize={80}>
         <div className="bg-card flex flex-col border-r border-border relative h-full">
           <ChatConversation
-            messages={conversations[0].messages}
-            isLoading={conversations[0].isLoading}
+            messages={messages}
+            isLoading={isLoading}
             ref={chatConversationRef}
           />
 
