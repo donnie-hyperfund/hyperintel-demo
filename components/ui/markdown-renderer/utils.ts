@@ -31,9 +31,9 @@ function normalizeCustomMathTags(input: string): string {
 }
 
 export function preprocessMarkdown(input: string): string {
-    input = normalizeCustomMathTags(input);
+    let processedInput = normalizeCustomMathTags(input);
     // Replace ⏳ emoji with a placeholder that we'll handle in components
-    input = input.replace(/⏳/g, '<span class="hourglass-spinner-placeholder"></span>');
+    processedInput = processedInput.replace(/⏳/g, '<span class="hourglass-spinner-placeholder"></span>');
 
     return input;
 }
