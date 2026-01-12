@@ -30,7 +30,7 @@ export type UpdateMessageBodyDto = z.infer<typeof UpdateMessageBodySchema>;
 export const ChatResponseSchema = z.object({
     id: z.string().uuid(),
     name: z.string(),
-    projectId: z.string().uuid(),
+    id: z.string().uuid(),
     messageCount: z.number().int(),
     firstMessageContent: z.string().nullable(),
     createdAt: z.string(),
@@ -45,6 +45,5 @@ export const MessageResponseSchema = z.object({
     chatId: z.string().uuid(),
     metadata: z.record(z.unknown()).nullable(),
     createdAt: z.string(),
-    updatedAt: z.string(),
 });
 export type MessageResponseDto = z.infer<typeof MessageResponseSchema>;

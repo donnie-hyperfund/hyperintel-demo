@@ -1,11 +1,15 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
+import { useAuth } from "@clerk/nextjs"
 import ChatConversation, { type Message } from "./chat-conversation/chat-conversation"
 import ChatMessageForm from "./chat-message-form"
 import type { ChatMessageFormValues } from "./chat-message-form/schema"
 import { MOCK_MESSAGES } from "@/app/(dashboard)/(chat)/_components/mock"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
+import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
+import { Button } from "@/components/ui/button"
+import { sendAction } from "@/lib/api/requests/worker/chat"
 
 type Conversation = {
   id: string
@@ -14,6 +18,7 @@ type Conversation = {
 }
 
 export default function ChatInterface() {
+  const { getToken } = useAuth()
   const chatConversationRef = useRef<HTMLDivElement>(null)
   const chatMessageFormRef = useRef<HTMLFormElement>(null)
 
@@ -58,6 +63,11 @@ export default function ChatInterface() {
     },
   ])
 
+  const [artifactContent, setArtifactContent] = useState<string>("")
+  const [artifactRaw, setArtifactRaw] = useState<string>("")
+  const [isStreamingArtifact, setIsStreamingArtifact] = useState(false)
+  const [streamedText, setStreamedText] = useState<string>("")
+
   const handleSend = async (data: ChatMessageFormValues) => {
     if (!data.message.trim()) return
 
@@ -76,25 +86,20 @@ export default function ChatInterface() {
       })),
     )
 
-    // Simulate AI responses for both panels
+    // Get access token for worker auth
+    const accessToken = await getToken() ?? ""
+
+    // Send to worker (or local endpoint based on env)
     try {
       const responses = await Promise.all([
-        fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: [...conversations[0].messages, userMessage],
-            conversationId: "left",
-          }),
-        }),
-        fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: [...conversations[1].messages, userMessage],
-            conversationId: "right",
-          }),
-        }),
+        sendAction({
+          messages: [...conversations[0].messages, userMessage].map(m => ({ role: m.role, content: m.content })),
+          conversationId: "left",
+        }, accessToken),
+        sendAction({
+          messages: [...conversations[1].messages, userMessage].map(m => ({ role: m.role, content: m.content })),
+          conversationId: "right",
+        }, accessToken),
       ])
 
       const [leftData, rightData] = await Promise.all([responses[0].json(), responses[1].json()])
@@ -128,6 +133,110 @@ export default function ChatInterface() {
     }
   }
 
+  const handleStreamArtifact = async () => {
+    setIsStreamingArtifact(true)
+    setStreamedText("")
+    setArtifactContent("")
+    setArtifactRaw("")
+
+    try {
+      const response = await fetch("/api/stream-artifact", {
+        method: "GET",
+      })
+
+      if (!response.body) {
+        throw new Error("No response body")
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() || ""
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6)
+            if (data === "[DONE]") {
+              setIsStreamingArtifact(false)
+              return
+            }
+
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.type === "text") {
+                // Add streamed text to left conversation
+                setConversations((prev) => {
+                  const newMessages = [...prev[0].messages]
+                  const lastMessage = newMessages[newMessages.length - 1]
+                  if (lastMessage && lastMessage.role === "assistant" && lastMessage.id === "streaming") {
+                    newMessages[newMessages.length - 1] = {
+                      ...lastMessage,
+                      content: lastMessage.content + parsed.content,
+                    }
+                  } else {
+                    newMessages.push({
+                      role: "assistant",
+                      content: parsed.content,
+                      id: "streaming",
+                    })
+                  }
+                  return [
+                    {
+                      ...prev[0],
+                      messages: newMessages,
+                    },
+                    prev[1],
+                  ]
+                })
+                setStreamedText((prev) => prev + parsed.content)
+              } else if (parsed.type === "artifact_start") {
+                setArtifactRaw(parsed.raw)
+                setArtifactContent("")
+                setConversations((prev) => {
+                  const streamingMessage = prev[0].messages.find((msg) => msg.id === "streaming")
+                  const newMessages = prev[0].messages.filter((msg) => msg.id !== "streaming")
+                  if (streamingMessage) {
+                    newMessages.push({
+                      role: "assistant",
+                      content: streamingMessage.content,
+                      id: `${Date.now()}-left`,
+                    })
+                  }
+                  return [
+                    {
+                      ...prev[0],
+                      messages: newMessages,
+                    },
+                    prev[1],
+                  ]
+                })
+              } else if (parsed.type === "artifact_chunk") {
+                setArtifactContent((prev) => prev + parsed.content)
+              } else if (parsed.type === "artifact_end") {
+                setIsStreamingArtifact(false)
+              } else if (parsed.type === "error") {
+                console.error("Stream error:", parsed.error)
+                setIsStreamingArtifact(false)
+              }
+            } catch (e) {
+              console.error("Failed to parse SSE data:", e)
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error streaming artifact:", error)
+      setIsStreamingArtifact(false)
+    }
+  }
+
   return (
     <ResizablePanelGroup 
       direction="horizontal" 
@@ -152,8 +261,30 @@ export default function ChatInterface() {
 
       {/* Artifacts Panel */}
       <ResizablePanel defaultSize={25} minSize={20}>
-        <div className="bg-card flex flex-col h-full">
-          {/* TODO: Add right panel content */}
+        <div className="bg-card flex flex-col h-full overflow-hidden">
+          <div className="p-4 border-b border-border">
+            <Button 
+              onClick={handleStreamArtifact} 
+              disabled={isStreamingArtifact}
+              className="w-full"
+            >
+              {isStreamingArtifact ? "Streaming..." : "Test Stream Artifact"}
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {artifactContent ? (
+              <div 
+                className="prose prose-sm max-w-none dark:prose-invert"
+                dangerouslySetInnerHTML={{ __html: artifactContent }}
+              />
+            ) : (
+              <div className="text-muted-foreground text-center py-8">
+                {isStreamingArtifact 
+                  ? "Streaming artifact..." 
+                  : "Click the button above to test the artifact stream"}
+              </div>
+            )}
+          </div>
         </div>
       </ResizablePanel>
     </ResizablePanelGroup>

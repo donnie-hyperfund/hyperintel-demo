@@ -24,7 +24,9 @@
         ],
         "paths": {
             "@/*": ["*"],
-            "@common/*": ["common/*"]
+            "@common/*": ["common/*"],
+            "@worker/*": ["workers/_common/*"],
+            "@supabase/supabase-js": ["workers/_common/vendor/stubs/supabase-js"]
         },
         "baseUrl": ".",
         "rootDirs": [".", "common/", "common/orm"]

@@ -4,8 +4,7 @@ import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { MessageEntity } from '@/lib/orm/entities/chats/message.entity';
-import { MessageAuthorType } from '@/lib/orm/entities/chats/message-author-type.enum';
+import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { validatePayload } from '@/lib/api/validation';
 import { CreateMessageBodySchema, type MessageResponseDto } from '../../../schemas';
 import { CHAT_ERRORS } from '../../../errors';
@@ -46,16 +45,17 @@ async function handleCreateMessage(
                 return null;
             }
 
-            chat = em.create(ChatEntity, {
-                id: chatId,
-                project,
-            });
-            await em.persistAndFlush(chat);
+        chat = em.create(ChatEntity, {
+            id: chatId,
+            project,
+            phase: 'chat',
+        });
+        await em.persistAndFlush(chat);
         }
 
-        const message = em.create(MessageEntity, {
+        const message = em.create(ChatMessageEntity, {
             content,
-            authorType: authorType as MessageAuthorType,
+            role: authorType,
             chat,
             metadata: metadata ?? null,
         });
@@ -65,11 +65,10 @@ async function handleCreateMessage(
         return {
             id: message.id,
             content: message.content,
-            authorType: message.authorType,
+            authorType: message.role,
             chatId: chat.id,
             metadata: message.metadata ?? null,
             createdAt: message.created_at.toISOString(),
-            updatedAt: message.updated_at.toISOString(),
         };
     });
 

@@ -10,14 +10,14 @@ type AuthenticatedHandler = (
 
 export function withAuth(handler: AuthenticatedHandler) {
     return async (req: NextRequest): Promise<NextResponse> => {
-        const { userId } = await auth();
+    const { userId } = await auth();
 
-        if (!userId) {
+    if (!userId) {
             return NextResponse.json(
                 { error: 'Unauthorized', code: 'UNAUTHORIZED' },
                 { status: 401 },
             );
-        }
+    }
 
         const { em } = await getOrm();
         const user = await em.findOne(UserEntity, { clerkId: userId });

@@ -55,7 +55,7 @@ async function handleGetChats(
     const responseData: ChatResponseDto[] = nodes.map((row: any) => ({
         id: row.id,
         name: row.first_message_content || '',
-        projectId: row.project_id,
+        id: row.project_id,
         messageCount: Number.parseInt(row.message_count, 10),
         firstMessageContent: row.first_message_content || null,
         createdAt: new Date(row.created_at).toISOString(),

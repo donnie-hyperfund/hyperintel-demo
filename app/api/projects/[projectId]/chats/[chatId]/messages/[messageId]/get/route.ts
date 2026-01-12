@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { MessageEntity } from '@/lib/orm/entities/chats/message.entity';
+import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { MESSAGE_ERRORS } from '../../../../errors';
 import type { MessageResponseDto } from '../../../../schemas';
 
@@ -15,7 +15,7 @@ async function handleGetMessage(
 ): Promise<NextResponse> {
     const { em } = await getOrm();
 
-    const messageData = await em.createQueryBuilder(MessageEntity, 'm')
+    const messageData = await em.createQueryBuilder(ChatMessageEntity, 'm')
         .select('m.*')
         .leftJoin('m.chat', 'c')
         .leftJoin('c.project', 'p')
@@ -34,11 +34,10 @@ async function handleGetMessage(
     const response: MessageResponseDto = {
         id: messageData.id,
         content: messageData.content,
-        authorType: messageData.author_type,
+        authorType: messageData.role,
         chatId: messageData.chat_id,
         metadata: messageData.metadata || null,
         createdAt: new Date(messageData.created_at).toISOString(),
-        updatedAt: new Date(messageData.updated_at).toISOString(),
     };
 
     return NextResponse.json(response);

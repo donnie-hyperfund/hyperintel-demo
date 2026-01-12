@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { MessageEntity } from '@/lib/orm/entities/chats/message.entity';
+import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { getPaginatedResult, createPaginatedResponse } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { ListMessagesQuerySchema, type MessageResponseDto } from '../../../schemas';
@@ -24,7 +24,7 @@ async function handleGetMessages(
 
     if (queryData instanceof NextResponse) return queryData;
 
-    const query = em.createQueryBuilder(MessageEntity, 'm')
+    const query = em.createQueryBuilder(ChatMessageEntity, 'm')
         .select('m.*')
         .leftJoin('m.chat', 'c')
         .leftJoin('c.project', 'p')
@@ -36,7 +36,7 @@ async function handleGetMessages(
         .orderBy({ 'm.created_at': 'ASC' });
 
     if (queryData.authorType) {
-        query.andWhere({ 'm.author_type': queryData.authorType });
+        query.andWhere({ 'm.role': queryData.authorType });
     }
 
     const { nodes, totalCount } = await getPaginatedResult(
@@ -50,11 +50,10 @@ async function handleGetMessages(
     const responseData: MessageResponseDto[] = nodes.map((msg: any) => ({
         id: msg.id,
         content: msg.content,
-        authorType: msg.author_type,
+        authorType: msg.role,
         chatId: msg.chat_id,
         metadata: msg.metadata || null,
         createdAt: new Date(msg.created_at).toISOString(),
-        updatedAt: new Date(msg.updated_at).toISOString(),
     }));
 
     return NextResponse.json(

@@ -2,8 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { MessageEntity } from '@/lib/orm/entities/chats/message.entity';
-import { MessageAuthorType } from '@/lib/orm/entities/chats/message-author-type.enum';
+import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { validatePayload } from '@/lib/api/validation';
 import { UpdateMessageBodySchema, type MessageResponseDto } from '../../../../schemas';
 import { MESSAGE_ERRORS } from '../../../../errors';
@@ -17,7 +16,7 @@ async function handleUpdateMessage(
 ): Promise<NextResponse> {
     const { em } = await getOrm();
 
-    const message = await em.createQueryBuilder(MessageEntity, 'm')
+    const message = await em.createQueryBuilder(ChatMessageEntity, 'm')
         .select('m.*')
         .leftJoin('m.chat', 'c')
         .leftJoin('c.project', 'p')
@@ -33,7 +32,7 @@ async function handleUpdateMessage(
         return MESSAGE_ERRORS.MESSAGE_NOT_FOUND;
     }
 
-    if (message.authorType === MessageAuthorType.AI) {
+    if (message.role === 'AI') {
         return MESSAGE_ERRORS.CANNOT_MODIFY_AI_MESSAGE;
     }
 
@@ -48,11 +47,10 @@ async function handleUpdateMessage(
     const response: MessageResponseDto = {
         id: message.id,
         content: message.content,
-        authorType: message.authorType,
+        authorType: message.role,
         chatId: message.chat.id,
         metadata: message.metadata ?? null,
         createdAt: message.created_at.toISOString(),
-        updatedAt: message.updated_at.toISOString(),
     };
 
     return NextResponse.json(response);

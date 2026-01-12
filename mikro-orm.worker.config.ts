@@ -2,7 +2,7 @@ import { Options } from '@mikro-orm/postgresql';
 import { config as baseConfig } from './mikro-orm.config';
 
 export const config: Options = {
-    dbName: 'postgres',
+    dbName: 'neondb',
     ...baseConfig,
     allowGlobalContext: true,
     pool: {

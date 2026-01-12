@@ -44,7 +44,7 @@ async function handleGetChat(
     const response: ChatResponseDto = {
         id: chatData.id,
         name: chatData.first_message_content || '',
-        projectId: chatData.project_id,
+        id: chatData.project_id,
         messageCount: Number.parseInt(chatData.message_count, 10),
         firstMessageContent: chatData.first_message_content || null,
         createdAt: new Date(chatData.created_at).toISOString(),
