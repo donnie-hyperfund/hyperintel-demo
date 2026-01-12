@@ -11,6 +11,8 @@ import { AIGateway } from '@worker/ai/gateway';
 import { initMikroOrmWorker } from '@worker/vendor/mikro';
 import { MikroORM } from '@mikro-orm/postgresql';
 import createOpenRouterClient from '@worker/vendor/openrouter';
+import { chatActionHandler } from "./chat-handler";
+import { SendConversationActionSchema } from '@/lib/schema/chat';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
 
@@ -26,6 +28,12 @@ app.use('*', honoMiddlewareAuthedWithOrm);
 app.notFound((c) => c.json({ message: 'Not Found', ok: false }, 404));
 app.onError((err) => {
 	return workerHonoOnError(err);
+});
+
+app.post("/chat", zValidator('json', SendConversationActionSchema), async (c) => {
+	return wrapWorker(async () => {
+		return await chatActionHandler(c.req.valid('json'), c.var);
+	});
 });
 
 

@@ -42,8 +42,8 @@ vars:
   LANGFUSE_HOST: "https://us.cloud.langfuse.com"
   LANGFUSE_PUBLIC_KEY: "pk-lf-82870529-7f46-4e5e-9195-ada413019895"
   LANGFUSE_ENVIRONMENT:
-    production: "production"
-    dev: "dev"
+    production: "Production"
+    dev: "Development"
   ENV:
     dev: "dev"  # prod is unset - code defaults to 'prod'
   APP_BASE:
@@ -94,7 +94,7 @@ package_scripts:
   dev: "wrangler dev"
   start: "wrangler dev"
   test: "vitest"
-  typegen: "wrangler types --include-runtime=false"
+  typegen: "wrangler types --include-runtime=false --strict-vars=false"
 
 # Wrangler defaults
 wrangler_defaults:

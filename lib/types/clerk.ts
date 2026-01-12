@@ -1,3 +1,11 @@
+
+export interface ClerkUser {
+    userId: string;
+    sessionId: string | null;
+    sessionClaims: Record<string, unknown> | null;
+}
+
+// TODO these interfaces are specific to webhook
 export interface ClerkEmailAddress {
     id: string;
     email_address: string;

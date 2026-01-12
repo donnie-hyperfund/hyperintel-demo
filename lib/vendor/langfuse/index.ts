@@ -1,5 +1,6 @@
 import { LangfuseClient } from './client';
 import { LangfuseError, PromptEnvironment } from './types';
+import { backendEnv } from '@/app/api/env';
 
 export { LangfuseClient, LangfuseError, PromptEnvironment };
 export type {
