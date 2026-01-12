@@ -1,1 +1,5 @@
 export * from './users/user.entity';
+export * from './projects/project.entity';
+export * from './chats/chat.entity';
+export * from './chats/message.entity';
+export * from './chats/message-author-type.enum';

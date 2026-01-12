@@ -1,22 +1,34 @@
-import { auth } from '@clerk/nextjs/server';
 import { type NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+import { getOrm } from '@/lib/orm/orm';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 
-export async function requireAuth(): Promise<{ userId: string } | NextResponse> {
-    const { userId } = await auth();
+type AuthenticatedHandler = (
+    req: NextRequest,
+    user: UserEntity,
+) => Promise<NextResponse> | NextResponse;
 
-    if (!userId) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+export function withAuth(handler: AuthenticatedHandler) {
+    return async (req: NextRequest): Promise<NextResponse> => {
+        const { userId } = await auth();
 
-    return { userId };
-}
-
-export function withAuth(handler: (req: NextRequest, userId: string) => Promise<NextResponse<unknown>>) {
-    return async (req: NextRequest): Promise<NextResponse<unknown>> => {
-        const authResult = await requireAuth();
-        if (authResult instanceof NextResponse) {
-            return authResult;
+        if (!userId) {
+            return NextResponse.json(
+                { error: 'Unauthorized', code: 'UNAUTHORIZED' },
+                { status: 401 },
+            );
         }
-        return handler(req, authResult.userId);
+
+        const { em } = await getOrm();
+        const user = await em.findOne(UserEntity, { clerkId: userId });
+
+        if (!user) {
+            return NextResponse.json(
+                { error: 'User not found', code: 'USER_NOT_FOUND' },
+                { status: 404 },
+            );
+        }
+
+        return handler(req, user);
     };
 }

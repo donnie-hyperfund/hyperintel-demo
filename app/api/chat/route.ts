@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
+import { UserEntity } from '@/lib/orm';
 
-async function handleChat(req: NextRequest, userId: string) {
+async function handleChat(req: NextRequest, user: UserEntity) {
     const { messages, conversationId } = await req.json();
 
     // Simulate AI response with slight delay
@@ -20,9 +21,9 @@ async function handleChat(req: NextRequest, userId: string) {
     });
 }
 
-export const POST = withAuth(async (req, userId) => {
+export const POST = withAuth(async (req, user) => {
     try {
-        return await handleChat(req, userId);
+        return await handleChat(req, user);
     } catch (error) {
         console.error('Error in chat API:', error);
         return NextResponse.json({ error: 'Failed to process message' }, { status: 500 });
