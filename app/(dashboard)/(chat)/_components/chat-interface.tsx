@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
+import { useAuth } from "@clerk/nextjs"
 import ChatConversation, { type Message } from "./chat-conversation/chat-conversation"
 import ChatMessageForm from "./chat-message-form"
 import type { ChatMessageFormValues } from "./chat-message-form/schema"
@@ -8,6 +9,7 @@ import { MOCK_MESSAGES } from "@/app/(dashboard)/(chat)/_components/mock"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer"
 import { Button } from "@/components/ui/button"
+import { sendAction } from "@/lib/api/requests/worker/chat"
 
 type Conversation = {
   id: string
@@ -16,6 +18,7 @@ type Conversation = {
 }
 
 export default function ChatInterface() {
+  const { getToken } = useAuth()
   const chatConversationRef = useRef<HTMLDivElement>(null)
   const chatMessageFormRef = useRef<HTMLFormElement>(null)
 
@@ -83,25 +86,20 @@ export default function ChatInterface() {
       })),
     )
 
-    // Simulate AI responses for both panels
+    // Get access token for worker auth
+    const accessToken = await getToken() ?? ""
+
+    // Send to worker (or local endpoint based on env)
     try {
       const responses = await Promise.all([
-        fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: [...conversations[0].messages, userMessage],
-            conversationId: "left",
-          }),
-        }),
-        fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: [...conversations[1].messages, userMessage],
-            conversationId: "right",
-          }),
-        }),
+        sendAction({
+          messages: [...conversations[0].messages, userMessage].map(m => ({ role: m.role, content: m.content })),
+          conversationId: "left",
+        }, accessToken),
+        sendAction({
+          messages: [...conversations[1].messages, userMessage].map(m => ({ role: m.role, content: m.content })),
+          conversationId: "right",
+        }, accessToken),
       ])
 
       const [leftData, rightData] = await Promise.all([responses[0].json(), responses[1].json()])

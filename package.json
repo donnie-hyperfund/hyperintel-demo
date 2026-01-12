@@ -23,7 +23,8 @@
         "db:compile-metadata": "mikro-orm cache:generate --combined --config=mikro-orm.cli.config.ts",
         "db:compile-jit": "npm run tsn common/orm/compile-orm.ts",
         "db:compile": "npm run db:compile-metadata && npm run db:compile-jit",
-        "db:gen-entity": "npx mikro-orm generate-entities --save --path=lib/orm/entities/gen/ --schema=public -- "
+        "db:gen-entity": "npx mikro-orm generate-entities --save --path=lib/orm/entities/gen/ --schema=public -- ",
+        "gen:workers": "npx tsx workers/_common/config/generate.ts"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.71.2",

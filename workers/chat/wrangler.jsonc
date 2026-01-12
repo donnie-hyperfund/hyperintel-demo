@@ -27,7 +27,7 @@
 		"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
 		"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 		"LANGFUSE_PUBLIC_KEY": "pk-lf-82870529-7f46-4e5e-9195-ada413019895",
-		"LANGFUSE_ENVIRONMENT": "production"
+		"LANGFUSE_ENVIRONMENT": "Production"
 	},
 	"secrets_store_secrets": [
 		{
@@ -68,7 +68,7 @@
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-82870529-7f46-4e5e-9195-ada413019895",
-				"LANGFUSE_ENVIRONMENT": "dev",
+				"LANGFUSE_ENVIRONMENT": "Development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hyperfund.ai"
 			},
 			"secrets_store_secrets": [
@@ -110,7 +110,7 @@
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-82870529-7f46-4e5e-9195-ada413019895",
-				"LANGFUSE_ENVIRONMENT": "dev",
+				"LANGFUSE_ENVIRONMENT": "Development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hyperfund.ai"
 			},
 			"secrets_store_secrets": [

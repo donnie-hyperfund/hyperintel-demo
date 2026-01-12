@@ -4,7 +4,7 @@ import { observeOpenAI } from 'langfuse';
 import { LangfuseExtension } from '@worker/vendor/openai';
 
 const client = new OpenAI({
-    apiKey: backendEnv.OPENAI_API_KEY,
+    apiKey: backendEnv.OPENAI_API_KEY ?? 'MISSING-OPENAI-API-KEY',
 });
 export const openai = (
     backendEnv.LANGFUSE_HOST &&
