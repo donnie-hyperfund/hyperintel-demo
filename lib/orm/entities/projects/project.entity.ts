@@ -1,8 +1,8 @@
 import { Collection, Entity, ManyToOne, OneToMany, Property } from '@mikro-orm/core';
 import type { Nullable } from '@/common/orm/utils';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 
 @Entity({ tableName: 'projects' })
 export class ProjectEntity extends IdCreatedUpdatedColumns {
@@ -15,10 +15,10 @@ export class ProjectEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text', nullable: true })
     current_phase?: Nullable<string>;
 
-    @ManyToOne(() => UserEntity, { fieldName: 'user_id' })
+    @ManyToOne('UserEntity', { fieldName: 'user_id' })
     user!: UserEntity;
 
-    @OneToMany(() => ChatEntity, (chat) => chat.project)
+    @OneToMany('ChatEntity', (chat: ChatEntity) => chat.project)
     chats = new Collection<ChatEntity>(this);
 
     @Property({ type: 'json', nullable: true })

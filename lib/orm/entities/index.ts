@@ -1,3 +1,4 @@
+export * from './columns.entity';
 export * from './users/user.entity';
 export * from './projects/project.entity';
 export * from './chats/chat.entity';

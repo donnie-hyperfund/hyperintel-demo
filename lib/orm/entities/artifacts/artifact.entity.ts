@@ -1,8 +1,8 @@
 import { Entity, ManyToOne, Property, OneToMany, OneToOne, Collection, Unique, Opt } from '@mikro-orm/core';
 import type { Nullable } from '@/common/orm/utils';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
-import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import type { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 
 @Entity({ tableName: 'artifacts' })
@@ -17,10 +17,10 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'int', default: 1 })
     version!: number & Opt;
 
-    @ManyToOne(() => ChatEntity, { fieldName: 'chat_id' })
+    @ManyToOne('ChatEntity', { fieldName: 'chat_id' })
     chat!: ChatEntity;
 
-    @ManyToOne(() => ProjectEntity, { fieldName: 'project_id' })
+    @ManyToOne('ProjectEntity', { fieldName: 'project_id' })
     project!: ProjectEntity;
 
     @OneToOne('ArtifactVersionEntity', { fieldName: 'current_version_id', eager: true })
