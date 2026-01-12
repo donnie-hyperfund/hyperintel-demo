@@ -1,4 +1,4 @@
-import { Collection, Entity, ManyToOne, OneToMany, Property } from '@mikro-orm/postgresql';
+import { Collection, Entity, ManyToOne, OneToMany, Property } from '@mikro-orm/core';
 import type { Nullable } from '@/common/orm/utils';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';

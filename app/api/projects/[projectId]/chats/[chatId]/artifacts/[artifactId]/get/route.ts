@@ -62,4 +62,3 @@ export async function GET(
         return await handleGetArtifact(request, projectId, chatId, artifactId, user);
     })(req);
 }
-

@@ -1,14 +1,9 @@
 import {
     Collection,
     Entity,
-    Enum,
     OneToMany,
-    OneToOne,
     Property,
-    Rel,
-    raw,
-    SelectQueryBuilder,
-} from '@mikro-orm/postgresql';
+} from '@mikro-orm/core';
 import { type Nullable } from '@/common/orm/utils';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';

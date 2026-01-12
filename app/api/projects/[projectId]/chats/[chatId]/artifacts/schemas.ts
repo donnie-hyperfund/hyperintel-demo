@@ -24,4 +24,3 @@ export const ArtifactResponseSchema = z.object({
     updatedAt: z.string(),
 });
 export type ArtifactResponseDto = z.infer<typeof ArtifactResponseSchema>;
-

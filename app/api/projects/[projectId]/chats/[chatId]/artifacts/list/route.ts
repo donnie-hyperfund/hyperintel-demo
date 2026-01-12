@@ -80,4 +80,3 @@ export async function GET(
         return await handleGetArtifacts(request, projectId, chatId, user);
     })(req);
 }
-
