@@ -1,11 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { wrap } from '@mikro-orm/core';
 import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { getPaginatedResult, createPaginatedResponse } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
-import { ListChatsQuerySchema, type ChatResponseDto } from '../schemas';
+import { ListChatsQuerySchema, type ChatDto } from '@/lib/schema/message';
 
 async function handleGetChats(
     req: NextRequest,
@@ -24,12 +25,11 @@ async function handleGetChats(
 
     const query = em.createQueryBuilder(ChatEntity, 'c')
         .select([
-            'c.*',
-            'p.id as project_id',
+            'c',
             'COUNT(DISTINCT m.id) as message_count',
             `(
                 SELECT m2.content 
-                FROM messages m2 
+                FROM chat_messages m2 
                 WHERE m2.chat_id = c.id 
                 ORDER BY m2.created_at ASC 
                 LIMIT 1
@@ -41,7 +41,7 @@ async function handleGetChats(
             'p.id': projectId,
             'p.user': user.id 
         })
-        .groupBy(['c.id', 'p.id'])
+        .groupBy(['c.id'])
         .orderBy({ 'c.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(
@@ -52,19 +52,16 @@ async function handleGetChats(
         },
     );
 
-    const responseData: ChatResponseDto[] = nodes.map((row: any) => ({
-        id: row.id,
-        name: row.first_message_content || '',
-        id: row.project_id,
-        messageCount: Number.parseInt(row.message_count, 10),
-        firstMessageContent: row.first_message_content || null,
-        createdAt: new Date(row.created_at).toISOString(),
-        updatedAt: new Date(row.updated_at).toISOString(),
-    }));
+    const mappedNodes = nodes.map((chat: any): ChatDto => {
+        const chatEntity = chat as ChatEntity;
+        chatEntity.message_count = parseInt(chat.message_count) || 0;
+        chatEntity.first_message_content = chat.first_message_content || null;
+        return wrap(chatEntity).toJSON();
+    });
 
     return NextResponse.json(
         createPaginatedResponse(
-            responseData,
+            mappedNodes,
             totalCount,
             queryData.page ?? 1,
             queryData.limit ?? 20,
@@ -81,3 +78,4 @@ export async function GET(
         return await handleGetChats(request, projectId, user);
     })(req);
 }
+

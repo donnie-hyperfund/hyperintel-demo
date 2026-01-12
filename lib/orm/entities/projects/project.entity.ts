@@ -15,7 +15,7 @@ export class ProjectEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text', nullable: true })
     current_phase?: Nullable<string>;
 
-    @ManyToOne('UserEntity', { fieldName: 'user_id' })
+    @ManyToOne('UserEntity', { fieldName: 'user_id', serializer: (user) => user.id })
     user!: UserEntity;
 
     @OneToMany('ChatEntity', (chat: ChatEntity) => chat.project)

@@ -17,14 +17,14 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'int', default: 1 })
     version!: number & Opt;
 
-    @ManyToOne('ChatEntity', { fieldName: 'chat_id' })
+    @ManyToOne('ChatEntity', { fieldName: 'chat_id', serializer: (chat) => chat.id })
     chat!: ChatEntity;
 
-    @ManyToOne('ProjectEntity', { fieldName: 'project_id' })
+    @ManyToOne('ProjectEntity', { fieldName: 'project_id', serializer: (project) => project.id })
     project!: ProjectEntity;
 
     @OneToOne('ArtifactVersionEntity', { fieldName: 'current_version_id', eager: true })
-    currentVersion!: ArtifactVersionEntity;
+    current_version!: ArtifactVersionEntity;
 
     @OneToMany('ArtifactVersionEntity', (v: ArtifactVersionEntity) => v.artifact)
     versions = new Collection<ArtifactVersionEntity>(this);

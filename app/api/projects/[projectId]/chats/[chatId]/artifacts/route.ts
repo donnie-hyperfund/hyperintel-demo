@@ -1,11 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { wrap } from '@mikro-orm/core';
 import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { getPaginatedResult, createPaginatedResponse } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
-import { ListArtifactsQuerySchema, type ArtifactResponseDto } from '../schemas';
+import { ListArtifactsQuerySchema, type ArtifactDto } from '@/lib/schema/artifact';
 
 async function handleGetArtifacts(
     req: NextRequest,
@@ -43,27 +44,13 @@ async function handleGetArtifacts(
         },
     );
 
-    const responseData: ArtifactResponseDto[] = nodes.map((artifact: any) => ({
-        id: artifact.id,
-        key: artifact.key,
-        title: artifact.title,
-        version: artifact.version,
-        chatId: artifact.chat_id,
-        projectId: artifact.project_id,
-        currentVersion: {
-            id: artifact.current_version_id,
-            version: artifact.version,
-            content: '',
-            createdAt: new Date(artifact.created_at).toISOString(),
-        },
-        metadata: artifact.metadata || null,
-        createdAt: new Date(artifact.created_at).toISOString(),
-        updatedAt: new Date(artifact.updated_at).toISOString(),
-    }));
+    const mappedNodes = nodes.map((artifact: ArtifactEntity): ArtifactDto => {
+        return wrap(artifact).toJSON();
+    });
 
     return NextResponse.json(
         createPaginatedResponse(
-            responseData,
+            mappedNodes,
             totalCount,
             queryData.page ?? 1,
             queryData.limit ?? 20,
@@ -80,3 +67,4 @@ export async function GET(
         return await handleGetArtifacts(request, projectId, chatId, user);
     })(req);
 }
+

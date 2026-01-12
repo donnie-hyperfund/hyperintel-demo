@@ -11,7 +11,7 @@ export class ChatMessageEntity extends IdCreatedColumns {
     @Property({ type: 'text' })
     content!: string;
 
-    @ManyToOne('ChatEntity', { fieldName: 'chat_id' })
+    @ManyToOne('ChatEntity', { fieldName: 'chat_id', serializer: (chat) => chat.id })
     chat!: ChatEntity;
 
     @Property({ type: 'json', nullable: true })

@@ -11,7 +11,7 @@ export class IdDeletedAtColumns extends IdColumn {
     deleted_at!: Nullable<Date> & Opt;
 }
 export class IdCreatedColumns extends IdColumn {
-    @Property({ type: 'timestamptz', length: 3, defaultRaw: 'now()' })
+    @Property({ type: 'timestamptz', length: 3, defaultRaw: 'now()', serializer: (value) => value.toISOString() })
     created_at!: Date & Opt;
 }
 export class IdCreatedDeletedAtColumns extends IdCreatedColumns {
@@ -24,6 +24,7 @@ export abstract class IdCreatedUpdatedColumns extends IdCreatedColumns {
         length: 3,
         defaultRaw: 'now()',
         onUpdate: () => new Date(),
+        serializer: (value) => value.toISOString(),
     })
     updated_at!: Date & Opt;
 }
@@ -33,7 +34,7 @@ export class IdCreatedUpdatedDeletedAtColumns extends IdCreatedUpdatedColumns {
 }
 
 export class CreatedAtColumn {
-    @Property({ type: 'timestamptz', length: 3, defaultRaw: 'now()' })
+    @Property({ type: 'timestamptz', length: 3, defaultRaw: 'now()', serializer: (value) => value.toISOString() })
     created_at!: Date & Opt;
 }
 export abstract class CreatedUpdatedColumns extends CreatedAtColumn {
@@ -42,6 +43,7 @@ export abstract class CreatedUpdatedColumns extends CreatedAtColumn {
         length: 3,
         defaultRaw: 'now()',
         onUpdate: () => new Date(),
+        serializer: (value) => value.toISOString(),
     })
     updated_at!: Date & Opt;
 }

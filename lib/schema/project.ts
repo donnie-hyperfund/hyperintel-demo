@@ -18,12 +18,15 @@ export const UpdateProjectBodySchema = z.object({
 });
 export type UpdateProjectBodyDto = z.infer<typeof UpdateProjectBodySchema>;
 
-export const ProjectResponseSchema = z.object({
+export const ProjectDtoSchema = z.object({
     id: z.string().uuid(),
     name: z.string(),
-    description: z.string().nullable(),
-    userId: z.string().uuid(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
+    description: z.string().nullable().optional(),
+    current_phase: z.string().nullable().optional(),
+    user: z.union([z.string().uuid(), z.object({}).passthrough()]),
+    metadata: z.record(z.unknown()).nullable().optional(),
+    created_at: z.union([z.string(), z.date()]),
+    updated_at: z.union([z.string(), z.date()]),
 });
-export type ProjectResponseDto = z.infer<typeof ProjectResponseSchema>;
+export type ProjectDto = z.infer<typeof ProjectDtoSchema>;
+

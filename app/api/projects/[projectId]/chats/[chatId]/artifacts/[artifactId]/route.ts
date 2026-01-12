@@ -1,10 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { wrap } from '@mikro-orm/core';
 import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
-import { ARTIFACT_ERRORS } from '../../errors';
-import type { ArtifactResponseDto } from '../../schemas';
+import { type ArtifactDto } from '@/lib/schema/artifact';
+import { ARTIFACT_ERRORS } from '../errors';
 
 async function handleGetArtifact(
     req: NextRequest,
@@ -32,25 +33,8 @@ async function handleGetArtifact(
         return ARTIFACT_ERRORS.ARTIFACT_NOT_FOUND;
     }
 
-    const response: ArtifactResponseDto = {
-        id: artifact.id,
-        key: artifact.key,
-        title: artifact.title,
-        version: artifact.version,
-        chatId: artifact.chat.id,
-        projectId: artifact.project.id,
-        currentVersion: {
-            id: artifact.currentVersion.id,
-            version: artifact.currentVersion.version,
-            content: artifact.currentVersion.content,
-            createdAt: artifact.currentVersion.created_at.toISOString(),
-        },
-        metadata: artifact.metadata ?? null,
-        createdAt: artifact.created_at.toISOString(),
-        updatedAt: artifact.updated_at.toISOString(),
-    };
-
-    return NextResponse.json(response);
+    const dto: ArtifactDto = wrap(artifact).toJSON();
+    return NextResponse.json(dto);
 }
 
 export async function GET(
@@ -62,3 +46,4 @@ export async function GET(
         return await handleGetArtifact(request, projectId, chatId, artifactId, user);
     })(req);
 }
+

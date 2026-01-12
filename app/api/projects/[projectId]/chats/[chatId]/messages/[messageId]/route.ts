@@ -1,10 +1,11 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { wrap } from '@mikro-orm/core';
 import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import { MESSAGE_ERRORS } from '../../../../errors';
-import type { MessageResponseDto } from '../../../../schemas';
+import { type ChatMessageDto } from '@/lib/schema/message';
+import { MESSAGE_ERRORS } from '../../../errors';
 
 async function handleGetMessage(
     req: NextRequest,
@@ -15,9 +16,9 @@ async function handleGetMessage(
 ): Promise<NextResponse> {
     const { em } = await getOrm();
 
-    const messageData = await em.createQueryBuilder(ChatMessageEntity, 'm')
-        .select('m.*')
-        .leftJoin('m.chat', 'c')
+    const message = await em.createQueryBuilder(ChatMessageEntity, 'm')
+        .select('m')
+        .leftJoinAndSelect('m.chat', 'c')
         .leftJoin('c.project', 'p')
         .where({
             'm.id': messageId,
@@ -25,22 +26,14 @@ async function handleGetMessage(
             'p.id': projectId,
             'p.user': user.id,
         })
-        .execute<any>('get');
+        .getSingleResult();
 
-    if (!messageData) {
+    if (!message) {
         return MESSAGE_ERRORS.MESSAGE_NOT_FOUND;
     }
 
-    const response: MessageResponseDto = {
-        id: messageData.id,
-        content: messageData.content,
-        authorType: messageData.role,
-        chatId: messageData.chat_id,
-        metadata: messageData.metadata || null,
-        createdAt: new Date(messageData.created_at).toISOString(),
-    };
-
-    return NextResponse.json(response);
+    const dto: ChatMessageDto = wrap(message).toJSON();
+    return NextResponse.json(dto);
 }
 
 export async function GET(
@@ -52,3 +45,4 @@ export async function GET(
         return await handleGetMessage(request, projectId, chatId, messageId, user);
     })(req);
 }
+

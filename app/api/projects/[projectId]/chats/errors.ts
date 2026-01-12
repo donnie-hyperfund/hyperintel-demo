@@ -10,6 +10,4 @@ export const CHAT_ERRORS = {
 
 export const MESSAGE_ERRORS = {
     MESSAGE_NOT_FOUND: createError('Message not found', 'MESSAGE_NOT_FOUND', 404),
-    CANNOT_MODIFY_AI_MESSAGE: createError('AI messages cannot be modified', 'CANNOT_MODIFY_AI_MESSAGE', 403),
-    CANNOT_DELETE_AI_MESSAGE: createError('AI messages cannot be deleted', 'CANNOT_DELETE_AI_MESSAGE', 403),
 };

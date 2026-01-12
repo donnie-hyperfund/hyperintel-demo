@@ -12,7 +12,7 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text', nullable: true })
     summary?: Nullable<string>;
 
-    @ManyToOne('ProjectEntity', { fieldName: 'project_id' })
+    @ManyToOne('ProjectEntity', { fieldName: 'project_id', serializer: (project) => project.id })
     project!: ProjectEntity;
 
     @OneToMany('ChatMessageEntity', (message: ChatMessageEntity) => message.chat)
@@ -20,4 +20,10 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
 
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
+
+    @Property({ persist: false })
+    message_count?: number;
+
+    @Property({ persist: false })
+    first_message_content?: Nullable<string>;
 }
