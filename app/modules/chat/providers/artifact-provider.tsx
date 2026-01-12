@@ -1,7 +1,20 @@
 'use client';
 
 import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
-import type { Artifact, ArtifactContextValue } from '@/app/modules/chat/types';
+import type { Artifact } from '../types';
+
+export type ArtifactContextValue = {
+    artifacts: Record<string, Artifact>;
+    currentArtifactId: string | null;
+    isVisible: boolean;
+    addArtifact: (artifact: Artifact) => void;
+    updateArtifact: (id: string, updates: Partial<Artifact>) => void;
+    setCurrentArtifact: (id: string | null) => void;
+    togglePanel: (visible?: boolean) => void;
+
+    // Computed values
+    currentArtifact: Artifact | null;
+};
 
 const ArtifactContext = createContext<ArtifactContextValue | null>(null);
 
@@ -16,13 +29,24 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
 
     const addArtifact = useCallback((artifact: Artifact) => {
         setArtifacts((prev) => {
-            // Skip if artifact already exists with same content
             if (prev[artifact.id]?.content === artifact.content) {
                 return prev;
             }
             return {
                 ...prev,
                 [artifact.id]: artifact,
+            };
+        });
+    }, []);
+
+    const updateArtifact = useCallback((id: string, updates: Partial<Artifact>) => {
+        setArtifacts((prev) => {
+            const existing = prev[id];
+            if (!existing) return prev;
+
+            return {
+                ...prev,
+                [id]: { ...existing, ...updates },
             };
         });
     }, []);
@@ -41,27 +65,30 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
         }
     }, []);
 
-    const value: ArtifactContextValue = {
-        artifacts,
-        currentArtifactId,
-        isVisible,
-        addArtifact,
-        setCurrentArtifact,
-        togglePanel,
-    };
+    return (
+        <ArtifactContext.Provider
+            value={{
+                artifacts,
+                currentArtifactId,
+                isVisible,
+                addArtifact,
+                updateArtifact,
+                setCurrentArtifact,
+                togglePanel,
 
-    return <ArtifactContext.Provider value={value}>{children}</ArtifactContext.Provider>;
+                // Computed values
+                currentArtifact: currentArtifactId ? artifacts[currentArtifactId] : null,
+            }}
+        >
+            {children}
+        </ArtifactContext.Provider>
+    );
 }
 
-export function useArtifacts() {
+export function useArtifactContext(): ArtifactContextValue {
     const context = useContext(ArtifactContext);
     if (!context) {
         throw new Error('useArtifacts must be used within an ArtifactProvider');
     }
     return context;
-}
-
-export function useCurrentArtifact() {
-    const { artifacts, currentArtifactId } = useArtifacts();
-    return currentArtifactId ? (artifacts[currentArtifactId] ?? null) : null;
 }

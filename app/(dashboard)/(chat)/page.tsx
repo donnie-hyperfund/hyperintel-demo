@@ -1,13 +1,14 @@
 'use client';
 
-import { ArtifactProvider, useArtifacts } from '@/app/modules/chat/providers/artifact-provider';
+import { useArtifactContext } from '@/app/modules/chat/providers/artifact-provider';
+import { ChatModule } from '@/app/modules/chat/providers/chat-module';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { cn } from '@/lib/utils';
 import ArtifactsPanel from './_components/artifacts-panel';
 import ChatPanel from './_components/chat-panel';
 
-function ChatPageContent() {
-    const { isVisible: isArtifactsPanelVisible } = useArtifacts();
+const ChatPageContent = () => {
+    const { isVisible: isArtifactsPanelVisible } = useArtifactContext();
 
     return (
         <ResizablePanelGroup direction="horizontal" className="h-full">
@@ -35,12 +36,12 @@ function ChatPageContent() {
             )}
         </ResizablePanelGroup>
     );
-}
+};
 
 export default function Page() {
     return (
-        <ArtifactProvider>
+        <ChatModule>
             <ChatPageContent />
-        </ArtifactProvider>
+        </ChatModule>
     );
 }

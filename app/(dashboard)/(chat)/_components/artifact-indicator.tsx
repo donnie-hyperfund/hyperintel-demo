@@ -1,23 +1,22 @@
 'use client';
 
 import { FileText } from 'lucide-react';
-import { useArtifacts } from '@/app/modules/chat/providers/artifact-provider';
-import type { Artifact } from '@/app/modules/chat/types';
+import { useArtifactContext } from '@/app/modules/chat/providers/artifact-provider';
+import type { MessageArtifactRef } from '@/app/modules/chat/types';
 import { cn } from '@/lib/utils';
 
 type ArtifactIndicatorProps = {
-    artifact: Artifact;
+    artifactRef: MessageArtifactRef;
     className?: string;
 };
 
-export function ArtifactIndicator({ artifact, className }: ArtifactIndicatorProps) {
-    const { currentArtifactId, setCurrentArtifact, addArtifact } = useArtifacts();
+export function ArtifactIndicator({ artifactRef, className }: ArtifactIndicatorProps) {
+    const { currentArtifactId, setCurrentArtifact } = useArtifactContext();
 
-    const isSelected = currentArtifactId === artifact.id;
+    const isSelected = currentArtifactId === artifactRef.id;
 
     const handleClick = () => {
-        addArtifact(artifact);
-        setCurrentArtifact(isSelected ? null : artifact.id);
+        setCurrentArtifact(isSelected ? null : artifactRef.id);
     };
 
     return (
@@ -44,13 +43,11 @@ export function ArtifactIndicator({ artifact, className }: ArtifactIndicatorProp
             <div className="relative flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-sm font-semibold truncate text-foreground group-hover:text-green-500 transition-colors duration-200">
-                        {artifact.title}
+                        {artifactRef.title}
                     </span>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground font-medium">
-                        {artifact.type === 'text/markdown' ? 'Markdown' : artifact.type}
-                    </span>
+                    <span className="text-xs text-muted-foreground font-medium">Document</span>
                     {isSelected && <span className="text-xs text-green-500 font-medium">• Open</span>}
                 </div>
             </div>
