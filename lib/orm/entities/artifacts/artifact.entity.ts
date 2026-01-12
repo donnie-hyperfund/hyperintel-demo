@@ -3,7 +3,7 @@ import type { Nullable } from '@/common/orm/utils';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import type { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 
 @Entity({ tableName: 'artifacts' })
 @Unique({ properties: ['project', 'key'] })
@@ -23,10 +23,10 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @ManyToOne(() => ProjectEntity, { fieldName: 'project_id' })
     project!: ProjectEntity;
 
-    @OneToOne(() => ArtifactVersionEntity, { fieldName: 'current_version_id', eager: true })
+    @OneToOne('ArtifactVersionEntity', { fieldName: 'current_version_id', eager: true })
     currentVersion!: ArtifactVersionEntity;
 
-    @OneToMany(() => ArtifactVersionEntity, v => v.artifact)
+    @OneToMany('ArtifactVersionEntity', (v: ArtifactVersionEntity) => v.artifact)
     versions = new Collection<ArtifactVersionEntity>(this);
 
     @Property({ type: 'json', nullable: true })
