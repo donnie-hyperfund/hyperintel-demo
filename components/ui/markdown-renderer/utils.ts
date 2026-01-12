@@ -17,38 +17,23 @@ function normalizeCustomMathTags(input: string): string {
     return (
         input
             // Convert [/math]...[/math] to $$...$$
-            .replace(
-                /\[\/math\]([\s\S]*?)\[\/math\]/g,
-                (_, content) => `$$${content.trim()}$$`,
-            )
+            .replace(/\[\/math\]([\s\S]*?)\[\/math\]/g, (_, content) => `$$${content.trim()}$$`)
 
             // Convert [/inline]...[/inline] to $...$
-            .replace(
-                /\[\/inline\]([\s\S]*?)\[\/inline\]/g,
-                (_, content) => `$${content.trim()}$`,
-            )
+            .replace(/\[\/inline\]([\s\S]*?)\[\/inline\]/g, (_, content) => `$${content.trim()}$`)
 
             // Convert \( ... \) to $...$ (inline math) - handles both single and double backslashes
-            .replace(
-                /\\{1,2}\(([\s\S]*?)\\{1,2}\)/g,
-                (_, content) => `$${content.trim()}$`,
-            )
+            .replace(/\\{1,2}\(([\s\S]*?)\\{1,2}\)/g, (_, content) => `$${content.trim()}$`)
 
             // Convert \[ ... \] to $$...$$ (block math) - handles both single and double backslashes
-            .replace(
-                /\\{1,2}\[([\s\S]*?)\\{1,2}\]/g,
-                (_, content) => `$$${content.trim()}$$`,
-            )
+            .replace(/\\{1,2}\[([\s\S]*?)\\{1,2}\]/g, (_, content) => `$$${content.trim()}$$`)
     );
 }
 
 export function preprocessMarkdown(input: string): string {
     input = normalizeCustomMathTags(input);
     // Replace ⏳ emoji with a placeholder that we'll handle in components
-    input = input.replace(
-        /⏳/g,
-        '<span class="hourglass-spinner-placeholder"></span>',
-    );
+    input = input.replace(/⏳/g, '<span class="hourglass-spinner-placeholder"></span>');
 
     return input;
 }
