@@ -4,11 +4,15 @@ import _ from 'underscore';
 import config from '@/mikro-orm.config';
 import staticConfig from '@/mikro-orm.static.config';
 
-// Fix to not leak connections on local dev server
+// Use globalThis for ORM promise so all modules share same reference across hot reloads
 declare global {
+    // eslint-disable-next-line no-var
+    var __ormPromise: Promise<MikroORM> | null | undefined;
     // eslint-disable-next-line no-var,@typescript-eslint/no-explicit-any
     var ormCleanups: any[] | undefined;
 }
+
+// Fix to not leak connections on local dev server
 if (process.env.NODE_ENV === 'development') {
     if (globalThis.ormCleanups?.length) {
         globalThis.ormCleanups.forEach((ormCleanup) => ormCleanup());
@@ -16,7 +20,6 @@ if (process.env.NODE_ENV === 'development') {
     }
 }
 
-let ormPromise: Promise<MikroORM> | null = null;
 const reqStore = cache(() => ({ verified: false }));
 
 export function rawOrmGuard(verify: string) {
@@ -43,7 +46,7 @@ export async function getOrm(
     } else {
         injectConfig = injectConfigOrRaw ?? {};
     }
-    if (!ormPromise) {
+    if (!globalThis.__ormPromise) {
         const useStatic = !!process.env.VERCEL_ENV;
         const configToUse = useStatic ? staticConfig : config;
         const myPromise = MikroORM.init({
@@ -52,14 +55,16 @@ export async function getOrm(
             // TODO env var, prevent on prod
             // debug: true,
         });
-        ormPromise = myPromise;
+        globalThis.__ormPromise = myPromise;
 
         if (process.env.NODE_ENV === 'development') {
             if (!globalThis.ormCleanups) globalThis.ormCleanups = [];
             // prettier really hates this part
             globalThis.ormCleanups.push(() => {
-                ormPromise!
-                    .then((orm) => {
+                const promiseToClose = globalThis.__ormPromise;
+                globalThis.__ormPromise = null; // Nullify immediately so new requests get fresh ORM
+                promiseToClose
+                    ?.then((orm) => {
                         setTimeout(() => {
                             orm.close()
                                 .catch(console.error)
@@ -75,15 +80,15 @@ export async function getOrm(
         }
     }
     if (raw) {
-        return ormPromise;
+        return globalThis.__ormPromise;
     } else {
-        const orm = await ormPromise;
+        const orm = await globalThis.__ormPromise;
         return { em: orm.em.fork() };
     }
 }
 
 export async function closeOrm(force?: boolean): Promise<void> {
-    const oldOrm = ormPromise;
-    ormPromise = null;
+    const oldOrm = globalThis.__ormPromise;
+    globalThis.__ormPromise = null;
     if (oldOrm) await (await oldOrm).close(force);
 }

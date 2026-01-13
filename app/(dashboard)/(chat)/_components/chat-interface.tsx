@@ -191,9 +191,14 @@ export default function ChatInterface() {
     const accessToken = await getToken() ?? ""
 
     try {
+      if (!chatId) {
+        console.error("No chat ID available")
+        setIsLoading(false)
+        return
+      }
       const response = await sendAction({
         message: data.message,
-        chatId: chatId ?? "default",
+        chatId,
       }, accessToken)
 
       // Use streaming response
