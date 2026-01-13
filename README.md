@@ -1,5 +1,6 @@
 # HYPERINTEL™ Demo
 
+
 A modern, dual-panel chat interface demo built with Next.js, featuring a split-screen conversation view and comprehensive UI components.
 
 ## Features
