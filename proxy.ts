@@ -31,12 +31,6 @@ export default clerkMiddleware(async (auth, req) => {
                     const url = new URL('/new-project', req.url);
                     return NextResponse.redirect(url);
                 }
-
-                // Redirect to dashboard if user has projects but is on onboarding page
-                if (hasProjects && isOnOnboardingPage) {
-                    const url = new URL('/', req.url);
-                    return NextResponse.redirect(url);
-                }
             }
         } catch (error) {
             console.error('Error checking user projects:', error);
