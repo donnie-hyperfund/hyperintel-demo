@@ -1,12 +1,11 @@
 import { Analytics } from '@vercel/analytics/next';
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import type React from 'react';
 import './globals.css';
-import { ClerkProvider, UserButton } from '@clerk/nextjs';
+import { ClerkProvider } from '@clerk/nextjs';
 
-const _geist = Geist({ subsets: ['latin'] });
-const _geistMono = Geist_Mono({ subsets: ['latin'] });
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
     title: 'HYPERINTEL™ - AI Chatbot Demo',
@@ -39,7 +38,7 @@ export default function RootLayout({
     return (
         <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up" afterSignOutUrl="/sign-in">
             <html lang="en" className="dark">
-                <body className={`font-sans antialiased`}>
+                <body className={`${inter.className} antialiased`}>
                     {children}
                     <Analytics />
                 </body>

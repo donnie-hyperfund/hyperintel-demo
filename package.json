@@ -22,7 +22,8 @@
         "db:compile-metadata": "mikro-orm cache:generate --combined --config=mikro-orm.cli.config.ts",
         "db:compile-jit": "npm run tsn common/orm/compile-orm.ts",
         "db:compile": "npm run db:compile-metadata && npm run db:compile-jit",
-        "db:gen-entity": "npx mikro-orm generate-entities --save --path=lib/orm/entities/gen/ --schema=public -- "
+        "db:gen-entity": "npx mikro-orm generate-entities --save --path=lib/orm/entities/gen/ --schema=public -- ",
+        "tsc:check": "tsc --noEmit"
     },
     "dependencies": {
         "@clerk/nextjs": "^6.36.5",
@@ -68,6 +69,8 @@
         "input-otp": "1.4.1",
         "knex": "3.1.0",
         "lucide-react": "^0.454.0",
+        "mdast-util-to-string": "^4.0.0",
+        "motion": "^12.25.0",
         "next": "16.0.10",
         "next-themes": "^0.4.6",
         "react": "19.2.3",
@@ -75,22 +78,30 @@
         "react-dom": "19.2.3",
         "react-hook-form": "^7.60.0",
         "react-infinite-scroll-hook": "^6.0.1",
+        "react-markdown": "^10.1.0",
         "react-resizable-panels": "^2.1.7",
         "recharts": "2.15.4",
+        "rehype": "^13.0.1",
         "rehype-external-links": "^3.0.0",
         "rehype-katex": "^7.0.1",
         "rehype-mathjax": "^7.1.0",
         "rehype-raw": "^7.0.0",
+        "rehype-stringify": "^10.0.1",
+        "remark": "^15.0.1",
         "remark-breaks": "^4.0.0",
+        "remark-directive": "^3.0.0",
         "remark-footnotes-extra": "^0.3.0",
         "remark-gfm": "^4.0.1",
         "remark-inline-links": "^7.0.0",
         "remark-math": "^6.0.0",
+        "remark-rehype": "^11.1.1",
         "sonner": "^1.7.4",
         "svix": "^1.84.1",
         "tailwind-merge": "^3.3.1",
         "tailwindcss-animate": "^1.0.7",
         "underscore": "^1.13.7",
+        "unist-util-visit": "^5.0.0",
+        "uuid": "^13.0.0",
         "vaul": "^1.1.2",
         "zod": "3.25.76"
     },
@@ -102,6 +113,8 @@
         "@mikro-orm/migrations": "6.4.16",
         "@mikro-orm/sql-highlighter": "^1.0.1",
         "@tailwindcss/postcss": "^4.1.9",
+        "@tailwindcss/typography": "^0.5.19",
+        "@types/mdast": "^4.0.0",
         "@types/node": "^22",
         "@types/react": "^19",
         "@types/react-dom": "^19",
@@ -128,5 +141,6 @@
             "sharp",
             "workerd"
         ]
-    }
+    },
+    "packageManager": "pnpm@10.19.0+sha512.c9fc7236e92adf5c8af42fd5bf1612df99c2ceb62f27047032f4720b33f8eacdde311865e91c411f2774f618d82f320808ecb51718bfa82c060c4ba7c76a32b8"
 }
