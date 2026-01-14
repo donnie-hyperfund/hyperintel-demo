@@ -21,6 +21,7 @@
         "db:migration:create": "mikro-orm migration:create --config=mikro-orm.cli.config.ts",
         "db:migration:up": "mikro-orm migration:up --config=mikro-orm.cli.config.ts",
         "db:compile-metadata": "mikro-orm cache:generate --combined --config=mikro-orm.cli.config.ts",
+        "tsc:check": "tsc --noEmit",
         "db:compile-jit": "pnpm run tsn common/orm/compile-orm.ts",
         "db:compile": "pnpm run db:compile-metadata && pnpm run db:compile-jit",
         "db:gen-entity": "npx mikro-orm generate-entities --save --path=lib/orm/entities/gen/ --schema=public -- ",
@@ -77,7 +78,7 @@
         "langfuse": "^3.38.6",
         "lucide-react": "^0.454.0",
         "mdast-util-to-string": "^4.0.0",
-        "motion": "^12.24.11",
+        "motion": "^12.25.0",
         "next": "16.0.10",
         "next-themes": "^0.4.6",
         "openai": "^6.15.0",
@@ -110,6 +111,7 @@
         "tailwindcss-animate": "^1.0.7",
         "underscore": "^1.13.7",
         "unist-util-visit": "^5.0.0",
+        "uuid": "^13.0.0",
         "vaul": "^1.1.2",
         "zod": "3.25.76"
     },
@@ -121,6 +123,7 @@
         "@mikro-orm/migrations": "6.4.16",
         "@mikro-orm/sql-highlighter": "^1.0.1",
         "@tailwindcss/postcss": "^4.1.9",
+        "@tailwindcss/typography": "^0.5.19",
         "@types/mdast": "^4.0.0",
         "@types/node": "^22",
         "@types/react": "^19",
@@ -152,5 +155,6 @@
             "sharp",
             "workerd"
         ]
-    }
+    },
+    "packageManager": "pnpm@10.19.0+sha512.c9fc7236e92adf5c8af42fd5bf1612df99c2ceb62f27047032f4720b33f8eacdde311865e91c411f2774f618d82f320808ecb51718bfa82c060c4ba7c76a32b8"
 }
