@@ -10,3 +10,6 @@ lib/orm/compiled.jit.ts
 lib/orm/metadata.json
 # clerk configuration (can include secrets)
 /.clerk/
+# unrelated package manager lock files
+package-lock.json
+yarn.lock

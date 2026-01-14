@@ -48,3 +48,4 @@ export class Migration20260112070651_CreateInitialEntities extends Migration {
   }
 
 }
+

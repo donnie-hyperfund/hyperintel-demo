@@ -220,14 +220,23 @@ End of comprehensive artifact demonstration.`;
                 const processedArtifact = processMarkdownWithDirectives(artifactMarkdown);
                 const artifactChunks = chunkString(processedArtifact, 200);
 
-                sendChunk(`data: ${JSON.stringify({ type: 'artifact_start', raw: artifactMarkdown })}\n\n`);
+                const artifactId = `artifact-${Date.now()}`;
+                sendChunk(
+                    `data: ${JSON.stringify({
+                        type: 'artifact_start',
+                        artifactId,
+                        identifier: 'demo-artifact',
+                        title: 'Comprehensive Artifact Demo',
+                        artifactType: 'text/markdown',
+                    })}\n\n`,
+                );
 
                 for (const chunk of artifactChunks) {
-                    sendChunk(`data: ${JSON.stringify({ type: 'artifact_chunk', content: chunk })}\n\n`);
+                    sendChunk(`data: ${JSON.stringify({ type: 'artifact_chunk', artifactId, content: chunk })}\n\n`);
                     await new Promise((resolve) => setTimeout(resolve, 50));
                 }
 
-                sendChunk(`data: ${JSON.stringify({ type: 'artifact_end' })}\n\n`);
+                sendChunk(`data: ${JSON.stringify({ type: 'artifact_end', artifactId })}\n\n`);
                 sendChunk('data: [DONE]\n\n');
                 controller.close();
             } catch (error) {
@@ -242,7 +251,7 @@ End of comprehensive artifact demonstration.`;
         headers: {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
+            Connection: 'keep-alive',
         },
     });
 }
@@ -252,13 +261,9 @@ export const GET = async (req: NextRequest) => {
         return await handleStreamArtifact(req);
     } catch (error) {
         console.error('Error in stream-artifact API:', error);
-        return new Response(
-            JSON.stringify({ error: 'Failed to process stream' }),
-            {
-                status: 500,
-                headers: { 'Content-Type': 'application/json' },
-            }
-        );
+        return new Response(JSON.stringify({ error: 'Failed to process stream' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+        });
     }
 };
-

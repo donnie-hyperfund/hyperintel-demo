@@ -1,11 +1,7 @@
+import { Tooltip, TooltipContent, TooltipTrigger } from '@radix-ui/react-tooltip';
+import { ExternalLink, Info, Loader2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Components } from 'react-markdown';
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@radix-ui/react-tooltip';
-import { ExternalLink, Info, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type UseMarkdownComponentsParams = {
@@ -15,9 +11,7 @@ type UseMarkdownComponentsParams = {
 export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
     // TODO stupid.. make it stable fallback to full reta... I mean random
     const [hoveredCitation, setHoveredCitation] = useState<string | null>(null);
-    const [randId, setRandomId] = useState<string>(
-        id ?? `${Math.round(Math.random() * 10000)}`,
-    );
+    const [randId, setRandomId] = useState<string>(id ?? `${Math.round(Math.random() * 10000)}`);
 
     const components = useMemo(() => {
         return {
@@ -47,10 +41,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                     //    );
                     //} else {
                     return (
-                        <a
-                            id={id}
-                            href={`#_${randId}__${props.href!.slice(1)}`}
-                        >
+                        <a id={id} href={`#_${randId}__${props.href!.slice(1)}`}>
                             {children}
                         </a>
                     );
@@ -58,12 +49,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                     //}
                 }
                 return (
-                    <a
-                        id={id}
-                        {...props}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                    >
+                    <a id={id} {...props} target="_blank" rel="noopener noreferrer">
                         {children}
                     </a>
                 );
@@ -75,10 +61,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                         src={src}
                         alt={alt}
                         {...props}
-                        className={cn(
-                            'aspect-square object-cover max-w-[300px] rounded-lg w-full',
-                            className,
-                        )}
+                        className={cn('aspect-square object-cover max-w-[300px] rounded-lg w-full', className)}
                     />
                 );
             },
@@ -107,9 +90,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                             <button
                                 type="button"
                                 className={`inline-flex items-center text-blue-500 hover:text-blue-700 focus:outline-none bg-blue-100 rounded px-1`}
-                                onMouseEnter={() =>
-                                    setHoveredCitation(props.id || null)
-                                }
+                                onMouseEnter={() => setHoveredCitation(props.id || null)}
                                 onMouseLeave={() => setHoveredCitation(null)}
                             >
                                 <Info size={12} className="mr-1" /> {/* Icon */}
@@ -118,18 +99,9 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                         </TooltipTrigger>
                         <TooltipContent>
                             {/* Fetch citation details dynamically or from markdown */}
-                            <p>
-                                Citation details:{' '}
-                                {hoveredCitation
-                                    ? `Source for ${hoveredCitation}`
-                                    : 'Loading...'}
-                            </p>
-                            <a
-                                href="#footnote-section"
-                                className="flex items-center"
-                            >
-                                View full{' '}
-                                <ExternalLink size={12} className="ml-1" />
+                            <p>Citation details: {hoveredCitation ? `Source for ${hoveredCitation}` : 'Loading...'}</p>
+                            <a href="#footnote-section" className="flex items-center">
+                                View full <ExternalLink size={12} className="ml-1" />
                             </a>
                         </TooltipContent>
                     </Tooltip>
@@ -140,10 +112,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
             section: ({ className, children, ...props }) => {
                 if (className?.includes('footnotes')) {
                     return (
-                        <section
-                            {...props}
-                            className="mt-8 border-t pt-4 text-sm"
-                        >
+                        <section {...props} className="mt-8 border-t pt-4 text-sm">
                             {children}
                         </section>
                     );
@@ -158,9 +127,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
             // Replace hourglass spinner placeholder with spinner component
             span: ({ children, className, ...props }) => {
                 if (className === 'hourglass-spinner-placeholder') {
-                    return (
-                        <Loader2 className="h-4 w-4 animate-spin inline-block align-middle" />
-                    );
+                    return <Loader2 className="h-4 w-4 animate-spin inline-block align-middle" />;
                 }
                 return (
                     <span className={className} {...props}>
@@ -171,7 +138,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
             // Wrap tables in a scrollable container
             table: ({ children, ...props }) => {
                 return (
-                    <div className="overflow-x-auto w-full mb-3 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-md">
+                    <div className="prose-table-wrapper">
                         <table {...props}>{children}</table>
                     </div>
                 );
@@ -194,7 +161,10 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
             pre: ({ children, className, ...props }) => {
                 return (
                     <div className="overflow-x-auto w-full mb-3 p-2 min-w-0 max-w-full rounded-4 bg-neutral-900 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thumb-rounded-md">
-                        <pre className={cn("w-full min-w-0 max-w-full overflow-x-auto p-4 bg-transparent", className)} {...props}>
+                        <pre
+                            className={cn('w-full min-w-0 max-w-full overflow-x-auto p-4 bg-transparent', className)}
+                            {...props}
+                        >
                             {children}
                         </pre>
                     </div>

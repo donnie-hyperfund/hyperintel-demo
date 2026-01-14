@@ -20,3 +20,4 @@ export class Migration20260112074841_AddArtifactCurrentVersion extends Migration
   }
 
 }
+
