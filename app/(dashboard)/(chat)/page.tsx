@@ -1,9 +1,9 @@
 'use client';
 
-import { useArtifactContext } from '@/app/modules/chat/providers/artifact-provider';
-import { ChatModule } from '@/app/modules/chat/providers/chat-module';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { cn } from '@/lib/utils';
+import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { ChatModule } from '@/modules/chat/providers/chat-module';
 import ArtifactsPanel from './_components/artifacts-panel';
 import ChatPanel from './_components/chat-panel';
 

@@ -2,8 +2,8 @@
 
 import { Layers, Loader2 } from 'lucide-react';
 import { forwardRef, useImperativeHandle } from 'react';
-import type { Message } from '@/app/modules/chat/types';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import type { Message } from '@/modules/chat/types';
 import MessagesList from './messages-list';
 
 type ChatConversationProps = {

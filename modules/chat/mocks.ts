@@ -1,4 +1,4 @@
-import type { Artifact, Message } from '@/app/modules/chat/types';
+import type { Artifact, Message } from '@/modules/chat/types';
 
 export const MOCK_MESSAGES: Message[] = [
     {

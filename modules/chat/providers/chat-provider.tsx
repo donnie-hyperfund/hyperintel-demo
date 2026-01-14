@@ -2,7 +2,7 @@
 
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { useArtifactContext } from '@/app/modules/chat/providers/artifact-provider';
+import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { createMessage, MessageBuilder } from '../services/message-builder';
 import type { Artifact, ChatState, Message, StreamEvent } from '../types';
 import { useStreamingContext } from './streaming-provider';

@@ -1,6 +1,6 @@
 import { cva } from 'class-variance-authority';
 import { AnimatePresence, motion } from 'motion/react';
-import type { Message } from '@/app/modules/chat/types';
+import type { Message } from '@/modules/chat/types';
 import ChatMessage from '../chat-message';
 
 type MessagesProps = {
