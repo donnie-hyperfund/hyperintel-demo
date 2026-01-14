@@ -1,22 +1,19 @@
 'use client';
 
-import { useClerk, useUser } from '@clerk/nextjs';
+import { useUser } from '@clerk/nextjs';
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useSignOut } from '@/hooks/use-sign-out';
 
 export function OnboardingHeader() {
     const { user } = useUser();
-    const { signOut } = useClerk();
+    const { signOut } = useSignOut();
 
     const email = user?.primaryEmailAddress?.emailAddress || user?.emailAddresses[0]?.emailAddress || '';
-
-    const handleSignOut = () => {
-        signOut({ redirectUrl: '/sign-in' });
-    };
 
     return (
         <header className="flex items-center justify-end px-6 py-4">
@@ -34,7 +31,7 @@ export function OnboardingHeader() {
                     <DropdownMenuItem
                         onSelect={(e) => {
                             e.preventDefault();
-                            handleSignOut();
+                            signOut();
                         }}
                     >
                         Sign out

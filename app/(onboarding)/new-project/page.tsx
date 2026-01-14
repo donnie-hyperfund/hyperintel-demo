@@ -1,5 +1,6 @@
 'use client';
 
+import { useUser } from '@clerk/nextjs';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { motion } from 'motion/react';
 import { useRouter } from 'next/navigation';
@@ -11,10 +12,12 @@ import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useCreateProject } from '@/lib/api/client/hooks/use-projects';
+import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import { type CreateProjectBodyDto, CreateProjectBodySchema } from '@/lib/schema/project';
 
 export default function NewProjectPage() {
     const router = useRouter();
+    const { user } = useUser();
     const { trigger: createProject, isMutating } = useCreateProject();
 
     const {
@@ -31,13 +34,19 @@ export default function NewProjectPage() {
     });
 
     const onSubmit = async (data: CreateProjectBodyDto) => {
+        if (!user?.id) {
+            toast.error('You must be logged in to create a project.');
+            return;
+        }
+
         try {
-            await createProject(data);
+            const newProject = await createProject(data);
 
             toast.success('Project created successfully!');
 
-            // Redirect to the chat page (assuming the default route will load the new project)
-            router.push('/');
+            // Set the current project cookie and redirect to the new project
+            setCurrentProjectCookie(user.id, newProject.id);
+            router.push(`/${newProject.id}`);
         } catch (error) {
             console.error('Failed to create project:', error);
             toast.error('Failed to create project. Please try again.');
