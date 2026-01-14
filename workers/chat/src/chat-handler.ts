@@ -1,8 +1,8 @@
-import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/api/auth-guard';
+import { SendConversationActionDto } from "@/lib/schema/chat";
+import { Ctx } from "./context";
 
-async function handleChat(req: NextRequest, userId: string) {
-    const { messages, conversationId } = await req.json();
+export async function chatActionHandler(data: SendConversationActionDto, ctx: Ctx) {
+    const { messages, conversationId } = data;
 
     // Simulate AI response with slight delay
     await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
@@ -15,16 +15,7 @@ async function handleChat(req: NextRequest, userId: string) {
         right: `This is the response from Model B. You said: "${lastMessage}". I'm processing this with approach B, which emphasizes concise and direct responses.`,
     };
 
-    return NextResponse.json({
+    return {
         message: responses[conversationId as 'left' | 'right'] || responses.left,
-    });
+    };
 }
-
-export const POST = withAuth(async (req, userId) => {
-    try {
-        return await handleChat(req, userId);
-    } catch (error) {
-        console.error('Error in chat API:', error);
-        return NextResponse.json({ error: 'Failed to process message' }, { status: 500 });
-    }
-});

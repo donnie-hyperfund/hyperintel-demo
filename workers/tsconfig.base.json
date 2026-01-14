@@ -15,7 +15,8 @@
         "verbatimModuleSyntax": true,
         "baseUrl": ".",
         "paths": {
-            "@worker/*": ["../_common/*"]
+            "@worker/*": ["../_common/*"],
+            "@supabase/supabase-js": ["../_common/vendor/stubs/supabase-js"]
         }
     }
 }
