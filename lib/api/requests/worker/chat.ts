@@ -2,11 +2,11 @@ import { frontendEnv } from '@/lib/env';
 import { getWorkerUrl } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS } from '@/lib/constants/routes';
 import { WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
-import { SendConversationActionDto } from '@/lib/schema/chat';
+import { SendChatActionDto } from '@/lib/schema/chat';
 
 
 export const sendAction = async (
-    data: SendConversationActionDto,
+    data: SendChatActionDto,
     accessToken: string,
 ) => {
     if (

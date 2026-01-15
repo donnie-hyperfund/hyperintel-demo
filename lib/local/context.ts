@@ -21,6 +21,7 @@ import type { ClerkUser } from '@/lib/types/clerk';
 import { createClerkClient } from '@clerk/backend';
 import { Langfuse } from 'langfuse';
 import type postgres from 'postgres';
+import { waitUntil } from '@vercel/functions';
 
 /**
  * Pre-configured dependencies for this project.
@@ -47,6 +48,7 @@ const projectDeps = {
         baseUrl: process.env.LANGFUSE_HOST,
     }),
     sql: null as unknown as postgres.Sql,
+    eCtx: { waitUntil },
 } satisfies ContextDependencies<ClerkUser>;
 
 /**
