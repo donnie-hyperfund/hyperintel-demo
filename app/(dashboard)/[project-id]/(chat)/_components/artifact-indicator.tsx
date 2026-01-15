@@ -1,9 +1,9 @@
 'use client';
 
 import { FileText } from 'lucide-react';
-import { useArtifactContext } from '@/app/modules/chat/providers/artifact-provider';
-import type { MessageArtifactRef } from '@/app/modules/chat/types';
 import { cn } from '@/lib/utils';
+import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import type { MessageArtifactRef } from '@/modules/chat/types';
 
 type ArtifactIndicatorProps = {
     artifactRef: MessageArtifactRef;

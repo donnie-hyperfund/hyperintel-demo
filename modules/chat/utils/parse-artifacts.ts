@@ -1,4 +1,4 @@
-import type { Artifact } from '@/app/modules/chat/types';
+import type { Artifact } from '@/modules/chat/types';
 
 const ARTIFACT_START = ':::artifact';
 const ARTIFACT_END = ':::';

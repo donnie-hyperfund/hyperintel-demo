@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useChatContext } from '@/app/modules/chat/providers/chat-provider';
 import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import ChatConversation from './chat-conversation/chat-conversation';
 import ChatMessageForm from './chat-message-form';
 import type { ChatMessageFormValues } from './chat-message-form/schema';

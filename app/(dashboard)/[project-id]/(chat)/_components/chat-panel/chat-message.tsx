@@ -1,7 +1,7 @@
 'use client';
 
-import type { Message } from '@/app/modules/chat/types';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import type { Message } from '@/modules/chat/types';
 import { ArtifactIndicator } from '../artifact-indicator';
 
 type ChatMessageProps = {

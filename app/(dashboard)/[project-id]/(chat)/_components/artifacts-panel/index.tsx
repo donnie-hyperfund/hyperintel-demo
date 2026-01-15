@@ -1,10 +1,10 @@
 'use client';
 
 import { ChevronDown, FileText } from 'lucide-react';
-import { useArtifactContext } from '@/app/modules/chat/providers/artifact-provider';
 import { Button } from '@/components/ui/button';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { ArtifactHeader } from './artifact-header';
 
 export default function ArtifactsPanel() {

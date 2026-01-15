@@ -7,6 +7,7 @@ export default function SignUpPage() {
             <SignUp
                 routing="path"
                 path="/sign-up"
+                forceRedirectUrl="/new-project"
                 appearance={{
                     baseTheme: dark,
                 }}
