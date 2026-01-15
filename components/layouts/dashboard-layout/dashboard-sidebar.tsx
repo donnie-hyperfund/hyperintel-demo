@@ -1,26 +1,31 @@
 'use client';
 
-import { Code, FileCode, Layers, MessageSquare } from 'lucide-react';
-import { useState } from 'react';
+import { Code, FileCode, Layers, MessageSquare, Plus } from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { useParams, usePathname } from 'next/navigation';
 import {
     Sidebar,
     SidebarContent,
     SidebarFooter,
     SidebarGroup,
     SidebarGroupContent,
+    SidebarGroupLabel,
     SidebarHeader,
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    SidebarTrigger,
     useSidebar,
 } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
+import { DashboardSidebarFooter } from './dashboard-sidebar-footer';
 
 const navItems = [
-    { icon: MessageSquare, label: 'Chats', active: true },
-    { icon: Layers, label: 'Artifacts' },
-    { icon: FileCode, label: 'Projects' },
-    { icon: Code, label: 'Code' },
+    { icon: MessageSquare, label: 'Chats', href: '/chats' },
+    { icon: FileCode, label: 'Projects', href: '/projects' },
+    { icon: Layers, label: 'Artifacts', href: '/artifacts' },
+    { icon: Code, label: 'Code', href: '/code' },
 ];
 
 const projectNames = ['Project Name Goes Here', 'Project Name Goes Here', 'Project Name Goes Here'];
@@ -28,53 +33,70 @@ const projectNames = ['Project Name Goes Here', 'Project Name Goes Here', 'Proje
 export function DashboardSidebar() {
     const { state } = useSidebar();
     const isCollapsed = state === 'collapsed';
-    const [username] = useState('Username');
-    const [isHovered, setIsHovered] = useState(false);
-    const isExpanded = !isCollapsed || isHovered;
+    const isExpanded = !isCollapsed;
+    const params = useParams();
+    const pathname = usePathname();
+    const projectId = params?.['project-id'] as string | undefined;
 
     return (
-        <Sidebar
-            collapsible="icon"
-            className="border-r border-sidebar-border"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-        >
-            <SidebarHeader className="p-2">
-                <div
-                    className={cn(
-                        'flex items-center transition-all duration-300',
-                        isExpanded ? 'justify-start gap-3 px-2' : 'justify-center',
-                    )}
-                >
-                    <div className="flex items-center justify-center w-10 h-10 bg-primary rounded-lg shrink-0">
-                        <span className="text-sm font-bold text-primary-foreground">H</span>
-                    </div>
-                    {isExpanded && (
-                        <span className="text-lg font-semibold whitespace-nowrap text-sidebar-foreground">
-                            HYPER<span className="text-primary">INTEL</span>
-                            <sup className="text-[10px] align-super">™</sup>
-                        </span>
-                    )}
-                </div>
+        <Sidebar collapsible="icon" className="border-r border-neutral-800">
+            <SidebarHeader
+                className={cn(
+                    'px-4 h-16 flex flex-row items-center mb-3',
+                    isExpanded ? 'justify-between' : 'justify-center',
+                )}
+            >
+                {isExpanded ? (
+                    <>
+                        <div className="overflow-visible w-full">
+                            <div className="w-[143px] h-[28px] flex items-center justify-center overflow-visible">
+                                <Image src="/logo.svg" alt="HYPERINTEL" width={143} height={28} className="shrink-0" />
+                            </div>
+                        </div>
+                        <SidebarTrigger />
+                    </>
+                ) : (
+                    <SidebarTrigger />
+                )}
             </SidebarHeader>
 
-            <SidebarContent>
-                <SidebarGroup>
+            <SidebarContent className="gap-5">
+                <SidebarGroup className="px-2">
                     <SidebarGroupContent>
-                        <SidebarMenu>
+                        <SidebarMenu className="gap-1">
+                            <SidebarMenuItem>
+                                <SidebarMenuButton
+                                    asChild
+                                    tooltip={isCollapsed ? 'New Chat' : undefined}
+                                    className="px-4"
+                                >
+                                    <Link href={projectId ? `/${projectId}` : '#'}>
+                                        <div className="w-4 h-4 flex items-center justify-center overflow-visible">
+                                            <div className="flex items-center justify-center size-6 rounded-full bg-green-500 shrink-0">
+                                                <Plus className="size-4 text-neutral-900" />
+                                            </div>
+                                        </div>
+                                        <span>New Chat</span>
+                                    </Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
                             {navItems.map((item) => {
                                 const Icon = item.icon;
+                                const href = projectId ? `/${projectId}${item.href}` : '#';
+                                const isActive = pathname?.startsWith(`/${projectId}${item.href}`);
+
                                 return (
                                     <SidebarMenuItem key={item.label}>
                                         <SidebarMenuButton
-                                            isActive={item.active}
-                                            tooltip={isCollapsed && !isHovered ? item.label : undefined}
-                                            className={cn(
-                                                item.active && 'bg-sidebar-accent text-sidebar-accent-foreground',
-                                            )}
+                                            asChild
+                                            isActive={isActive}
+                                            tooltip={isCollapsed ? item.label : undefined}
+                                            className={cn('px-4', isActive && 'bg-neutral-850 text-neutral-100')}
                                         >
-                                            <Icon />
-                                            <span>{item.label}</span>
+                                            <Link href={href}>
+                                                <Icon />
+                                                <span>{item.label}</span>
+                                            </Link>
                                         </SidebarMenuButton>
                                     </SidebarMenuItem>
                                 );
@@ -84,36 +106,27 @@ export function DashboardSidebar() {
                 </SidebarGroup>
 
                 {isExpanded && (
-                    <SidebarGroup className="mt-auto">
+                    <SidebarGroup className="p-0">
+                        <SidebarGroupLabel className="px-6 mb-1 text-xs font-semibold text-neutral-600">
+                            Recents
+                        </SidebarGroupLabel>
                         <SidebarGroupContent>
-                            <div className="space-y-1 px-2">
+                            <SidebarMenu className="gap-0.5 px-2">
                                 {projectNames.map((name, idx) => (
-                                    <button
-                                        type="button"
-                                        key={idx}
-                                        className="w-full text-xs text-sidebar-foreground/60 px-2 py-1.5 hover:bg-sidebar-accent/30 rounded cursor-pointer transition-colors truncate text-left"
-                                    >
-                                        {name}
-                                    </button>
+                                    <SidebarMenuItem key={idx}>
+                                        <SidebarMenuButton className="px-4 text-sm h-9 text-neutral-400 hover:text-neutral-100">
+                                            <span className="truncate">{name}</span>
+                                        </SidebarMenuButton>
+                                    </SidebarMenuItem>
                                 ))}
-                            </div>
+                            </SidebarMenu>
                         </SidebarGroupContent>
                     </SidebarGroup>
                 )}
             </SidebarContent>
 
-            <SidebarFooter className="p-2">
-                <div
-                    className={cn(
-                        'flex items-center transition-all duration-300',
-                        isExpanded ? 'justify-start gap-3 px-2' : 'justify-center',
-                    )}
-                >
-                    <div className="flex items-center justify-center w-10 h-10 bg-muted rounded-full text-xs font-medium shrink-0 text-foreground">
-                        {username.charAt(0).toUpperCase()}
-                    </div>
-                    {isExpanded && <span className="text-sm truncate text-sidebar-foreground">{username}</span>}
-                </div>
+            <SidebarFooter>
+                <DashboardSidebarFooter isExpanded={isExpanded} />
             </SidebarFooter>
         </Sidebar>
     );

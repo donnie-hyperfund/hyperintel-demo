@@ -21,7 +21,7 @@ export function OnboardingHeader() {
                 <DropdownMenuTrigger asChild>
                     <button
                         type="button"
-                        className="hover:bg-neutral-800/40 h-13 data-[state=open]:bg-neutral-800/40 focus-visible:ring-ring rounded-md px-4 py-2 text-right transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
+                        className="hover:bg-neutral-800/40 h-13 data-[state=open]:bg-neutral-800/40 focus-visible:ring-ring rounded-2 px-4 py-2 text-right transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
                     >
                         <div className="text-muted-foreground text-xs">Logged in as</div>
                         <div className="text-sm font-medium">{email}</div>
