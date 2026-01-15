@@ -1,0 +1,26 @@
+import { z } from 'zod';
+
+const envFrontendSchema = z.object({
+    NEXT_PUBLIC_BASE_URL: z.string().url().optional(),
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string(),
+    // NEXT_PUBLIC_VERCEL_URL: z.string().optional(),
+    NEXT_PUBLIC_CLOUDFLARE_BASE: z.string().optional(),
+    NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV: z.string().optional(),
+    NEXT_PUBLIC_LOCAL_WORKERS: z.coerce.boolean().optional().default(false),
+});
+
+const parsedFrontendEnv = envFrontendSchema.safeParse({
+    NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    // NEXT_PUBLIC_VERCEL_URL: process.env.NEXT_PUBLIC_VERCEL_URL,
+    NEXT_PUBLIC_CLOUDFLARE_BASE: process.env.NEXT_PUBLIC_CLOUDFLARE_BASE,
+    NEXT_PUBLIC_LOCAL_WORKERS: process.env.NEXT_PUBLIC_LOCAL_WORKERS,
+    NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV: process.env.NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV,
+});
+
+if (!parsedFrontendEnv.success) {
+    console.error('❌ Invalid environment variables:', parsedFrontendEnv.error.format());
+    throw new Error('Invalid environment variables');
+}
+
+export const frontendEnv = parsedFrontendEnv.data;

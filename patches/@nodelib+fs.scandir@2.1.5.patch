@@ -1,0 +1,15 @@
+diff --git a/node_modules/@nodelib/fs.scandir/out/constants.js b/node_modules/@nodelib/fs.scandir/out/constants.js
+index 7e3d441..e760314 100644
+--- a/node_modules/@nodelib/fs.scandir/out/constants.js
++++ b/node_modules/@nodelib/fs.scandir/out/constants.js
+@@ -1,6 +1,10 @@
+ "use strict";
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.IS_SUPPORT_READDIR_WITH_FILE_TYPES = void 0;
++if (!process.versions || !process.versions.node) {
++    // Mock the Node.js version for the browser to be 20.17.0
++    process.versions = { ...process.versions, node: '20.17.0' };
++}
+ const NODE_PROCESS_VERSION_PARTS = process.versions.node.split('.');
+ if (NODE_PROCESS_VERSION_PARTS[0] === undefined || NODE_PROCESS_VERSION_PARTS[1] === undefined) {
+     throw new Error(`Unexpected behavior. The 'process.versions.node' variable has invalid value: ${process.versions.node}`);
