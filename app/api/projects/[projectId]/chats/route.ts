@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { wrap } from '@mikro-orm/core';
+import { wrap, sql } from '@mikro-orm/core';
 import { withAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm/orm';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
@@ -17,24 +17,22 @@ async function handleGetChats(
 
     const { searchParams } = new URL(req.url);
     const queryData = validatePayload(ListChatsQuerySchema, {
-        page: searchParams.get('page'),
-        limit: searchParams.get('limit'),
+        page: searchParams.get('page') ?? undefined,
+        limit: searchParams.get('limit') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
 
     const query = em.createQueryBuilder(ChatEntity, 'c')
-        .select([
-            'c',
-            'COUNT(DISTINCT m.id) as message_count',
-            `(
-                SELECT m2.content 
-                FROM chat_messages m2 
-                WHERE m2.chat_id = c.id 
-                ORDER BY m2.created_at ASC 
-                LIMIT 1
-            ) as first_message_content`,
-        ])
+        .select('c.*')
+        .addSelect(sql`COUNT(DISTINCT m.id) as message_count`)
+        .addSelect(sql`(
+            SELECT m2.content 
+            FROM chat_messages m2 
+            WHERE m2.chat_id = c.id 
+            ORDER BY m2.created_at ASC 
+            LIMIT 1
+        ) as first_message_content`)
         .leftJoin('c.project', 'p')
         .leftJoin('c.messages', 'm')
         .where({ 

@@ -18,8 +18,8 @@ async function handleGetArtifacts(
 
     const { searchParams } = new URL(req.url);
     const queryData = validatePayload(ListArtifactsQuerySchema, {
-        page: searchParams.get('page'),
-        limit: searchParams.get('limit'),
+        page: searchParams.get('page') ?? undefined,
+        limit: searchParams.get('limit') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
