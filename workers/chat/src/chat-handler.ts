@@ -202,7 +202,7 @@ async function streamInternal(
                     });
                     break;
 
-                case 'done': {
+                case 'done_ext': {
                     // Save user message
                     const userMsg = em!.create(ChatMessageEntity, {
                         chat: chatId,
@@ -212,7 +212,7 @@ async function streamInternal(
                     em!.persist(userMsg);
 
                     // Save assistant reply (use accumulatedText or finalOutput)
-                    const assistantContent = event.accumulatedText ?? event.finalOutput ?? '';
+                    const assistantContent = event.streamLog.fullContent ?? '';
                     if (assistantContent) {
                         const assistantMsg = em!.create(ChatMessageEntity, {
                             chat: chatId,
