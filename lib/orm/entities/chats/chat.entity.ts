@@ -21,9 +21,9 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
 
-    @Property({ persist: false })
+    @Property({ type: 'number', persist: false })
     message_count?: number;
 
-    @Property({ persist: false })
+    @Property({ type: 'text', persist: false })
     first_message_content?: Nullable<string>;
 }
