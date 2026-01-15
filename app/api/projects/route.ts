@@ -12,11 +12,9 @@ async function handleGetProjects(req: NextRequest, user: UserEntity): Promise<Ne
     const { em } = await getOrm();
 
     const { searchParams } = new URL(req.url);
-    const pageParam = searchParams.get('page');
-    const limitParam = searchParams.get('limit');
     const queryData = validatePayload(ListProjectsQuerySchema, {
-        page: pageParam && pageParam.trim() !== '' ? pageParam : undefined,
-        limit: limitParam && limitParam.trim() !== '' ? limitParam : undefined,
+        page: searchParams.get('page') ?? undefined,
+        limit: searchParams.get('limit') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
