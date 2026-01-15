@@ -15,7 +15,7 @@ export const EmptyState = ({ icon: Icon, title, description, error, children, cl
         <div className={cn('flex flex-col items-center justify-center gap-4 p-8 text-center', className)}>
             {Icon && (
                 <div className="flex size-16 items-center justify-center rounded-5 bg-neutral-800/60">
-                    <Icon className="size-6 text-neutral-500" strokeWidth={1.5} />
+                    <Icon className="size-6 opacity-75" strokeWidth={1.5} />
                 </div>
             )}
 

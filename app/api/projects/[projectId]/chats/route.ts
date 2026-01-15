@@ -17,8 +17,8 @@ async function handleGetChats(
 
     const { searchParams } = new URL(req.url);
     const queryData = validatePayload(ListChatsQuerySchema, {
-        page: searchParams.get('page'),
-        limit: searchParams.get('limit'),
+        page: searchParams.get('page') ?? undefined,
+        limit: searchParams.get('limit') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;

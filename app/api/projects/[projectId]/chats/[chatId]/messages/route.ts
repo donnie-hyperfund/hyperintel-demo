@@ -21,9 +21,9 @@ async function handleGetMessages(
 
     const { searchParams } = new URL(req.url);
     const queryData = validatePayload(ListMessagesQuerySchema, {
-        page: searchParams.get('page'),
-        limit: searchParams.get('limit'),
-        role: searchParams.get('role'),
+        page: searchParams.get('page') ?? undefined,
+        limit: searchParams.get('limit') ?? undefined,
+        role: searchParams.get('role') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
