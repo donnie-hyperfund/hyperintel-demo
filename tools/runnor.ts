@@ -1,0 +1,449 @@
+/**
+ * runnor.ts - REPL-style test harness for chat-handler.ts
+ *
+ * Run with: npx tsx tools/runnor.ts
+ */
+
+import { AIParamsType } from '@common/ai/inference';
+import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import logUpdate from 'log-update';
+import * as readline from 'readline';
+import { initNextjsWorkerContext } from '@/lib/local/context';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import { ChatHandlerOptions, chatActionHandler } from '@/workers/chat/src/chat-handler';
+
+const overrideOpts: ChatHandlerOptions = {
+    // useLocalPrompts: true,
+    overrideInference: {
+        //paramsType: AIParamsType.Anthropic,
+        //params: { model: ANTHROPIC_MODELS.OPUS },
+        paramsType: AIParamsType.OpenRouter,
+        // params: { model: COMMON_MODELS.LLAMA_MAVERICK, reasoning: true },
+        params: { model: COMMON_MODELS.CLAUDE_OPUS, reasoning: true },
+        /*
+
+We are testing UI. Create a document with one-shot.
+Now create a document with multi-step.
+Edit the document you just made and replace a line in it with the precise editing tool.
+Read the documents and verify they contain what you would expect.
+
+You were given various document editing tools. Do you feel they are understandable and robust enough to achieve all the document editing tasks your framework calls for? Assess.
+                
+                paramsType: AIParamsType.OpenAI,
+                params: {
+                    // model: 'qwen3-4b-thinking-2507-claude-4.5-opus-high-reasoning-distill-i1',
+                    // model: 'qwen3-8b-claude-sonnet-4.5-reasoning-distill',
+                    // model: 'qwen3-30b-a3b-thinking-2507-claude-4.5-sonnet-high-reasoning-distill',
+                    model: 'qwen3-14b-claude-4.5-opus-high-reasoning-distill',
+                    // model: 'Qwen3-8B-claude-sonnet-4.5-high-reasoning-distill-Q4_K_M.gguf',
+                    // model: 'Qwen3-30B-A3B-Thinking-2507-Claude-4.5-Sonnet-High-Reasoning-Distill-q4_k_m.gguf',
+                    baseUrl: 'http://localhost:1234/v1',
+                    apiKey: 'asdf',
+                    // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Use for local LM Studio or similar inference
+                },*/
+    },
+};
+
+// ANSI color helpers
+const c = {
+    reset: '\x1b[0m',
+    bright: '\x1b[1m',
+    dim: '\x1b[2m',
+    green: '\x1b[32m',
+    yellow: '\x1b[33m',
+    blue: '\x1b[34m',
+    magenta: '\x1b[35m',
+    cyan: '\x1b[36m',
+    red: '\x1b[31m',
+};
+
+enum LogLevel {
+    ERROR = 0,
+    WARN = 1,
+    INFO = 2,
+    DEBUG = 3,
+    VERBOSE = 4,
+}
+
+let currentLogLevel = LogLevel.INFO;
+let showReasoning = true;
+
+function log(prefix: string, color: string, level: LogLevel, ...args: any[]) {
+    if (level <= currentLogLevel) {
+        console.log(`${color}[${prefix}]${c.reset}`, ...args);
+    }
+}
+
+// Global context
+let ctx: any;
+let currentChatId: string | null = null;
+let currentProjectId: string | null = null;
+
+async function setup() {
+    log('SETUP', c.blue, LogLevel.INFO, 'Initializing context...');
+
+    ctx = await initNextjsWorkerContext({ optionalAuth: true });
+    const em = ctx.em;
+
+    const MOCK_CLERK_ID = 'user_local_dev';
+    let user = await em.findOne(UserEntity, { clerkId: MOCK_CLERK_ID });
+    if (!user) {
+        log('SETUP', c.yellow, LogLevel.INFO, `Creating placeholder user (${MOCK_CLERK_ID})...`);
+        user = em.create(UserEntity, {
+            clerkId: MOCK_CLERK_ID,
+            email: 'local-dev@example.com',
+            emailConfirmed: true,
+        });
+        await em.persistAndFlush(user);
+    }
+
+    ctx.user = { userId: MOCK_CLERK_ID };
+
+    // 2. Create/Get Project
+    let project = await em.findOne(ProjectEntity, { user: user.id });
+    if (!project) {
+        log('SETUP', c.yellow, LogLevel.INFO, 'Creating default project...');
+        project = em.create(ProjectEntity, { name: 'Local Dev Project', user });
+        await em.persistAndFlush(project);
+    }
+    currentProjectId = project.id;
+
+    // Get newest chat or create one
+    let chat = await em.findOne(ChatEntity, { project: project.id }, { orderBy: { created_at: 'DESC' } });
+    if (!chat) {
+        log('SETUP', c.yellow, LogLevel.INFO, 'Creating default chat...');
+        chat = em.create(ChatEntity, {
+            phase: 'discovery',
+            project,
+            metadata: { loadedPrompts: [] },
+        });
+        await em.persistAndFlush(chat);
+    }
+    currentChatId = chat.id;
+
+    log('SETUP', c.green, LogLevel.INFO, `Ready! Chat ID: ${currentChatId}`);
+}
+
+const ANSI = {
+    SAVE_CURSOR: '\x1b7',
+    RESTORE_CURSOR: '\x1b8',
+    CLEAR_DOWN: '\x1b[J',
+};
+
+async function createNewChat(): Promise<void> {
+    if (!ctx || !currentProjectId) {
+        log('ERROR', c.red, LogLevel.ERROR, 'Context not initialized');
+        return;
+    }
+
+    // Clear previous history
+    process.stdout.write(ANSI.RESTORE_CURSOR + ANSI.CLEAR_DOWN);
+
+    const em = ctx.em;
+    const project = await em.findOneOrFail(ProjectEntity, { id: currentProjectId });
+    const chat = em.create(ChatEntity, {
+        phase: 'discovery',
+        project,
+        metadata: { loadedPrompts: [] },
+    });
+    await em.persistAndFlush(chat);
+    currentChatId = chat.id;
+
+    // Print new chat info
+    console.log(`\n${c.bright}${'='.repeat(50)}${c.reset}`);
+    console.log(`${c.green}New chat created: ${currentChatId}${c.reset}`);
+    console.log(`${c.bright}${'='.repeat(50)}${c.reset}\n`);
+
+    // Re-save cursor for the next session
+    process.stdout.write(ANSI.SAVE_CURSOR);
+}
+
+async function nukeProject(): Promise<void> {
+    if (!ctx || !currentProjectId) {
+        log('ERROR', c.red, LogLevel.ERROR, 'Context not initialized');
+        return;
+    }
+
+    const em = ctx.em;
+
+    // Get all chats and artifacts in project for deletion
+    const chats = await em.find(ChatEntity, { project: currentProjectId });
+    const chatIds = chats.map((c: ChatEntity) => c.id);
+    const artifacts = await em.find(ArtifactEntity, { project: currentProjectId });
+    const artifactIds = artifacts.map((a: ArtifactEntity) => a.id);
+
+    // Delete in correct order (respecting FK constraints)
+    // 1. Null out current_version_id on artifacts (breaks FK to versions)
+    if (artifactIds.length > 0) {
+        await em.nativeUpdate(ArtifactEntity, { project: currentProjectId }, { current_version: null });
+    }
+    // 2. Delete messages (FK to chats)
+    const deletedMessages =
+        chatIds.length > 0 ? await em.nativeDelete(ChatMessageEntity, { chat: { $in: chatIds } }) : 0;
+    // 3. Delete versions (FK to artifacts)
+    const deletedVersions =
+        artifactIds.length > 0 ? await em.nativeDelete(ArtifactVersionEntity, { artifact: { $in: artifactIds } }) : 0;
+    // 4. Delete artifacts (FK to chats/projects)
+    const deletedArtifacts = await em.nativeDelete(ArtifactEntity, { project: currentProjectId });
+    // 5. Delete chats (FK to projects)
+    const deletedChats = await em.nativeDelete(ChatEntity, { project: currentProjectId });
+
+    console.log(`\n${c.red}${c.bright}🔥 NUKED PROJECT DATA:${c.reset}`);
+    console.log(`${c.red}   - ${deletedChats} chat(s)${c.reset}`);
+    console.log(`${c.red}   - ${deletedMessages} message(s)${c.reset}`);
+    console.log(`${c.red}   - ${deletedArtifacts} artifact(s)${c.reset}`);
+    console.log(`${c.red}   - ${deletedVersions} version(s)${c.reset}\n`);
+
+    // Create a new chat since we deleted all of them
+    currentChatId = null;
+    await createNewChat();
+}
+
+async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string> {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+
+    // Reasoning display state
+    let statusText = 'Thinking...';
+    let reasoningBuffer = '';
+    let isInReasoningPhase = false;
+    const REASONING_LINES = 5;
+
+    const renderThinking = () => {
+        if (!showReasoning) return;
+
+        const lines = reasoningBuffer.split('\n');
+        const visibleLines = lines.length > REASONING_LINES ? lines.slice(-REASONING_LINES) : lines;
+
+        let output = `${c.dim}⏳ ${statusText}${c.reset}\n`;
+        if (visibleLines.length > 0 && visibleLines.some((l) => l.trim())) {
+            output += `${c.dim}${visibleLines.join('\n')}${c.reset}`;
+        }
+
+        logUpdate(output);
+    };
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            buffer += chunk;
+
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed.startsWith('data: ')) continue;
+
+                const payload = trimmed.slice(6);
+                if (payload === '[DONE]') continue;
+
+                try {
+                    const event = JSON.parse(payload);
+
+                    switch (event.type) {
+                        case 'delta':
+                            // If we were in reasoning phase, finalize it
+                            if (isInReasoningPhase) {
+                                logUpdate.done();
+                                isInReasoningPhase = false;
+                                reasoningBuffer = '';
+                            }
+                            process.stdout.write(event.text || '');
+                            fullText += event.text || '';
+                            break;
+
+                        case 'status_update':
+                            statusText = event.status || 'Thinking...';
+                            if (isInReasoningPhase) {
+                                renderThinking();
+                            }
+                            break;
+
+                        case 'reasoning_start':
+                            isInReasoningPhase = true;
+                            reasoningBuffer = '';
+                            statusText = 'Thinking...';
+                            renderThinking();
+                            break;
+
+                        case 'reasoning_delta':
+                            if (showReasoning) {
+                                isInReasoningPhase = true;
+                                reasoningBuffer += event.text || '';
+                                renderThinking();
+                            }
+                            break;
+
+                        case 'reasoning_done':
+                            if (isInReasoningPhase) {
+                                logUpdate.done();
+                                isInReasoningPhase = false;
+                            }
+                            break;
+
+                        case 'tool_start':
+                            if (isInReasoningPhase) {
+                                logUpdate.done();
+                                isInReasoningPhase = false;
+                            }
+                            if (currentLogLevel >= LogLevel.INFO) {
+                                console.log(`\n${c.cyan}[TOOL]${c.reset} ${event.tool}`);
+                            }
+                            break;
+
+                        case 'tool_result':
+                            if (!event.success) {
+                                console.log(
+                                    `\n${c.red}[ERROR]${c.reset} Tool ${c.bright}${event.tool}${c.reset} failed:`,
+                                );
+                                const errStr = String(event.result || 'Unknown error');
+                                console.log(
+                                    `${c.red}${errStr.substring(0, 1000)}${errStr.length > 1000 ? '...' : ''}${c.reset}`,
+                                );
+                            } else if (currentLogLevel >= LogLevel.INFO) {
+                                console.log(`${c.green}✓${c.reset} Tool ${c.bright}${event.tool}${c.reset} completed`);
+                                if (currentLogLevel >= LogLevel.DEBUG && event.result) {
+                                    const resStr = String(event.result);
+                                    console.log(
+                                        `${c.dim}${resStr.substring(0, 500)}${resStr.length > 500 ? '...' : ''}${c.reset}`,
+                                    );
+                                }
+                            }
+                            break;
+
+                        case 'error':
+                            if (isInReasoningPhase) {
+                                logUpdate.done();
+                                isInReasoningPhase = false;
+                            }
+                            console.log(`\n${c.red}[ERROR]${c.reset} ${event.error}`);
+                            break;
+
+                        case 'done':
+                        case 'done_ext':
+                            if (currentLogLevel >= LogLevel.VERBOSE) {
+                                console.log(`\n${c.dim}[VERBOSE] ${event.type}${c.reset}`);
+                            }
+                            break;
+
+                        default:
+                            if (currentLogLevel >= LogLevel.VERBOSE) {
+                                console.log(`\n${c.dim}[VERBOSE] Unhandled: ${event.type}${c.reset}`);
+                            }
+                            break;
+                    }
+                } catch {
+                    // Ignore parsing errors
+                }
+            }
+        }
+    } catch (err) {
+        log('ERROR', c.red, LogLevel.ERROR, 'Stream error:', err);
+    } finally {
+        if (isInReasoningPhase) {
+            logUpdate.done();
+        }
+    }
+
+    return fullText;
+}
+
+async function handleMessage(message: string): Promise<void> {
+    if (!ctx || !currentChatId) {
+        log('ERROR', c.red, LogLevel.ERROR, 'Context not initialized');
+        return;
+    }
+
+    log('AGENT', c.blue, LogLevel.INFO, 'Sending message...');
+
+    try {
+        const stream = await chatActionHandler({ chatId: currentChatId, message }, ctx, overrideOpts);
+        console.log(`${c.green}--- Assistant ---${c.reset}`);
+        await consumeStream(stream);
+        console.log(`\n${c.dim}-----------------${c.reset}`);
+    } catch (error) {
+        log('ERROR', c.red, LogLevel.ERROR, 'Handler failed:', error);
+    }
+}
+
+// Wrap execution in async main IIFE to avoid top-level await issues
+(async () => {
+    try {
+        await setup();
+
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+        });
+
+        console.log(`${c.bright}Chat Handler Test Harness (runnor)${c.reset}`);
+        console.log(
+            `Commands: ${c.cyan}/quit${c.reset}, ${c.cyan}/new${c.reset}, ${c.cyan}/debug [level]${c.reset}, ${c.cyan}/reasoning${c.reset}\n`,
+        );
+
+        // Save cursor position before starting the prompt loop
+        process.stdout.write(ANSI.SAVE_CURSOR);
+
+        const prompt = () => {
+            rl.question(`${c.bright}You:${c.reset} `, async (input) => {
+                const trimmed = input.trim();
+
+                if (!trimmed) {
+                    prompt();
+                    return;
+                }
+
+                if (trimmed.startsWith('/')) {
+                    const parts = trimmed.split(' ');
+                    const cmd = parts[0].toLowerCase();
+
+                    if (['/quit', '/exit', '/q'].includes(cmd)) {
+                        console.log('Bye!');
+                        rl.close();
+                        process.exit(0);
+                    } else if (cmd === '/debug') {
+                        const levelStr = (parts[1] || '').toUpperCase();
+                        if (levelStr in LogLevel && isNaN(Number(levelStr))) {
+                            currentLogLevel = (LogLevel as any)[levelStr];
+                            console.log(`${c.green}Log level set to: ${c.bright}${levelStr}${c.reset}`);
+                        } else {
+                            console.log(`${c.yellow}Usage: /debug [ERROR|WARN|INFO|DEBUG|VERBOSE]${c.reset}`);
+                            console.log(`${c.dim}Current level: ${LogLevel[currentLogLevel]}${c.reset}`);
+                        }
+                    } else if (cmd === '/reasoning') {
+                        showReasoning = !showReasoning;
+                        console.log(`${c.green}Show reasoning: ${c.bright}${showReasoning}${c.reset}`);
+                    } else if (cmd === '/new') {
+                        await createNewChat();
+                    } else if (cmd === '/nuke') {
+                        await nukeProject();
+                    } else {
+                        console.log('Unknown command');
+                    }
+
+                    prompt();
+                    return;
+                }
+
+                await handleMessage(trimmed);
+                console.log('');
+                prompt();
+            });
+        };
+
+        prompt();
+    } catch (err) {
+        console.error(err);
+    }
+})();

@@ -369,12 +369,18 @@ Response always indicates `action: 'created' | 'replaced' | 'creating' | 'replac
 
 Documents referenced in chat are persisted via directives in message content:
 
-**Format:** `::document[document-name.md]`
+**Format:** `::document[document-name.md]{version=X action=Y lines=Z}`
 
-**Injection:** The tool executor returns `appendedOutput` which the agent runner:
-1. Appends to `accumulatedContent`
-2. Emits as a delta to frontend
-3. Saves with the message
+**Injection:** The tool executor returns `appendedOutput` (just the directive, no whitespace):
+```typescript
+appendedOutput: `::document[${name}]{version=${v} action=${action} lines=${lines}}`
+```
+
+The agent runner handles **context-aware whitespace**:
+- If there's existing content → adds `\n\n` **before** the directive
+- If no existing content → adds `\n\n` **after** the directive
+
+This ensures proper separation without leading blank lines when the directive comes first.
 
 **Frontend:** Parses directives on render, shows interactive document button/card.
 
@@ -409,8 +415,8 @@ export class ArtifactEntity {
     @ManyToOne(() => 'ChatEntity')
     chat!: ChatEntity;  // Chat that created this document
 
-    @OneToOne(() => 'ArtifactVersionEntity')
-    currentVersion!: ArtifactVersionEntity;
+    @OneToOne(() => 'ArtifactVersionEntity', { nullable: true, eager: true })
+    currentVersion!: ArtifactVersionEntity;  // Nullable to handle circular FK on insert
 
     @OneToMany(() => 'ArtifactVersionEntity', v => v.artifact)
     versions = new Collection<ArtifactVersionEntity>(this);
@@ -419,6 +425,8 @@ export class ArtifactEntity {
     metadata?: Record<string, unknown>;
 }
 ```
+
+**Note:** `currentVersion` is nullable at the database level to break the circular FK dependency during insert. The two-phase insert (artifact first, then version, then link) is wrapped in `em.transactional()` for atomicity.
 
 ### DocumentVersionEntity (currently ArtifactVersionEntity)
 
@@ -485,6 +493,13 @@ export class ArtifactVersionEntity {
    - Clear buffer from memory
    - Inject directive
 
+**New Artifact Creation:** Uses two-phase insert wrapped in `em.transactional()`:
+1. Insert artifact with `current_version_id = NULL`
+2. Insert version with `artifact_id` pointing to artifact
+3. Update artifact to set `current_version_id`
+
+This handles the circular FK dependency while maintaining atomicity (rollback on failure).
+
 ---
 
 ## Tool Descriptions (for Model)
@@ -524,26 +539,34 @@ export class ArtifactVersionEntity {
 ## Implementation Checklist
 
 ### Phase 1: Core Infrastructure
-- [ ] Add `lineCount` field to `ArtifactVersionEntity`
-- [ ] Add `name` field to `ArtifactEntity` (rename from `key`)
-- [ ] Implement name normalization (auto-append `.md`)
-- [ ] Implement in-memory draft buffer manager
-- [ ] Wire `appendedOutput` support in tool execution
+- [x] Add `lineCount` field to `ArtifactVersionEntity`
+- [x] Add `name` field to `ArtifactEntity` (uses `key` field)
+- [x] Implement name normalization (auto-append `.md`)
+- [x] Implement in-memory draft buffer manager (`draft-manager.ts`)
+- [x] Wire `appendedOutput` support in tool execution
 
 ### Phase 2: Tool Implementation
-- [ ] `write_document` — one-shot streaming with atomic commit
-- [ ] `begin_document` — create draft (empty or with current content)
-- [ ] `continue_document` — append to draft
-- [ ] `finish_document` — commit draft
-- [ ] `read_document` — draft-aware with viewport
-- [ ] `edit_document` — draft-aware with validation
+- [x] `write_document` — one-shot streaming with atomic commit
+- [x] `begin_document` — create draft (empty or with current content)
+- [x] `continue_document` — append to draft
+- [x] `finish_document` — commit draft
+- [x] `read_document` — draft-aware with viewport
+- [x] `edit_document` — draft-aware with validation (validation not yet implemented)
+- [x] `list_documents` — browse with optional filter
 
 ### Phase 3: Discovery
-- [ ] `list_documents` — browse with optional filter
 - [ ] `search_documents` — semantic search (requires chunking/embedding)
 
-### Phase 4: Frontend
-- [ ] Directive parsing (`::document[name.md]`)
+### Phase 4: Frontend Events (Backend Extraction)
+- [x] `document_start` — emit when streaming tool begins
+- [x] `document_delta` — emit extracted content from `tool_call_delta`
+- [x] `document_complete` — emit on tool success
+- [x] `document_edit` — emit on edit success
+- [x] Use `StreamingFieldParser` in chat-handler for content extraction
+- [x] Lazy parser setup for `continue_document`
+
+### Phase 5: Frontend
+- [ ] Directive parsing (`::document[name.md]{...}`)
 - [ ] Document panel/viewer
 - [ ] Real-time streaming display
 - [ ] Version history UI

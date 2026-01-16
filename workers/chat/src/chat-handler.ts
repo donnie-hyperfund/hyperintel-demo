@@ -1,6 +1,8 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { runAgentStream } from '@common/ai/agent';
-import { AIParamsType } from '@common/ai/inference';
-import { ANTHROPIC_MODELS } from '@common/ai/types';
+import { AIParamsType, ParamsWithType } from '@common/ai/inference';
+import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { getLangfusePrompt, getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
 import { serializeException } from '@/common/ai/utils';
@@ -8,7 +10,20 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SendChatActionDto } from '@/lib/schema/chat';
 import { Ctx } from './context';
+import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, getDraftManager } from './tools/documents';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
+import { createDocumentEventHandler } from './utils/document-events';
+
+export interface ChatHandlerOptions {
+    /** Override inference params (model/provider). If not set, uses default OpenRouter config. */
+    overrideInference?: ParamsWithType;
+    /**
+     * Load prompts from local .md files instead of Langfuse.
+     * - `true` uses default path: 'zlocal/prompts/'
+     * - string specifies custom path relative to project root
+     */
+    useLocalPrompts?: true | string;
+}
 
 // ============================================================================
 // PMA CONFIG
@@ -74,16 +89,51 @@ async function compileTemplate(template: string, params?: Record<string, unknown
 }
 
 const USE_SHORT_PROMPTS = false;
+const DEFAULT_LOCAL_PROMPTS_PATH = 'zlocal/prompts';
+
+/** Convert Langfuse slug to local filename (strips folder prefix, adds .md) */
+function slugToLocalFile(slug: string): string {
+    const basename = slug.includes('/') ? slug.split('/').pop()! : slug;
+    return `${basename}.md`;
+}
+
+/**
+ * Get prompt content - from local file if localPath provided, otherwise from Langfuse.
+ */
+async function getPromptContent(ctx: Ctx, slug: string, localPath: string | null): Promise<string | null> {
+    if (localPath) {
+        const filename = slugToLocalFile(slug);
+        try {
+            const filePath = path.join(process.cwd(), localPath, filename);
+            return await fs.readFile(filePath, 'utf-8');
+        } catch (err) {
+            console.warn(`[getPromptContent] Failed to read local prompt: ${slug}`, err);
+            return null;
+        }
+    }
+    // Fallback to Langfuse
+    try {
+        return await getLangfusePromptRaw(ctx.langfuse!, slug);
+    } catch {
+        return null;
+    }
+}
 
 /**
  * Build the system prompt, fetching content for all loaded slugs.
+ * @param localPath - If provided, loads from local .md files instead of Langfuse
  */
-async function buildSystemPrompt(ctx: Ctx, loadedPrompts: Set<string>): Promise<string> {
+async function buildSystemPrompt(
+    ctx: Ctx,
+    loadedPrompts: Set<string>,
+    localPath: string | null = null,
+): Promise<string> {
     // Base system prompt
-    const systemPromptRaw = await getLangfusePromptRaw(
-        ctx.langfuse!,
-        USE_SHORT_PROMPTS ? 'pma_short/system-prompt' : 'pma/system-prompt',
-    );
+    const systemSlug = USE_SHORT_PROMPTS ? 'pma_short/system-prompt' : 'pma/system-prompt';
+    const systemPromptRaw = await getPromptContent(ctx, systemSlug, localPath);
+    if (!systemPromptRaw) {
+        throw new Error(`Failed to load system prompt: ${systemSlug}`);
+    }
     let systemPrompt = await compileTemplate(systemPromptRaw, {});
     let allPrompts = ['pma/identity-framework', 'pma/core-methodology', ...loadedPrompts];
 
@@ -93,13 +143,9 @@ async function buildSystemPrompt(ctx: Ctx, loadedPrompts: Set<string>): Promise<
 
     // Fetch and append each loaded document
     for (const slug of allPrompts) {
-        try {
-            const content = await getLangfusePromptRaw(ctx.langfuse!, slug);
-            if (content) {
-                systemPrompt += `\n\n---\n\n# ${slug.toUpperCase()}\n\n${content}`;
-            }
-        } catch {
-            // Skip failed fetches
+        const content = await getPromptContent(ctx, slug, localPath);
+        if (content) {
+            systemPrompt += `\n\n---\n\n# ${slug.toUpperCase()}\n\n${content}`;
         }
     }
 
@@ -114,6 +160,7 @@ async function streamInternal(
     data: SendChatActionDto,
     ctx: Ctx,
     controller: ReadableStreamDefaultController<Uint8Array>,
+    options: ChatHandlerOptions = {},
 ) {
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
@@ -146,39 +193,68 @@ async function streamInternal(
 
         // Load previously loaded prompts from chat metadata (fallback to empty)
         const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
-        const agentCtx: PromptToolsContext = { loadedPrompts: new Set<string>(savedPrompts) };
+
+        // Create combined agent context for all tool types
+        const agentCtx: PromptToolsContext & DocumentToolsContext = {
+            // Prompt tools context
+            loadedPrompts: new Set<string>(savedPrompts),
+            // Document tools context
+            em: em!,
+            projectId: chat.project.id,
+            chatId: chat.id,
+            draftManager: getDraftManager(),
+        };
+
+        // Resolve local prompts path from options
+        const localPath = options.useLocalPrompts
+            ? options.useLocalPrompts === true
+                ? DEFAULT_LOCAL_PROMPTS_PATH
+                : options.useLocalPrompts
+            : null;
 
         // Get initial system prompt
-        const initialSystemPrompt = await buildSystemPrompt(ctx, agentCtx.loadedPrompts);
+        const initialSystemPrompt = await buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath);
+
+        // Determine inference params - use override if provided, otherwise default
+        const defaultInference: ParamsWithType = {
+            paramsType: AIParamsType.Anthropic,
+            params: { model: ANTHROPIC_MODELS.OPUS },
+        };
+        const inferenceParams = options.overrideInference ?? defaultInference;
 
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
             agentCtx,
-            // @ts-expect-error TODO: should allow passing context with only some providers
+            // @ts-expect-error TODO: should allow passing context with only some providers available
             ctx,
             {
-                paramsType: AIParamsType.Anthropic,
-                params: { model: ANTHROPIC_MODELS.OPUS },
+                ...inferenceParams,
                 instructions: initialSystemPrompt,
                 context: allMessages,
                 maxTokens: 4096 * 3,
             },
-            pmaPromptTools,
+            [...pmaPromptTools, ...createDocumentTools()],
             {
-                toolGroups: [PromptManagementToolGroup],
+                toolGroups: [PromptManagementToolGroup, DocumentToolGroup],
                 config: {
                     maxToolCalls: 20,
-                    getSystemPrompt: async () => buildSystemPrompt(ctx, agentCtx.loadedPrompts),
+                    getSystemPrompt: async () => buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath),
                 },
             },
         );
 
         // Stream events to the client
         let wasTool = false;
+
+        // Document event handler for frontend streaming
+        const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) =>
+            enqueue(docEvent),
+        );
+
         for await (const event of stream) {
-            if (event.type !== 'delta') {
-                console.log('DEBUG ', JSON.stringify(event, undefined, 2));
-            }
+            // Let document handler process the event
+            await docEvents.handle(event);
+
             switch (event.type) {
                 case 'delta':
                     if (wasTool) {
@@ -194,8 +270,10 @@ async function streamInternal(
                     break;
 
                 case 'tool_result':
+                    // TODO: Sanitize error messages - don't expose raw DB errors to caller unless in dev mode
                     enqueue({
                         type: 'tool_result',
+                        tool: event.tool,
                         id: event.id,
                         success: event.success,
                         result: event.result,
@@ -218,6 +296,9 @@ async function streamInternal(
                             chat: chatId,
                             role: 'assistant',
                             content: assistantContent,
+                            metadata: {
+                                streamLog: event.streamLog,
+                            },
                         });
                         em!.persist(assistantMsg);
                     }
@@ -232,6 +313,14 @@ async function streamInternal(
                     enqueue('[DONE]');
                     break;
                 }
+
+                case 'done':
+                    enqueue({ type: 'done', outputType: event.outputType, outputTool: event.outputTool });
+                    break;
+
+                case 'status_update':
+                    enqueue({ type: 'status_update', source: event.source, status: event.status });
+                    break;
 
                 case 'error':
                     enqueue({ type: 'error', error: String(event.error) });
@@ -263,12 +352,8 @@ async function streamInternal(
                     enqueue({ type: 'reasoning_done', blockId: event.blockId });
                     break;
 
-                case 'status_update':
-                    enqueue({ type: 'status_update', source: event.source, status: event.status });
-                    break;
-
                 default:
-                    console.log('Unknown stream event: ', event);
+                    // Ignore or log other types silently if needed
                     break;
             }
         }
@@ -309,11 +394,11 @@ async function streamInternal(
 // EXPORT
 // ============================================================================
 
-export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx) {
+export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, options: ChatHandlerOptions = {}) {
     let ready = false;
     const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
-            const handler = streamInternal(data, ctx, controller);
+            const handler = streamInternal(data, ctx, controller, options);
             ctx.eCtx?.waitUntil(handler);
             ready = true;
             await handler;
