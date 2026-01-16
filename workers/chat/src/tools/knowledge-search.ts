@@ -1,7 +1,7 @@
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EntityManager } from '@mikro-orm/postgresql';
-import type { OpenAI } from '@worker/vendor/openai';
-import { embedTexts } from '@worker/vendor/openrouter-embeddings';
+import type OpenAI from 'openai';
+import { embedTexts } from '@common/ai/embeddings';
 import { z } from 'zod';
 
 export interface KnowledgeSearchContext {

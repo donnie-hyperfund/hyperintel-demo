@@ -18,7 +18,7 @@ Database Storage (ArtifactEmbeddingEntity[])
 
 ## Components
 
-### 1. Chunking (`workers/_common/utils/llm-chunker.ts`)
+### 1. Chunking (`common/ai/utils/chunking.ts`)
 
 **Function:** `chunkContent()`
 
@@ -48,7 +48,9 @@ type Chunk = {
 
 **Example:**
 ```typescript
-import { chunkContent } from '@worker/utils/llm-chunker';
+import { chunkContent } from '@common/ai/utils/chunking';
+// or from main index:
+// import { chunkContent } from '@common/ai';
 import { OpenRouter } from '@openrouter/sdk';
 
 const openrouterClient = new OpenRouter({ apiKey: '...' });
@@ -56,14 +58,14 @@ const chunks = await chunkContent(openrouterClient, documentContent);
 // chunks = [{ content: "...", start_line: 0, end_line: 15 }, ...]
 ```
 
-### 2. Embeddings (`workers/_common/vendor/openrouter-embeddings.ts`)
+### 2. Embeddings (`common/ai/embeddings/index.ts`)
 
 **Function:** `embedTexts()`
 
 **Description:** Generates embedding vectors for texts using OpenAI.
 
 **Parameters:**
-- `client: OpenAI` - OpenAI client (from `@worker/vendor/openai`)
+- `client: OpenAI` - OpenAI client (from `openai` package)
 - `texts: string[]` - array of texts to embed
 - `model?: EmbeddingModel` - embedding model (default: `text-embedding-3-small`)
 - `dimensions?: number` - vector dimension (default: 1024)
@@ -82,15 +84,16 @@ const chunks = await chunkContent(openrouterClient, documentContent);
 
 **Example:**
 ```typescript
-import { embedTexts } from '@worker/vendor/openrouter-embeddings';
-import { createOpenAIClient } from '@worker/vendor/openai';
+import { embedTexts } from '@common/ai/embeddings';
+// or from main index:
+// import { embedTexts } from '@common/ai';
+import type OpenAI from 'openai';
 
-const openaiClient = await createOpenAIClient(env);
 const embeddings = await embedTexts(openaiClient, ['text 1', 'text 2']);
 // embeddings = [[0.123, -0.456, ...], [0.789, 0.012, ...]]
 ```
 
-### 3. Indexing (`workers/chat/src/services/artifact-indexer.ts`)
+### 3. Indexing (`workers/_common/artifact.helpers.ts`)
 
 #### 3.1. Indexing Single Artifact
 
@@ -115,20 +118,16 @@ const embeddings = await embedTexts(openaiClient, ['text 1', 'text 2']);
 
 **Example:**
 ```typescript
-import { indexArtifactVersion } from '@worker/services/artifact-indexer';
-import { createOpenAIClient } from '@worker/vendor/openai';
-import { createOpenRouterSdkClient } from '@worker/vendor/openrouter';
-
-const openaiClient = await createOpenAIClient(env);
-const openrouterClient = await createOpenRouterSdkClient(env);
-const em = ctx.em; // from context
+import { indexArtifactVersion } from '@worker/artifact.helpers';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 
 const result = await indexArtifactVersion(
     openaiClient,
     openrouterClient,
     em,
     artifactVersion,
-    projectId
+    projectId,
+    ArtifactEmbeddingEntity
 );
 // result = { indexed: 5, deleted: 3 }
 ```
@@ -157,13 +156,15 @@ const result = await indexArtifactVersion(
 
 **Example:**
 ```typescript
-import { reindexProject } from '@worker/services/artifact-indexer';
+import { reindexProject } from '@worker/artifact.helpers';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 
 const result = await reindexProject(
     openaiClient,
     openrouterClient,
     em,
-    projectId
+    projectId,
+    ArtifactEmbeddingEntity
 );
 // result = { total: 42, artifacts: 10 }
 ```
@@ -285,8 +286,8 @@ CREATE TABLE "artifact_embeddings" (
 
 ```typescript
 // workers/chat/src/index.ts or similar file
-import { indexArtifactVersion } from './services/artifact-indexer';
-import { Ctx } from './context';
+import { indexArtifactVersion } from '@worker/artifact.helpers';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext) {
@@ -302,7 +303,8 @@ export default {
             inferredCtx.orouterSdk,
             inferredCtx.em,
             artifactVersion,
-            projectId
+            projectId,
+            ArtifactEmbeddingEntity
         );
     }
 }
@@ -312,7 +314,8 @@ export default {
 
 ```typescript
 // app/api/artifacts/[id]/index/route.ts
-import { indexArtifactVersion } from '@/workers/chat/src/services/artifact-indexer';
+import { indexArtifactVersion } from '@/workers/_common/artifact.helpers';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 import { getOrm } from '@/lib/orm';
 import { openai } from '@/lib/vendor/openai';
 import { orouterSdk } from '@/lib/vendor/openrouter';
@@ -326,7 +329,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
         orouterSdk,
         em,
         artifactVersion,
-        artifactVersion.project.id
+        artifactVersion.project.id,
+        ArtifactEmbeddingEntity
     );
     
     return Response.json(result);
@@ -399,12 +403,16 @@ artifact.currentVersion = version;
 await em.persistAndFlush([artifact, version]);
 
 // 2. Indexing (automatic after creation)
+import { indexArtifactVersion } from '@worker/artifact.helpers';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
+
 await indexArtifactVersion(
     ctx.openai,
     ctx.orouterSdk,
     ctx.em,
     version,
-    projectId
+    projectId,
+    ArtifactEmbeddingEntity
 );
 
 // 3. Document is now available for search
