@@ -93,7 +93,7 @@ const embeddings = await embedTexts(openaiClient, ['text 1', 'text 2']);
 // embeddings = [[0.123, -0.456, ...], [0.789, 0.012, ...]]
 ```
 
-### 3. Indexing (`workers/_common/artifact.helpers.ts`)
+### 3. Indexing (`lib/orm/artifacts/artifact.helpers.ts`)
 
 #### 3.1. Indexing Single Artifact
 
@@ -118,7 +118,7 @@ const embeddings = await embedTexts(openaiClient, ['text 1', 'text 2']);
 
 **Example:**
 ```typescript
-import { indexArtifactVersion } from '@worker/artifact.helpers';
+import { indexArtifactVersion } from '@/lib/orm/artifacts/artifact.helpers';
 import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 
 const result = await indexArtifactVersion(
@@ -156,7 +156,7 @@ const result = await indexArtifactVersion(
 
 **Example:**
 ```typescript
-import { reindexProject } from '@worker/artifact.helpers';
+import { reindexProject } from '@/lib/orm/artifacts/artifact.helpers';
 import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 
 const result = await reindexProject(
@@ -286,7 +286,7 @@ CREATE TABLE "artifact_embeddings" (
 
 ```typescript
 // workers/chat/src/index.ts or similar file
-import { indexArtifactVersion } from '@worker/artifact.helpers';
+import { indexArtifactVersion } from '@/lib/orm/artifacts/artifact.helpers';
 import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 
 export default {
@@ -314,7 +314,7 @@ export default {
 
 ```typescript
 // app/api/artifacts/[id]/index/route.ts
-import { indexArtifactVersion } from '@/workers/_common/artifact.helpers';
+import { indexArtifactVersion } from '@/lib/orm/artifacts/artifact.helpers';
 import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 import { getOrm } from '@/lib/orm';
 import { openai } from '@/lib/vendor/openai';
@@ -364,6 +364,8 @@ runAgentStream(
 
 ### For `indexArtifactVersion` / `reindexProject`:
 
+**Location:** `lib/orm/artifacts/artifact.helpers.ts`
+
 ```typescript
 {
     openai: OpenAI,           // from createOpenAIClient(env)
@@ -403,7 +405,7 @@ artifact.currentVersion = version;
 await em.persistAndFlush([artifact, version]);
 
 // 2. Indexing (automatic after creation)
-import { indexArtifactVersion } from '@worker/artifact.helpers';
+import { indexArtifactVersion } from '@/lib/orm/artifacts/artifact.helpers';
 import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 
 await indexArtifactVersion(
