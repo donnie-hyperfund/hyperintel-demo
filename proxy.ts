@@ -69,6 +69,11 @@ export default clerkMiddleware(async (auth, req) => {
         }
     }
 
+    // Additional safety check to redirect to new-project if user is not found
+    if (!clerkUserId && pathname === '/') {
+        return NextResponse.redirect(new URL('/new-project', req.url));
+    }
+
     return NextResponse.next();
 });
 
