@@ -166,6 +166,9 @@ async function streamInternal(
     const { anthropic, langfuse, em } = ctx;
     const encoder = new TextEncoder();
 
+    // Capture request start time for user message timestamp
+    const requestStartedAt = new Date();
+
     const enqueue = (data: object | string) => {
         const payload = typeof data === 'string' ? data : JSON.stringify(data);
         controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
@@ -186,6 +189,7 @@ async function streamInternal(
         const historyMessages = dbMessages.map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
+            ...(m.blocks && { blocks: m.blocks }),
         }));
 
         // Add the new user message
@@ -218,7 +222,7 @@ async function streamInternal(
         // Determine inference params - use override if provided, otherwise default
         const defaultInference: ParamsWithType = {
             paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.OPUS },
+            params: { model: ANTHROPIC_MODELS.OPUS, thinking: true, thinkingBudget: 8000 },
         };
         const inferenceParams = options.overrideInference ?? defaultInference;
 
@@ -232,6 +236,8 @@ async function streamInternal(
                 instructions: initialSystemPrompt,
                 context: allMessages,
                 maxTokens: 4096 * 3,
+                countReasoningAsContent: true,
+                contentThreshold: 5,
             },
             [...pmaPromptTools, ...createDocumentTools()],
             {
@@ -271,6 +277,7 @@ async function streamInternal(
 
                 case 'tool_result':
                     // TODO: Sanitize error messages - don't expose raw DB errors to caller unless in dev mode
+                    console.log('[DEBUG] tool_result event:', JSON.stringify(event));
                     enqueue({
                         type: 'tool_result',
                         tool: event.tool,
@@ -281,24 +288,25 @@ async function streamInternal(
                     break;
 
                 case 'done_ext': {
-                    // Save user message
+                    // Save user message with request start time (prevents timestamp collision with assistant)
                     const userMsg = em!.create(ChatMessageEntity, {
                         chat: chatId,
                         role: 'user',
                         content: message,
+                        created_at: requestStartedAt,
                     });
                     em!.persist(userMsg);
 
-                    // Save assistant reply (use accumulatedText or finalOutput)
-                    const assistantContent = event.streamLog.fullContent ?? '';
-                    if (assistantContent) {
+                    // Save assistant reply with structured data
+                    const streamLog = event.streamLog;
+                    const assistantContent = streamLog.fullContent ?? '';
+                    if (assistantContent || streamLog.blocks.length > 0) {
                         const assistantMsg = em!.create(ChatMessageEntity, {
                             chat: chatId,
                             role: 'assistant',
                             content: assistantContent,
-                            metadata: {
-                                streamLog: event.streamLog,
-                            },
+                            reasoning: streamLog.fullReasoning || null,
+                            blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
                         });
                         em!.persist(assistantMsg);
                     }

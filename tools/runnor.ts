@@ -4,6 +4,7 @@
  * Run with: npx tsx tools/runnor.ts
  */
 
+import { serializeException } from '@common/ai';
 import { AIParamsType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import logUpdate from 'log-update';
@@ -20,11 +21,11 @@ import { ChatHandlerOptions, chatActionHandler } from '@/workers/chat/src/chat-h
 const overrideOpts: ChatHandlerOptions = {
     // useLocalPrompts: true,
     overrideInference: {
-        //paramsType: AIParamsType.Anthropic,
-        //params: { model: ANTHROPIC_MODELS.OPUS },
-        paramsType: AIParamsType.OpenRouter,
-        // params: { model: COMMON_MODELS.LLAMA_MAVERICK, reasoning: true },
-        params: { model: COMMON_MODELS.CLAUDE_OPUS, reasoning: true },
+        paramsType: AIParamsType.Anthropic,
+        params: { model: ANTHROPIC_MODELS.OPUS, thinking: true },
+        //paramsType: AIParamsType.OpenRouter,
+        //params: { model: COMMON_MODELS.LLAMA_MAVERICK, reasoning: true },
+        //params: { model: COMMON_MODELS.CLAUDE_OPUS, reasoning: true },
         /*
 
 We are testing UI. Create a document with one-shot.
@@ -210,24 +211,68 @@ async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string
     let fullText = '';
     let buffer = '';
 
-    // Reasoning display state
+    // === UI State ===
+    const THINKING_LINES = 4;
     let statusText = 'Thinking...';
     let reasoningBuffer = '';
-    let isInReasoningPhase = false;
-    const REASONING_LINES = 5;
+    let isInThinkingPhase = false;
+    let thinkingHasContent = false;
 
-    const renderThinking = () => {
+    // Actions log (tools executed during thinking)
+    const actions: string[] = [];
+
+    // Document cards to show at end
+    const documents: { name: string; version: number; lines: number; action: string }[] = [];
+
+    // Render the collapsible thinking+actions header
+    const renderThinkingHeader = () => {
         if (!showReasoning) return;
 
         const lines = reasoningBuffer.split('\n');
-        const visibleLines = lines.length > REASONING_LINES ? lines.slice(-REASONING_LINES) : lines;
+        const visibleLines = lines.length > THINKING_LINES ? lines.slice(-THINKING_LINES) : lines;
 
-        let output = `${c.dim}⏳ ${statusText}${c.reset}\n`;
-        if (visibleLines.length > 0 && visibleLines.some((l) => l.trim())) {
-            output += `${c.dim}${visibleLines.join('\n')}${c.reset}`;
+        let output = `${c.dim}┌─ ▶ Thinking + Actions ────────────────────┐${c.reset}\n`;
+        output += `${c.dim}│ 💭 "${statusText}"${c.reset}\n`;
+
+        // Show last few reasoning lines
+        for (const line of visibleLines) {
+            if (line.trim()) {
+                const truncated = line.length > 45 ? line.substring(0, 42) + '...' : line;
+                output += `${c.dim}│    ${truncated}${c.reset}\n`;
+            }
         }
 
+        // Show recent actions (max 3)
+        const recentActions = actions.slice(-3);
+        for (const action of recentActions) {
+            output += `${c.dim}│ 🔧 ${action}${c.reset}\n`;
+        }
+
+        output += `${c.dim}└────────────────────────────────────────────┘${c.reset}`;
+
         logUpdate(output);
+    };
+
+    // Finalize thinking section (collapse it)
+    const finalizeThinking = () => {
+        if (!isInThinkingPhase) return;
+        isInThinkingPhase = false;
+
+        // Clear the updating section
+        logUpdate.clear();
+
+        // Print collapsed summary if there was content
+        if (thinkingHasContent || actions.length > 0) {
+            const actionCount = actions.length;
+            const summary =
+                actionCount > 0
+                    ? `${c.dim}[▼ Thinking + ${actionCount} action${actionCount > 1 ? 's' : ''}]${c.reset}`
+                    : `${c.dim}[▼ Thinking]${c.reset}`;
+            console.log(summary);
+        }
+
+        reasoningBuffer = '';
+        statusText = 'Thinking...';
     };
 
     try {
@@ -253,93 +298,91 @@ async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string
 
                     switch (event.type) {
                         case 'delta':
-                            // If we were in reasoning phase, finalize it
-                            if (isInReasoningPhase) {
-                                logUpdate.done();
-                                isInReasoningPhase = false;
-                                reasoningBuffer = '';
-                            }
+                            finalizeThinking();
                             process.stdout.write(event.text || '');
                             fullText += event.text || '';
                             break;
 
                         case 'status_update':
                             statusText = event.status || 'Thinking...';
-                            if (isInReasoningPhase) {
-                                renderThinking();
+                            if (isInThinkingPhase) {
+                                renderThinkingHeader();
                             }
                             break;
 
                         case 'reasoning_start':
-                            isInReasoningPhase = true;
+                            isInThinkingPhase = true;
+                            thinkingHasContent = false;
                             reasoningBuffer = '';
                             statusText = 'Thinking...';
-                            renderThinking();
+                            renderThinkingHeader();
                             break;
 
                         case 'reasoning_delta':
                             if (showReasoning) {
-                                isInReasoningPhase = true;
+                                isInThinkingPhase = true;
+                                thinkingHasContent = true;
                                 reasoningBuffer += event.text || '';
-                                renderThinking();
+                                renderThinkingHeader();
                             }
                             break;
 
                         case 'reasoning_done':
-                            if (isInReasoningPhase) {
-                                logUpdate.done();
-                                isInReasoningPhase = false;
-                            }
+                            // Don't finalize yet - wait for actual content or tool
                             break;
 
                         case 'tool_start':
-                            if (isInReasoningPhase) {
-                                logUpdate.done();
-                                isInReasoningPhase = false;
-                            }
-                            if (currentLogLevel >= LogLevel.INFO) {
-                                console.log(`\n${c.cyan}[TOOL]${c.reset} ${event.tool}`);
+                            // Add to actions log
+                            actions.push(event.tool);
+                            if (isInThinkingPhase) {
+                                renderThinkingHeader();
+                            } else {
+                                // Not in thinking phase, just log it
+                                console.log(`${c.cyan}🔧${c.reset} ${event.tool}`);
                             }
                             break;
 
                         case 'tool_result':
                             if (!event.success) {
+                                finalizeThinking();
                                 console.log(
-                                    `\n${c.red}[ERROR]${c.reset} Tool ${c.bright}${event.tool}${c.reset} failed:`,
+                                    `${c.red}✗${c.reset} ${event.tool}: ${String(event.result).substring(0, 100)}`,
                                 );
-                                const errStr = String(event.result || 'Unknown error');
-                                console.log(
-                                    `${c.red}${errStr.substring(0, 1000)}${errStr.length > 1000 ? '...' : ''}${c.reset}`,
-                                );
-                            } else if (currentLogLevel >= LogLevel.INFO) {
-                                console.log(`${c.green}✓${c.reset} Tool ${c.bright}${event.tool}${c.reset} completed`);
-                                if (currentLogLevel >= LogLevel.DEBUG && event.result) {
-                                    const resStr = String(event.result);
-                                    console.log(
-                                        `${c.dim}${resStr.substring(0, 500)}${resStr.length > 500 ? '...' : ''}${c.reset}`,
-                                    );
-                                }
+                            } else if (currentLogLevel >= LogLevel.DEBUG) {
+                                console.log(`${c.green}✓${c.reset} ${event.tool}`);
                             }
                             break;
 
-                        case 'error':
-                            if (isInReasoningPhase) {
-                                logUpdate.done();
-                                isInReasoningPhase = false;
-                            }
-                            console.log(`\n${c.red}[ERROR]${c.reset} ${event.error}`);
+                        case 'document_complete':
+                            // Collect for display at end
+                            documents.push({
+                                name: event.name,
+                                version: event.version,
+                                lines: event.lines,
+                                action: event.action,
+                            });
                             break;
+
+                        case 'document_start':
+                        case 'document_delta':
+                            // Silently collected, shown via document_complete
+                            break;
+
+                        case 'error': {
+                            finalizeThinking();
+                            const errMsg = JSON.stringify(serializeException(event.error));
+                            console.log(`${c.red}[ERROR]${c.reset} ${errMsg}`);
+                            break;
+                        }
 
                         case 'done':
                         case 'done_ext':
-                            if (currentLogLevel >= LogLevel.VERBOSE) {
-                                console.log(`\n${c.dim}[VERBOSE] ${event.type}${c.reset}`);
-                            }
+                            // End of stream
                             break;
 
                         default:
                             if (currentLogLevel >= LogLevel.VERBOSE) {
-                                console.log(`\n${c.dim}[VERBOSE] Unhandled: ${event.type}${c.reset}`);
+                                console.log(`${c.dim}[?] ${event.type}${c.reset}`);
                             }
                             break;
                     }
@@ -351,8 +394,17 @@ async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string
     } catch (err) {
         log('ERROR', c.red, LogLevel.ERROR, 'Stream error:', err);
     } finally {
-        if (isInReasoningPhase) {
-            logUpdate.done();
+        finalizeThinking();
+    }
+
+    // === Render document cards at end ===
+    if (documents.length > 0) {
+        console.log(''); // Spacing
+        for (const doc of documents) {
+            const icon = doc.action === 'created' ? '📄' : doc.action === 'replaced' ? '📝' : '✏️';
+            console.log(
+                `${c.cyan}${icon} ${doc.name}${c.reset} ${c.dim}v${doc.version} (${doc.lines} lines)${c.reset}`,
+            );
         }
     }
 

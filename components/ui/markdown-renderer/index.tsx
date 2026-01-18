@@ -8,6 +8,7 @@ import rehypeKatex from 'rehype-katex';
 import rehypeMathjax from 'rehype-mathjax';
 import rehypeRaw from 'rehype-raw';
 import remarkBreaks from 'remark-breaks';
+import remarkDirective from 'remark-directive';
 import remarkFootnotesExtra from 'remark-footnotes-extra';
 import remarkGfm from 'remark-gfm';
 import remarkInlineLinks from 'remark-inline-links';
@@ -50,6 +51,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ markdown, id
                 remarkPlugins={[
                     remarkBreaks,
                     remarkGfm,
+                    remarkDirective,
                     [remarkMath, { singleDollarTextMath: false }],
                     remarkFootnotesExtra,
                     remarkInlineLinks,

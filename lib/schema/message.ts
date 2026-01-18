@@ -1,5 +1,64 @@
 import { z } from 'zod';
 
+// ============================================================================
+// STREAM BLOCK SCHEMAS (mirrors common/ai/agent/types.ts)
+// ============================================================================
+
+const BaseStreamBlockSchema = z.object({
+    id: z.string(),
+    turnIndex: z.number().optional(),
+});
+
+export const TextStreamBlockSchema = BaseStreamBlockSchema.extend({
+    type: z.literal('text'),
+    content: z.string(),
+});
+
+export const ReasoningStreamBlockSchema = BaseStreamBlockSchema.extend({
+    type: z.literal('reasoning'),
+    content: z.string(),
+    source: z.enum(['anthropic', 'openai', 'xai', 'gemini', 'other']).optional(),
+    thinkingSignature: z.string().optional(),
+    redactedThinkingData: z.string().optional(),
+});
+
+export const ToolCallStreamBlockSchema = BaseStreamBlockSchema.extend({
+    type: z.literal('tool_call'),
+    content: z.string(),
+    toolName: z.string(),
+    toolInput: z.any(),
+    toolCallId: z.string(),
+    toolOutput: z.string().optional(),
+    toolSuccess: z.boolean().optional(),
+    appendedOutput: z.string().optional(),
+});
+
+export const SearchStreamBlockSchema = BaseStreamBlockSchema.extend({
+    type: z.literal('search'),
+    content: z.string(),
+    searchQuery: z.string().optional(),
+});
+
+export const CitationStreamBlockSchema = BaseStreamBlockSchema.extend({
+    type: z.literal('citation'),
+    content: z.string(),
+    citationUrl: z.string(),
+});
+
+export const StreamBlockSchema = z.discriminatedUnion('type', [
+    TextStreamBlockSchema,
+    ReasoningStreamBlockSchema,
+    ToolCallStreamBlockSchema,
+    SearchStreamBlockSchema,
+    CitationStreamBlockSchema,
+]);
+
+export type StreamBlockDto = z.infer<typeof StreamBlockSchema>;
+
+// ============================================================================
+// CHAT SCHEMAS
+// ============================================================================
+
 export const ListChatsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),
@@ -37,9 +96,10 @@ export const ChatMessageDtoSchema = z.object({
     id: z.string().uuid(),
     role: z.string(),
     content: z.string(),
+    reasoning: z.string().nullable().optional(),
+    blocks: z.array(StreamBlockSchema).nullable().optional(),
     chat: z.union([z.string().uuid(), z.object({}).passthrough()]),
     metadata: z.record(z.unknown()).nullable().optional(),
     created_at: z.union([z.string(), z.date()]),
 });
 export type ChatMessageDto = z.infer<typeof ChatMessageDtoSchema>;
-

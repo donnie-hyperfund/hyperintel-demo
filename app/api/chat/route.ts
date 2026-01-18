@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getOrm } from '@/lib/orm';
 import { assertAuth } from '@/lib/api/auth-guard';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import { getOrm } from '@/lib/orm';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 
 export const runtime = 'nodejs';
 
@@ -48,11 +48,7 @@ export async function GET() {
         const chatId = chat.id;
 
         // Load messages
-        const messages = await em.find(
-            ChatMessageEntity,
-            { chat: chatId },
-            { orderBy: { created_at: 'ASC' } }
-        );
+        const messages = await em.find(ChatMessageEntity, { chat: chatId }, { orderBy: { created_at: 'ASC' } });
 
         // Return only plain data - no entity references
         return NextResponse.json({
@@ -62,6 +58,8 @@ export async function GET() {
                 id: m.id,
                 role: m.role,
                 content: m.content,
+                reasoning: m.reasoning ?? null,
+                blocks: m.blocks ?? null,
             })),
         });
     } catch (error) {

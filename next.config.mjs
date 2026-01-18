@@ -13,9 +13,6 @@ const isProd = !['development', 'preview'].includes(process.env.VERCEL_ENV);
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     devIndicators: false,
-    eslint: {
-        ignoreDuringBuilds: true,
-    },
     typescript: {
         ignoreBuildErrors: true,
     },

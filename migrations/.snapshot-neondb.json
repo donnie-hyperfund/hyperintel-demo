@@ -367,6 +367,24 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "reasoning": {
+          "name": "reasoning",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "blocks": {
+          "name": "blocks",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "chat_id": {
           "name": "chat_id",
           "type": "uuid",
@@ -563,6 +581,7 @@
             "id"
           ],
           "referencedTableName": "public.artifact_versions",
+          "deleteRule": "set null",
           "updateRule": "cascade"
         }
       },

@@ -45,8 +45,8 @@ importers:
         specifier: 6.4.16
         version: 6.4.16(@mikro-orm/core@6.4.16)
       '@openrouter/sdk':
-        specifier: ^0.3.11
-        version: 0.3.11
+        specifier: ^0.3.14
+        version: 0.3.14
       '@radix-ui/react-accordion':
         specifier: 1.2.2
         version: 1.2.2(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -258,7 +258,7 @@ importers:
         specifier: ^4.0.0
         version: 4.0.0
       remark-directive:
-        specifier: ^3.0.0
+        specifier: ^3.0.1
         version: 3.0.1
       remark-footnotes-extra:
         specifier: ^0.3.0
@@ -1594,8 +1594,8 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@openrouter/sdk@0.3.11':
-    resolution: {integrity: sha512-lXhyY+AFvrOjAqg6fktd/3S/6J5u5yp1nYyP6yluqVTzgnsfZs8/QM3rGa0kZdhB4d/fzJhyT+4oGNM55fH31g==}
+  '@openrouter/sdk@0.3.14':
+    resolution: {integrity: sha512-+smUr3ZmMLXO/vLjXKvQzED44vd+45U4GoSTOOnNcln5lLv4JslPtCRBIYXEVx+adiBsiRkFaq5BAPsZhKIEDA==}
 
   '@poppinss/colors@4.1.6':
     resolution: {integrity: sha512-H9xkIdFswbS8n1d6vmRd8+c10t2Qe+rZITbbDHHkQixH5+2x1FDGmi/0K+WgWiqQFKPSlIYB7jlH6Kpfn6Fleg==}
@@ -6200,7 +6200,7 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
 
-  '@openrouter/sdk@0.3.11':
+  '@openrouter/sdk@0.3.14':
     dependencies:
       zod: 3.25.76
 
