@@ -65,6 +65,11 @@ export const ListChatsQuerySchema = z.object({
 });
 export type ListChatsQueryDto = z.infer<typeof ListChatsQuerySchema>;
 
+export const CreateChatBodySchema = z.object({
+    title: z.string().trim().optional(),
+});
+export type CreateChatBodyDto = z.infer<typeof CreateChatBodySchema>;
+
 export const ListMessagesQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),

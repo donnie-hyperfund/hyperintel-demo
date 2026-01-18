@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { assertAuth } from '@/lib/api/auth-guard';
+import { assertClerkAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
@@ -10,7 +10,7 @@ export const runtime = 'nodejs';
 
 export async function GET() {
     try {
-        const clerkUser = await assertAuth();
+        const clerkUser = await assertClerkAuth();
         const { em } = await getOrm();
 
         // Find user by Clerk ID

@@ -31,6 +31,11 @@ export function createChatApi(getToken: TokenGetter) {
             return data;
         },
 
+        create: async (projectId: string, body?: { title?: string }) => {
+            const { data } = await axios.post<ChatDto>(ENDPOINTS.root(projectId), body || {});
+            return data;
+        },
+
         delete: async (projectId: string, chatId: string) => {
             const { data } = await axios.delete<{ message: string }>(ENDPOINTS.byId(projectId, chatId));
             return data;

@@ -1,14 +1,14 @@
-import { type NextRequest, NextResponse } from 'next/server';
 import { wrap } from '@mikro-orm/core';
+import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { getOrm } from '@/lib/orm/orm';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
+import { validatePayload } from '@/lib/api/validation';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import { getPaginatedResult, createPaginatedResponse } from '@/lib/api/pagination';
-import { validatePayload } from '@/lib/api/validation';
-import { ListMessagesQuerySchema, CreateMessageBodySchema, type ChatMessageDto } from '@/lib/schema/message';
+import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import { getOrm } from '@/lib/orm/orm';
+import { type ChatMessageDto, CreateMessageBodySchema, ListMessagesQuerySchema } from '@/lib/schema/message';
 import { CHAT_ERRORS } from '../../errors';
 
 async function handleGetMessages(
@@ -28,7 +28,8 @@ async function handleGetMessages(
 
     if (queryData instanceof NextResponse) return queryData;
 
-    const query = em.createQueryBuilder(ChatMessageEntity, 'm')
+    const query = em
+        .createQueryBuilder(ChatMessageEntity, 'm')
         .select('m.*')
         .leftJoin('m.chat', 'c')
         .leftJoin('c.project', 'p')
@@ -37,31 +38,23 @@ async function handleGetMessages(
             'p.id': projectId,
             'p.user': user.id,
         })
-        .orderBy({ 'm.created_at': 'ASC' });
+        .orderBy({ 'm.created_at': 'DESC' });
 
     if (queryData.role) {
         query.andWhere({ 'm.role': queryData.role });
     }
 
-    const { nodes, totalCount } = await getPaginatedResult(
-        query,
-        {
-            page: queryData.page ?? 1,
-            perPage: queryData.limit ?? 20,
-        },
-    );
+    const { nodes, totalCount } = await getPaginatedResult(query, {
+        page: queryData.page ?? 1,
+        perPage: queryData.limit ?? 20,
+    });
 
     const mappedNodes = nodes.map((message: ChatMessageEntity): ChatMessageDto => {
         return wrap(message).toJSON();
     });
 
     return NextResponse.json(
-        createPaginatedResponse(
-            mappedNodes,
-            totalCount,
-            queryData.page ?? 1,
-            queryData.limit ?? 20,
-        ),
+        createPaginatedResponse(mappedNodes, totalCount, queryData.page ?? 1, queryData.limit ?? 20),
     );
 }
 
@@ -81,7 +74,8 @@ async function handleCreateMessage(
     const { content, role, metadata } = bodyData;
 
     const result = await em.transactional(async (em) => {
-        let chat = await em.createQueryBuilder(ChatEntity, 'c')
+        let chat = await em
+            .createQueryBuilder(ChatEntity, 'c')
             .select('c.*')
             .leftJoin('c.project', 'p')
             .where({
@@ -92,21 +86,21 @@ async function handleCreateMessage(
             .getSingleResult();
 
         if (!chat) {
-            const project = await em.findOne(ProjectEntity, { 
-                id: projectId, 
-                user: { id: user.id } 
+            const project = await em.findOne(ProjectEntity, {
+                id: projectId,
+                user: { id: user.id },
             });
 
             if (!project) {
                 return null;
             }
 
-        chat = em.create(ChatEntity, {
-            id: chatId,
-            project,
-            phase: 'chat',
-        });
-        await em.persistAndFlush(chat);
+            chat = em.create(ChatEntity, {
+                id: chatId,
+                project,
+                phase: 'chat',
+            });
+            await em.persistAndFlush(chat);
         }
 
         const message = em.create(ChatMessageEntity, {
@@ -148,4 +142,3 @@ export async function POST(
         return await handleCreateMessage(request, projectId, chatId, user);
     })(req);
 }
-

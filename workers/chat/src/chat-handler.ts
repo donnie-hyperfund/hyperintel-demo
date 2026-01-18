@@ -245,6 +245,7 @@ async function streamInternal(
                 config: {
                     maxToolCalls: 20,
                     getSystemPrompt: async () => buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath),
+                    statusUpdates: { enabled: true },
                 },
             },
         );
