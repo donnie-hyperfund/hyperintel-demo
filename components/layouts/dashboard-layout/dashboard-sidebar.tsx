@@ -82,8 +82,17 @@ export function DashboardSidebar() {
                             </SidebarMenuItem>
                             {navItems.map((item) => {
                                 const Icon = item.icon;
-                                const href = projectId ? `/${projectId}${item.href}` : '#';
-                                const isActive = pathname?.startsWith(`/${projectId}${item.href}`);
+                                // Projects page is at dashboard root, not project-scoped
+                                // TODO proper fix, this is moronic
+                                const isProjectsPage = item.href === '/projects';
+                                const href = isProjectsPage
+                                    ? '/projects'
+                                    : projectId
+                                      ? `/${projectId}${item.href}`
+                                      : '#';
+                                const isActive = isProjectsPage
+                                    ? pathname === '/projects'
+                                    : pathname?.startsWith(`/${projectId}${item.href}`);
 
                                 return (
                                     <SidebarMenuItem key={item.label}>

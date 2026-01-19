@@ -1,6 +1,6 @@
 /**
  * Generic context factory for running ANY worker locally in Next.js.
- * 
+ *
  * Usage - types are inferred from projectDeps:
  * ```ts
  * const ctx = await initNextjsWorkerContext();                    // full context
@@ -9,19 +9,24 @@
  * ```
  */
 
-import { createContextFactory, ContextConfig, ContextDependencies, InferredLocalContext } from '@common/common/local.helpers';
-import { getOrm } from '@/lib/orm';
-import { openai } from '@/lib/vendor/openai';
-import { anthropic } from '@/lib/vendor/anthropic';
-import { orouter, orouterSdk } from '@/lib/vendor/openrouter';
-import { envSecretMocks } from '@/lib/local/cf-env-secret-mock';
-import { assertAuth } from '@/lib/api/auth-guard';
-import type { ClerkUser } from '@/lib/types/clerk';
 // For worker Ctx compatibility
 import { createClerkClient } from '@clerk/backend';
+import {
+    ContextConfig,
+    ContextDependencies,
+    createContextFactory,
+    InferredLocalContext,
+} from '@common/common/local.helpers';
+import { waitUntil } from '@vercel/functions';
 import { Langfuse } from 'langfuse';
 import type postgres from 'postgres';
-import { waitUntil } from '@vercel/functions';
+import { assertClerkAuth } from '@/lib/api/auth-guard';
+import { envSecretMocks } from '@/lib/local/cf-env-secret-mock';
+import { getOrm } from '@/lib/orm';
+import type { ClerkUser } from '@/lib/types/clerk';
+import { anthropic } from '@/lib/vendor/anthropic';
+import { openai } from '@/lib/vendor/openai';
+import { orouter, orouterSdk } from '@/lib/vendor/openrouter';
 
 /**
  * Pre-configured dependencies for this project.
@@ -30,7 +35,7 @@ import { waitUntil } from '@vercel/functions';
 const projectDeps = {
     auth: 'clerk',
     database: 'orm',
-    clerkAuth: { getAuth: assertAuth },
+    clerkAuth: { getAuth: assertClerkAuth },
     getOrm,
     openai,
     anthropic,
@@ -60,4 +65,3 @@ export const initNextjsWorkerContext = createContextFactory(projectDeps);
 export type ProjectContext = InferredLocalContext<typeof projectDeps>;
 
 export type { ContextConfig };
-
