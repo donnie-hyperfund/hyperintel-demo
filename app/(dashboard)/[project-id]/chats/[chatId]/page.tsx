@@ -1,3 +1,4 @@
+import { ChatModule } from '@/modules/chat/providers/chat-module';
 import ChatInterface from '../../(chat)/_components/chat-interface';
 
 interface ChatPageProps {
@@ -7,5 +8,9 @@ interface ChatPageProps {
 export default async function ChatPage({ params }: ChatPageProps) {
     const { chatId, 'project-id': projectId } = await params;
 
-    return <ChatInterface chatId={chatId} projectId={projectId} />;
+    return (
+        <ChatModule>
+            <ChatInterface chatId={chatId} projectId={projectId} />
+        </ChatModule>
+    );
 }

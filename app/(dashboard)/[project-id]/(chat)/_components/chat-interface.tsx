@@ -2,10 +2,14 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import ArtifactsPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/artifacts-panel';
 import type { StreamBlock } from '@/common/ai/agent/types';
+import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { createApiClient } from '@/lib/api/client';
 import { sendAction } from '@/lib/api/requests/worker/chat';
+import { cn } from '@/lib/utils';
+import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import ChatConversation from './chat-conversation/chat-conversation';
 import ChatMessageForm from './chat-panel/chat-message-form';
 import type { ChatMessageFormValues } from './chat-panel/chat-message-form/schema';
@@ -26,6 +30,8 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ chatId, projectId, initialMessage }: ChatInterfaceProps) {
+    const { isVisible: isArtifactsPanelVisible, addArtifact, updateArtifact, setCurrentArtifact } = useArtifactContext();
+
     const { getToken } = useAuth();
     const chatConversationRef = useRef<HTMLDivElement>(null);
     const chatMessageFormRef = useRef<HTMLFormElement>(null);
@@ -125,6 +131,9 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
         let currentTextBlockId: string | null = null;
         let currentReasoningBlockId: string | null = null;
         const streamingMsgId = `streaming-${Date.now()}`;
+
+        // Track streaming documents: Map<"name_pendingVersion", { artifactId, content }>
+        const streamingDocs = new Map<string, { artifactId: string; content: string }>();
 
         // Add empty assistant message to start streaming into
         setMessages((prev) => [...prev, { id: streamingMsgId, role: 'assistant', blocks: [], isStreaming: true }]);
@@ -247,19 +256,41 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
                                 }
                                 break;
 
-                            case 'document_start':
-                                console.log('Document start:', event.name);
-                                // TODO: Handle document panel
+                            case 'document_start': {
+                                console.log('document_start', event);
+                                const docKey = `${event.name}_${event.pendingVersion}`;
+                                const artifactId = `doc-${event.name}-v${event.pendingVersion}`;
+                                streamingDocs.set(docKey, { artifactId, content: '' });
+                                addArtifact({
+                                    id: artifactId,
+                                    identifier: event.name,
+                                    title: event.title || event.name,
+                                    type: 'text/markdown',
+                                    content: '',
+                                    messageId: streamingMsgId,
+                                });
+                                setCurrentArtifact(artifactId);
                                 break;
+                            }
 
-                            case 'document_delta':
-                                // TODO: Handle document streaming
+                            case 'document_delta': {
+                                console.log('document_delta', event);
+                                const docKey = `${event.name}_${event.pendingVersion}`;
+                                const doc = streamingDocs.get(docKey);
+                                if (doc) {
+                                    doc.content += event.content;
+                                    updateArtifact(doc.artifactId, { content: doc.content });
+                                }
                                 break;
+                            }
 
-                            case 'document_complete':
-                                console.log('Document complete:', event.name, 'v' + event.version);
-                                // TODO: Show document card
+                            case 'document_complete': {
+                                console.log('document_complete', event);
+                                // Clear tracking for this document
+                                const docKey = `${event.name}_${event.version}`;
+                                streamingDocs.delete(docKey);
                                 break;
+                            }
 
                             case 'status_update':
                                 // Update status indicator
@@ -299,7 +330,7 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
             setMessages((prev) => prev.map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)));
             setIsLoading(false);
         }
-    }, []);
+    }, [addArtifact, updateArtifact, setCurrentArtifact]);
 
     const handleSend = async (data: ChatMessageFormValues) => {
         if (!data.message.trim()) return;
@@ -352,10 +383,19 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
     };
 
     return (
-        <ResizablePanelGroup id="chat-panel-group" direction="horizontal" className="h-full">
+        <ResizablePanelGroup direction="horizontal" className="h-full">
             {/* Chat Panel */}
-            <ResizablePanel defaultSize={75} minSize={40} maxSize={80}>
-                <div className="bg-card flex flex-col border-r border-border relative h-full">
+            <ResizablePanel
+                id="chat-panel"
+                order={1}
+                defaultSize={60}
+                minSize={40}
+                maxSize={80}
+                className={cn(isArtifactsPanelVisible && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
+            >
+                <div className="flex flex-col relative h-full">
+                    <DashboardHeader />
+
                     <ChatConversation messages={messages} isLoading={isLoading} ref={chatConversationRef} />
 
                     <ChatMessageForm
@@ -368,17 +408,16 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
 
             <ResizableHandle className="w-1 bg-border hover:bg-primary/50 transition-colors" />
 
-            {/* Artifacts Panel - placeholder for now */}
-            <ResizablePanel defaultSize={25} minSize={20}>
-                <div className="bg-card flex flex-col h-full overflow-hidden">
-                    <div className="p-4 border-b border-border">
-                        <h3 className="font-semibold">Documents</h3>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4">
-                        <div className="text-muted-foreground text-center py-8">Documents will appear here</div>
-                    </div>
-                </div>
-            </ResizablePanel>
+            {isArtifactsPanelVisible && (
+                <>
+                    <ResizableHandle />
+
+                    {/* Artifacts Panel */}
+                    <ResizablePanel id="artifacts-panel" order={2} defaultSize={40} minSize={20}>
+                        <ArtifactsPanel />
+                    </ResizablePanel>
+                </>
+            )}
         </ResizablePanelGroup>
     );
 }
