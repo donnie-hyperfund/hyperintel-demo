@@ -5,3 +5,4 @@ export * from './chats/chat.entity';
 export * from './chats/chat-message.entity';
 export * from './artifacts/artifact.entity';
 export * from './artifacts/artifact-version.entity';
+export * from './artifacts/artifact-embedding.entity';
