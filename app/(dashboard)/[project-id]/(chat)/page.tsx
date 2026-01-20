@@ -1,6 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
+import { ChatModule } from '@/modules/chat/providers/chat-module';
 import ChatInterface from './_components/chat-interface';
 
 export default function Page() {
@@ -8,5 +9,9 @@ export default function Page() {
     const projectId = params?.['project-id'] as string;
 
     // Render ChatInterface without chatId - it will create one on first message
-    return <ChatInterface projectId={projectId} />;
+    return (
+        <ChatModule>
+            <ChatInterface projectId={projectId} />
+        </ChatModule>
+    );
 }
