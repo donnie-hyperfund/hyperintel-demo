@@ -1,7 +1,7 @@
 import { Entity, ManyToOne, Property, Index } from '@mikro-orm/core';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
-import type { ArtifactVersionEntity } from './artifact-version.entity';
 import type { ProjectEntity } from '../projects/project.entity';
+import type { ArtifactVersionEntity } from './artifact-version.entity';
 
 @Entity({ tableName: 'artifact_embeddings' })
 @Index({ properties: ['project', 'artifact_version'] })
@@ -24,6 +24,6 @@ export class ArtifactEmbeddingEntity extends IdCreatedColumns {
     @Property({ type: 'int' })
     end_line!: number;
 
-    @Property({ columnType: 'vector(1024)' })
+    @Property({ type: 'vector', length: 1024, columnType: 'vector(1024)' })
     embedding!: number[];
 }

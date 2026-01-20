@@ -7,6 +7,7 @@
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EntityManager } from '@mikro-orm/core';
+import { OBJ, parse as parsePartial, STR } from 'partial-json';
 import { z } from 'zod';
 import {
     applyEdits,
@@ -61,15 +62,16 @@ export const DocumentToolGroup: AgentToolGroup = {
 // SCHEMAS
 // ============================================================================
 
-const WriteDocumentParams = z.object({
+const CreateDocumentParams = z.object({
     name: z.string().min(1).describe('Document name (e.g., "market-analysis.md"). Extension auto-appended if missing.'),
-    overwrite: z
-        .boolean()
-        .optional()
-        .nullable()
-        .describe('Set true to replace an existing document. Fails if document exists and not set.'),
     title: z.string().min(1).describe('Display title for the document.'),
-    content: z.string().describe('Full document content in markdown.'),
+    content: z.string().describe('Full document content in markdown. MUST BE THE LAST FIELD IN THE OBJECT!'),
+});
+
+const ReplaceDocumentParams = z.object({
+    name: z.string().min(1).describe('Name of existing document to replace.'),
+    title: z.string().min(1).describe('Display title for the document.'),
+    content: z.string().describe('Full document content in markdown. MUST BE THE LAST FIELD IN THE OBJECT!'),
 });
 
 const BeginDocumentParams = z.object({
@@ -118,41 +120,40 @@ const ListDocumentsParams = z.object({
 export function createDocumentTools() {
     return [
         // ----------------------------------------------------------------
-        // write_document - One-shot create/replace
+        // create_document - Create new document (fails if exists)
         // ----------------------------------------------------------------
         {
-            name: 'write_document' as const,
+            name: 'create_document' as const,
             description:
-                'Create or replace a document. If the document already exists, you must set overwrite: true or the call will fail. If unsure whether it exists, try without overwrite first.',
-            parameters: WriteDocumentParams,
+                'Create a NEW document. Fails if document already exists - use replace_document instead to overwrite existing documents. `content` field must always come last.',
+            parameters: CreateDocumentParams,
             earlyValidate: async (accumulated: string, ctx: DocumentToolsContext) => {
-                // Parse partial JSON to extract name and overwrite
-                let parsed: { name?: string; overwrite?: boolean } | null = null;
+                let parsed: { name?: string } | null = null;
                 try {
-                    parsed = JSON.parse(accumulated);
+                    parsed = parsePartial(accumulated, STR | OBJ);
                 } catch {
-                    /* incomplete JSON */
+                    return null;
                 }
-                if (!parsed?.name) return null; // Not ready
+
+                if (!parsed?.name || typeof parsed.name !== 'string') return null;
+                const nameComplete = /"name"\s*:\s*"(?:[^"\\]|\\.)*"/.test(accumulated);
+                if (!nameComplete) return null;
 
                 const normalizedName = normalizeDocumentName(parsed.name);
                 const exists = await findDocumentByName(ctx.em, ctx.projectId, normalizedName);
 
-                if (exists && !parsed.overwrite) {
-                    return `Document '${normalizedName}' already exists (v${exists.version}). Set overwrite: true to replace.`;
+                if (exists) {
+                    return `Document '${normalizedName}' already exists (v${exists.version}). Use replace_document to overwrite.`;
                 }
-                return true; // Valid
+                return true;
             },
-            executor: async (input: z.infer<typeof WriteDocumentParams>, ctx: DocumentToolsContext) => {
+            executor: async (input: z.infer<typeof CreateDocumentParams>, ctx: DocumentToolsContext) => {
                 const { name, title, content } = input;
                 const { em, projectId, chatId, draftManager } = ctx;
 
                 const normalizedName = normalizeDocumentName(name);
-
-                // Clear any existing draft for this document
                 draftManager.delete(projectId, normalizedName);
 
-                // Upsert to database
                 const result = await upsertDocument(em, projectId, chatId, normalizedName, title, content);
 
                 return {
@@ -162,6 +163,52 @@ export function createDocumentTools() {
             },
         },
 
+        // ----------------------------------------------------------------
+        // replace_document - Replace existing document (fails if doesn't exist)
+        // ----------------------------------------------------------------
+        {
+            name: 'replace_document' as const,
+            description:
+                'Replace an EXISTING document with new content. Fails if document does not exist - use create_document for new documents. `content` field must always come last.',
+            parameters: ReplaceDocumentParams,
+            earlyValidate: async (accumulated: string, ctx: DocumentToolsContext) => {
+                let parsed: { name?: string } | null = null;
+                try {
+                    parsed = parsePartial(accumulated, STR | OBJ);
+                } catch {
+                    return null;
+                }
+
+                if (!parsed?.name || typeof parsed.name !== 'string') return null;
+                const nameComplete = /"name"\s*:\s*"(?:[^"\\]|\\.)*"/.test(accumulated);
+                if (!nameComplete) return null;
+
+                const normalizedName = normalizeDocumentName(parsed.name);
+                const exists = await findDocumentByName(ctx.em, ctx.projectId, normalizedName);
+
+                if (!exists) {
+                    return `Document '${normalizedName}' does not exist. Use create_document for new documents.`;
+                }
+                return true;
+            },
+            executor: async (input: z.infer<typeof ReplaceDocumentParams>, ctx: DocumentToolsContext) => {
+                const { name, title, content } = input;
+                const { em, projectId, chatId, draftManager } = ctx;
+
+                const normalizedName = normalizeDocumentName(name);
+                draftManager.delete(projectId, normalizedName);
+
+                const result = await upsertDocument(em, projectId, chatId, normalizedName, title, content);
+
+                return {
+                    result,
+                    appendedOutput: `::document[${normalizedName}]{version=${result.version} action=${result.action} lines=${result.lines}}`,
+                };
+            },
+        },
+
+        // DISABLED: begin/continue/finish tools need streaming fixes
+        /*
         // ----------------------------------------------------------------
         // begin_document - Start draft session
         // ----------------------------------------------------------------
@@ -298,7 +345,7 @@ export function createDocumentTools() {
                 };
             },
         },
-
+        */
         // ----------------------------------------------------------------
         // read_document - View with viewport
         // ----------------------------------------------------------------

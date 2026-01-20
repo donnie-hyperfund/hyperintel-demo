@@ -5,6 +5,7 @@
 import { createStreamFieldParser } from '@common/ai/agent';
 import type { AgentStreamEvent } from '@common/ai/agent/types';
 import type { EntityManager } from '@mikro-orm/postgresql';
+import { OBJ, parse as parsePartial, STR } from 'partial-json';
 import { findDocumentByName, normalizeDocumentName } from '../tools/documents';
 
 export type DocumentEventEmitter = (event: DocumentEvent) => void;
@@ -56,7 +57,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     emit({ type: 'document_start', name: result.name, title: result.name, pendingVersion });
                 }
 
-                // finish_document or write_document: emit document_complete
+                // finish_document, create_document, or replace_document: emit document_complete
                 if (result.version !== undefined && result.lines !== undefined) {
                     const name = names.get(event.id) || result.name;
                     if (name) {
@@ -85,11 +86,11 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
             }
 
             case 'early_validation_passed': {
-                if (event.tool !== 'write_document') return;
+                if (event.tool !== 'create_document' && event.tool !== 'replace_document') return;
 
                 let parsed: { name?: string; title?: string } = {};
                 try {
-                    parsed = JSON.parse(event.accumulatedArgs);
+                    parsed = parsePartial(event.accumulatedArgs, STR | OBJ);
                 } catch {
                     /* ignore */
                 }
@@ -109,6 +110,8 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         emit({ type: 'document_delta', name: normalizedName, pendingVersion, content: delta });
                     },
                 });
+                // Prime parser with all JSON accumulated so far (so content field is correctly parsed)
+                parser.feed({ type: 'tool_call_delta', tool: event.tool, id: event.id, delta: event.accumulatedArgs });
                 parsers.set(event.id, parser);
 
                 emit({

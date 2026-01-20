@@ -37,7 +37,7 @@ default_secrets: []
 # Object = per-env value (missing env = not included for that env)
 vars:
   CORS_ALLOWED_ORIGIN:
-    dev: "https://dev-app.hyperfund.ai"
+    dev: "https://dev-hyperintel-orpin.vercel.app"
   CLERK_PUBLISHABLE_KEY: "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA"
   LANGFUSE_HOST: "https://us.cloud.langfuse.com"
   LANGFUSE_PUBLIC_KEY: "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780"
@@ -48,7 +48,7 @@ vars:
     dev: "dev"  # prod is unset - code defaults to 'prod'
   APP_BASE:
     production: "https://app.hyperfund.ai/"
-    dev: "https://dev-app.hyperfund.ai/"
+    dev: "https://dev-hyperintel-orpin.vercel.app/"
 
 
 # Default vars included in EVERY worker

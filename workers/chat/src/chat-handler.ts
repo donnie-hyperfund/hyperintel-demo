@@ -259,8 +259,19 @@ async function streamInternal(
         );
 
         for await (const event of stream) {
+            const eventTime = Date.now();
+            console.log(
+                `[STREAM] ${eventTime} event: ${event.type}`,
+                event.type === 'tool_call_delta' ? `delta len=${event.delta?.length}` : '',
+            );
+
             // Let document handler process the event
             await docEvents.handle(event);
+
+            const afterHandle = Date.now();
+            if (afterHandle - eventTime > 10) {
+                console.log(`[STREAM] ${afterHandle} handle took ${afterHandle - eventTime}ms for ${event.type}`);
+            }
 
             switch (event.type) {
                 case 'delta':
