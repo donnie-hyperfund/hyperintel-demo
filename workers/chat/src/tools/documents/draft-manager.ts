@@ -2,7 +2,10 @@
  * Draft Buffer Manager
  *
  * Manages in-memory draft sessions for multi-step document creation/editing.
- * Drafts are keyed by (projectId, documentName) and stored until committed or discarded.
+ *
+ * Key insight: Tool streaming is SEQUENTIAL (verified via test).
+ * When write_document starts, begin_document has already completed.
+ * This means we only need to track ONE current draft at a time.
  */
 
 export interface DraftSession {
@@ -11,109 +14,135 @@ export interface DraftSession {
     title: string;
     projectId: string;
     content: string;
-    /** True if replacing existing document, false if creating new */
-    isReplacing: boolean;
+    /** Draft mode: create new, replace existing, or edit existing */
+    mode: 'create' | 'replace' | 'edit';
+    /** Previous version number (for replace/edit modes) */
     previousVersion?: number;
     createdAt: Date;
 }
 
 /**
  * In-memory draft manager.
- * Instance should be shared across a single chat session.
+ * Tracks the current active draft for sequential tool execution.
+ *
+ * Flow:
+ * 1. begin_document → creates draft, sets as current
+ * 2. write_document → appends to current draft
+ * 3. edit_draft → modifies current draft
+ * 4. finalize_document → commits current draft, clears it
  */
 export class DraftManager {
-    private drafts = new Map<string, DraftSession>();
-
-    private makeKey(projectId: string, name: string): string {
-        return `${projectId}::${name}`;
-    }
+    /** The currently active draft (one at a time due to sequential execution) */
+    private currentDraft: DraftSession | null = null;
 
     /**
-     * Get active draft for a document.
+     * Create a new draft session and set it as current.
+     * @throws Error if there's already an active draft (must finalize first)
      */
-    get(projectId: string, name: string): DraftSession | undefined {
-        return this.drafts.get(this.makeKey(projectId, name));
-    }
-
-    /**
-     * Check if a draft exists for a document.
-     */
-    has(projectId: string, name: string): boolean {
-        return this.drafts.has(this.makeKey(projectId, name));
-    }
-
-    /**
-     * Create a new draft session.
-     * @param initialContent - For replacing existing docs, pass current content. For new docs, pass empty string.
-     */
-    create(
+    begin(
         projectId: string,
         name: string,
         title: string,
+        mode: 'create' | 'replace' | 'edit',
         initialContent = '',
-        isReplacing = false,
         previousVersion?: number,
     ): DraftSession {
-        const session: DraftSession = {
+        if (this.currentDraft) {
+            throw new Error(
+                `Cannot begin draft for "${name}" - already have active draft "${this.currentDraft.name}". ` +
+                    `Call finalize_document first.`,
+            );
+        }
+
+        this.currentDraft = {
             name,
             title,
             projectId,
             content: initialContent,
-            isReplacing,
+            mode,
             previousVersion,
             createdAt: new Date(),
         };
-        this.drafts.set(this.makeKey(projectId, name), session);
-        return session;
+        return this.currentDraft;
     }
 
     /**
-     * Append content to an existing draft.
+     * Get the current active draft.
      */
-    append(projectId: string, name: string, content: string): DraftSession | undefined {
-        const session = this.get(projectId, name);
-        if (session) {
-            session.content += content;
+    getCurrent(): DraftSession | null {
+        return this.currentDraft;
+    }
+
+    /**
+     * Get current draft or throw if none active.
+     */
+    requireCurrent(): DraftSession {
+        if (!this.currentDraft) {
+            throw new Error('No active draft. Call begin_document first.');
         }
-        return session;
+        return this.currentDraft;
     }
 
     /**
-     * Update entire content of a draft (for edits).
+     * Append content to the current draft.
      */
-    updateContent(projectId: string, name: string, content: string): DraftSession | undefined {
-        const session = this.get(projectId, name);
-        if (session) {
-            session.content = content;
-        }
-        return session;
+    append(content: string): DraftSession {
+        const draft = this.requireCurrent();
+        draft.content += content;
+        return draft;
     }
 
     /**
-     * Delete a draft session.
+     * Perform search/replace on the current draft.
+     * @returns Number of replacements made
      */
-    delete(projectId: string, name: string): boolean {
-        return this.drafts.delete(this.makeKey(projectId, name));
+    searchReplace(search: string, replace: string): number {
+        const draft = this.requireCurrent();
+        const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+        const matches = draft.content.match(regex);
+        const count = matches?.length ?? 0;
+        draft.content = draft.content.replace(regex, replace);
+        return count;
     }
 
     /**
-     * Get all active drafts for a project.
+     * Update entire content of the current draft.
      */
-    listForProject(projectId: string): DraftSession[] {
-        const result: DraftSession[] = [];
-        for (const session of this.drafts.values()) {
-            if (session.projectId === projectId) {
-                result.push(session);
-            }
-        }
-        return result;
+    setContent(content: string): DraftSession {
+        const draft = this.requireCurrent();
+        draft.content = content;
+        return draft;
     }
 
     /**
-     * Clear all drafts (e.g., on session end).
+     * Finalize (commit) the current draft and clear it.
+     * Returns the draft data for persistence.
+     */
+    finalize(): DraftSession {
+        const draft = this.requireCurrent();
+        this.currentDraft = null;
+        return draft;
+    }
+
+    /**
+     * Discard the current draft without committing.
+     */
+    discard(): void {
+        this.currentDraft = null;
+    }
+
+    /**
+     * Check if there's an active draft.
+     */
+    hasActive(): boolean {
+        return this.currentDraft !== null;
+    }
+
+    /**
+     * Clear all state (e.g., on session end).
      */
     clear(): void {
-        this.drafts.clear();
+        this.currentDraft = null;
     }
 }
 
