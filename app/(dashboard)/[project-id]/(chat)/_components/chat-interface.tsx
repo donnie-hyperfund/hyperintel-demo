@@ -200,7 +200,17 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
                                     break;
 
                                 case 'reasoning_done':
-                                    // Reasoning block complete
+                                    // Reasoning block complete - capture duration
+                                    if (currentReasoningBlockId && event.durationMs !== undefined) {
+                                        const idx = blocks.findIndex((b) => b.id === currentReasoningBlockId);
+                                        if (idx !== -1) {
+                                            blocks[idx] = {
+                                                ...blocks[idx],
+                                                durationMs: event.durationMs,
+                                            };
+                                            updateStreamingMessage();
+                                        }
+                                    }
                                     currentReasoningBlockId = null;
                                     break;
 

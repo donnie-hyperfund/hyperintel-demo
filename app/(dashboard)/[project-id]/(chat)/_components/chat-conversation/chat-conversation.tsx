@@ -82,9 +82,35 @@ function ThinkingSection({
     };
 
     const toolCount = blocks.filter((b) => b.type === 'tool_call').length;
-    const defaultLabel = toolCount > 0 ? `Thinking + ${toolCount} action${toolCount > 1 ? 's' : ''}` : 'Thinking';
-    // Use status from backend while streaming, otherwise use default
-    const label = isStreaming && status ? status : defaultLabel;
+    const actionSuffix = toolCount > 0 ? ` + ${toolCount} action${toolCount > 1 ? 's' : ''}` : '';
+
+    // Calculate total reasoning duration from reasoning blocks
+    const reasoningBlocks = blocks.filter((b) => b.type === 'reasoning');
+    const totalReasoningMs = reasoningBlocks.reduce((sum, b) => sum + (b.durationMs ?? 0), 0);
+
+    // Format duration: "5s", "1m 5s", "0.3s" (decimals only if < 1s)
+    const formatDuration = (ms: number): string | null => {
+        if (ms <= 0) return null;
+        const totalSeconds = ms / 1000;
+        if (totalSeconds < 1) {
+            return `${totalSeconds.toFixed(1)}s`;
+        }
+        const mins = Math.floor(totalSeconds / 60);
+        const secs = Math.round(totalSeconds % 60);
+        if (mins > 0) {
+            return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+        }
+        return `${secs}s`;
+    };
+    const formattedDuration = formatDuration(totalReasoningMs);
+
+    // Build label: "Thought for 5s + 2 actions" or fallback to "Thinking + 2 actions"
+    const thoughtLabel = formattedDuration
+        ? `Thought for ${formattedDuration}${actionSuffix}`
+        : `Thinking${actionSuffix}`;
+
+    // Use status from backend while streaming, otherwise show thought duration
+    const label = isStreaming && status ? status : thoughtLabel;
 
     return (
         // biome-ignore lint/a11y/useKeyWithClickEvents: visual toggle, not critical interaction

@@ -76,7 +76,7 @@ const BeginDocumentParams = z.object({
             'Operation mode: "create" (fails if exists), "replace" (fails if not exists), "edit" (loads existing content)',
         ),
     name: z.string().min(1).describe('Document name (e.g., "analysis.md"). Extension auto-appended if missing.'),
-    title: z.string().optional().describe('Display title for the document (required for create/replace).'),
+    title: z.string().optional().nullable().describe('Display title for the document (required for create/replace).'),
 });
 
 const WriteDocumentParams = z.object({
