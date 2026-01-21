@@ -51,6 +51,11 @@
 			"secret_name": "DEV_OPENROUTER_API_KEY"
 		},
 		{
+			"binding": "OPENAI_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "OPENAI_KEY"
+		},
+		{
 			"binding": "LANGFUSE_SECRET_KEY",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "HI_LANGFUSE_SECRET_KEY"
@@ -61,6 +66,14 @@
 			"secret_name": "QUEUE_AUTH_SECRET"
 		}
 	],
+	"queues": {
+		"producers": [
+			{
+				"queue": "hi-embedding-queue",
+				"binding": "EMBEDDING_QUEUE"
+			}
+		]
+	},
 	"env": {
 		"dev": {
 			"vars": {
@@ -69,7 +82,7 @@
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "Development",
-				"CORS_ALLOWED_ORIGIN": "https://dev-hyperintel-orpin.vercel.app"
+				"CORS_ALLOWED_ORIGIN": "https://dev-hyperintel.vercel.app"
 			},
 			"secrets_store_secrets": [
 				{
@@ -93,6 +106,11 @@
 					"secret_name": "DEV_OPENROUTER_API_KEY"
 				},
 				{
+					"binding": "OPENAI_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "OPENAI_KEY"
+				},
+				{
 					"binding": "LANGFUSE_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "HI_LANGFUSE_SECRET_KEY"
@@ -102,7 +120,15 @@
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "QUEUE_AUTH_SECRET"
 				}
-			]
+			],
+			"queues": {
+				"producers": [
+					{
+						"queue": "hi-embedding-queue-dev",
+						"binding": "EMBEDDING_QUEUE"
+					}
+				]
+			}
 		},
 		"experimental": {
 			"vars": {
@@ -111,7 +137,7 @@
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "Development",
-				"CORS_ALLOWED_ORIGIN": "https://dev-hyperintel-orpin.vercel.app"
+				"CORS_ALLOWED_ORIGIN": "https://dev-hyperintel.vercel.app"
 			},
 			"secrets_store_secrets": [
 				{
@@ -135,6 +161,11 @@
 					"secret_name": "DEV_OPENROUTER_API_KEY"
 				},
 				{
+					"binding": "OPENAI_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "OPENAI_KEY"
+				},
+				{
 					"binding": "LANGFUSE_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "HI_LANGFUSE_SECRET_KEY"
@@ -144,7 +175,15 @@
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "QUEUE_AUTH_SECRET"
 				}
-			]
+			],
+			"queues": {
+				"producers": [
+					{
+						"queue": "hi-embedding-queue-experimental",
+						"binding": "EMBEDDING_QUEUE"
+					}
+				]
+			}
 		}
 	},
 	"alias": {

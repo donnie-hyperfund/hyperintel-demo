@@ -37,7 +37,7 @@ default_secrets: []
 # Object = per-env value (missing env = not included for that env)
 vars:
   CORS_ALLOWED_ORIGIN:
-    dev: "https://dev-hyperintel-orpin.vercel.app"
+    dev: "https://dev-hyperintel.vercel.app"
   CLERK_PUBLISHABLE_KEY: "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA"
   LANGFUSE_HOST: "https://us.cloud.langfuse.com"
   LANGFUSE_PUBLIC_KEY: "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780"
