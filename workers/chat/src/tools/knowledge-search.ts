@@ -4,6 +4,11 @@ import type OpenAI from 'openai';
 import { embedTexts } from '@common/ai/embeddings';
 import { z } from 'zod';
 
+/** Escape string for PostgreSQL - prevents SQL injection */
+function escapeSqlString(str: string): string {
+    return str.replace(/'/g, "''");
+}
+
 export interface KnowledgeSearchContext {
     /** OpenAI client for query embeddings (optional - search disabled if not provided) */
     openai?: OpenAI;
@@ -30,7 +35,9 @@ async function searchKnowledge(
 ): Promise<SearchResult[]> {
     const [queryEmbedding] = await embedTexts(client, [query]);
     const embeddingStr = `[${queryEmbedding.join(',')}]`;
+    const escapedProjectId = escapeSqlString(projectId);
 
+    // Use direct interpolation - parameterized queries don't work in CF Workers environment
     const results = (await em.getConnection().execute(
         `
         SELECT
@@ -39,16 +46,15 @@ async function searchKnowledge(
             av.artifact_id,
             a.title,
             a.key,
-            1 - (ae.embedding <=> $1::vector) as similarity
+            1 - (ae.embedding <=> '${embeddingStr}'::vector) as similarity
         FROM artifact_embeddings ae
         JOIN artifact_versions av ON ae.artifact_version_id = av.id
         JOIN artifacts a ON av.artifact_id = a.id
-        WHERE ae.project_id = $2
-          AND 1 - (ae.embedding <=> $1::vector) >= $3
-        ORDER BY ae.embedding <=> $1::vector
-        LIMIT $4
+        WHERE ae.project_id = '${escapedProjectId}'
+          AND 1 - (ae.embedding <=> '${embeddingStr}'::vector) >= ${minSimilarity}
+        ORDER BY ae.embedding <=> '${embeddingStr}'::vector
+        LIMIT ${limit}
         `,
-        [embeddingStr, projectId, minSimilarity, limit],
     )) as SearchResult[];
 
     return results;
