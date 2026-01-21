@@ -1,24 +1,39 @@
 'use client';
 
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useAuth } from '@clerk/nextjs';
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { type ApiClient, createApiClient } from '@/lib/api/client';
+import { sendAction } from '@/lib/api/requests/worker/chat';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import type { ChatState, Message, StreamBlock, StreamEvent } from '../types';
-import { useStreamingContext } from './streaming-provider';
+import { useStreamReader } from '../hooks/use-stream-reader';
+import type { ChatState, Message, StreamBlock } from '../types';
 
 export type ChatContextValue = {
     state: ChatState;
-    sendMessage: (content: string) => void;
+    /** API client for chat operations */
+    api: ApiClient;
+    /** Current chat ID */
+    chatId: string | null;
+    /** Load messages from API for a chat */
+    loadMessages: () => Promise<void>;
+    /** Send a message - creates chat if needed, handles streaming */
+    sendMessage: (content: string) => Promise<void>;
+    /** Stop the current generation */
     stopGeneration: () => void;
+    /** Set the current chat ID */
+    setChatId: (chatId: string | null) => void;
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
-// TODO: Change to real endpoint when backend is ready
-const API_ENDPOINT = '/api/stream-artifact';
-
 type ChatProviderProps = {
     children: ReactNode;
+    /** Project ID for API calls */
+    projectId: string;
+    /** Initial chat ID (optional - will create on first message if not provided) */
+    initialChatId?: string;
+    /** Initial messages to display */
     initialMessages?: Message[];
 };
 
@@ -33,18 +48,18 @@ function createUserMessage(content: string): Message {
     };
 }
 
-/** Streaming state for building assistant messages */
-type StreamingState = {
-    blocks: StreamBlock[];
-    currentTextBlockId: string | null;
-    currentReasoningBlockId: string | null;
-    streamingDocs: Map<string, { artifactId: string; content: string }>;
-};
+export function ChatProvider({ children, projectId, initialChatId, initialMessages = [] }: ChatProviderProps) {
+    const artifactContext = useArtifactContext();
+    const { getToken } = useAuth();
 
-export function ChatProvider({ children, initialMessages = [] }: ChatProviderProps) {
-    const { subscribe, startStream, abort } = useStreamingContext();
-    const { addArtifact, updateArtifact, setCurrentArtifact, setStreamingComplete } = useArtifactContext();
+    // Create API client with auth
+    const api = useMemo(() => createApiClient(getToken), [getToken]);
 
+    // Chat ID state
+    const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
+    const skipNextLoad = useRef(false);
+
+    // Chat state
     const [state, setState] = useState<ChatState>({
         messages: initialMessages,
         isGenerating: false,
@@ -52,319 +67,165 @@ export function ChatProvider({ children, initialMessages = [] }: ChatProviderPro
         streamingMessageId: null,
     });
 
-    // Streaming state ref to avoid stale closures
-    const streamingStateRef = useRef<StreamingState | null>(null);
+    // Abort controller for cancelling requests
+    const abortControllerRef = useRef<AbortController | null>(null);
 
-    // Helper to update the streaming message blocks
-    const updateStreamingBlocks = useCallback((streamingMessageId: string, blocks: StreamBlock[]) => {
+    // State setters for useStreamReader
+    const setMessages = useCallback((action: React.SetStateAction<Message[]>) => {
         setState((prev) => ({
             ...prev,
-            messages: prev.messages.map((msg) =>
-                msg.id === streamingMessageId ? { ...msg, blocks: [...blocks] } : msg,
-            ),
+            messages: typeof action === 'function' ? action(prev.messages) : action,
         }));
     }, []);
 
-    const handleStreamEvent = useCallback(
-        (event: StreamEvent) => {
-            const streaming = streamingStateRef.current;
-            if (!streaming) return;
+    const setIsLoading = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+        setState((prev) => ({
+            ...prev,
+            isGenerating: typeof value === 'function' ? value(prev.isGenerating) : value,
+        }));
+    }, []);
 
-            const streamingMessageId = state.streamingMessageId;
-            if (!streamingMessageId) return;
+    // Use the stream reader hook for SSE processing
+    const { readStream } = useStreamReader({
+        artifactContext,
+        setMessages,
+        setIsLoading,
+    });
 
-            switch (event.type) {
-                // Text content
-                case 'delta': {
-                    if (!event.text) break;
+    /** Load messages from API for the current chat */
+    const loadMessages = useCallback(async () => {
+        if (!chatId) return;
 
-                    if (!streaming.currentTextBlockId) {
-                        streaming.currentTextBlockId = event.blockId || `text-${Date.now()}`;
-                        streaming.blocks.push({ id: streaming.currentTextBlockId, type: 'text', content: '' });
-                    }
+        // Skip reload if we just created this chat
+        if (skipNextLoad.current) {
+            skipNextLoad.current = false;
+            return;
+        }
 
-                    const textIdx = streaming.blocks.findIndex((b) => b.id === streaming.currentTextBlockId);
-                    if (textIdx !== -1 && streaming.blocks[textIdx].type === 'text') {
-                        streaming.blocks[textIdx] = {
-                            ...streaming.blocks[textIdx],
-                            content: streaming.blocks[textIdx].content + event.text,
-                        } as StreamBlock;
-                        updateStreamingBlocks(streamingMessageId, streaming.blocks);
-                    }
-                    break;
-                }
+        try {
+            const data = await api.messages.list(projectId, chatId);
+            // API returns DESC order (newest first), reverse for display (newest at bottom)
+            const apiMessages: Message[] =
+                data.data?.map((m) => {
+                    // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
+                    const blocks: StreamBlock[] =
+                        m.blocks && m.blocks.length > 0
+                            ? (m.blocks as StreamBlock[])
+                            : m.content
+                              ? [{ id: m.id, type: 'text' as const, content: m.content }]
+                              : [];
+                    return {
+                        id: m.id,
+                        role: m.role as 'user' | 'assistant',
+                        blocks,
+                        isStreaming: false,
+                    };
+                }) || [];
+            setState((prev) => ({ ...prev, messages: apiMessages.reverse() }));
+        } catch (error) {
+            console.error('Error loading messages:', error);
+            setState((prev) => ({ ...prev, error: new Error('Failed to load messages') }));
+        }
+    }, [api, chatId, projectId]);
 
-                case 'created':
-                    // Update message ID from server
-                    if (event.id) {
-                        setState((prev) => ({
-                            ...prev,
-                            messages: prev.messages.map((msg) =>
-                                msg.id === prev.streamingMessageId ? { ...msg, id: event.id } : msg,
-                            ),
-                            streamingMessageId: event.id,
-                        }));
-                    }
-                    break;
-
-                // Reasoning/thinking
-                case 'reasoning_start':
-                    streaming.currentReasoningBlockId = event.blockId || `reasoning-${Date.now()}`;
-                    streaming.blocks.push({
-                        id: streaming.currentReasoningBlockId,
-                        type: 'reasoning',
-                        content: '',
-                    });
-                    updateStreamingBlocks(streamingMessageId, streaming.blocks);
-                    break;
-
-                case 'reasoning_delta': {
-                    const text = event.text || event.content;
-                    if (text && streaming.currentReasoningBlockId) {
-                        const idx = streaming.blocks.findIndex((b) => b.id === streaming.currentReasoningBlockId);
-                        if (idx !== -1 && streaming.blocks[idx].type === 'reasoning') {
-                            streaming.blocks[idx] = {
-                                ...streaming.blocks[idx],
-                                content: streaming.blocks[idx].content + text,
-                            } as StreamBlock;
-                            updateStreamingBlocks(streamingMessageId, streaming.blocks);
-                        }
-                    }
-                    break;
-                }
-
-                case 'reasoning_done':
-                    if (streaming.currentReasoningBlockId && event.durationMs !== undefined) {
-                        const idx = streaming.blocks.findIndex((b) => b.id === streaming.currentReasoningBlockId);
-                        if (idx !== -1 && streaming.blocks[idx].type === 'reasoning') {
-                            streaming.blocks[idx] = {
-                                ...streaming.blocks[idx],
-                                durationMs: event.durationMs,
-                            } as StreamBlock;
-                            updateStreamingBlocks(streamingMessageId, streaming.blocks);
-                        }
-                    }
-                    streaming.currentReasoningBlockId = null;
-                    break;
-
-                // Tool calls
-                case 'tool_start':
-                    streaming.blocks.push({
-                        id: event.id || `tool-${Date.now()}`,
-                        type: 'tool_call',
-                        content: '',
-                        toolName: event.tool,
-                        toolInput: {},
-                        toolCallId: event.id,
-                    });
-                    updateStreamingBlocks(streamingMessageId, streaming.blocks);
-                    break;
-
-                case 'tool_result': {
-                    const tIdx = streaming.blocks.findIndex((b) => b.type === 'tool_call' && b.toolCallId === event.id);
-                    if (tIdx !== -1 && streaming.blocks[tIdx].type === 'tool_call') {
-                        streaming.blocks[tIdx] = {
-                            ...streaming.blocks[tIdx],
-                            content: typeof event.result === 'string' ? event.result : JSON.stringify(event.result),
-                            toolOutput: typeof event.result === 'string' ? event.result : JSON.stringify(event.result),
-                            toolSuccess: event.success,
-                        } as StreamBlock;
-                        updateStreamingBlocks(streamingMessageId, streaming.blocks);
-                    }
-                    break;
-                }
-
-                // Documents/artifacts
-                case 'document_start': {
-                    const docKey = `${event.name}_${event.pendingVersion}`;
-                    const artifactId = `doc-${event.name}-v${event.pendingVersion}`;
-                    streaming.streamingDocs.set(docKey, { artifactId, content: '' });
-                    addArtifact(
-                        {
-                            id: artifactId,
-                            identifier: event.name,
-                            title: event.title || event.name,
-                            type: 'text/markdown',
-                            content: '',
-                            messageId: streamingMessageId,
-                        },
-                        true, // isStreaming
-                    );
-                    setCurrentArtifact(artifactId);
-                    break;
-                }
-
-                case 'document_delta': {
-                    const docKey = `${event.name}_${event.pendingVersion}`;
-                    const doc = streaming.streamingDocs.get(docKey);
-                    if (doc) {
-                        doc.content += event.content;
-                        updateArtifact(doc.artifactId, { content: doc.content });
-                    }
-                    break;
-                }
-
-                case 'document_edit': {
-                    const docKey = `${event.name}_${event.pendingVersion}`;
-                    const doc = streaming.streamingDocs.get(docKey);
-                    if (doc && event.edits) {
-                        let content = doc.content;
-                        for (const edit of event.edits) {
-                            const lines = content.split('\n');
-                            const rangeStart = Math.max(0, edit.startLine - 1);
-                            const rangeEnd = Math.min(lines.length, edit.endLine);
-                            const rangeContent = lines.slice(rangeStart, rangeEnd).join('\n');
-                            const newRangeContent = rangeContent.replace(edit.oldContent, edit.newContent);
-                            const newLines = [
-                                ...lines.slice(0, rangeStart),
-                                ...newRangeContent.split('\n'),
-                                ...lines.slice(rangeEnd),
-                            ];
-                            content = newLines.join('\n');
-                        }
-                        doc.content = content;
-                        updateArtifact(doc.artifactId, { content: doc.content });
-                    }
-                    break;
-                }
-
-                case 'document_complete': {
-                    // Try version first, then fall back to checking all keys with this name
-                    // (pendingVersion becomes version after finalization)
-                    let docKey = `${event.name}_${event.version}`;
-                    let completedDoc = streaming.streamingDocs.get(docKey);
-
-                    // If not found, search for any doc with matching name
-                    if (!completedDoc) {
-                        for (const [key, doc] of streaming.streamingDocs.entries()) {
-                            if (key.startsWith(`${event.name}_`)) {
-                                completedDoc = doc;
-                                docKey = key;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (completedDoc) {
-                        setStreamingComplete(completedDoc.artifactId);
-                        streaming.streamingDocs.delete(docKey);
-                    }
-                    break;
-                }
-
-                // Status & control
-                case 'status_update':
-                    setState((prev) => ({
-                        ...prev,
-                        messages: prev.messages.map((msg) =>
-                            msg.id === prev.streamingMessageId || msg.isStreaming
-                                ? { ...msg, status: event.status }
-                                : msg,
-                        ),
-                    }));
-                    break;
-
-                case 'error':
-                    setState((prev) => ({
-                        ...prev,
-                        isGenerating: false,
-                        error: new Error(event.error),
-                        streamingMessageId: null,
-                    }));
-                    streamingStateRef.current = null;
-                    break;
-
-                case 'done':
-                case 'done_ext':
-                    setState((prev) => ({
-                        ...prev,
-                        messages: prev.messages.map((msg) =>
-                            msg.id === prev.streamingMessageId || msg.isStreaming
-                                ? { ...msg, blocks: [...streaming.blocks], isStreaming: false, status: undefined }
-                                : msg,
-                        ),
-                        isGenerating: false,
-                        streamingMessageId: null,
-                    }));
-                    streamingStateRef.current = null;
-                    break;
-
-                default:
-                    // Unknown event types are silently ignored
-                    break;
-            }
-        },
-        [
-            state.streamingMessageId,
-            updateStreamingBlocks,
-            addArtifact,
-            updateArtifact,
-            setCurrentArtifact,
-            setStreamingComplete,
-        ],
-    );
-
+    /** Send a message - creates chat if needed, handles streaming */
     const sendMessage = useCallback(
-        (content: string) => {
+        async (content: string) => {
             if (!content.trim() || state.isGenerating) return;
 
+            // Create user message
             const userMessage = createUserMessage(content);
-            const assistantMessageId = uuidv4();
 
-            // Initialize streaming state
-            streamingStateRef.current = {
-                blocks: [],
-                currentTextBlockId: null,
-                currentReasoningBlockId: null,
-                streamingDocs: new Map(),
-            };
-
-            // Create empty assistant message
-            const assistantMessage: Message = {
-                id: assistantMessageId,
-                role: 'assistant',
-                blocks: [],
-                isStreaming: true,
-                createdAt: new Date(),
-            };
-
+            // Add user message and set loading state
             setState((prev) => ({
                 ...prev,
-                messages: [...prev.messages, userMessage, assistantMessage],
+                messages: [...prev.messages, userMessage],
                 isGenerating: true,
                 error: null,
-                streamingMessageId: assistantMessageId,
             }));
 
-            // TODO: Use POST with messages when backend is ready
-            startStream(API_ENDPOINT, { method: 'GET' });
+            // Get access token for worker auth
+            const accessToken = (await getToken()) ?? '';
+
+            try {
+                // If no chatId, create a new chat first
+                let chatIdToUse = chatId;
+                if (!chatIdToUse) {
+                    const newChat = await api.chats.create(projectId);
+                    chatIdToUse = newChat.id;
+
+                    // Skip the message reload effect
+                    skipNextLoad.current = true;
+                    setChatId(chatIdToUse);
+
+                    // Update URL without navigation using history API
+                    window.history.replaceState(null, '', `/${projectId}/chats/${chatIdToUse}`);
+                }
+
+                // Create abort controller for this request
+                abortControllerRef.current = new AbortController();
+
+                const response = await sendAction(
+                    {
+                        message: content,
+                        chatId: chatIdToUse,
+                    },
+                    accessToken,
+                );
+
+                // Use streaming response
+                if (response.body) {
+                    await readStream(response.body);
+                }
+            } catch (error) {
+                if (error instanceof Error && error.name === 'AbortError') {
+                    // Request was cancelled, don't treat as error
+                    return;
+                }
+                console.error('Error sending message:', error);
+                setState((prev) => ({
+                    ...prev,
+                    isGenerating: false,
+                    error: error instanceof Error ? error : new Error('Failed to send message'),
+                }));
+            } finally {
+                abortControllerRef.current = null;
+            }
         },
-        [state.isGenerating, startStream],
+        [api, chatId, getToken, projectId, readStream, state.isGenerating],
     );
 
+    /** Stop the current generation */
     const stopGeneration = useCallback(() => {
-        abort();
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
 
-        const streaming = streamingStateRef.current;
         setState((prev) => ({
             ...prev,
             messages: prev.messages.map((msg) =>
-                msg.id === prev.streamingMessageId || msg.isStreaming
-                    ? { ...msg, blocks: streaming?.blocks ?? [], isStreaming: false, status: undefined }
-                    : msg,
+                msg.isStreaming ? { ...msg, isStreaming: false, status: undefined } : msg,
             ),
             isGenerating: false,
-            streamingMessageId: null,
         }));
-        streamingStateRef.current = null;
-    }, [abort]);
+    }, []);
 
-    useEffect(() => {
-        const unsubscribe = subscribe(handleStreamEvent);
-        return unsubscribe;
-    }, [subscribe, handleStreamEvent]);
-
-    return <ChatContext.Provider value={{ state, sendMessage, stopGeneration }}>{children}</ChatContext.Provider>;
+    return (
+        <ChatContext.Provider
+            value={{
+                state,
+                api,
+                chatId,
+                loadMessages,
+                sendMessage,
+                stopGeneration,
+                setChatId,
+            }}
+        >
+            {children}
+        </ChatContext.Provider>
+    );
 }
 
 export function useChatContext(): ChatContextValue {

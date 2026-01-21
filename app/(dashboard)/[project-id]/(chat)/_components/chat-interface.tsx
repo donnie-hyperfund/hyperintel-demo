@@ -1,15 +1,11 @@
 'use client';
 
-import { useAuth } from '@clerk/nextjs';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import ArtifactsPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/artifacts-panel';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
-import { createApiClient } from '@/lib/api/client';
-import { sendAction } from '@/lib/api/requests/worker/chat';
 import { cn } from '@/lib/utils';
-import { useStreamReader } from '@/modules/chat/hooks/use-stream-reader';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import type { Message } from '@/modules/chat/types';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import ChatPanel from './chat-panel';
 import type { ChatMessageFormValues } from './chat-panel/chat-message-form/schema';
 
@@ -17,27 +13,17 @@ import type { ChatMessageFormValues } from './chat-panel/chat-message-form/schem
 export type { Message } from '@/modules/chat/types';
 
 interface ChatInterfaceProps {
-    chatId?: string; // Optional - if not provided, will create chat on first message
-    projectId: string;
+    /** Initial message to send automatically */
     initialMessage?: string;
 }
 
-export default function ChatInterface({ chatId, projectId, initialMessage }: ChatInterfaceProps) {
-    const artifactContext = useArtifactContext();
-    const { isVisible: isArtifactsPanelVisible } = artifactContext;
+export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
+    const { isVisible: isArtifactsPanelVisible } = useArtifactContext();
+    const { state, chatId, loadMessages, sendMessage } = useChatContext();
+    const { messages, isGenerating: isLoading } = state;
 
-    const { getToken } = useAuth();
     const chatConversationRef = useRef<HTMLDivElement>(null);
     const chatMessageFormRef = useRef<HTMLFormElement>(null);
-
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [isInitialLoading, setIsInitialLoading] = useState(!chatId); // Not loading if no chatId yet
-    const [currentChatId, setCurrentChatId] = useState<string | null>(chatId || null);
-    const skipNextLoad = useRef(false); // Flag to skip message reload after creating new chat
-
-    // Use the stream reader hook for SSE processing
-    const { readStream } = useStreamReader({ artifactContext, setMessages, setIsLoading });
 
     // Padding adjustment for message form
     useEffect(() => {
@@ -61,110 +47,25 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
         };
     }, []);
 
-    // Load chat history with blocks from API (only if we have a chatId)
+    // Load chat history from API when chatId changes
     useEffect(() => {
-        if (!currentChatId) {
-            setIsInitialLoading(false);
-            return;
+        if (chatId) {
+            loadMessages();
         }
+    }, [chatId, loadMessages]);
 
-        // Skip reload if we just created this chat
-        if (skipNextLoad.current) {
-            skipNextLoad.current = false;
-            return;
-        }
-
-        const loadMessages = async () => {
-            try {
-                const res = await fetch(`/api/projects/${projectId}/chats/${currentChatId}/messages`);
-                if (res.ok) {
-                    const data = await res.json();
-                    // API returns { data: [...], pagination: {...} }
-                    // API returns DESC order (newest first), reverse for display (newest at bottom)
-                    const apiMessages =
-                        data.data?.map((m: any) => {
-                            // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
-                            const blocks =
-                                m.blocks && m.blocks.length > 0
-                                    ? m.blocks
-                                    : m.content
-                                      ? [{ id: m.id, type: 'text', content: m.content }]
-                                      : [];
-                            return {
-                                id: m.id,
-                                role: m.role,
-                                blocks,
-                                isStreaming: false,
-                            };
-                        }) || [];
-                    setMessages(apiMessages.reverse());
-                }
-            } catch (error) {
-                console.error('Error loading messages:', error);
-            } finally {
-                setIsInitialLoading(false);
-            }
-        };
-        loadMessages();
-    }, [currentChatId, projectId]);
-
-    // Auto-send initial message after messages load
+    // Auto-send initial message after component mounts
     const hasAutoSent = useRef(false);
     useEffect(() => {
-        if (initialMessage && !isInitialLoading && !hasAutoSent.current) {
+        if (initialMessage && !hasAutoSent.current) {
             hasAutoSent.current = true;
-            handleSend({ message: initialMessage });
+            sendMessage(initialMessage);
         }
-    }, [initialMessage, isInitialLoading]);
+    }, [initialMessage, sendMessage]);
 
     const handleSend = async (data: ChatMessageFormValues) => {
         if (!data.message.trim()) return;
-
-        // User message as a single text block
-        const userMessage: Message = {
-            id: `user-${Date.now()}`,
-            role: 'user',
-            blocks: [{ id: `text-${Date.now()}`, type: 'text', content: data.message }],
-        };
-
-        // Add user message
-        setMessages((prev) => [...prev, userMessage]);
-        setIsLoading(true);
-
-        // Get access token for worker auth
-        const accessToken = (await getToken()) ?? '';
-
-        try {
-            // If no chatId, create a new chat first
-            let chatIdToUse = currentChatId;
-            if (!chatIdToUse) {
-                const newChat = await createApiClient(getToken).chats.create(projectId);
-                chatIdToUse = newChat.id;
-
-                // Skip the message reload effect
-                skipNextLoad.current = true;
-                setCurrentChatId(chatIdToUse);
-
-                // Update URL without navigation using history API
-                window.history.replaceState(null, '', `/${projectId}/chats/${chatIdToUse}`);
-            }
-
-            const response = await sendAction(
-                {
-                    message: data.message,
-                    chatId: chatIdToUse,
-                },
-                accessToken,
-            );
-
-            // Use streaming response
-            if (response.body) {
-                await readStream(response.body);
-            }
-        } catch (error) {
-            console.error('Error sending message:', error);
-            setIsLoading(false);
-        }
+        await sendMessage(data.message);
     };
 
     return (
