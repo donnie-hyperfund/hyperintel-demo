@@ -19,7 +19,7 @@ interface ChatInterfaceProps {
 
 export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
     const { isVisible: isArtifactsPanelVisible } = useArtifactContext();
-    const { state, chatId, loadMessages, sendMessage } = useChatContext();
+    const { state, chatId, loadMessages, loadMoreMessages, sendMessage, pagination } = useChatContext();
     const { messages, isGenerating: isLoading } = state;
 
     const chatConversationRef = useRef<HTMLDivElement>(null);
@@ -83,6 +83,8 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
                     messages={messages}
                     isLoading={isLoading}
                     onSend={handleSend}
+                    onLoadMore={loadMoreMessages}
+                    pagination={pagination}
                     conversationRef={chatConversationRef}
                     formRef={chatMessageFormRef}
                 />

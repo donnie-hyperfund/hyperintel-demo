@@ -37,6 +37,13 @@ export type ChatState = {
     streamingMessageId: string | null;
 };
 
+export type PaginationState = {
+    page: number;
+    totalPages: number;
+    isLoadingMore: boolean;
+    hasMore: boolean;
+};
+
 // =============================================================================
 // Artifact Types
 // =============================================================================

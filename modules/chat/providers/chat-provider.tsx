@@ -5,9 +5,10 @@ import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { sendAction } from '@/lib/api/requests/worker/chat';
+import type { ChatMessageDto } from '@/lib/schema/message';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
-import type { ChatState, Message, StreamBlock } from '../types';
+import type { ChatState, Message, PaginationState, StreamBlock } from '../types';
 
 export type ChatContextValue = {
     state: ChatState;
@@ -15,8 +16,12 @@ export type ChatContextValue = {
     api: ApiClient;
     /** Current chat ID */
     chatId: string | null;
+    /** Pagination state for infinite scroll */
+    pagination: PaginationState;
     /** Load messages from API for a chat */
     loadMessages: () => Promise<void>;
+    /** Load more (older) messages for infinite scroll */
+    loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
     sendMessage: (content: string) => Promise<void>;
     /** Stop the current generation */
@@ -67,6 +72,14 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         streamingMessageId: null,
     });
 
+    // Pagination state for infinite scroll
+    const [pagination, setPagination] = useState<PaginationState>({
+        page: 1,
+        totalPages: 1,
+        isLoadingMore: false,
+        hasMore: false,
+    });
+
     // Abort controller for cancelling requests
     const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -92,7 +105,24 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setIsLoading,
     });
 
-    /** Load messages from API for the current chat */
+    /** Convert API message to internal Message format */
+    const mapApiMessage = useCallback((m: ChatMessageDto): Message => {
+        // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
+        const blocks: StreamBlock[] =
+            m.blocks && m.blocks.length > 0
+                ? (m.blocks as StreamBlock[])
+                : m.content
+                  ? [{ id: m.id, type: 'text' as const, content: m.content }]
+                  : [];
+        return {
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            blocks,
+            isStreaming: false,
+        };
+    }, []);
+
+    /** Load messages from API for the current chat (initial load - gets newest messages) */
     const loadMessages = useCallback(async () => {
         if (!chatId) return;
 
@@ -103,30 +133,50 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         }
 
         try {
-            const data = await api.messages.list(projectId, chatId);
+            const data = await api.messages.list(projectId, chatId, { page: 1 });
             // API returns DESC order (newest first), reverse for display (newest at bottom)
-            const apiMessages: Message[] =
-                data.data?.map((m) => {
-                    // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
-                    const blocks: StreamBlock[] =
-                        m.blocks && m.blocks.length > 0
-                            ? (m.blocks as StreamBlock[])
-                            : m.content
-                              ? [{ id: m.id, type: 'text' as const, content: m.content }]
-                              : [];
-                    return {
-                        id: m.id,
-                        role: m.role as 'user' | 'assistant',
-                        blocks,
-                        isStreaming: false,
-                    };
-                }) || [];
+            const apiMessages: Message[] = data.data?.map(mapApiMessage) || [];
+
             setState((prev) => ({ ...prev, messages: apiMessages.reverse() }));
+            setPagination({
+                page: data.pagination.page,
+                totalPages: data.pagination.totalPages,
+                isLoadingMore: false,
+                hasMore: data.pagination.page < data.pagination.totalPages,
+            });
         } catch (error) {
             console.error('Error loading messages:', error);
             setState((prev) => ({ ...prev, error: new Error('Failed to load messages') }));
         }
-    }, [api, chatId, projectId]);
+    }, [api, chatId, projectId, mapApiMessage]);
+
+    /** Load more (older) messages for infinite scroll */
+    const loadMoreMessages = useCallback(async () => {
+        if (!chatId || pagination.isLoadingMore || !pagination.hasMore) return;
+
+        setPagination((prev) => ({ ...prev, isLoadingMore: true }));
+
+        try {
+            const nextPage = pagination.page + 1;
+            const data = await api.messages.list(projectId, chatId, { page: nextPage });
+            // API returns DESC order (newest first), reverse and prepend to existing messages
+            const olderMessages: Message[] = data.data?.map(mapApiMessage) || [];
+
+            setState((prev) => ({
+                ...prev,
+                messages: [...olderMessages.reverse(), ...prev.messages],
+            }));
+            setPagination({
+                page: data.pagination.page,
+                totalPages: data.pagination.totalPages,
+                isLoadingMore: false,
+                hasMore: data.pagination.page < data.pagination.totalPages,
+            });
+        } catch (error) {
+            console.error('Error loading more messages:', error);
+            setPagination((prev) => ({ ...prev, isLoadingMore: false }));
+        }
+    }, [api, chatId, projectId, pagination.isLoadingMore, pagination.hasMore, pagination.page, mapApiMessage]);
 
     /** Send a message - creates chat if needed, handles streaming */
     const sendMessage = useCallback(
@@ -217,7 +267,9 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 state,
                 api,
                 chatId,
+                pagination,
                 loadMessages,
+                loadMoreMessages,
                 sendMessage,
                 stopGeneration,
                 setChatId,

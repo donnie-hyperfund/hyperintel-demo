@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
+import type { PaginationState } from '@/modules/chat/types';
 import type { Message } from '../chat-interface';
 import ChatConversation from './chat-conversation/chat-conversation';
 import ChatMessageForm from './chat-message-form';
@@ -11,11 +12,21 @@ type ChatPanelProps = {
     messages: Message[];
     isLoading: boolean;
     onSend: (data: ChatMessageFormValues) => void;
+    onLoadMore?: () => void;
+    pagination?: PaginationState;
     conversationRef?: React.RefObject<HTMLDivElement | null>;
     formRef?: React.RefObject<HTMLFormElement | null>;
 };
 
-export default function ChatPanel({ messages, isLoading, onSend, conversationRef, formRef }: ChatPanelProps) {
+export default function ChatPanel({
+    messages,
+    isLoading,
+    onSend,
+    onLoadMore,
+    pagination,
+    conversationRef,
+    formRef,
+}: ChatPanelProps) {
     const internalConversationRef = useRef<HTMLDivElement>(null);
     const internalFormRef = useRef<HTMLFormElement>(null);
 
@@ -52,7 +63,13 @@ export default function ChatPanel({ messages, isLoading, onSend, conversationRef
         <div className="flex flex-col relative h-full">
             <DashboardHeader />
 
-            <ChatConversation messages={messages} isLoading={isLoading} ref={chatConversationRef} />
+            <ChatConversation
+                messages={messages}
+                isLoading={isLoading}
+                onLoadMore={onLoadMore}
+                pagination={pagination}
+                ref={chatConversationRef}
+            />
 
             <ChatMessageForm
                 ref={chatMessageFormRef}
