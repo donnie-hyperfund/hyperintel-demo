@@ -200,7 +200,17 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
                                     break;
 
                                 case 'reasoning_done':
-                                    // Reasoning block complete
+                                    // Reasoning block complete - capture duration
+                                    if (currentReasoningBlockId && event.durationMs !== undefined) {
+                                        const idx = blocks.findIndex((b) => b.id === currentReasoningBlockId);
+                                        if (idx !== -1) {
+                                            blocks[idx] = {
+                                                ...blocks[idx],
+                                                durationMs: event.durationMs,
+                                            };
+                                            updateStreamingMessage();
+                                        }
+                                    }
                                     currentReasoningBlockId = null;
                                     break;
 
@@ -287,6 +297,36 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
                                     const doc = streamingDocs.get(docKey);
                                     if (doc) {
                                         doc.content += event.content;
+                                        updateArtifact(doc.artifactId, { content: doc.content });
+                                    }
+                                    break;
+                                }
+
+                                case 'document_edit': {
+                                    // Precision edits applied to document draft
+                                    console.log('document_edit', event);
+                                    const docKey = `${event.name}_${event.pendingVersion}`;
+                                    const doc = streamingDocs.get(docKey);
+                                    if (doc && event.edits) {
+                                        // Apply edits to local content to keep it in sync
+                                        let content = doc.content;
+                                        for (const edit of event.edits) {
+                                            const lines = content.split('\n');
+                                            const rangeStart = Math.max(0, edit.startLine - 1);
+                                            const rangeEnd = Math.min(lines.length, edit.endLine);
+                                            const rangeContent = lines.slice(rangeStart, rangeEnd).join('\n');
+                                            const newRangeContent = rangeContent.replace(
+                                                edit.oldContent,
+                                                edit.newContent,
+                                            );
+                                            const newLines = [
+                                                ...lines.slice(0, rangeStart),
+                                                ...newRangeContent.split('\n'),
+                                                ...lines.slice(rangeEnd),
+                                            ];
+                                            content = newLines.join('\n');
+                                        }
+                                        doc.content = content;
                                         updateArtifact(doc.artifactId, { content: doc.content });
                                     }
                                     break;

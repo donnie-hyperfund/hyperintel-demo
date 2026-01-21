@@ -259,8 +259,19 @@ async function streamInternal(
         );
 
         for await (const event of stream) {
+            const eventTime = Date.now();
+            console.log(
+                `[STREAM] ${eventTime} event: ${event.type}`,
+                event.type === 'tool_call_delta' ? `delta len=${event.delta?.length}` : '',
+            );
+
             // Let document handler process the event
             await docEvents.handle(event);
+
+            const afterHandle = Date.now();
+            if (afterHandle - eventTime > 10) {
+                console.log(`[STREAM] ${afterHandle} handle took ${afterHandle - eventTime}ms for ${event.type}`);
+            }
 
             switch (event.type) {
                 case 'delta':
@@ -273,7 +284,7 @@ async function streamInternal(
 
                 case 'tool_start':
                     wasTool = true;
-                    enqueue({ type: 'tool_start', tool: event.tool, id: event.id });
+                    enqueue({ type: 'tool_start', tool: event.tool, id: event.id, offsetMs: event.offsetMs });
                     break;
 
                 case 'tool_result':
@@ -285,6 +296,8 @@ async function streamInternal(
                         id: event.id,
                         success: event.success,
                         result: event.result,
+                        offsetMs: event.offsetMs,
+                        durationMs: event.durationMs,
                     });
                     break;
 
@@ -350,7 +363,7 @@ async function streamInternal(
                     break;
 
                 case 'reasoning_start':
-                    enqueue({ type: 'reasoning_start', blockId: event.blockId });
+                    enqueue({ type: 'reasoning_start', blockId: event.blockId, offsetMs: event.offsetMs });
                     break;
 
                 case 'reasoning_delta':
@@ -358,7 +371,12 @@ async function streamInternal(
                     break;
 
                 case 'reasoning_done':
-                    enqueue({ type: 'reasoning_done', blockId: event.blockId });
+                    enqueue({
+                        type: 'reasoning_done',
+                        blockId: event.blockId,
+                        offsetMs: event.offsetMs,
+                        durationMs: event.durationMs,
+                    });
                     break;
 
                 default:
@@ -394,7 +412,7 @@ async function streamInternal(
             console.log('Failed to save error messages:', saveErr);
         }
 
-        enqueue({ type: 'error', error: serialized });
+        enqueue({ type: 'error', error: serialized.message || JSON.stringify(serialized) });
         controller.close();
     }
 }

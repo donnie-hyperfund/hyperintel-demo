@@ -24,6 +24,6 @@ export class ArtifactEmbeddingEntity extends IdCreatedColumns {
     @Property({ type: 'int' })
     end_line!: number;
 
-    @Property({ columnType: 'vector(1024)' })
+    @Property({ type: 'vector', length: 1024, columnType: 'vector(1024)' })
     embedding!: number[];
 }
