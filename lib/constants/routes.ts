@@ -1,4 +1,3 @@
-
 export enum WORKERS_LOCAL_ENDPOINTS {
     ChatAction = '/api/chat/handler',
 }

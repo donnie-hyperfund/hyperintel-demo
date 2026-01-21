@@ -1,7 +1,7 @@
-import { Entity, ManyToOne, Property, Index } from '@mikro-orm/core';
+import { Entity, Index, ManyToOne, Property } from '@mikro-orm/core';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
-import type { ArtifactVersionEntity } from './artifact-version.entity';
 import type { ProjectEntity } from '../projects/project.entity';
+import type { ArtifactVersionEntity } from './artifact-version.entity';
 
 @Entity({ tableName: 'artifact_embeddings' })
 @Index({ properties: ['project', 'artifact_version'] })

@@ -1,8 +1,8 @@
 import { Collection, Entity, ManyToOne, OneToMany, Property } from '@mikro-orm/core';
 import type { Nullable } from '@/common/orm/utils';
+import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 
 @Entity({ tableName: 'projects' })
 export class ProjectEntity extends IdCreatedUpdatedColumns {

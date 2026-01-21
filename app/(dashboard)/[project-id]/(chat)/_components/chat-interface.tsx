@@ -30,7 +30,12 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ chatId, projectId, initialMessage }: ChatInterfaceProps) {
-    const { isVisible: isArtifactsPanelVisible, addArtifact, updateArtifact, setCurrentArtifact } = useArtifactContext();
+    const {
+        isVisible: isArtifactsPanelVisible,
+        addArtifact,
+        updateArtifact,
+        setCurrentArtifact,
+    } = useArtifactContext();
 
     const { getToken } = useAuth();
     const chatConversationRef = useRef<HTMLDivElement>(null);
@@ -121,216 +126,221 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
     }, [initialMessage, isInitialLoading]);
 
     // Build StreamBlock[] from SSE events
-    const readStream = useCallback(async (stream: ReadableStream<Uint8Array>) => {
-        const reader = stream.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+    const readStream = useCallback(
+        async (stream: ReadableStream<Uint8Array>) => {
+            const reader = stream.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
 
-        // Accumulated blocks for this streaming message
-        const blocks: any[] = [];
-        let currentTextBlockId: string | null = null;
-        let currentReasoningBlockId: string | null = null;
-        const streamingMsgId = `streaming-${Date.now()}`;
+            // Accumulated blocks for this streaming message
+            const blocks: any[] = [];
+            let currentTextBlockId: string | null = null;
+            let currentReasoningBlockId: string | null = null;
+            const streamingMsgId = `streaming-${Date.now()}`;
 
-        // Track streaming documents: Map<"name_pendingVersion", { artifactId, content }>
-        const streamingDocs = new Map<string, { artifactId: string; content: string }>();
+            // Track streaming documents: Map<"name_pendingVersion", { artifactId, content }>
+            const streamingDocs = new Map<string, { artifactId: string; content: string }>();
 
-        // Add empty assistant message to start streaming into
-        setMessages((prev) => [...prev, { id: streamingMsgId, role: 'assistant', blocks: [], isStreaming: true }]);
+            // Add empty assistant message to start streaming into
+            setMessages((prev) => [...prev, { id: streamingMsgId, role: 'assistant', blocks: [], isStreaming: true }]);
 
-        // Helper to update streaming message
-        const updateStreamingMessage = () => {
-            setMessages((prev) =>
-                prev.map((msg) => (msg.id === streamingMsgId ? { ...msg, blocks: [...blocks] } : msg)),
-            );
-        };
+            // Helper to update streaming message
+            const updateStreamingMessage = () => {
+                setMessages((prev) =>
+                    prev.map((msg) => (msg.id === streamingMsgId ? { ...msg, blocks: [...blocks] } : msg)),
+                );
+            };
 
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
 
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
 
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    const jsonString = line.replace('data: ', '').trim();
-                    if (jsonString === '[DONE]') continue;
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const jsonString = line.replace('data: ', '').trim();
+                        if (jsonString === '[DONE]') continue;
 
-                    try {
-                        const event = JSON.parse(jsonString);
+                        try {
+                            const event = JSON.parse(jsonString);
 
-                        if (event.error) {
-                            console.error('Stream error:', event.error);
-                            break;
-                        }
-
-                        switch (event.type) {
-                            case 'reasoning_start':
-                                // Create new reasoning block
-                                currentReasoningBlockId = event.blockId || `reasoning-${Date.now()}`;
-                                blocks.push({
-                                    id: currentReasoningBlockId,
-                                    type: 'reasoning',
-                                    content: '',
-                                });
-                                updateStreamingMessage();
+                            if (event.error) {
+                                console.error('Stream error:', event.error);
                                 break;
+                            }
 
-                            case 'reasoning_delta':
-                                // Append to current reasoning block (immutable update)
-                                if (event.text || event.content) {
-                                    const idx = blocks.findIndex((b) => b.id === currentReasoningBlockId);
-                                    if (idx !== -1) {
-                                        blocks[idx] = {
-                                            ...blocks[idx],
-                                            content: (blocks[idx].content || '') + (event.text || event.content),
-                                        };
-                                        updateStreamingMessage();
+                            switch (event.type) {
+                                case 'reasoning_start':
+                                    // Create new reasoning block
+                                    currentReasoningBlockId = event.blockId || `reasoning-${Date.now()}`;
+                                    blocks.push({
+                                        id: currentReasoningBlockId,
+                                        type: 'reasoning',
+                                        content: '',
+                                    });
+                                    updateStreamingMessage();
+                                    break;
+
+                                case 'reasoning_delta':
+                                    // Append to current reasoning block (immutable update)
+                                    if (event.text || event.content) {
+                                        const idx = blocks.findIndex((b) => b.id === currentReasoningBlockId);
+                                        if (idx !== -1) {
+                                            blocks[idx] = {
+                                                ...blocks[idx],
+                                                content: (blocks[idx].content || '') + (event.text || event.content),
+                                            };
+                                            updateStreamingMessage();
+                                        }
                                     }
+                                    break;
+
+                                case 'reasoning_done':
+                                    // Reasoning block complete
+                                    currentReasoningBlockId = null;
+                                    break;
+
+                                case 'tool_start':
+                                    // Create tool_call block
+                                    blocks.push({
+                                        id: event.id || `tool-${Date.now()}`,
+                                        type: 'tool_call',
+                                        content: '',
+                                        toolName: event.tool,
+                                        toolCallId: event.id,
+                                    });
+                                    updateStreamingMessage();
+                                    break;
+
+                                case 'tool_result':
+                                    {
+                                        // Update tool block with result (immutable update)
+                                        const tIdx = blocks.findIndex((b) => b.toolCallId === event.id);
+                                        if (tIdx !== -1) {
+                                            blocks[tIdx] = {
+                                                ...blocks[tIdx],
+                                                content:
+                                                    typeof event.result === 'string'
+                                                        ? event.result
+                                                        : JSON.stringify(event.result),
+                                                toolResult: event.result,
+                                                toolSuccess: event.success,
+                                            };
+                                            updateStreamingMessage();
+                                        }
+                                    }
+                                    break;
+
+                                case 'delta':
+                                    // Get or create text block, append content (immutable update)
+                                    if (event.text) {
+                                        if (!currentTextBlockId) {
+                                            currentTextBlockId = event.blockId || `text-${Date.now()}`;
+                                            blocks.push({ id: currentTextBlockId, type: 'text', content: '' });
+                                        }
+                                        const textIdx = blocks.findIndex((b: any) => b.id === currentTextBlockId);
+                                        if (textIdx !== -1) {
+                                            blocks[textIdx] = {
+                                                ...blocks[textIdx],
+                                                content: (blocks[textIdx].content || '') + event.text,
+                                            };
+                                            updateStreamingMessage();
+                                        }
+                                    }
+                                    break;
+
+                                case 'created':
+                                    // Update message ID from server
+                                    if (event.id) {
+                                        setMessages((prev) =>
+                                            prev.map((msg) =>
+                                                msg.id === streamingMsgId ? { ...msg, id: event.id } : msg,
+                                            ),
+                                        );
+                                    }
+                                    break;
+
+                                case 'document_start': {
+                                    console.log('document_start', event);
+                                    const docKey = `${event.name}_${event.pendingVersion}`;
+                                    const artifactId = `doc-${event.name}-v${event.pendingVersion}`;
+                                    streamingDocs.set(docKey, { artifactId, content: '' });
+                                    addArtifact({
+                                        id: artifactId,
+                                        identifier: event.name,
+                                        title: event.title || event.name,
+                                        type: 'text/markdown',
+                                        content: '',
+                                        messageId: streamingMsgId,
+                                    });
+                                    setCurrentArtifact(artifactId);
+                                    break;
                                 }
-                                break;
 
-                            case 'reasoning_done':
-                                // Reasoning block complete
-                                currentReasoningBlockId = null;
-                                break;
-
-                            case 'tool_start':
-                                // Create tool_call block
-                                blocks.push({
-                                    id: event.id || `tool-${Date.now()}`,
-                                    type: 'tool_call',
-                                    content: '',
-                                    toolName: event.tool,
-                                    toolCallId: event.id,
-                                });
-                                updateStreamingMessage();
-                                break;
-
-                            case 'tool_result':
-                                {
-                                    // Update tool block with result (immutable update)
-                                    const tIdx = blocks.findIndex((b) => b.toolCallId === event.id);
-                                    if (tIdx !== -1) {
-                                        blocks[tIdx] = {
-                                            ...blocks[tIdx],
-                                            content:
-                                                typeof event.result === 'string'
-                                                    ? event.result
-                                                    : JSON.stringify(event.result),
-                                            toolResult: event.result,
-                                            toolSuccess: event.success,
-                                        };
-                                        updateStreamingMessage();
+                                case 'document_delta': {
+                                    console.log('document_delta', event);
+                                    const docKey = `${event.name}_${event.pendingVersion}`;
+                                    const doc = streamingDocs.get(docKey);
+                                    if (doc) {
+                                        doc.content += event.content;
+                                        updateArtifact(doc.artifactId, { content: doc.content });
                                     }
+                                    break;
                                 }
-                                break;
 
-                            case 'delta':
-                                // Get or create text block, append content (immutable update)
-                                if (event.text) {
-                                    if (!currentTextBlockId) {
-                                        currentTextBlockId = event.blockId || `text-${Date.now()}`;
-                                        blocks.push({ id: currentTextBlockId, type: 'text', content: '' });
-                                    }
-                                    const textIdx = blocks.findIndex((b: any) => b.id === currentTextBlockId);
-                                    if (textIdx !== -1) {
-                                        blocks[textIdx] = {
-                                            ...blocks[textIdx],
-                                            content: (blocks[textIdx].content || '') + event.text,
-                                        };
-                                        updateStreamingMessage();
-                                    }
+                                case 'document_complete': {
+                                    console.log('document_complete', event);
+                                    // Clear tracking for this document
+                                    const docKey = `${event.name}_${event.version}`;
+                                    streamingDocs.delete(docKey);
+                                    break;
                                 }
-                                break;
 
-                            case 'created':
-                                // Update message ID from server
-                                if (event.id) {
+                                case 'status_update':
+                                    // Update status indicator
                                     setMessages((prev) =>
-                                        prev.map((msg) => (msg.id === streamingMsgId ? { ...msg, id: event.id } : msg)),
+                                        prev.map((msg) =>
+                                            msg.id === streamingMsgId || msg.isStreaming
+                                                ? { ...msg, status: event.status }
+                                                : msg,
+                                        ),
                                     );
-                                }
-                                break;
+                                    break;
 
-                            case 'document_start': {
-                                console.log('document_start', event);
-                                const docKey = `${event.name}_${event.pendingVersion}`;
-                                const artifactId = `doc-${event.name}-v${event.pendingVersion}`;
-                                streamingDocs.set(docKey, { artifactId, content: '' });
-                                addArtifact({
-                                    id: artifactId,
-                                    identifier: event.name,
-                                    title: event.title || event.name,
-                                    type: 'text/markdown',
-                                    content: '',
-                                    messageId: streamingMsgId,
-                                });
-                                setCurrentArtifact(artifactId);
-                                break;
+                                case 'done':
+                                case 'done_ext':
+                                    // Finalize message, clear status, stop loading together to avoid race
+                                    // TODO: "thought for X seconds"
+                                    setMessages((prev) =>
+                                        prev.map((msg) =>
+                                            msg.id === streamingMsgId || msg.isStreaming
+                                                ? { ...msg, blocks: [...blocks], isStreaming: false, status: undefined }
+                                                : msg,
+                                        ),
+                                    );
+                                    setIsLoading(false);
+                                    break;
+
+                                default:
+                                    console.log('Unknown event type:', event.type);
                             }
-
-                            case 'document_delta': {
-                                console.log('document_delta', event);
-                                const docKey = `${event.name}_${event.pendingVersion}`;
-                                const doc = streamingDocs.get(docKey);
-                                if (doc) {
-                                    doc.content += event.content;
-                                    updateArtifact(doc.artifactId, { content: doc.content });
-                                }
-                                break;
-                            }
-
-                            case 'document_complete': {
-                                console.log('document_complete', event);
-                                // Clear tracking for this document
-                                const docKey = `${event.name}_${event.version}`;
-                                streamingDocs.delete(docKey);
-                                break;
-                            }
-
-                            case 'status_update':
-                                // Update status indicator
-                                setMessages((prev) =>
-                                    prev.map((msg) =>
-                                        msg.id === streamingMsgId || msg.isStreaming
-                                            ? { ...msg, status: event.status }
-                                            : msg,
-                                    ),
-                                );
-                                break;
-
-                            case 'done':
-                            case 'done_ext':
-                                // Finalize message, clear status, stop loading together to avoid race
-                                // TODO: "thought for X seconds"
-                                setMessages((prev) =>
-                                    prev.map((msg) =>
-                                        msg.id === streamingMsgId || msg.isStreaming
-                                            ? { ...msg, blocks: [...blocks], isStreaming: false, status: undefined }
-                                            : msg,
-                                    ),
-                                );
-                                setIsLoading(false);
-                                break;
-
-                            default:
-                                console.log('Unknown event type:', event.type);
+                        } catch (e) {
+                            console.error('Failed to parse SSE data:', e);
                         }
-                    } catch (e) {
-                        console.error('Failed to parse SSE data:', e);
                     }
                 }
+            } finally {
+                // Ensure message is finalized even if stream ends unexpectedly
+                setMessages((prev) => prev.map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)));
+                setIsLoading(false);
             }
-        } finally {
-            // Ensure message is finalized even if stream ends unexpectedly
-            setMessages((prev) => prev.map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)));
-            setIsLoading(false);
-        }
-    }, [addArtifact, updateArtifact, setCurrentArtifact]);
+        },
+        [addArtifact, updateArtifact, setCurrentArtifact],
+    );
 
     const handleSend = async (data: ChatMessageFormValues) => {
         if (!data.message.trim()) return;

@@ -29,4 +29,3 @@ export const ProjectDtoSchema = z.object({
     updated_at: z.union([z.string(), z.date()]),
 });
 export type ProjectDto = z.infer<typeof ProjectDtoSchema>;
-

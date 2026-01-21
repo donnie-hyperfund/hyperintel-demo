@@ -27,4 +27,3 @@ export const ArtifactDtoSchema = z.object({
     updated_at: z.union([z.string(), z.date()]),
 });
 export type ArtifactDto = z.infer<typeof ArtifactDtoSchema>;
-

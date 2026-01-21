@@ -5,12 +5,14 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { type ArtifactDto } from '@/lib/schema/artifact';
-import { ARTIFACT_ERRORS } from '../errors';
+
+const ERRORS = {
+    ARTIFACT_NOT_FOUND: NextResponse.json({ error: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 }),
+};
 
 async function handleGetArtifact(
     req: NextRequest,
     projectId: string,
-    chatId: string,
     artifactId: string,
     user: UserEntity,
 ): Promise<NextResponse> {
@@ -18,20 +20,19 @@ async function handleGetArtifact(
 
     const artifact = await em
         .createQueryBuilder(ArtifactEntity, 'a')
-        .select('a')
-        .leftJoinAndSelect('a.currentVersion', 'cv')
+        .select('a.*')
+        .leftJoinAndSelect('a.current_version', 'cv')
         .leftJoin('a.chat', 'c')
         .leftJoin('a.project', 'p')
         .where({
             'a.id': artifactId,
-            'c.id': chatId,
             'p.id': projectId,
             'p.user': user.id,
         })
         .getSingleResult();
 
     if (!artifact) {
-        return ARTIFACT_ERRORS.ARTIFACT_NOT_FOUND;
+        return ERRORS.ARTIFACT_NOT_FOUND;
     }
 
     const dto: ArtifactDto = wrap(artifact).toJSON();
@@ -40,10 +41,10 @@ async function handleGetArtifact(
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: Promise<{ projectId: string; chatId: string; artifactId: string }> },
+    { params }: { params: Promise<{ projectId: string; artifactId: string }> },
 ): Promise<NextResponse> {
     return withAuth(async (request, user) => {
-        const { projectId, chatId, artifactId } = await params;
-        return await handleGetArtifact(request, projectId, chatId, artifactId, user);
+        const { projectId, artifactId } = await params;
+        return await handleGetArtifact(request, projectId, artifactId, user);
     })(req);
 }
