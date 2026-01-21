@@ -13,6 +13,7 @@ export const artifactKeys = {
     list: (projectId: string, params?: PaginationParams) => [...artifactKeys.lists(), projectId, params] as const,
     details: () => [...artifactKeys.all, 'detail'] as const,
     detail: (projectId: string, artifactId: string) => [...artifactKeys.details(), projectId, artifactId] as const,
+    byKey: (projectId: string, key: string) => [...artifactKeys.details(), projectId, 'key', key] as const,
 };
 
 export function createArtifactApi(getToken: TokenGetter) {
@@ -28,6 +29,11 @@ export function createArtifactApi(getToken: TokenGetter) {
 
         get: async (projectId: string, artifactId: string) => {
             const { data } = await axios.get<ArtifactDto>(ENDPOINTS.byId(projectId, artifactId));
+            return data;
+        },
+
+        getByKey: async (projectId: string, key: string) => {
+            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.root(projectId), { key }));
             return data;
         },
     };

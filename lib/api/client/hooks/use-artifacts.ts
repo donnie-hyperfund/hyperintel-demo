@@ -37,3 +37,20 @@ export function useFetchArtifact(
         { revalidateOnFocus: false, ...config },
     );
 }
+
+export function useFetchArtifactByKey(
+    projectId: string | undefined,
+    key: string | undefined,
+    config?: SWRConfiguration<ArtifactDto>,
+) {
+    const { getToken } = useAuth();
+
+    return useSWR<ArtifactDto>(
+        projectId && key ? artifactKeys.byKey(projectId, key) : null,
+        () => {
+            if (!projectId || !key) throw new Error('Project ID and key are required');
+            return createArtifactApi(getToken).getByKey(projectId, key);
+        },
+        { revalidateOnFocus: false, ...config },
+    );
+}
