@@ -11,7 +11,7 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
-import type { Queue } from '@cloudflare/workers-types';
+import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import {
@@ -39,8 +39,8 @@ export interface DocumentToolsContext {
     chatId: string;
     /** Draft manager instance */
     draftManager: DraftManager;
-    /** Embedding queue for async indexing (optional) */
-    embeddingQueue?: Queue;
+    /** Embedding queue adapter for async indexing (optional) */
+    embeddingQueue?: EmbeddingQueueAdapter;
 }
 
 // ============================================================================

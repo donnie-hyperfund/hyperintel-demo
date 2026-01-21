@@ -5,6 +5,7 @@ secrets:
   - OPENAI_KEY
   - OPENROUTER_API_KEY
   - LANGFUSE_SECRET_KEY
+  - AUTH_SECRET
 
 # AI clients needed for embeddings
 # ai: true

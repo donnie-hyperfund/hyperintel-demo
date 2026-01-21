@@ -15,6 +15,7 @@ declare namespace Cloudflare {
 		OPENAI_KEY: SecretsStoreSecret;
 		OPENROUTER_API_KEY: SecretsStoreSecret;
 		LANGFUSE_SECRET_KEY: SecretsStoreSecret;
+		AUTH_SECRET: SecretsStoreSecret;
 	}
 }
 interface Env extends Cloudflare.Env {}

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { getLangfusePrompt, getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
 import { serializeException } from '@/common/ai/utils';
@@ -199,6 +200,17 @@ async function streamInternal(
         // Load previously loaded prompts from chat metadata (fallback to empty)
         const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
 
+        // Create embedding queue adapter (uses native Queue in workers, HTTP in local)
+        const embeddingQueue = createEmbeddingQueueAdapter({
+            // Native Cloudflare Queue binding (available in workers)
+            queue: ctx.env.EMBEDDING_QUEUE,
+            // HTTP fallback for local development
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL 
+                ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` 
+                : undefined,
+            authSecret: process.env.AUTH_SECRET,
+        });
+
         // Create combined agent context for all tool types
         const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
             // Prompt tools context
@@ -208,8 +220,8 @@ async function streamInternal(
             projectId: chat.project.id,
             chatId: chat.id,
             draftManager: getDraftManager(),
-            // Embedding queue for async indexing (from env binding)
-            embeddingQueue: ctx.env.EMBEDDING_QUEUE,
+            // Embedding queue adapter for async indexing
+            embeddingQueue,
             // OpenAI client for knowledge search (optional)
             openai: ctx.openai,
         };
