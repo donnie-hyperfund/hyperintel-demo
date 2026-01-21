@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { processMarkdownWithDirectives } from '@/lib/markdown/directives';
 
-function chunkString(str: string, chunkSize: number = 100): string[] {
+function chunkString(str: string, chunkSize = 100): string[] {
     const chunks: string[] = [];
     for (let i = 0; i < str.length; i += chunkSize) {
         chunks.push(str.slice(i, i + chunkSize));

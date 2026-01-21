@@ -1,18 +1,14 @@
-import { type NextRequest, NextResponse } from 'next/server';
 import { wrap } from '@mikro-orm/core';
-import { withAuth } from '@/lib/api/auth-guard';
-import { getOrm } from '@/lib/orm/orm';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { validatePayload } from '@/lib/api/validation';
-import { UpdateProjectBodySchema, type ProjectDto } from '@/lib/schema/project';
+import { type NextRequest, NextResponse } from 'next/server';
 import { PROJECT_ERRORS } from '@/app/api/projects/errors';
+import { withAuth } from '@/lib/api/auth-guard';
+import { validatePayload } from '@/lib/api/validation';
+import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import { getOrm } from '@/lib/orm/orm';
+import { type ProjectDto, UpdateProjectBodySchema } from '@/lib/schema/project';
 
-async function handleGetProject(
-    req: NextRequest,
-    projectId: string,
-    user: UserEntity,
-): Promise<NextResponse> {
+async function handleGetProject(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const project = await em.findOne(ProjectEntity, { id: projectId, user: { id: user.id } });
@@ -24,11 +20,7 @@ async function handleGetProject(
     return NextResponse.json(dto);
 }
 
-async function handleUpdateProject(
-    req: NextRequest,
-    projectId: string,
-    user: UserEntity,
-): Promise<NextResponse> {
+async function handleUpdateProject(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const project = await em.findOne(ProjectEntity, { id: projectId, user: { id: user.id } });
@@ -57,11 +49,7 @@ async function handleUpdateProject(
     return NextResponse.json(dto);
 }
 
-async function handleDeleteProject(
-    req: NextRequest,
-    projectId: string,
-    user: UserEntity,
-): Promise<NextResponse> {
+async function handleDeleteProject(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const project = await em.findOne(ProjectEntity, { id: projectId, user: { id: user.id } });
@@ -103,4 +91,3 @@ export async function DELETE(
         return await handleDeleteProject(request, projectId, user);
     })(req);
 }
-

@@ -1,8 +1,8 @@
 import { type NextRequest } from 'next/server';
-import { assertAuth } from '@/lib/api/auth-guard';
-import { SendChatActionSchema } from '@/lib/schema/chat';
 import { BadRequestError } from '@/common/common/error.helpers';
+import { assertAuth } from '@/lib/api/auth-guard';
 import { initNextjsWorkerContext } from '@/lib/local/context';
+import { SendChatActionSchema } from '@/lib/schema/chat';
 import { chatActionHandler } from '@/workers/chat/src/chat-handler';
 
 export async function POST(req: NextRequest) {
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
         headers: {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
+            Connection: 'keep-alive',
         },
     });
 }

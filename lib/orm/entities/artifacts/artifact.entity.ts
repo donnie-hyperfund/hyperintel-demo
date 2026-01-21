@@ -1,4 +1,4 @@
-import { Entity, ManyToOne, Property, OneToMany, OneToOne, Collection, Unique, Opt } from '@mikro-orm/core';
+import { Collection, Entity, ManyToOne, OneToMany, OneToOne, Opt, Property, Unique } from '@mikro-orm/core';
 import type { Nullable } from '@/common/orm/utils';
 import type { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';

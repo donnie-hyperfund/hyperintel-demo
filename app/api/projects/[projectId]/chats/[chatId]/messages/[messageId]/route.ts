@@ -1,9 +1,9 @@
-import { type NextRequest, NextResponse } from 'next/server';
 import { wrap } from '@mikro-orm/core';
+import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { getOrm } from '@/lib/orm/orm';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import { getOrm } from '@/lib/orm/orm';
 import { type ChatMessageDto } from '@/lib/schema/message';
 import { MESSAGE_ERRORS } from '../../../errors';
 
@@ -16,7 +16,8 @@ async function handleGetMessage(
 ): Promise<NextResponse> {
     const { em } = await getOrm();
 
-    const message = await em.createQueryBuilder(ChatMessageEntity, 'm')
+    const message = await em
+        .createQueryBuilder(ChatMessageEntity, 'm')
         .select('m')
         .leftJoinAndSelect('m.chat', 'c')
         .leftJoin('c.project', 'p')
@@ -45,4 +46,3 @@ export async function GET(
         return await handleGetMessage(request, projectId, chatId, messageId, user);
     })(req);
 }
-

@@ -1,5 +1,5 @@
-import { backendEnv } from '@/app/api/env';
 import { makeSecretMock } from '@common/common/local.helpers';
+import { backendEnv } from '@/app/api/env';
 
 /**
  * Mock env that matches the worker's Env type.
@@ -22,4 +22,3 @@ export const envSecretMocks = {
     ENV: process.env.NODE_ENV === 'production' ? 'production' : 'dev',
     CORS_ALLOWED_ORIGIN: '*',
 };
-

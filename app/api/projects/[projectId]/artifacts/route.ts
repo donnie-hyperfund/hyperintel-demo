@@ -8,12 +8,7 @@ import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { type ArtifactDto, ListArtifactsQuerySchema } from '@/lib/schema/artifact';
 
-async function handleGetArtifacts(
-    req: NextRequest,
-    projectId: string,
-    chatId: string,
-    user: UserEntity,
-): Promise<NextResponse> {
+async function handleGetArtifacts(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const { searchParams } = new URL(req.url);
@@ -29,9 +24,8 @@ async function handleGetArtifacts(
         .select('a.*')
         .leftJoin('a.chat', 'c')
         .leftJoin('a.project', 'p')
-        .leftJoin('a.currentVersion', 'cv')
+        .leftJoinAndSelect('a.current_version', 'cv')
         .where({
-            'c.id': chatId,
             'p.id': projectId,
             'p.user': user.id,
         })
@@ -53,10 +47,10 @@ async function handleGetArtifacts(
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: Promise<{ projectId: string; chatId: string }> },
+    { params }: { params: Promise<{ projectId: string }> },
 ): Promise<NextResponse> {
     return withAuth(async (request, user) => {
-        const { projectId, chatId } = await params;
-        return await handleGetArtifacts(request, projectId, chatId, user);
+        const { projectId } = await params;
+        return await handleGetArtifacts(request, projectId, user);
     })(req);
 }

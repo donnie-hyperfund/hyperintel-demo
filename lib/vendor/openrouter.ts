@@ -1,9 +1,8 @@
-import { backendEnv } from '@/app/api/env';
-import OpenAI from 'openai';
-import { observeOpenAI } from 'langfuse';
-import { LangfuseExtension } from '@worker/vendor/openrouter';
 import { OpenRouter } from '@openrouter/sdk';
-
+import { LangfuseExtension } from '@worker/vendor/openrouter';
+import { observeOpenAI } from 'langfuse';
+import OpenAI from 'openai';
+import { backendEnv } from '@/app/api/env';
 
 const BASE_OR = 'https://openrouter.ai/api/v1';
 
@@ -14,9 +13,7 @@ const client = new OpenAI({
 
 // Create orouter with orig property to match worker's LangfuseExtension type
 const orouterBase = (
-    backendEnv.LANGFUSE_HOST &&
-    backendEnv.LANGFUSE_PUBLIC_KEY &&
-    backendEnv.LANGFUSE_SECRET_KEY
+    backendEnv.LANGFUSE_HOST && backendEnv.LANGFUSE_PUBLIC_KEY && backendEnv.LANGFUSE_SECRET_KEY
         ? observeOpenAI(client)
         : client
 ) as LangfuseExtension;
@@ -27,4 +24,3 @@ export const orouter = orouterBase;
 export const orouterSdk = new OpenRouter({
     apiKey: backendEnv.OPENROUTER_API_KEY,
 });
-

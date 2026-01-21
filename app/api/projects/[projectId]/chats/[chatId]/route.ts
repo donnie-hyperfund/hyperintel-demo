@@ -1,9 +1,9 @@
+import { sql, wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
-import { wrap, sql } from '@mikro-orm/core';
 import { withAuth } from '@/lib/api/auth-guard';
-import { getOrm } from '@/lib/orm/orm';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import { getOrm } from '@/lib/orm/orm';
 import { type ChatDto } from '@/lib/schema/message';
 import { CHAT_ERRORS } from '../errors';
 
@@ -15,7 +15,8 @@ async function handleGetChat(
 ): Promise<NextResponse> {
     const { em } = await getOrm();
 
-    const chatData = await em.createQueryBuilder(ChatEntity, 'c')
+    const chatData = await em
+        .createQueryBuilder(ChatEntity, 'c')
         .select('c.*')
         .addSelect(sql`COUNT(DISTINCT m.id) as message_count`)
         .addSelect(sql`(
@@ -27,10 +28,10 @@ async function handleGetChat(
         ) as first_message_content`)
         .leftJoin('c.project', 'p')
         .leftJoin('c.messages', 'm')
-        .where({ 
+        .where({
             'c.id': chatId,
             'p.id': projectId,
-            'p.user': user.id 
+            'p.user': user.id,
         })
         .groupBy(['c.id'])
         .execute<any>('get');
@@ -55,13 +56,14 @@ async function handleDeleteChat(
 ): Promise<NextResponse> {
     const { em } = await getOrm();
 
-    const chat = await em.createQueryBuilder(ChatEntity, 'c')
+    const chat = await em
+        .createQueryBuilder(ChatEntity, 'c')
         .select('c.*')
         .leftJoin('c.project', 'p')
-        .where({ 
+        .where({
             'c.id': chatId,
             'p.id': projectId,
-            'p.user': user.id 
+            'p.user': user.id,
         })
         .getSingleResult();
 
@@ -93,4 +95,3 @@ export async function DELETE(
         return await handleDeleteChat(request, projectId, chatId, user);
     })(req);
 }
-

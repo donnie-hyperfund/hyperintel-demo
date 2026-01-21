@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server';
 import { type z } from 'zod';
 
-export function validatePayload<T extends z.ZodTypeAny>(
-    schema: T,
-    data: unknown,
-): z.infer<T> | NextResponse {
+export function validatePayload<T extends z.ZodTypeAny>(schema: T, data: unknown): z.infer<T> | NextResponse {
     const result = schema.safeParse(data);
-    
+
     if (!result.success) {
         return NextResponse.json(
             {
@@ -17,7 +14,6 @@ export function validatePayload<T extends z.ZodTypeAny>(
             { status: 400 },
         );
     }
-    
+
     return result.data;
 }
-
