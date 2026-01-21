@@ -87,14 +87,12 @@ const SearchKnowledgeParams = z.object({
     limit: z.number().int().min(1).max(20).default(5).describe('Maximum number of results'),
 });
 
-const ListDocumentsParams = z.object({});
-
 export const KnowledgeSearchToolGroup: AgentToolGroup = {
     slug: 'knowledge',
     name: 'Knowledge Base',
-    description: 'Tools for searching and retrieving information from project documents.',
-    guidance: 'Use search_knowledge to find relevant information from project documents. Use list_documents to see all available documents.',
-    tools: ['search_knowledge', 'list_documents'],
+    description: 'Tools for semantic search in project documents.',
+    guidance: 'Use search_knowledge to find relevant information from project documents using semantic similarity.',
+    tools: ['search_knowledge'],
 };
 
 export function createKnowledgeTools() {
@@ -124,39 +122,6 @@ export function createKnowledgeTools() {
                 );
 
                 return formatSearchResults(results);
-            },
-        },
-        {
-            name: 'list_documents' as const,
-            description: 'List all documents in the project knowledge base with their titles and keys.',
-            parameters: ListDocumentsParams,
-            executor: async (_input: Record<string, never>, ctx: KnowledgeSearchContext): Promise<string> => {
-                const results = (await ctx.em.getConnection().execute(
-                    `
-                    SELECT DISTINCT
-                        a.key,
-                        a.title,
-                        a.version,
-                        COUNT(ae.id) as chunk_count
-                    FROM artifacts a
-                    LEFT JOIN artifact_versions av ON av.artifact_id = a.id AND av.id = a.current_version_id
-                    LEFT JOIN artifact_embeddings ae ON ae.artifact_version_id = av.id
-                    WHERE a.project_id = $1
-                    GROUP BY a.id, a.key, a.title, a.version
-                    ORDER BY a.title
-                    `,
-                    [ctx.projectId],
-                )) as Array<{ key: string; title: string; version: number; chunk_count: string }>;
-
-                if (results.length === 0) {
-                    return 'No documents in knowledge base yet.';
-                }
-
-                const lines = results.map(
-                    (r) => `- **${r.title}** (\`${r.key}\`) - v${r.version}, ${r.chunk_count} indexed chunks`,
-                );
-
-                return `## Project Documents\n\n${lines.join('\n')}`;
             },
         },
     ] as const;

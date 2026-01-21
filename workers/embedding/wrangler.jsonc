@@ -34,8 +34,37 @@
 			"binding": "DATABASE_URL",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "HI_DATABASE_URL"
+		},
+		{
+			"binding": "OPENAI_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "OPENAI_KEY"
+		},
+		{
+			"binding": "OPENROUTER_API_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "DEV_OPENROUTER_API_KEY"
+		},
+		{
+			"binding": "LANGFUSE_SECRET_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "HI_LANGFUSE_SECRET_KEY"
+		},
+		{
+			"binding": "AUTH_SECRET",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "QUEUE_AUTH_SECRET"
 		}
 	],
+	"queues": {
+		"consumers": [
+			{
+				"queue": "hi-embedding-queue",
+				"max_batch_size": 10,
+				"max_batch_timeout": 5
+			}
+		]
+	},
 	"env": {
 		"dev": {
 			"vars": {
@@ -51,8 +80,37 @@
 					"binding": "DATABASE_URL",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "DEV_HI_DATABASE_URL"
+				},
+				{
+					"binding": "OPENAI_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "OPENAI_KEY"
+				},
+				{
+					"binding": "OPENROUTER_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "DEV_OPENROUTER_API_KEY"
+				},
+				{
+					"binding": "LANGFUSE_SECRET_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "HI_LANGFUSE_SECRET_KEY"
+				},
+				{
+					"binding": "AUTH_SECRET",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "QUEUE_AUTH_SECRET"
 				}
-			]
+			],
+			"queues": {
+				"consumers": [
+					{
+						"queue": "hi-embedding-queue-dev",
+						"max_batch_size": 10,
+						"max_batch_timeout": 5
+					}
+				]
+			}
 		},
 		"experimental": {
 			"vars": {
@@ -68,8 +126,37 @@
 					"binding": "DATABASE_URL",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "DEV_HI_DATABASE_URL"
+				},
+				{
+					"binding": "OPENAI_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "OPENAI_KEY"
+				},
+				{
+					"binding": "OPENROUTER_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "DEV_OPENROUTER_API_KEY"
+				},
+				{
+					"binding": "LANGFUSE_SECRET_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "HI_LANGFUSE_SECRET_KEY"
+				},
+				{
+					"binding": "AUTH_SECRET",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "QUEUE_AUTH_SECRET"
 				}
-			]
+			],
+			"queues": {
+				"consumers": [
+					{
+						"queue": "hi-embedding-queue-experimental",
+						"max_batch_size": 10,
+						"max_batch_timeout": 5
+					}
+				]
+			}
 		}
 	},
 	"alias": {
