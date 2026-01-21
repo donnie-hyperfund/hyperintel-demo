@@ -11,6 +11,7 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
+import type { Queue } from '@cloudflare/workers-types';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import {
@@ -38,6 +39,8 @@ export interface DocumentToolsContext {
     chatId: string;
     /** Draft manager instance */
     draftManager: DraftManager;
+    /** Embedding queue for async indexing (optional) */
+    embeddingQueue?: Queue;
 }
 
 // ============================================================================
@@ -279,13 +282,28 @@ You MUST call this after begin_document or the content will be lost.
 Returns the final version number and line count.`,
             parameters: FinalizeDocumentParams,
             executor: async (_input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext) => {
-                const { em, projectId, chatId, draftManager } = ctx;
+                const { em, projectId, chatId, draftManager, embeddingQueue } = ctx;
 
                 try {
                     const draft = draftManager.finalize();
 
                     // Persist to database
                     const result = await upsertDocument(em, projectId, chatId, draft.name, draft.title, draft.content);
+
+                    // Queue embedding job (async, non-blocking)
+                    if (embeddingQueue) {
+                        embeddingQueue
+                            .send({
+                                type: 'index_artifact_version',
+                                projectId,
+                                versionId: result.versionId,
+                                content: draft.content,
+                                documentName: draft.name,
+                            })
+                            .catch((err) => {
+                                console.error('[finalize_document] Failed to queue embedding job:', err);
+                            });
+                    }
 
                     return {
                         result: {

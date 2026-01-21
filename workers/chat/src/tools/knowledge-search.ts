@@ -5,7 +5,8 @@ import { embedTexts } from '@common/ai/embeddings';
 import { z } from 'zod';
 
 export interface KnowledgeSearchContext {
-    openai: OpenAI;
+    /** OpenAI client for query embeddings (optional - search disabled if not provided) */
+    openai?: OpenAI;
     em: EntityManager;
     projectId: string;
 }
@@ -107,6 +108,10 @@ export function createKnowledgeTools() {
                 input: { query: string; limit?: number },
                 ctx: KnowledgeSearchContext,
             ): Promise<string> => {
+                if (!ctx.openai) {
+                    return 'Semantic search is not available - OpenAI client not configured.';
+                }
+
                 const { query, limit = 5 } = input;
 
                 const results = await searchKnowledge(

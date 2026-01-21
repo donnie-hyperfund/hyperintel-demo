@@ -11,6 +11,7 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { SendChatActionDto } from '@/lib/schema/chat';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, getDraftManager } from './tools/documents';
+import { createKnowledgeTools, KnowledgeSearchToolGroup, type KnowledgeSearchContext } from './tools/knowledge-search';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createDocumentEventHandler } from './utils/document-events';
 
@@ -199,7 +200,7 @@ async function streamInternal(
         const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
 
         // Create combined agent context for all tool types
-        const agentCtx: PromptToolsContext & DocumentToolsContext = {
+        const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
             // Prompt tools context
             loadedPrompts: new Set<string>(savedPrompts),
             // Document tools context
@@ -207,6 +208,10 @@ async function streamInternal(
             projectId: chat.project.id,
             chatId: chat.id,
             draftManager: getDraftManager(),
+            // Embedding queue for async indexing (from env binding)
+            embeddingQueue: ctx.env.EMBEDDING_QUEUE,
+            // OpenAI client for knowledge search (optional)
+            openai: ctx.openai,
         };
 
         // Resolve local prompts path from options
@@ -239,9 +244,9 @@ async function streamInternal(
                 countReasoningAsContent: true,
                 contentThreshold: 5,
             },
-            [...pmaPromptTools, ...createDocumentTools()],
+            [...pmaPromptTools, ...createDocumentTools(), ...createKnowledgeTools()],
             {
-                toolGroups: [PromptManagementToolGroup, DocumentToolGroup],
+                toolGroups: [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup],
                 config: {
                     maxToolCalls: 20,
                     getSystemPrompt: async () => buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath),
