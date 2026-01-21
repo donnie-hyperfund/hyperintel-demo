@@ -4,7 +4,8 @@ import { FileText } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchArtifacts } from '@/lib/api/client/hooks/use-artifacts';
-import { ArtifactItem, ArtifactItemSkeleton } from './artifact-item';
+import { ArtifactItem } from './artifact-item';
+import { ArtifactItemSkeleton } from './artifact-item-skeleton';
 
 export const ArtifactList = () => {
     const params = useParams();

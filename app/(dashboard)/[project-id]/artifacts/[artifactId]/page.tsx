@@ -1,10 +1,12 @@
 'use client';
 
+import { formatDistanceToNow } from 'date-fns';
 import { FileText } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchArtifact } from '@/lib/api/client/hooks/use-artifacts';
-import { ArtifactDetail, ArtifactDetailSkeleton } from '../_components/artifact-detail';
+import { ArtifactViewer } from '../../(chat)/_components/artifacts-panel/artifact-viewer';
+import { ArtifactViewerSkeleton } from '../../(chat)/_components/artifacts-panel/artifact-viewer-skeleton';
 
 export default function ArtifactDetailPage() {
     const params = useParams();
@@ -26,8 +28,20 @@ export default function ArtifactDetailPage() {
     }
 
     if (isLoading || !artifact) {
-        return <ArtifactDetailSkeleton />;
+        return <ArtifactViewerSkeleton />;
     }
 
-    return <ArtifactDetail artifact={artifact} projectId={projectId!} />;
+    const content = artifact.current_version?.content ?? '';
+    const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
+    const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
+
+    return (
+        <ArtifactViewer
+            title={artifact.title}
+            content={content}
+            version={artifact.version}
+            subtitle={timeAgo ? `Updated ${timeAgo}` : undefined}
+            backHref={`/${projectId}/artifacts`}
+        />
+    );
 }
