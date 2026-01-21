@@ -2,7 +2,6 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 
@@ -16,8 +15,7 @@ export function DocumentCard({ name, version, action }: DocumentCardProps) {
     const params = useParams();
     const projectId = params['project-id'] as string;
     const { getToken } = useAuth();
-    const { setCurrentArtifact, artifacts, addArtifact } = useArtifactContext();
-    const [isLoading, setIsLoading] = useState(false);
+    const { setCurrentArtifact, artifacts, addArtifact, setLoading, isLoading } = useArtifactContext();
 
     const icon = action === 'created' ? '📄' : action === 'replaced' ? '📝' : '✏️';
 
@@ -34,8 +32,9 @@ export function DocumentCard({ name, version, action }: DocumentCardProps) {
             return;
         }
 
-        // Fetch from backend
-        setIsLoading(true);
+        // Open panel with loading state immediately
+        setLoading(true, name);
+
         try {
             const api = createArtifactApi(getToken);
             const artifact = await api.getByKey(projectId, name);
@@ -52,11 +51,12 @@ export function DocumentCard({ name, version, action }: DocumentCardProps) {
                     messageId: '',
                 });
                 setCurrentArtifact(localArtifactId);
+            } else {
+                setLoading(false);
             }
         } catch (error) {
             console.error('Failed to fetch artifact:', error);
-        } finally {
-            setIsLoading(false);
+            setLoading(false);
         }
     };
 
@@ -67,7 +67,7 @@ export function DocumentCard({ name, version, action }: DocumentCardProps) {
             disabled={isLoading}
             className="inline-flex items-center gap-2 px-3 py-1.5 bg-muted hover:bg-muted/80 rounded-lg text-sm mt-2 transition-colors cursor-pointer disabled:cursor-default disabled:opacity-50"
         >
-            <span>{isLoading ? '⏳' : icon}</span>
+            <span>{icon}</span>
             <span className="font-medium">{name}</span>
             {version && <span className="text-muted-foreground">v{version}</span>}
         </button>

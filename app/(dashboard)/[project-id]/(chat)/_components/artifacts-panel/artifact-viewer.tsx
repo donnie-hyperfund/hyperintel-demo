@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronDown } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
@@ -17,13 +18,35 @@ type ArtifactViewerProps = {
     backHref?: string;
     /** Close handler - shows X button */
     onCloseAction?: () => void;
+    /** Whether content is being streamed - enables auto-scroll to bottom */
+    isStreaming?: boolean;
 };
 
 /** Reusable artifact viewer with header and markdown content */
-export function ArtifactViewer({ title, content, version, subtitle, backHref, onCloseAction }: ArtifactViewerProps) {
+export function ArtifactViewer({
+    title,
+    content,
+    version,
+    subtitle,
+    backHref,
+    onCloseAction,
+    isStreaming = false,
+}: ArtifactViewerProps) {
+    const prevTitleRef = useRef<string | null>(null);
+
+    // Auto-scroll is disabled when not streaming
     const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content], {
         threshold: 100,
+        disabled: !isStreaming,
     });
+
+    // Scroll to top when a new artifact is loaded (title changes and not streaming)
+    useEffect(() => {
+        if (!isStreaming && containerRef.current && prevTitleRef.current !== title) {
+            containerRef.current.scrollTo({ top: 0, behavior: 'instant' });
+        }
+        prevTitleRef.current = title;
+    }, [isStreaming, title, containerRef]);
 
     return (
         <div className="flex flex-col h-full bg-neutral-975">

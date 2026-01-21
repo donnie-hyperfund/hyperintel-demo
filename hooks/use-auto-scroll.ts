@@ -9,6 +9,11 @@ export type UseAutoScrollOptions = {
      */
     threshold?: number;
     behavior?: ScrollBehavior;
+    /**
+     * When true, disables automatic scrolling on content changes
+     * @default false
+     */
+    disabled?: boolean;
 };
 
 export type UseAutoScrollReturn<T extends HTMLElement> = {
@@ -22,7 +27,7 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
     dependencies: unknown[],
     options: UseAutoScrollOptions = {},
 ): UseAutoScrollReturn<T> {
-    const { threshold = 100, behavior = 'smooth' } = options;
+    const { threshold = 100, behavior = 'smooth', disabled = false } = options;
 
     const containerRef = useRef<T | null>(null);
     const isAutoScrollEnabled = useRef(true);
@@ -84,9 +89,12 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
         return () => container.removeEventListener('scroll', handleScroll);
     }, [checkIsAtBottom]);
 
+    // Create a stable dependency key from the dependencies array
+    const dependencyKey = JSON.stringify(dependencies);
+
     useEffect(() => {
         const container = containerRef.current;
-        if (!container || !isAutoScrollEnabled.current) return;
+        if (!container || !isAutoScrollEnabled.current || disabled) return;
 
         requestAnimationFrame(() => {
             container.scrollTo({
@@ -94,7 +102,7 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
                 behavior: 'instant',
             });
         });
-    }, dependencies);
+    }, [dependencyKey, disabled]);
 
     return {
         containerRef,

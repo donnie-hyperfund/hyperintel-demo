@@ -1,16 +1,36 @@
 'use client';
 
-import { FileText } from 'lucide-react';
+import { FileText, Loader2 } from 'lucide-react';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { ArtifactViewer } from './artifact-viewer';
 
 /** Chat panel wrapper that uses artifact context */
 export default function ArtifactsPanel() {
-    const { togglePanel, currentArtifact } = useArtifactContext();
+    const { togglePanel, currentArtifact, isLoading, loadingTitle, isCurrentArtifactStreaming } = useArtifactContext();
 
+    // Loading state
+    if (isLoading) {
+        return (
+            <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">
+                <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                    <div className="text-center space-y-4">
+                        <Loader2 className="size-12 mx-auto animate-spin text-primary" />
+                        <div className="space-y-1">
+                            <p className="text-sm font-medium text-foreground">
+                                {loadingTitle ?? 'Loading document...'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Fetching content</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Empty state
     if (!currentArtifact) {
         return (
-            <div className="flex flex-col h-full bg-neutral-975">
+            <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">
                 <div className="flex-1 flex items-center justify-center text-muted-foreground">
                     <div className="text-center space-y-2">
                         <FileText className="size-12 mx-auto opacity-50" />
@@ -22,10 +42,13 @@ export default function ArtifactsPanel() {
     }
 
     return (
-        <ArtifactViewer
-            title={currentArtifact.title}
-            content={currentArtifact.content}
-            onCloseAction={() => togglePanel(false)}
-        />
+        <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
+            <ArtifactViewer
+                title={currentArtifact.title}
+                content={currentArtifact.content}
+                onCloseAction={() => togglePanel(false)}
+                isStreaming={isCurrentArtifactStreaming}
+            />
+        </div>
     );
 }

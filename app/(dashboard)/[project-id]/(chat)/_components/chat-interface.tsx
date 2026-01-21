@@ -33,6 +33,7 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
         addArtifact,
         updateArtifact,
         setCurrentArtifact,
+        setStreamingComplete,
     } = useArtifactContext();
 
     const { getToken } = useAuth();
@@ -277,14 +278,17 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
                                     const docKey = `${event.name}_${event.pendingVersion}`;
                                     const artifactId = `doc-${event.name}-v${event.pendingVersion}`;
                                     streamingDocs.set(docKey, { artifactId, content: '' });
-                                    addArtifact({
-                                        id: artifactId,
-                                        identifier: event.name,
-                                        title: event.title || event.name,
-                                        type: 'text/markdown',
-                                        content: '',
-                                        messageId: streamingMsgId,
-                                    });
+                                    addArtifact(
+                                        {
+                                            id: artifactId,
+                                            identifier: event.name,
+                                            title: event.title || event.name,
+                                            type: 'text/markdown',
+                                            content: '',
+                                            messageId: streamingMsgId,
+                                        },
+                                        true, // isStreaming
+                                    );
                                     setCurrentArtifact(artifactId);
                                     break;
                                 }
@@ -334,6 +338,10 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
                                     console.log('document_complete', event);
                                     // Clear tracking for this document
                                     const docKey = `${event.name}_${event.version}`;
+                                    const completedDoc = streamingDocs.get(docKey);
+                                    if (completedDoc) {
+                                        setStreamingComplete(completedDoc.artifactId);
+                                    }
                                     streamingDocs.delete(docKey);
                                     break;
                                 }
@@ -377,7 +385,7 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
                 setIsLoading(false);
             }
         },
-        [addArtifact, updateArtifact, setCurrentArtifact],
+        [addArtifact, updateArtifact, setCurrentArtifact, setStreamingComplete],
     );
 
     const handleSend = async (data: ChatMessageFormValues) => {
