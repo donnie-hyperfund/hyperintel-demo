@@ -1,8 +1,8 @@
 'use client';
 
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { ArtifactIndicator } from '../../artifact-indicator';
 import type { Message } from '../../chat-interface';
-import { DocumentCard } from './document-card';
 import { splitByDocumentDirectives } from './document-directives';
 import { ThinkingSection } from './thinking-section';
 import { TypingIndicator } from './typing-indicator';
@@ -71,14 +71,14 @@ export function MessageBubble({ message, renderMarkdown = true }: MessageBubbleP
                             </div>
                         );
                     }
-                    // Document card
+                    // Document indicator
                     const doc = segment.directive;
                     return (
-                        <DocumentCard
+                        <ArtifactIndicator
                             key={`doc-${index}-${doc.name}-${doc.version ?? 0}`}
-                            name={doc.name}
-                            version={doc.version}
-                            action={doc.action}
+                            documentName={doc.name}
+                            documentVersion={doc.version}
+                            documentAction={doc.action}
                         />
                     );
                 })}
