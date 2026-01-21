@@ -1,7 +1,7 @@
 'use client';
 
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
-import type { Message } from '../chat-interface';
+import type { Message } from '../../chat-interface';
 import { DocumentCard } from './document-card';
 import { splitByDocumentDirectives } from './document-directives';
 import { ThinkingSection } from './thinking-section';

@@ -2,17 +2,25 @@
 
 import { useEffect, useRef } from 'react';
 import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
-import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import type { Message } from '../chat-interface';
 import ChatConversation from './chat-conversation/chat-conversation';
 import ChatMessageForm from './chat-message-form';
 import type { ChatMessageFormValues } from './chat-message-form/schema';
 
-export default function ChatPanel() {
-    const chatConversationRef = useRef<HTMLDivElement>(null);
-    const chatMessageFormRef = useRef<HTMLFormElement>(null);
+type ChatPanelProps = {
+    messages: Message[];
+    isLoading: boolean;
+    onSend: (data: ChatMessageFormValues) => void;
+    conversationRef?: React.RefObject<HTMLDivElement | null>;
+    formRef?: React.RefObject<HTMLFormElement | null>;
+};
 
-    const { state, sendMessage } = useChatContext();
-    const { messages, isGenerating } = state;
+export default function ChatPanel({ messages, isLoading, onSend, conversationRef, formRef }: ChatPanelProps) {
+    const internalConversationRef = useRef<HTMLDivElement>(null);
+    const internalFormRef = useRef<HTMLFormElement>(null);
+
+    const chatConversationRef = conversationRef ?? internalConversationRef;
+    const chatMessageFormRef = formRef ?? internalFormRef;
 
     useEffect(() => {
         const formElement = chatMessageFormRef.current;
@@ -33,23 +41,23 @@ export default function ChatPanel() {
         return () => {
             resizeObserver.disconnect();
         };
-    }, []);
+    }, [chatConversationRef, chatMessageFormRef]);
 
     const handleSend = (data: ChatMessageFormValues) => {
         if (!data.message.trim()) return;
-        sendMessage(data.message);
+        onSend(data);
     };
 
     return (
         <div className="flex flex-col relative h-full">
             <DashboardHeader />
 
-            <ChatConversation messages={messages} isLoading={isGenerating} ref={chatConversationRef} />
+            <ChatConversation messages={messages} isLoading={isLoading} ref={chatConversationRef} />
 
             <ChatMessageForm
                 ref={chatMessageFormRef}
                 onSubmit={handleSend}
-                isLoading={isGenerating}
+                isLoading={isLoading}
                 className="absolute bottom-0 left-0 right-0"
             />
         </div>

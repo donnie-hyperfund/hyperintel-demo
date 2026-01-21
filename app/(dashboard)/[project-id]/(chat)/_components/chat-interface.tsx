@@ -4,14 +4,12 @@ import { useAuth } from '@clerk/nextjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ArtifactsPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/artifacts-panel';
 import type { StreamBlock } from '@/common/ai/agent/types';
-import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { createApiClient } from '@/lib/api/client';
 import { sendAction } from '@/lib/api/requests/worker/chat';
 import { cn } from '@/lib/utils';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import ChatConversation from './chat-conversation/chat-conversation';
-import ChatMessageForm from './chat-panel/chat-message-form';
+import ChatPanel from './chat-panel';
 import type { ChatMessageFormValues } from './chat-panel/chat-message-form/schema';
 
 // Message type using StreamBlock[] as primary data source
@@ -433,7 +431,7 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
     };
 
     return (
-        <ResizablePanelGroup direction="horizontal" className="h-full">
+        <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-full">
             {/* Chat Panel */}
             <ResizablePanel
                 id="chat-panel"
@@ -443,17 +441,13 @@ export default function ChatInterface({ chatId, projectId, initialMessage }: Cha
                 maxSize={80}
                 className={cn(isArtifactsPanelVisible && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
             >
-                <div className="flex flex-col relative h-full">
-                    <DashboardHeader />
-
-                    <ChatConversation messages={messages} isLoading={isLoading} ref={chatConversationRef} />
-
-                    <ChatMessageForm
-                        ref={chatMessageFormRef}
-                        onSubmit={handleSend}
-                        className="absolute bottom-0 left-0 right-0"
-                    />
-                </div>
+                <ChatPanel
+                    messages={messages}
+                    isLoading={isLoading}
+                    onSend={handleSend}
+                    conversationRef={chatConversationRef}
+                    formRef={chatMessageFormRef}
+                />
             </ResizablePanel>
 
             <ResizableHandle className="w-1 bg-border hover:bg-primary/50 transition-colors" />

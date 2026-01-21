@@ -1,5 +1,6 @@
 'use client';
 
+import { FileText } from 'lucide-react';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 
 type DocumentCardProps = {
