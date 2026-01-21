@@ -1,0 +1,20 @@
+# embedding worker definition
+name: hi-embedding
+secrets:
+  - DATABASE_URL
+  - OPENAI_KEY
+  - OPENROUTER_API_KEY
+  - LANGFUSE_SECRET_KEY
+  - AUTH_SECRET
+
+# AI clients needed for embeddings
+# ai: true
+
+queues:
+  consumers:
+    - queue: hi-embedding-queue
+      max_batch_size: 10
+      max_batch_timeout: 5
+
+# triggers:
+#   crons: ["0 * * * *"]

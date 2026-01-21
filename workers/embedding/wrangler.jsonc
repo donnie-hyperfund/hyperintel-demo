@@ -7,14 +7,14 @@
 // ║                                                                           ║
 // ║   To modify this worker's configuration:                                  ║
 // ║     → Edit: worker.yaml (in this folder)                                  ║
-// ║     → Then run: pnpm gen:workers hi-chat                                  ║
+// ║     → Then run: pnpm gen:workers hi-embedding                             ║
 // ║                                                                           ║
 // ║   See: _common/CONFIG_README.md for documentation                         ║
 // ║                                                                           ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
 {
 	"$schema": "../node_modules/wrangler/config-schema.json",
-	"name": "hi-chat",
+	"name": "hi-embedding",
 	"main": "src/index.ts",
 	"compatibility_flags": [
 		"nodejs_compat"
@@ -36,24 +36,14 @@
 			"secret_name": "HI_DATABASE_URL"
 		},
 		{
-			"binding": "CLERK_SECRET_KEY",
+			"binding": "OPENAI_KEY",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
-			"secret_name": "CLERK_SECRET_KEY"
-		},
-		{
-			"binding": "ANTHROPIC_API_KEY",
-			"store_id": "b0b79b79a9e4400384c1e86239b96635",
-			"secret_name": "ANTHROPIC_API_KEY"
+			"secret_name": "OPENAI_KEY"
 		},
 		{
 			"binding": "OPENROUTER_API_KEY",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "DEV_OPENROUTER_API_KEY"
-		},
-		{
-			"binding": "OPENAI_KEY",
-			"store_id": "b0b79b79a9e4400384c1e86239b96635",
-			"secret_name": "OPENAI_KEY"
 		},
 		{
 			"binding": "LANGFUSE_SECRET_KEY",
@@ -67,10 +57,11 @@
 		}
 	],
 	"queues": {
-		"producers": [
+		"consumers": [
 			{
 				"queue": "hi-embedding-queue",
-				"binding": "EMBEDDING_QUEUE"
+				"max_batch_size": 10,
+				"max_batch_timeout": 5
 			}
 		]
 	},
@@ -91,24 +82,14 @@
 					"secret_name": "DEV_HI_DATABASE_URL"
 				},
 				{
-					"binding": "CLERK_SECRET_KEY",
+					"binding": "OPENAI_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "CLERK_SECRET_KEY"
-				},
-				{
-					"binding": "ANTHROPIC_API_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "ANTHROPIC_API_KEY"
+					"secret_name": "OPENAI_KEY"
 				},
 				{
 					"binding": "OPENROUTER_API_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "DEV_OPENROUTER_API_KEY"
-				},
-				{
-					"binding": "OPENAI_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "OPENAI_KEY"
 				},
 				{
 					"binding": "LANGFUSE_SECRET_KEY",
@@ -122,10 +103,11 @@
 				}
 			],
 			"queues": {
-				"producers": [
+				"consumers": [
 					{
 						"queue": "hi-embedding-queue-dev",
-						"binding": "EMBEDDING_QUEUE"
+						"max_batch_size": 10,
+						"max_batch_timeout": 5
 					}
 				]
 			}
@@ -146,24 +128,14 @@
 					"secret_name": "DEV_HI_DATABASE_URL"
 				},
 				{
-					"binding": "CLERK_SECRET_KEY",
+					"binding": "OPENAI_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "CLERK_SECRET_KEY"
-				},
-				{
-					"binding": "ANTHROPIC_API_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "ANTHROPIC_API_KEY"
+					"secret_name": "OPENAI_KEY"
 				},
 				{
 					"binding": "OPENROUTER_API_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "DEV_OPENROUTER_API_KEY"
-				},
-				{
-					"binding": "OPENAI_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "OPENAI_KEY"
 				},
 				{
 					"binding": "LANGFUSE_SECRET_KEY",
@@ -177,10 +149,11 @@
 				}
 			],
 			"queues": {
-				"producers": [
+				"consumers": [
 					{
 						"queue": "hi-embedding-queue-experimental",
-						"binding": "EMBEDDING_QUEUE"
+						"max_batch_size": 10,
+						"max_batch_timeout": 5
 					}
 				]
 			}

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { getLangfusePrompt, getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
 import { serializeException } from '@/common/ai/utils';
@@ -11,6 +12,7 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { SendChatActionDto } from '@/lib/schema/chat';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, getDraftManager } from './tools/documents';
+import { createKnowledgeTools, KnowledgeSearchToolGroup, type KnowledgeSearchContext } from './tools/knowledge-search';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createDocumentEventHandler } from './utils/document-events';
 
@@ -198,8 +200,19 @@ async function streamInternal(
         // Load previously loaded prompts from chat metadata (fallback to empty)
         const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
 
+        // Create embedding queue adapter (uses native Queue in workers, HTTP in local)
+        const embeddingQueue = createEmbeddingQueueAdapter({
+            // Native Cloudflare Queue binding (available in workers)
+            queue: ctx.env.EMBEDDING_QUEUE,
+            // HTTP fallback for local development
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL 
+                ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` 
+                : undefined,
+            authSecret: process.env.AUTH_SECRET,
+        });
+
         // Create combined agent context for all tool types
-        const agentCtx: PromptToolsContext & DocumentToolsContext = {
+        const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
             // Prompt tools context
             loadedPrompts: new Set<string>(savedPrompts),
             // Document tools context
@@ -207,6 +220,10 @@ async function streamInternal(
             projectId: chat.project.id,
             chatId: chat.id,
             draftManager: getDraftManager(),
+            // Embedding queue adapter for async indexing
+            embeddingQueue,
+            // OpenAI client for knowledge search (optional)
+            openai: ctx.openai,
         };
 
         // Resolve local prompts path from options
@@ -239,9 +256,9 @@ async function streamInternal(
                 countReasoningAsContent: true,
                 contentThreshold: 5,
             },
-            [...pmaPromptTools, ...createDocumentTools()],
+            [...pmaPromptTools, ...createDocumentTools(), ...createKnowledgeTools()],
             {
-                toolGroups: [PromptManagementToolGroup, DocumentToolGroup],
+                toolGroups: [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup],
                 config: {
                     maxToolCalls: 20,
                     getSystemPrompt: async () => buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath),

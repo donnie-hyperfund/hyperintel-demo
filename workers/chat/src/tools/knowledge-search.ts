@@ -4,8 +4,14 @@ import type OpenAI from 'openai';
 import { embedTexts } from '@common/ai/embeddings';
 import { z } from 'zod';
 
+/** Escape string for PostgreSQL - prevents SQL injection */
+function escapeSqlString(str: string): string {
+    return str.replace(/'/g, "''");
+}
+
 export interface KnowledgeSearchContext {
-    openai: OpenAI;
+    /** OpenAI client for query embeddings (optional - search disabled if not provided) */
+    openai?: OpenAI;
     em: EntityManager;
     projectId: string;
 }
@@ -29,7 +35,9 @@ async function searchKnowledge(
 ): Promise<SearchResult[]> {
     const [queryEmbedding] = await embedTexts(client, [query]);
     const embeddingStr = `[${queryEmbedding.join(',')}]`;
+    const escapedProjectId = escapeSqlString(projectId);
 
+    // Use direct interpolation - parameterized queries don't work in CF Workers environment
     const results = (await em.getConnection().execute(
         `
         SELECT
@@ -38,16 +46,15 @@ async function searchKnowledge(
             av.artifact_id,
             a.title,
             a.key,
-            1 - (ae.embedding <=> $1::vector) as similarity
+            1 - (ae.embedding <=> '${embeddingStr}'::vector) as similarity
         FROM artifact_embeddings ae
         JOIN artifact_versions av ON ae.artifact_version_id = av.id
         JOIN artifacts a ON av.artifact_id = a.id
-        WHERE ae.project_id = $2
-          AND 1 - (ae.embedding <=> $1::vector) >= $3
-        ORDER BY ae.embedding <=> $1::vector
-        LIMIT $4
+        WHERE ae.project_id = '${escapedProjectId}'
+          AND 1 - (ae.embedding <=> '${embeddingStr}'::vector) >= ${minSimilarity}
+        ORDER BY ae.embedding <=> '${embeddingStr}'::vector
+        LIMIT ${limit}
         `,
-        [embeddingStr, projectId, minSimilarity, limit],
     )) as SearchResult[];
 
     return results;
@@ -86,14 +93,12 @@ const SearchKnowledgeParams = z.object({
     limit: z.number().int().min(1).max(20).default(5).describe('Maximum number of results'),
 });
 
-const ListDocumentsParams = z.object({});
-
 export const KnowledgeSearchToolGroup: AgentToolGroup = {
     slug: 'knowledge',
     name: 'Knowledge Base',
-    description: 'Tools for searching and retrieving information from project documents.',
-    guidance: 'Use search_knowledge to find relevant information from project documents. Use list_documents to see all available documents.',
-    tools: ['search_knowledge', 'list_documents'],
+    description: 'Tools for semantic search in project documents.',
+    guidance: 'Use search_knowledge to find relevant information from project documents using semantic similarity.',
+    tools: ['search_knowledge'],
 };
 
 export function createKnowledgeTools() {
@@ -107,6 +112,10 @@ export function createKnowledgeTools() {
                 input: { query: string; limit?: number },
                 ctx: KnowledgeSearchContext,
             ): Promise<string> => {
+                if (!ctx.openai) {
+                    return 'Semantic search is not available - OpenAI client not configured.';
+                }
+
                 const { query, limit = 5 } = input;
 
                 const results = await searchKnowledge(
@@ -119,39 +128,6 @@ export function createKnowledgeTools() {
                 );
 
                 return formatSearchResults(results);
-            },
-        },
-        {
-            name: 'list_documents' as const,
-            description: 'List all documents in the project knowledge base with their titles and keys.',
-            parameters: ListDocumentsParams,
-            executor: async (_input: Record<string, never>, ctx: KnowledgeSearchContext): Promise<string> => {
-                const results = (await ctx.em.getConnection().execute(
-                    `
-                    SELECT DISTINCT
-                        a.key,
-                        a.title,
-                        a.version,
-                        COUNT(ae.id) as chunk_count
-                    FROM artifacts a
-                    LEFT JOIN artifact_versions av ON av.artifact_id = a.id AND av.id = a.current_version_id
-                    LEFT JOIN artifact_embeddings ae ON ae.artifact_version_id = av.id
-                    WHERE a.project_id = $1
-                    GROUP BY a.id, a.key, a.title, a.version
-                    ORDER BY a.title
-                    `,
-                    [ctx.projectId],
-                )) as Array<{ key: string; title: string; version: number; chunk_count: string }>;
-
-                if (results.length === 0) {
-                    return 'No documents in knowledge base yet.';
-                }
-
-                const lines = results.map(
-                    (r) => `- **${r.title}** (\`${r.key}\`) - v${r.version}, ${r.chunk_count} indexed chunks`,
-                );
-
-                return `## Project Documents\n\n${lines.join('\n')}`;
             },
         },
     ] as const;
