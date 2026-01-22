@@ -58,6 +58,8 @@ export const DocumentToolGroup: AgentToolGroup = {
 4. finalize_document() - Commit to database
 
 You MUST call finalize_document when done or content will be lost.`,
+    behavioralGuidance:
+        'Document directives (::document[name]{...}) are automatically injected after finalize_document - never output them yourself.',
     tools: [
         'begin_document',
         'write_document',

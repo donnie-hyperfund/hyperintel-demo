@@ -6,15 +6,48 @@ import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { getLangfusePrompt, getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
-import { serializeException } from '@/common/ai/utils';
+import { estimateContextTokens, estimateTextTokens, serializeException } from '@/common/ai/utils';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SendChatActionDto } from '@/lib/schema/chat';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, getDraftManager } from './tools/documents';
-import { createKnowledgeTools, KnowledgeSearchToolGroup, type KnowledgeSearchContext } from './tools/knowledge-search';
+import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createDocumentEventHandler } from './utils/document-events';
+
+// ============================================================================
+// CONTEXT PREPROCESSING
+// ============================================================================
+
+/** Regex for document directives injected by finalize_document */
+const DOCUMENT_DIRECTIVE_REGEX = /::document\[[^\]]+\]\{[^}]+\}/g;
+
+/**
+ * Preprocess context messages before sending to inference.
+ * Strips injected content (like document directives) that the model shouldn't see.
+ */
+function preprocessContext(messages: any[]): any[] {
+    return messages.map((msg) => {
+        // Only process assistant messages with blocks
+        if (msg.role !== 'assistant' || !msg.blocks) return msg;
+
+        // Process blocks - strip directives from text blocks
+        const processedBlocks = msg.blocks
+            .map((block: any) => {
+                if (block.type !== 'text') return block;
+                const cleanedContent = block.content?.replace(DOCUMENT_DIRECTIVE_REGEX, '').trim() ?? '';
+                return { ...block, content: cleanedContent };
+            })
+            .filter((b: any) => b.type !== 'text' || b.content); // Remove empty text blocks
+
+        // Also clean the content field if present
+        const cleanedContent =
+            typeof msg.content === 'string' ? msg.content.replace(DOCUMENT_DIRECTIVE_REGEX, '').trim() : msg.content;
+
+        return { ...msg, blocks: processedBlocks, content: cleanedContent };
+    });
+}
 
 export interface ChatHandlerOptions {
     /** Override inference params (model/provider). If not set, uses default OpenRouter config. */
@@ -246,13 +279,13 @@ async function streamInternal(
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
             agentCtx,
-            // @ts-expect-error TODO: should allow passing context with only some providers available
+            // @ ts-expect-error TODO: should allow passing context with only some providers available
             ctx,
             {
                 ...inferenceParams,
                 instructions: initialSystemPrompt,
                 context: allMessages,
-                maxTokens: 4096 * 3,
+                // maxTokens: 4096 * 3,
                 countReasoningAsContent: true,
                 contentThreshold: 5,
             },
@@ -263,12 +296,16 @@ async function streamInternal(
                     maxToolCalls: 20,
                     getSystemPrompt: async () => buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath),
                     statusUpdates: { enabled: true },
+                    preprocessContext,
                 },
             },
         );
 
         // Stream events to the client
         let wasTool = false;
+
+        // Store done event data to combine with done_ext
+        let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
 
         // Document event handler for frontend streaming
         const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) =>
@@ -349,12 +386,58 @@ async function streamInternal(
                     };
 
                     await em!.flush();
+
+                    // Calculate token usage estimates
+                    // Historical messages + new user message
+                    let usedContextTokens = estimateContextTokens(allMessages);
+
+                    // Add this run's assistant response (text + reasoning + tool calls)
+                    if (assistantContent) {
+                        usedContextTokens += estimateTextTokens(assistantContent);
+                    }
+                    if (streamLog.fullReasoning) {
+                        usedContextTokens += estimateTextTokens(streamLog.fullReasoning);
+                    }
+                    // Tool call blocks contribute to context
+                    for (const block of streamLog.blocks) {
+                        if (block.type === 'tool_call') {
+                            // Estimate tool name + input + output
+                            usedContextTokens += estimateTextTokens(block.toolName);
+                            usedContextTokens += estimateTextTokens(
+                                typeof block.toolInput === 'string' ? block.toolInput : JSON.stringify(block.toolInput),
+                            );
+                            if (block.toolOutput) {
+                                usedContextTokens += estimateTextTokens(block.toolOutput);
+                            }
+                        }
+                    }
+
+                    // Estimate prompt tokens - get the current system prompt
+                    const currentSystemPrompt = await buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath);
+                    const usedPromptTokens = estimateTextTokens(currentSystemPrompt);
+
+                    const usedTokens = usedContextTokens + usedPromptTokens;
+
+                    // Emit combined done event with token estimates
+                    enqueue({
+                        type: 'done',
+                        outputType: pendingDoneEvent?.outputType ?? 'text',
+                        outputTool: pendingDoneEvent?.outputTool,
+                        usedContextTokens,
+                        usedPromptTokens,
+                        usedTokens,
+                    });
                     enqueue('[DONE]');
                     break;
                 }
 
                 case 'done':
-                    enqueue({ type: 'done', outputType: event.outputType, outputTool: event.outputTool });
+                    // Store done event data - will be combined with done_ext
+                    pendingDoneEvent = {
+                        outputType: event.outputType,
+                        outputTool: event.outputTool,
+                        finalOutput: event.finalOutput,
+                    };
                     break;
 
                 case 'status_update':
