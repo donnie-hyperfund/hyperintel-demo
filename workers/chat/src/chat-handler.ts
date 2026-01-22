@@ -6,7 +6,7 @@ import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { getLangfusePrompt, getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
-import { estimateContextTokens, estimateTextTokens, serializeException } from '@/common/ai/utils';
+import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SendChatActionDto } from '@/lib/schema/chat';
@@ -276,6 +276,10 @@ async function streamInternal(
         };
         const inferenceParams = options.overrideInference ?? defaultInference;
 
+        // Define tools and tool groups (used for agent and token estimation)
+        const allTools = [...pmaPromptTools, ...createDocumentTools(), ...createKnowledgeTools()];
+        const toolGroups = [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup];
+
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
             agentCtx,
@@ -289,9 +293,9 @@ async function streamInternal(
                 countReasoningAsContent: true,
                 contentThreshold: 5,
             },
-            [...pmaPromptTools, ...createDocumentTools(), ...createKnowledgeTools()],
+            allTools,
             {
-                toolGroups: [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup],
+                toolGroups,
                 config: {
                     maxToolCalls: 20,
                     getSystemPrompt: async () => buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath),
@@ -416,15 +420,24 @@ async function streamInternal(
                     const currentSystemPrompt = await buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath);
                     const usedPromptTokens = estimateTextTokens(currentSystemPrompt);
 
-                    const usedTokens = usedContextTokens + usedPromptTokens;
+                    // Estimate tool tokens (guidance in prompt + schemas)
+                    const toolTokens = estimateToolTokens(allTools, toolGroups);
+                    const usedPromptToolTokens = toolTokens.promptToolTokens;
+                    const usedToolDefTokens = toolTokens.toolDefTokens;
+
+                    const usedTokens = usedContextTokens + usedPromptTokens + usedToolDefTokens;
 
                     // Emit combined done event with token estimates
                     enqueue({
                         type: 'done',
                         outputType: pendingDoneEvent?.outputType ?? 'text',
                         outputTool: pendingDoneEvent?.outputTool,
-                        usedContextTokens,
-                        usedPromptTokens,
+                        tokenBreakdown: {
+                            context: usedContextTokens,
+                            prompt: usedPromptTokens,
+                            promptTool: usedPromptToolTokens,
+                            toolDef: usedToolDefTokens,
+                        },
                         usedTokens,
                     });
                     enqueue('[DONE]');
