@@ -24,7 +24,7 @@ export type UseAutoScrollReturn<T extends HTMLElement> = {
 };
 
 export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
-    dependencies: unknown[],
+    dependencies: React.DependencyList,
     options: UseAutoScrollOptions = {},
 ): UseAutoScrollReturn<T> {
     const { threshold = 100, behavior = 'smooth', disabled = false } = options;
@@ -89,9 +89,7 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
         return () => container.removeEventListener('scroll', handleScroll);
     }, [checkIsAtBottom]);
 
-    // Create a stable dependency key from the dependencies array
-    const dependencyKey = JSON.stringify(dependencies);
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         const container = containerRef.current;
         if (!container || !isAutoScrollEnabled.current || disabled) return;
@@ -102,7 +100,7 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
                 behavior: 'instant',
             });
         });
-    }, [dependencyKey, disabled]);
+    }, [...dependencies, disabled]);
 
     return {
         containerRef,
