@@ -226,6 +226,7 @@ export async function upsertDocument(
     action: 'created' | 'replaced';
     name: string;
     version: number;
+    versionId: string;
     lines: number;
     previousVersion?: number;
     previousVersionLines?: number;
@@ -264,6 +265,7 @@ export async function upsertDocument(
             action: 'replaced',
             name: normalizedName,
             version: previousVersion + 1,
+            versionId: newVersion.id,
             lines: lineCount,
             previousVersion,
             previousVersionLines: previousLineCount,
@@ -271,8 +273,8 @@ export async function upsertDocument(
     } else {
         // Create new - two-phase insert wrapped in transaction to handle circular FK
         // Transaction ensures atomicity: if phase 2 fails, phase 1 is rolled back
-        //
-        // TODO this is a little idiotic and not atomic. consider options
+        let createdVersionId: string = '';
+
         await em.transactional(async (txEm) => {
             // Phase 1: Create artifact (current_version will be NULL initially)
             const artifact = new ArtifactEntity();
@@ -295,12 +297,14 @@ export async function upsertDocument(
             artifact.current_version = version;
 
             await txEm.flush();
+            createdVersionId = version.id;
         });
 
         return {
             action: 'created',
             name: normalizedName,
             version: 1,
+            versionId: createdVersionId,
             lines: lineCount,
         };
     }

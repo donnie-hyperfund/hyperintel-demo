@@ -5,8 +5,15 @@ secrets:
   - CLERK_SECRET_KEY
   - ANTHROPIC_API_KEY
   - OPENROUTER_API_KEY
+  - OPENAI_KEY
   - LANGFUSE_SECRET_KEY
   - AUTH_SECRET
+
+# Queue producer for embedding jobs
+queues:
+  producers:
+    - binding: EMBEDDING_QUEUE
+      queue: hi-embedding-queue
 
 # vars:
 #   - SOME_VAR
@@ -22,14 +29,6 @@ secrets:
 #   - name: SOME_DO
 #     class_name: SomeClass
 #     script_name: services  # external, or local: true
-
-# queues:
-#   producers:
-#     - binding: SOME_QUEUE
-#       queue: some-queue
-#   consumers:
-#     - queue: some-queue
-#       max_batch_size: 5
 
 # triggers:
 #   crons: ["0 * * * *"]

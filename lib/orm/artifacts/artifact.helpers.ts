@@ -21,6 +21,11 @@ export interface ArtifactEmbeddingEntityConstructor {
     };
 }
 
+/** Escape string for PostgreSQL - prevents SQL injection */
+function escapeSqlString(str: string): string {
+    return str.replace(/'/g, "''");
+}
+
 export async function indexArtifactVersion(
     openaiClient: OpenAI,
     openrouterClient: OpenRouter,
@@ -41,21 +46,21 @@ export async function indexArtifactVersion(
     const chunkTexts = chunks.map((c) => c.content);
     const embeddingVectors = await embedTexts(openaiClient, chunkTexts);
 
-    const entities = chunks.map((chunk, index) => {
-        const entity = new EmbeddingEntity();
-        entity.artifact_version = artifactVersion;
-        entity.project = { id: projectId } as any;
-        entity.chunk_index = index;
-        entity.chunk_content = chunk.content;
-        entity.start_line = chunk.start_line;
-        entity.end_line = chunk.end_line;
-        entity.embedding = embeddingVectors[index];
-        return entity;
-    });
+    // Use raw SQL INSERT with direct interpolation (parameterized queries don't work in this environment)
+    const conn = em.getConnection();
+    for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const embedding = embeddingVectors[i];
+        const embeddingStr = `[${embedding.join(',')}]`;
+        const escapedContent = escapeSqlString(chunk.content);
+        
+        await conn.execute(
+            `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chunk_index, chunk_content, start_line, end_line, embedding)
+             VALUES ('${artifactVersion.id}', '${projectId}', ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector)`,
+        );
+    }
 
-    await em.persistAndFlush(entities);
-
-    return { indexed: entities.length, deleted };
+    return { indexed: chunks.length, deleted };
 }
 
 export async function reindexProject(
@@ -86,20 +91,20 @@ export async function reindexProject(
         const chunkTexts = chunks.map((c) => c.content);
         const embeddingVectors = await embedTexts(openaiClient, chunkTexts);
 
-        const entities = chunks.map((chunk, index) => {
-            const entity = new EmbeddingEntity();
-            entity.artifact_version = { id: artifact.id } as any;
-            entity.project = { id: projectId } as any;
-            entity.chunk_index = index;
-            entity.chunk_content = chunk.content;
-            entity.start_line = chunk.start_line;
-            entity.end_line = chunk.end_line;
-            entity.embedding = embeddingVectors[index];
-            return entity;
-        });
-
-        await em.persistAndFlush(entities);
-        total += entities.length;
+        // Use raw SQL INSERT with direct interpolation (parameterized queries don't work in this environment)
+        const conn = em.getConnection();
+        for (let i = 0; i < chunks.length; i++) {
+            const chunk = chunks[i];
+            const embedding = embeddingVectors[i];
+            const embeddingStr = `[${embedding.join(',')}]`;
+            const escapedContent = escapeSqlString(chunk.content);
+            
+            await conn.execute(
+                `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chunk_index, chunk_content, start_line, end_line, embedding)
+                 VALUES ('${artifact.id}', '${projectId}', ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector)`,
+            );
+        }
+        total += chunks.length;
     }
 
     return { total, artifacts: artifacts.length };
