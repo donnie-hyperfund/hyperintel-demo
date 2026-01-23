@@ -53,7 +53,7 @@ export async function indexArtifactVersion(
         const embedding = embeddingVectors[i];
         const embeddingStr = `[${embedding.join(',')}]`;
         const escapedContent = escapeSqlString(chunk.content);
-        
+
         await conn.execute(
             `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chunk_index, chunk_content, start_line, end_line, embedding)
              VALUES ('${artifactVersion.id}', '${projectId}', ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector)`,
@@ -98,7 +98,7 @@ export async function reindexProject(
             const embedding = embeddingVectors[i];
             const embeddingStr = `[${embedding.join(',')}]`;
             const escapedContent = escapeSqlString(chunk.content);
-            
+
             await conn.execute(
                 `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chunk_index, chunk_content, start_line, end_line, embedding)
                  VALUES ('${artifact.id}', '${projectId}', ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector)`,

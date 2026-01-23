@@ -23,7 +23,7 @@ export function MessageBubble({ message, renderMarkdown = true }: MessageBubbleP
             .join('\n');
         return (
             <div className="flex gap-3 justify-end">
-                <div className="max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground">
+                <div className="max-w-[80%] overflow-hidden rounded-lg px-4 py-2 bg-primary text-primary-foreground">
                     {renderMarkdown ? (
                         <MarkdownRenderer markdown={text} variant="message" />
                     ) : (
@@ -62,7 +62,7 @@ export function MessageBubble({ message, renderMarkdown = true }: MessageBubbleP
                 {segments.map((segment, index) => {
                     if (segment.type === 'text') {
                         return (
-                            <div key={`text-${index}`} className="rounded-lg px-4 py-2 bg-muted">
+                            <div key={`text-${index}`} className="overflow-hidden rounded-lg px-4 py-2 bg-muted">
                                 {renderMarkdown ? (
                                     <MarkdownRenderer markdown={segment.content} variant="message" />
                                 ) : (

@@ -1,19 +1,19 @@
 /**
  * Embedding Worker
- * 
+ *
  * Processes embedding jobs from the queue.
  * Creates semantic embeddings for documents to enable search.
  */
 
-import { Hono } from 'hono';
-import type { EntityManager } from '@mikro-orm/postgresql';
 import type { MessageBatch } from '@cloudflare/workers-types';
+import { type QueueMessage, QueueMessageSchema } from '@common/queue/embedding-queue.adapter';
+import type { EntityManager } from '@mikro-orm/postgresql';
 import type { OpenRouter } from '@openrouter/sdk';
-import type OpenAI from 'openai';
 import { initInferredContext } from '@worker/context.helpers';
+import { Hono } from 'hono';
+import type OpenAI from 'openai';
 import { indexArtifactVersion, reindexProject } from '@/lib/orm/artifacts/artifact.helpers';
 import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
-import { type QueueMessage, QueueMessageSchema } from '@common/queue/embedding-queue.adapter';
 
 // ============================================================================
 // SHARED PROCESSING LOGIC
@@ -151,11 +151,11 @@ app.post('/enqueue', async (c) => {
 
     try {
         const result = await processMessage(parsed.data, ctx, '[embedding/http]');
-        
+
         if (!result.success) {
             return c.json({ error: result.error }, 400);
         }
-        
+
         return c.json(result);
     } catch (error) {
         console.error('[embedding/http] Error:', error);
@@ -167,11 +167,7 @@ app.post('/enqueue', async (c) => {
 // QUEUE CONSUMER
 // ============================================================================
 
-async function handleQueueBatch(
-    batch: MessageBatch<unknown>,
-    env: Env,
-    _ctx: ExecutionContext,
-): Promise<void> {
+async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext): Promise<void> {
     console.log(`[embedding/queue] Processing batch of ${batch.messages.length} messages`);
 
     // Initialize context with AI clients
@@ -194,7 +190,7 @@ async function handleQueueBatch(
 
         try {
             const result = await processMessage(parsed.data, ctx, '[embedding/queue]');
-            
+
             if (result.success) {
                 message.ack();
             } else {
