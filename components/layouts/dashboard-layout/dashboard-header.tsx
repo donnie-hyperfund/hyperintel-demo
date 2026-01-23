@@ -15,18 +15,20 @@ import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { getPhaseNumber } from '@/lib/phases';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function DashboardHeader() {
     const params = useParams();
     const { getToken } = useAuth();
     const projectId = params?.['project-id'] as string | undefined;
-    const chatId = params?.chatId as string | undefined;
+    const { chatId: contextChatId } = useChatContext();
+    const chatId = (params?.chatId as string | undefined) ?? contextChatId ?? undefined;
     const [sheetOpen, setSheetOpen] = useState(false);
 
     const { addArtifact, setCurrentArtifact, setLoading } = useArtifactContext();
     const { data: project } = useFetchProject(projectId);
     const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
-    const { data: artifactsData, isLoading: artifactsLoading } = useFetchArtifacts(projectId);
+    const { data: artifactsData, isLoading: artifactsLoading, mutate: refetchArtifacts } = useFetchArtifacts(projectId);
 
     const phaseNumber = chatId && chatsData?.data ? getPhaseNumber(chatsData.data, chatId) : null;
     const breadcrumb = [project?.name, phaseNumber ? `Phase ${phaseNumber}` : null].filter(Boolean).join(' / ');
@@ -62,7 +64,13 @@ export function DashboardHeader() {
                 {breadcrumb && <div className="text-sm text-muted-foreground">{breadcrumb}</div>}
             </div>
             <div className="ml-auto">
-                <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+                <Sheet
+                    open={sheetOpen}
+                    onOpenChange={(open) => {
+                        setSheetOpen(open);
+                        if (open) refetchArtifacts();
+                    }}
+                >
                     <SheetTrigger asChild>
                         <Button variant="ghost" size="icon">
                             <Layers className="size-4" />
