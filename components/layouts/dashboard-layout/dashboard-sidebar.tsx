@@ -1,11 +1,9 @@
 'use client';
 
-import { useAuth } from '@clerk/nextjs';
 import { ChevronRight, Code, FileCode, Layers, MessageSquare, Plus } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
     Sidebar,
@@ -23,8 +21,8 @@ import {
     SidebarTrigger,
     useSidebar,
 } from '@/components/ui/sidebar';
-import { createApiClient } from '@/lib/api/client';
-import type { ChatDto } from '@/lib/schema/message';
+import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
+import { sortChatsByCreatedAt } from '@/lib/phases';
 import { cn } from '@/lib/utils';
 import { DashboardSidebarFooter } from './dashboard-sidebar-footer';
 
@@ -41,20 +39,9 @@ export function DashboardSidebar() {
     const params = useParams();
     const pathname = usePathname();
     const projectId = params?.['project-id'] as string | undefined;
-    const { getToken } = useAuth();
 
-    const api = useMemo(() => createApiClient(getToken), [getToken]);
-    const [chats, setChats] = useState<ChatDto[]>([]);
-
-    useEffect(() => {
-        if (!projectId) return;
-        api.chats.list(projectId, { limit: 20 }).then((res) => {
-            const sorted = [...(res.data ?? [])].sort(
-                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-            );
-            setChats(sorted);
-        });
-    }, [api, projectId, pathname]);
+    const { data: chatsData } = useFetchChats(projectId, { limit: 20 });
+    const chats = sortChatsByCreatedAt(chatsData?.data ?? []);
 
     const isPhasesActive = pathname?.startsWith(`/${projectId}/chats`) || pathname === `/${projectId}`;
 

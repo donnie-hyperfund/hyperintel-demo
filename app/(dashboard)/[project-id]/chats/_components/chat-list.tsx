@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
+import { sortChatsByCreatedAt } from '@/lib/phases';
 import { ChatItem, ChatItemSkeleton } from './chat-item';
 
 export const ChatList = () => {
@@ -13,9 +14,7 @@ export const ChatList = () => {
     const projectId = params?.['project-id'] as string | undefined;
 
     const { data, error, isLoading } = useFetchChats(projectId);
-    const chats = [...(data?.data ?? [])].sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-    );
+    const chats = sortChatsByCreatedAt(data?.data ?? []);
 
     if (error) {
         return (
