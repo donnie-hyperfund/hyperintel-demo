@@ -1,8 +1,8 @@
+import { embedTexts } from '@common/ai/embeddings';
+import { chunkContent } from '@common/ai/utils/chunking';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type { OpenRouter } from '@openrouter/sdk';
 import type OpenAI from 'openai';
-import { embedTexts } from '@common/ai/embeddings';
-import { chunkContent } from '@common/ai/utils/chunking';
 
 export interface ArtifactVersionLike {
     id: string;

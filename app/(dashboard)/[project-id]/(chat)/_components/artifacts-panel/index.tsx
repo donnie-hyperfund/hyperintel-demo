@@ -1,21 +1,36 @@
 'use client';
 
-import { ChevronDown, FileText } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
-import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { FileText, Loader2 } from 'lucide-react';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { ArtifactHeader } from './artifact-header';
+import { ArtifactViewer } from './artifact-viewer';
 
+/** Chat panel wrapper that uses artifact context */
 export default function ArtifactsPanel() {
-    const { togglePanel, currentArtifact } = useArtifactContext();
-    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([currentArtifact?.content], {
-        threshold: 100,
-    });
+    const { togglePanel, currentArtifact, isLoading, loadingTitle, isCurrentArtifactStreaming } = useArtifactContext();
 
+    // Loading state
+    if (isLoading) {
+        return (
+            <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">
+                <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                    <div className="text-center space-y-4">
+                        <Loader2 className="size-12 mx-auto animate-spin text-primary" />
+                        <div className="space-y-1">
+                            <p className="text-sm font-medium text-foreground">
+                                {loadingTitle ?? 'Loading document...'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Fetching content</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Empty state
     if (!currentArtifact) {
         return (
-            <div className="flex flex-col h-full bg-neutral-975">
+            <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">
                 <div className="flex-1 flex items-center justify-center text-muted-foreground">
                     <div className="text-center space-y-2">
                         <FileText className="size-12 mx-auto opacity-50" />
@@ -27,32 +42,13 @@ export default function ArtifactsPanel() {
     }
 
     return (
-        <div className="flex flex-col h-full bg-neutral-975">
-            <ArtifactHeader
+        <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
+            <ArtifactViewer
                 title={currentArtifact.title}
                 content={currentArtifact.content}
                 onCloseAction={() => togglePanel(false)}
+                isStreaming={isCurrentArtifactStreaming}
             />
-
-            {/* Preview */}
-            <div className="relative flex-1 min-h-0">
-                <div ref={containerRef} className="h-full overflow-y-auto p-6">
-                    <MarkdownRenderer markdown={currentArtifact.content} />
-                </div>
-
-                {/* Scroll to bottom button - fixed relative to container */}
-                {!isAtBottom && currentArtifact.content.length > 0 && (
-                    <Button
-                        onClick={() => scrollToBottom({ behavior: 'smooth' })}
-                        size="icon-lg"
-                        variant="secondary"
-                        className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-xl z-10"
-                        aria-label="Scroll to bottom"
-                    >
-                        <ChevronDown className="size-4" />
-                    </Button>
-                )}
-            </div>
         </div>
     );
 }

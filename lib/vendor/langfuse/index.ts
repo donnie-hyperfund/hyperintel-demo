@@ -1,12 +1,12 @@
+import { backendEnv } from '@/app/api/env';
 import { LangfuseClient } from './client';
 import { LangfuseError, PromptEnvironment } from './types';
-import { backendEnv } from '@/app/api/env';
 
 export { LangfuseClient, LangfuseError, PromptEnvironment };
 export type {
+    GetPromptOptions,
     LangfuseConfig,
     LangfusePrompt,
-    GetPromptOptions,
 } from './types';
 
 export function createLangfuseClient(): LangfuseClient | null {
@@ -22,11 +22,12 @@ export function createLangfuseClient(): LangfuseClient | null {
         return null;
     }
 
-    const defaultEnvironment = environment === 'Development' 
-        ? PromptEnvironment.Development 
-        : environment === 'Production'
-        ? PromptEnvironment.Production
-        : undefined;
+    const defaultEnvironment =
+        environment === 'Development'
+            ? PromptEnvironment.Development
+            : environment === 'Production'
+              ? PromptEnvironment.Production
+              : undefined;
 
     const client = new LangfuseClient({
         secretKey,
@@ -46,4 +47,3 @@ export function getLangfuseClient(): LangfuseClient | null {
     }
     return langfuseClientInstance;
 }
-

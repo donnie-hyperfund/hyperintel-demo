@@ -1,7 +1,7 @@
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
+import { embedTexts } from '@common/ai/embeddings';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type OpenAI from 'openai';
-import { embedTexts } from '@common/ai/embeddings';
 import { z } from 'zod';
 
 /** Escape string for PostgreSQL - prevents SQL injection */
@@ -96,9 +96,10 @@ const SearchKnowledgeParams = z.object({
 export const KnowledgeSearchToolGroup: AgentToolGroup = {
     slug: 'knowledge',
     name: 'Knowledge Base',
-    description: 'Tools for semantic search in project documents.',
-    guidance: 'Use search_knowledge to find relevant information from project documents using semantic similarity.',
-    tools: ['search_knowledge'],
+    description: 'Tools for searching and retrieving information from project documents.',
+    guidance:
+        'Use search_knowledge to find relevant information from project documents. Use list_documents to see all available documents.',
+    tools: ['search_knowledge', 'list_documents'],
 };
 
 export function createKnowledgeTools() {
@@ -118,14 +119,7 @@ export function createKnowledgeTools() {
 
                 const { query, limit = 5 } = input;
 
-                const results = await searchKnowledge(
-                    query,
-                    ctx.projectId,
-                    ctx.openai,
-                    ctx.em,
-                    limit,
-                    0.3,
-                );
+                const results = await searchKnowledge(query, ctx.projectId, ctx.openai, ctx.em, limit, 0.3);
 
                 return formatSearchResults(results);
             },

@@ -1,22 +1,11 @@
-import { frontendEnv } from '@/lib/env';
 import { getWorkerUrl } from '@/lib/api/requests/worker/common';
-import { CHAT_EP, WORKERS } from '@/lib/constants/routes';
-import { WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
+import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
+import { frontendEnv } from '@/lib/env';
 import { SendChatActionDto } from '@/lib/schema/chat';
 
-
-export const sendAction = async (
-    data: SendChatActionDto,
-    accessToken: string,
-) => {
-    if (
-        !frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS &&
-        frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE
-    ) {
-        let workerUrl = getWorkerUrl(
-            WORKERS.Chat,
-            CHAT_EP.ChatAction,
-        );
+export const sendAction = async (data: SendChatActionDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ChatAction);
         // if (
         //     process.env.NEXT_PUBLIC_VERCEL_BRANCH_URL?.endsWith(
         //         'chat-ng-cerebras-hyper-fund-ai.vercel.app',

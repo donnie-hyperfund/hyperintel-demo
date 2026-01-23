@@ -1,10 +1,10 @@
 import { Langfuse } from 'langfuse';
 import {
-    LangfuseError,
-    PromptEnvironment,
-    type LangfuseConfig,
     type GetPromptOptions,
+    type LangfuseConfig,
+    LangfuseError,
     type LangfusePrompt,
+    PromptEnvironment,
 } from './types';
 
 export class LangfuseClient {
@@ -20,9 +20,7 @@ export class LangfuseClient {
 
     initialize(config: LangfuseConfig): void {
         if (!config.secretKey || !config.publicKey || !config.baseUrl) {
-            throw new LangfuseError(
-                'Langfuse configuration is incomplete. Missing secretKey, publicKey, or baseUrl.',
-            );
+            throw new LangfuseError('Langfuse configuration is incomplete. Missing secretKey, publicKey, or baseUrl.');
         }
 
         this.config = config;
@@ -49,29 +47,17 @@ export class LangfuseClient {
             );
         }
 
-        const {
-            params = {},
-            cacheTtlSeconds = 300,
-        } = options;
+        const { params = {}, cacheTtlSeconds = 300 } = options;
 
         const env = environment ?? this.defaultEnvironment;
 
         try {
-            const prompt = await this.client!.getPrompt(
-                promptName,
-                undefined,
-                {
-                    cacheTtlSeconds,
-                    label: env,
-                },
-            );
+            const prompt = await this.client!.getPrompt(promptName, undefined, {
+                cacheTtlSeconds,
+                label: env,
+            });
 
-            const stringParams = Object.fromEntries(
-                Object.entries(params).map(([key, value]) => [
-                    key,
-                    String(value),
-                ]),
-            );
+            const stringParams = Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)]));
             const compiledPrompt = prompt.compile(stringParams);
 
             return {

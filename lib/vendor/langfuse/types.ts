@@ -29,7 +29,7 @@ export class LangfuseError extends Error {
         super(message);
         this.name = 'LangfuseError';
         this.cause = cause;
-        
+
         if (Error.captureStackTrace) {
             Error.captureStackTrace(this, LangfuseError);
         }

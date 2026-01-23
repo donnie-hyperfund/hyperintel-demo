@@ -1,12 +1,12 @@
-import { type NextRequest, NextResponse } from 'next/server';
 import { wrap } from '@mikro-orm/core';
+import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { getOrm } from '@/lib/orm/orm';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
-import { getPaginatedResult, createPaginatedResponse } from '@/lib/api/pagination';
+import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
-import { ListArtifactsQuerySchema, type ArtifactDto } from '@/lib/schema/artifact';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import { getOrm } from '@/lib/orm/orm';
+import { type ArtifactDto, ListArtifactsQuerySchema } from '@/lib/schema/artifact';
 
 async function handleGetArtifacts(
     req: NextRequest,
@@ -24,7 +24,8 @@ async function handleGetArtifacts(
 
     if (queryData instanceof NextResponse) return queryData;
 
-    const query = em.createQueryBuilder(ArtifactEntity, 'a')
+    const query = em
+        .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
         .leftJoin('a.chat', 'c')
         .leftJoin('a.project', 'p')
@@ -36,25 +37,17 @@ async function handleGetArtifacts(
         })
         .orderBy({ 'a.created_at': 'DESC' });
 
-    const { nodes, totalCount } = await getPaginatedResult(
-        query,
-        {
-            page: queryData.page ?? 1,
-            perPage: queryData.limit ?? 20,
-        },
-    );
+    const { nodes, totalCount } = await getPaginatedResult(query, {
+        page: queryData.page ?? 1,
+        perPage: queryData.limit ?? 20,
+    });
 
     const mappedNodes = nodes.map((artifact: ArtifactEntity): ArtifactDto => {
         return wrap(artifact).toJSON();
     });
 
     return NextResponse.json(
-        createPaginatedResponse(
-            mappedNodes,
-            totalCount,
-            queryData.page ?? 1,
-            queryData.limit ?? 20,
-        ),
+        createPaginatedResponse(mappedNodes, totalCount, queryData.page ?? 1, queryData.limit ?? 20),
     );
 }
 
@@ -67,4 +60,3 @@ export async function GET(
         return await handleGetArtifacts(request, projectId, chatId, user);
     })(req);
 }
-

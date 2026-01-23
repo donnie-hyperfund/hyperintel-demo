@@ -1,9 +1,9 @@
-import { type NextRequest, NextResponse } from 'next/server';
 import { wrap } from '@mikro-orm/core';
+import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { getOrm } from '@/lib/orm/orm';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import { getOrm } from '@/lib/orm/orm';
 import { type ArtifactDto } from '@/lib/schema/artifact';
 import { ARTIFACT_ERRORS } from '../errors';
 
@@ -16,7 +16,8 @@ async function handleGetArtifact(
 ): Promise<NextResponse> {
     const { em } = await getOrm();
 
-    const artifact = await em.createQueryBuilder(ArtifactEntity, 'a')
+    const artifact = await em
+        .createQueryBuilder(ArtifactEntity, 'a')
         .select('a')
         .leftJoinAndSelect('a.currentVersion', 'cv')
         .leftJoin('a.chat', 'c')
@@ -46,4 +47,3 @@ export async function GET(
         return await handleGetArtifact(request, projectId, chatId, artifactId, user);
     })(req);
 }
-

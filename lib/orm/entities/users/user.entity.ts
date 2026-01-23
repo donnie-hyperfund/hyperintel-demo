@@ -1,9 +1,4 @@
-import {
-    Collection,
-    Entity,
-    OneToMany,
-    Property,
-} from '@mikro-orm/core';
+import { Collection, Entity, OneToMany, Property } from '@mikro-orm/core';
 import { type Nullable } from '@/common/orm/utils';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import type { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';

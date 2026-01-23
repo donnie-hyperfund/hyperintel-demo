@@ -9,8 +9,8 @@ export default async function ChatPage({ params }: ChatPageProps) {
     const { chatId, 'project-id': projectId } = await params;
 
     return (
-        <ChatModule>
-            <ChatInterface chatId={chatId} projectId={projectId} />
+        <ChatModule projectId={projectId} initialChatId={chatId}>
+            <ChatInterface />
         </ChatModule>
     );
 }
