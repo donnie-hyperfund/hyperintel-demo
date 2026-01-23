@@ -1,34 +1,38 @@
 'use client';
 
-import { Code, FileCode, Layers, MessageSquare, Plus } from 'lucide-react';
+import { useAuth } from '@clerk/nextjs';
+import { ChevronRight, Code, FileCode, Layers, MessageSquare, Plus } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
     Sidebar,
     SidebarContent,
     SidebarFooter,
     SidebarGroup,
     SidebarGroupContent,
-    SidebarGroupLabel,
     SidebarHeader,
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
     SidebarTrigger,
     useSidebar,
 } from '@/components/ui/sidebar';
+import { createApiClient } from '@/lib/api/client';
+import type { ChatDto } from '@/lib/schema/message';
 import { cn } from '@/lib/utils';
 import { DashboardSidebarFooter } from './dashboard-sidebar-footer';
 
 const navItems = [
-    { icon: MessageSquare, label: 'Chats', href: '/chats' },
     { icon: FileCode, label: 'Projects', href: '/projects' },
     { icon: Layers, label: 'Artifacts', href: '/artifacts' },
     { icon: Code, label: 'Code', href: '/code' },
 ];
-
-const projectNames = ['Project Name Goes Here', 'Project Name Goes Here', 'Project Name Goes Here'];
 
 export function DashboardSidebar() {
     const { state } = useSidebar();
@@ -37,6 +41,17 @@ export function DashboardSidebar() {
     const params = useParams();
     const pathname = usePathname();
     const projectId = params?.['project-id'] as string | undefined;
+    const { getToken } = useAuth();
+
+    const api = useMemo(() => createApiClient(getToken), [getToken]);
+    const [chats, setChats] = useState<ChatDto[]>([]);
+
+    useEffect(() => {
+        if (!projectId) return;
+        api.chats.list(projectId, { limit: 20 }).then((res) => setChats(res.data ?? []));
+    }, [api, projectId, pathname]);
+
+    const isChatsActive = pathname?.startsWith(`/${projectId}/chats`) || pathname === `/${projectId}`;
 
     return (
         <Sidebar collapsible="icon" className="border-r border-neutral-800">
@@ -80,10 +95,60 @@ export function DashboardSidebar() {
                                     </Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
+
+                            {/* Chats with collapsible sub-items */}
+                            <Collapsible asChild defaultOpen={isChatsActive} className="group/collapsible">
+                                <SidebarMenuItem>
+                                    <div className="relative">
+                                        <SidebarMenuButton
+                                            asChild
+                                            isActive={isChatsActive}
+                                            tooltip={isCollapsed ? 'Chats' : undefined}
+                                            className={cn('px-4', isChatsActive && 'bg-neutral-850 text-neutral-100')}
+                                        >
+                                            <Link href={projectId ? `/${projectId}/chats` : '#'}>
+                                                <MessageSquare />
+                                                <span>Chats</span>
+                                            </Link>
+                                        </SidebarMenuButton>
+                                        {chats.length > 0 && (
+                                            <CollapsibleTrigger asChild>
+                                                <button
+                                                    type="button"
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center size-5 rounded-md hover:bg-neutral-800 group-data-[collapsible=icon]:hidden"
+                                                >
+                                                    <ChevronRight className="size-3.5 text-neutral-500 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                                                </button>
+                                            </CollapsibleTrigger>
+                                        )}
+                                    </div>
+                                    <CollapsibleContent>
+                                        <SidebarMenuSub>
+                                            {chats.map((chat) => {
+                                                const chatHref = `/${projectId}/chats/${chat.id}`;
+                                                const label =
+                                                    chat.first_message_content || chat.summary || 'Untitled chat';
+                                                return (
+                                                    <SidebarMenuSubItem key={chat.id}>
+                                                        <SidebarMenuSubButton
+                                                            asChild
+                                                            size="sm"
+                                                            isActive={pathname === chatHref}
+                                                        >
+                                                            <Link href={chatHref}>
+                                                                <span className="truncate">{label}</span>
+                                                            </Link>
+                                                        </SidebarMenuSubButton>
+                                                    </SidebarMenuSubItem>
+                                                );
+                                            })}
+                                        </SidebarMenuSub>
+                                    </CollapsibleContent>
+                                </SidebarMenuItem>
+                            </Collapsible>
+
                             {navItems.map((item) => {
                                 const Icon = item.icon;
-                                // Projects page is at dashboard root, not project-scoped
-                                // TODO proper fix, this is moronic
                                 const isProjectsPage = item.href === '/projects';
                                 const href = isProjectsPage
                                     ? '/projects'
@@ -113,25 +178,6 @@ export function DashboardSidebar() {
                         </SidebarMenu>
                     </SidebarGroupContent>
                 </SidebarGroup>
-
-                {isExpanded && (
-                    <SidebarGroup className="p-0">
-                        <SidebarGroupLabel className="px-6 mb-1 text-xs font-semibold text-neutral-600">
-                            Recents
-                        </SidebarGroupLabel>
-                        <SidebarGroupContent>
-                            <SidebarMenu className="gap-0.5 px-2">
-                                {projectNames.map((name, idx) => (
-                                    <SidebarMenuItem key={idx}>
-                                        <SidebarMenuButton className="px-4 text-sm h-9 text-neutral-400 hover:text-neutral-100">
-                                            <span className="truncate">{name}</span>
-                                        </SidebarMenuButton>
-                                    </SidebarMenuItem>
-                                ))}
-                            </SidebarMenu>
-                        </SidebarGroupContent>
-                    </SidebarGroup>
-                )}
             </SidebarContent>
 
             <SidebarFooter>
