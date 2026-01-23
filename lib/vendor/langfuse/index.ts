@@ -10,10 +10,10 @@ export type {
 } from './types';
 
 export function createLangfuseClient(): LangfuseClient | null {
-    const secretKey = process.env.LANGFUSE_SECRET_KEY;
-    const publicKey = process.env.LANGFUSE_PUBLIC_KEY;
-    const baseUrl = process.env.LANGFUSE_HOST;
-    const environment = process.env.LANGFUSE_ENVIRONMENT;
+    const secretKey = backendEnv.LANGFUSE_SECRET_KEY;
+    const publicKey = backendEnv.LANGFUSE_PUBLIC_KEY;
+    const baseUrl = backendEnv.LANGFUSE_HOST;
+    const environment = backendEnv.LANGFUSE_ENVIRONMENT;
 
     if (!secretKey || !publicKey || !baseUrl) {
         console.warn(

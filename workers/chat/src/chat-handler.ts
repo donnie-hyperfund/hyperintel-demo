@@ -3,16 +3,51 @@ import path from 'node:path';
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { getLangfusePrompt, getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
-import { serializeException } from '@/common/ai/utils';
+import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SendChatActionDto } from '@/lib/schema/chat';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, getDraftManager } from './tools/documents';
+import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createDocumentEventHandler } from './utils/document-events';
+
+// ============================================================================
+// CONTEXT PREPROCESSING
+// ============================================================================
+
+/** Regex for document directives injected by finalize_document */
+const DOCUMENT_DIRECTIVE_REGEX = /::document\[[^\]]+\]\{[^}]+\}/g;
+
+/**
+ * Preprocess context messages before sending to inference.
+ * Strips injected content (like document directives) that the model shouldn't see.
+ */
+function preprocessContext(messages: any[]): any[] {
+    return messages.map((msg) => {
+        // Only process assistant messages with blocks
+        if (msg.role !== 'assistant' || !msg.blocks) return msg;
+
+        // Process blocks - strip directives from text blocks
+        const processedBlocks = msg.blocks
+            .map((block: any) => {
+                if (block.type !== 'text') return block;
+                const cleanedContent = block.content?.replace(DOCUMENT_DIRECTIVE_REGEX, '').trim() ?? '';
+                return { ...block, content: cleanedContent };
+            })
+            .filter((b: any) => b.type !== 'text' || b.content); // Remove empty text blocks
+
+        // Also clean the content field if present
+        const cleanedContent =
+            typeof msg.content === 'string' ? msg.content.replace(DOCUMENT_DIRECTIVE_REGEX, '').trim() : msg.content;
+
+        return { ...msg, blocks: processedBlocks, content: cleanedContent };
+    });
+}
 
 export interface ChatHandlerOptions {
     /** Override inference params (model/provider). If not set, uses default OpenRouter config. */
@@ -198,8 +233,19 @@ async function streamInternal(
         // Load previously loaded prompts from chat metadata (fallback to empty)
         const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
 
+        // Create embedding queue adapter (uses native Queue in workers, HTTP in local)
+        const embeddingQueue = createEmbeddingQueueAdapter({
+            // Native Cloudflare Queue binding (available in workers)
+            queue: ctx.env.EMBEDDING_QUEUE,
+            // HTTP fallback for local development
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL 
+                ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` 
+                : undefined,
+            authSecret: process.env.AUTH_SECRET,
+        });
+
         // Create combined agent context for all tool types
-        const agentCtx: PromptToolsContext & DocumentToolsContext = {
+        const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
             // Prompt tools context
             loadedPrompts: new Set<string>(savedPrompts),
             // Document tools context
@@ -207,6 +253,10 @@ async function streamInternal(
             projectId: chat.project.id,
             chatId: chat.id,
             draftManager: getDraftManager(),
+            // Embedding queue adapter for async indexing
+            embeddingQueue,
+            // OpenAI client for knowledge search (optional)
+            openai: ctx.openai,
         };
 
         // Resolve local prompts path from options
@@ -226,32 +276,40 @@ async function streamInternal(
         };
         const inferenceParams = options.overrideInference ?? defaultInference;
 
+        // Define tools and tool groups (used for agent and token estimation)
+        const allTools = [...pmaPromptTools, ...createDocumentTools(), ...createKnowledgeTools()];
+        const toolGroups = [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup];
+
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
             agentCtx,
-            // @ts-expect-error TODO: should allow passing context with only some providers available
+            // @ ts-expect-error TODO: should allow passing context with only some providers available
             ctx,
             {
                 ...inferenceParams,
                 instructions: initialSystemPrompt,
                 context: allMessages,
-                maxTokens: 4096 * 3,
+                // maxTokens: 4096 * 3,
                 countReasoningAsContent: true,
                 contentThreshold: 5,
             },
-            [...pmaPromptTools, ...createDocumentTools()],
+            allTools,
             {
-                toolGroups: [PromptManagementToolGroup, DocumentToolGroup],
+                toolGroups,
                 config: {
                     maxToolCalls: 20,
                     getSystemPrompt: async () => buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath),
                     statusUpdates: { enabled: true },
+                    preprocessContext,
                 },
             },
         );
 
         // Stream events to the client
         let wasTool = false;
+
+        // Store done event data to combine with done_ext
+        let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
 
         // Document event handler for frontend streaming
         const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) =>
@@ -332,12 +390,67 @@ async function streamInternal(
                     };
 
                     await em!.flush();
+
+                    // Calculate token usage estimates
+                    // Historical messages + new user message
+                    let usedContextTokens = estimateContextTokens(allMessages);
+
+                    // Add this run's assistant response (text + reasoning + tool calls)
+                    if (assistantContent) {
+                        usedContextTokens += estimateTextTokens(assistantContent);
+                    }
+                    if (streamLog.fullReasoning) {
+                        usedContextTokens += estimateTextTokens(streamLog.fullReasoning);
+                    }
+                    // Tool call blocks contribute to context
+                    for (const block of streamLog.blocks) {
+                        if (block.type === 'tool_call') {
+                            // Estimate tool name + input + output
+                            usedContextTokens += estimateTextTokens(block.toolName);
+                            usedContextTokens += estimateTextTokens(
+                                typeof block.toolInput === 'string' ? block.toolInput : JSON.stringify(block.toolInput),
+                            );
+                            if (block.toolOutput) {
+                                usedContextTokens += estimateTextTokens(block.toolOutput);
+                            }
+                        }
+                    }
+
+                    // Estimate prompt tokens - get the current system prompt
+                    const currentSystemPrompt = await buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath);
+                    const usedPromptTokens = estimateTextTokens(currentSystemPrompt);
+
+                    // Estimate tool tokens (guidance in prompt + schemas)
+                    const toolTokens = estimateToolTokens(allTools, toolGroups);
+                    const usedPromptToolTokens = toolTokens.promptToolTokens;
+                    const usedToolDefTokens = toolTokens.toolDefTokens;
+
+                    const usedTokens = usedContextTokens + usedPromptTokens + usedToolDefTokens;
+
+                    // Emit combined done event with token estimates
+                    enqueue({
+                        type: 'done',
+                        outputType: pendingDoneEvent?.outputType ?? 'text',
+                        outputTool: pendingDoneEvent?.outputTool,
+                        tokenBreakdown: {
+                            context: usedContextTokens,
+                            prompt: usedPromptTokens,
+                            promptTool: usedPromptToolTokens,
+                            toolDef: usedToolDefTokens,
+                        },
+                        usedTokens,
+                    });
                     enqueue('[DONE]');
                     break;
                 }
 
                 case 'done':
-                    enqueue({ type: 'done', outputType: event.outputType, outputTool: event.outputTool });
+                    // Store done event data - will be combined with done_ext
+                    pendingDoneEvent = {
+                        outputType: event.outputType,
+                        outputTool: event.outputTool,
+                        finalOutput: event.finalOutput,
+                    };
                     break;
 
                 case 'status_update':
