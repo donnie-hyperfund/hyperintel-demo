@@ -7,6 +7,8 @@ import { z } from 'zod';
 const BaseStreamBlockSchema = z.object({
     id: z.string(),
     turnIndex: z.number().optional(),
+    offsetMs: z.number().optional(),
+    durationMs: z.number().optional(),
 });
 
 export const TextStreamBlockSchema = BaseStreamBlockSchema.extend({

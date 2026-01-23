@@ -1,4 +1,4 @@
-import type { ArtifactMetadata, ParsedSSEChunk, SSEMessage, StreamEvent } from '../types';
+import type { ParsedSSEChunk, SSEMessage, StreamEvent } from '../types';
 
 export function parseSSEChunk(buffer: string): ParsedSSEChunk {
     const messages: SSEMessage[] = [];
@@ -77,33 +77,70 @@ export function parseStreamEventData(data: string): StreamEvent | null {
         const parsed = JSON.parse(data);
 
         switch (parsed.type) {
-            case 'text':
-                return { type: 'text', content: parsed.content ?? '' };
+            // Text content
+            case 'delta':
+                return { type: 'delta', text: parsed.text ?? '', blockId: parsed.blockId };
 
-            case 'artifact_start':
+            case 'created':
+                return { type: 'created', id: parsed.id ?? '' };
+
+            // Reasoning/thinking
+            case 'reasoning_start':
+                return { type: 'reasoning_start', blockId: parsed.blockId };
+
+            case 'reasoning_delta':
+                return { type: 'reasoning_delta', text: parsed.text, content: parsed.content };
+
+            case 'reasoning_done':
+                return { type: 'reasoning_done', durationMs: parsed.durationMs };
+
+            // Tool calls
+            case 'tool_start':
+                return { type: 'tool_start', id: parsed.id ?? '', tool: parsed.tool ?? '' };
+
+            case 'tool_result':
                 return {
-                    type: 'artifact_start',
-                    artifactId: parsed.artifactId ?? parsed.id ?? crypto.randomUUID(),
-                    metadata: {
-                        identifier: parsed.identifier ?? parsed.artifactId ?? 'artifact',
-                        title: parsed.title ?? 'Untitled',
-                        type: parsed.artifactType ?? 'text/markdown',
-                        language: parsed.language,
-                    } satisfies ArtifactMetadata,
+                    type: 'tool_result',
+                    id: parsed.id ?? '',
+                    result: parsed.result,
+                    success: parsed.success ?? true,
                 };
 
-            case 'artifact_chunk':
+            // Documents/artifacts
+            case 'document_start':
                 return {
-                    type: 'artifact_chunk',
-                    artifactId: parsed.artifactId ?? parsed.id ?? '',
+                    type: 'document_start',
+                    name: parsed.name ?? '',
+                    title: parsed.title,
+                    pendingVersion: parsed.pendingVersion ?? 1,
+                };
+
+            case 'document_delta':
+                return {
+                    type: 'document_delta',
+                    name: parsed.name ?? '',
+                    pendingVersion: parsed.pendingVersion ?? 1,
                     content: parsed.content ?? '',
                 };
 
-            case 'artifact_end':
+            case 'document_edit':
                 return {
-                    type: 'artifact_end',
-                    artifactId: parsed.artifactId ?? parsed.id ?? '',
+                    type: 'document_edit',
+                    name: parsed.name ?? '',
+                    pendingVersion: parsed.pendingVersion ?? 1,
+                    edits: parsed.edits ?? [],
                 };
+
+            case 'document_complete':
+                return {
+                    type: 'document_complete',
+                    name: parsed.name ?? '',
+                    version: parsed.version ?? 1,
+                };
+
+            // Status & control
+            case 'status_update':
+                return { type: 'status_update', status: parsed.status ?? '' };
 
             case 'error':
                 return { type: 'error', error: parsed.error ?? 'Unknown error' };
@@ -111,17 +148,18 @@ export function parseStreamEventData(data: string): StreamEvent | null {
             case 'done':
                 return { type: 'done' };
 
+            case 'done_ext':
+                return { type: 'done_ext' };
+
             default:
-                // Try to handle unknown format - assume it's text content
-                if (typeof parsed.content === 'string') {
-                    return { type: 'text', content: parsed.content };
-                }
+                // Log unknown event types for debugging
+                console.log('Unknown stream event type:', parsed.type, parsed);
                 return null;
         }
     } catch {
-        // If not JSON, treat raw data as text content
+        // If not JSON, treat raw data as text delta
         if (data.trim()) {
-            return { type: 'text', content: data };
+            return { type: 'delta', text: data };
         }
         return null;
     }

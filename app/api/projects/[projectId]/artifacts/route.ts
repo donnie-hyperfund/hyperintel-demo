@@ -15,9 +15,33 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
     const queryData = validatePayload(ListArtifactsQuerySchema, {
         page: searchParams.get('page') ?? undefined,
         limit: searchParams.get('limit') ?? undefined,
+        key: searchParams.get('key') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
+
+    // If key is provided, fetch single artifact by key
+    if (queryData.key) {
+        const artifact = await em
+            .createQueryBuilder(ArtifactEntity, 'a')
+            .select('a.*')
+            .leftJoin('a.chat', 'c')
+            .leftJoin('a.project', 'p')
+            .leftJoinAndSelect('a.current_version', 'cv')
+            .where({
+                'a.key': queryData.key,
+                'p.id': projectId,
+                'p.user': user.id,
+            })
+            .getSingleResult();
+
+        if (!artifact) {
+            return NextResponse.json({ error: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 });
+        }
+
+        const dto: ArtifactDto = wrap(artifact).toJSON();
+        return NextResponse.json(dto);
+    }
 
     const query = em
         .createQueryBuilder(ArtifactEntity, 'a')

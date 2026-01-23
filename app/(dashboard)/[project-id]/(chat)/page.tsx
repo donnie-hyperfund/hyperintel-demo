@@ -10,8 +10,8 @@ export default function Page() {
 
     // Render ChatInterface without chatId - it will create one on first message
     return (
-        <ChatModule>
-            <ChatInterface projectId={projectId} />
+        <ChatModule projectId={projectId}>
+            <ChatInterface />
         </ChatModule>
     );
 }
