@@ -1,6 +1,9 @@
 'use client';
 
+import { Layers } from 'lucide-react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { Button } from '@/components/ui/button';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { getPhaseNumber } from '@/lib/phases';
@@ -17,10 +20,19 @@ export function DashboardHeader() {
 
     const breadcrumb = [project?.name, phaseNumber ? `Phase ${phaseNumber}` : null].filter(Boolean).join(' / ');
 
+    const artifactsHref = projectId ? `/${projectId}/artifacts` : '#';
+
     return (
         <header className="h-14 border-b border-border flex items-center px-6 gap-4">
-            <div className="flex items-center gap-2 ml-auto">
+            <div className="flex items-center gap-2">
                 {breadcrumb && <div className="text-sm text-muted-foreground">{breadcrumb}</div>}
+            </div>
+            <div className="ml-auto">
+                <Button variant="ghost" size="icon" asChild>
+                    <Link href={artifactsHref}>
+                        <Layers className="size-4" />
+                    </Link>
+                </Button>
             </div>
         </header>
     );

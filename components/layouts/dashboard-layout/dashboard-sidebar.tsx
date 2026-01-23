@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronRight, Code, FileCode, Layers, MessageSquare, Plus } from 'lucide-react';
+import { ChevronRight, FileCode, MessageSquare, Plus } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
@@ -26,11 +26,7 @@ import { sortChatsByCreatedAt } from '@/lib/phases';
 import { cn } from '@/lib/utils';
 import { DashboardSidebarFooter } from './dashboard-sidebar-footer';
 
-const navItems = [
-    { icon: FileCode, label: 'Projects', href: '/projects' },
-    { icon: Layers, label: 'Artifacts', href: '/artifacts' },
-    { icon: Code, label: 'Code', href: '/code' },
-];
+const navItems = [{ icon: FileCode, label: 'Projects', href: '/projects' }];
 
 export function DashboardSidebar() {
     const { state } = useSidebar();
