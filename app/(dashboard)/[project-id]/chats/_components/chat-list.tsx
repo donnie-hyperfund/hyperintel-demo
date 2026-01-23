@@ -13,7 +13,9 @@ export const ChatList = () => {
     const projectId = params?.['project-id'] as string | undefined;
 
     const { data, error, isLoading } = useFetchChats(projectId);
-    const chats = data?.data ?? [];
+    const chats = [...(data?.data ?? [])].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
 
     if (error) {
         return (
@@ -59,11 +61,11 @@ export const ChatList = () => {
     return (
         <>
             <p className="mb-4 text-sm text-neutral-500">
-                {chats.length} chat{chats.length !== 1 ? 's' : ''}
+                {chats.length} phase{chats.length !== 1 ? 's' : ''}
             </p>
             <div className="space-y-3">
-                {chats.map((chat) => (
-                    <ChatItem key={chat.id} projectId={projectId} chat={chat} />
+                {chats.map((chat, index) => (
+                    <ChatItem key={chat.id} projectId={projectId} chat={chat} phaseNumber={index + 1} />
                 ))}
             </div>
         </>

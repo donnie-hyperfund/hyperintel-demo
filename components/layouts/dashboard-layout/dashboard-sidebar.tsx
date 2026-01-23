@@ -48,10 +48,15 @@ export function DashboardSidebar() {
 
     useEffect(() => {
         if (!projectId) return;
-        api.chats.list(projectId, { limit: 20 }).then((res) => setChats(res.data ?? []));
+        api.chats.list(projectId, { limit: 20 }).then((res) => {
+            const sorted = [...(res.data ?? [])].sort(
+                (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            );
+            setChats(sorted);
+        });
     }, [api, projectId, pathname]);
 
-    const isChatsActive = pathname?.startsWith(`/${projectId}/chats`) || pathname === `/${projectId}`;
+    const isPhasesActive = pathname?.startsWith(`/${projectId}/chats`) || pathname === `/${projectId}`;
 
     return (
         <Sidebar collapsible="icon" className="border-r border-neutral-800">
@@ -82,7 +87,7 @@ export function DashboardSidebar() {
                             <SidebarMenuItem>
                                 <SidebarMenuButton
                                     asChild
-                                    tooltip={isCollapsed ? 'New Chat' : undefined}
+                                    tooltip={isCollapsed ? 'New Phase' : undefined}
                                     className="px-4"
                                 >
                                     <Link href={projectId ? `/${projectId}` : '#'}>
@@ -91,24 +96,24 @@ export function DashboardSidebar() {
                                                 <Plus className="size-4 text-neutral-900" />
                                             </div>
                                         </div>
-                                        <span>New Chat</span>
+                                        <span>New Phase</span>
                                     </Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
 
-                            {/* Chats with collapsible sub-items */}
-                            <Collapsible asChild defaultOpen={isChatsActive} className="group/collapsible">
+                            {/* Phases with collapsible sub-items */}
+                            <Collapsible asChild defaultOpen={isPhasesActive} className="group/collapsible">
                                 <SidebarMenuItem>
                                     <div className="relative">
                                         <SidebarMenuButton
                                             asChild
-                                            isActive={isChatsActive}
-                                            tooltip={isCollapsed ? 'Chats' : undefined}
-                                            className={cn('px-4', isChatsActive && 'bg-neutral-850 text-neutral-100')}
+                                            isActive={isPhasesActive}
+                                            tooltip={isCollapsed ? 'Phases' : undefined}
+                                            className={cn('px-4', isPhasesActive && 'bg-neutral-850 text-neutral-100')}
                                         >
                                             <Link href={projectId ? `/${projectId}/chats` : '#'}>
                                                 <MessageSquare />
-                                                <span>Chats</span>
+                                                <span>Phases</span>
                                             </Link>
                                         </SidebarMenuButton>
                                         {chats.length > 0 && (
@@ -124,10 +129,9 @@ export function DashboardSidebar() {
                                     </div>
                                     <CollapsibleContent>
                                         <SidebarMenuSub>
-                                            {chats.map((chat) => {
+                                            {chats.map((chat, index) => {
                                                 const chatHref = `/${projectId}/chats/${chat.id}`;
-                                                const label =
-                                                    chat.first_message_content || chat.summary || 'Untitled chat';
+                                                const label = `Phase ${index + 1}`;
                                                 return (
                                                     <SidebarMenuSubItem key={chat.id}>
                                                         <SidebarMenuSubButton
