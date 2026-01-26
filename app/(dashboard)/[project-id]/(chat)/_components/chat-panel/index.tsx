@@ -10,6 +10,7 @@ import type { ChatMessageFormValues } from './chat-message-form/schema';
 
 type ChatPanelProps = {
     messages: Message[];
+    isGenerating: boolean;
     isLoading: boolean;
     onSend: (data: ChatMessageFormValues) => void;
     onLoadMore?: () => void;
@@ -20,6 +21,7 @@ type ChatPanelProps = {
 
 export default function ChatPanel({
     messages,
+    isGenerating,
     isLoading,
     onSend,
     onLoadMore,
@@ -65,6 +67,7 @@ export default function ChatPanel({
 
             <ChatConversation
                 messages={messages}
+                isGenerating={isGenerating}
                 isLoading={isLoading}
                 onLoadMore={onLoadMore}
                 pagination={pagination}
@@ -74,7 +77,7 @@ export default function ChatPanel({
             <ChatMessageForm
                 ref={chatMessageFormRef}
                 onSubmit={handleSend}
-                isLoading={isLoading}
+                isLoading={isGenerating}
                 className="absolute bottom-0 left-0 right-0"
             />
         </div>

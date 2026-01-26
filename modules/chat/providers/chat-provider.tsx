@@ -71,6 +71,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const [state, setState] = useState<ChatState>({
         messages: initialMessages,
         isGenerating: false,
+        isLoading: true,
         error: null,
         streamingMessageId: null,
     });
@@ -140,12 +141,14 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             return;
         }
 
+        setState((prev) => ({ ...prev, isLoading: true }));
+
         try {
             const data = await api.messages.list(projectId, chatId, { page: 1 });
             // API returns DESC order (newest first), reverse for display (newest at bottom)
             const apiMessages: Message[] = data.data?.map(mapApiMessage) || [];
 
-            setState((prev) => ({ ...prev, messages: apiMessages.reverse() }));
+            setState((prev) => ({ ...prev, messages: apiMessages.reverse(), isLoading: false }));
             setPagination({
                 page: data.pagination.page,
                 totalPages: data.pagination.totalPages,
@@ -154,7 +157,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             });
         } catch (error) {
             console.error('Error loading messages:', error);
-            setState((prev) => ({ ...prev, error: new Error('Failed to load messages') }));
+            setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
         }
     }, [api, chatId, projectId, mapApiMessage]);
 
