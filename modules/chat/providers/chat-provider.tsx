@@ -2,8 +2,10 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
+import { artifactKeys } from '@/lib/api/client/fetchers/artifacts';
 import { sendAction } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
@@ -56,6 +58,7 @@ function createUserMessage(content: string): Message {
 export function ChatProvider({ children, projectId, initialChatId, initialMessages = [] }: ChatProviderProps) {
     const artifactContext = useArtifactContext();
     const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
 
     // Create API client with auth
     const api = useMemo(() => createApiClient(getToken), [getToken]);
@@ -98,11 +101,16 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         }));
     }, []);
 
+    const revalidateArtifacts = useCallback(() => {
+        globalMutate(artifactKeys.list(projectId));
+    }, [globalMutate, projectId]);
+
     // Use the stream reader hook for SSE processing
     const { readStream } = useStreamReader({
         artifactContext,
         setMessages,
         setIsLoading,
+        onArtifactComplete: revalidateArtifacts,
     });
 
     /** Convert API message to internal Message format */
@@ -210,6 +218,9 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
                     // Update URL without navigation using history API
                     window.history.replaceState(null, '', `/${projectId}/chats/${chatIdToUse}`);
+
+                    // Revalidate chats list so sidebar and header update
+                    globalMutate((key) => Array.isArray(key) && key[0] === 'chats' && key[1] === 'list');
                 }
 
                 // Create abort controller for this request
@@ -242,7 +253,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 abortControllerRef.current = null;
             }
         },
-        [api, chatId, getToken, projectId, readStream, state.isGenerating],
+        [api, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
     );
 
     /** Stop the current generation */

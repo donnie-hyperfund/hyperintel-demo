@@ -273,7 +273,7 @@ export async function upsertDocument(
     } else {
         // Create new - two-phase insert wrapped in transaction to handle circular FK
         // Transaction ensures atomicity: if phase 2 fails, phase 1 is rolled back
-        let createdVersionId: string = '';
+        let createdVersionId = '';
 
         await em.transactional(async (txEm) => {
             // Phase 1: Create artifact (current_version will be NULL initially)

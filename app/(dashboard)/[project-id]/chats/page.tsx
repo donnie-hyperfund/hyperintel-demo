@@ -13,11 +13,11 @@ export default function ChatsPage() {
     return (
         <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-4 py-12">
             <div className="mb-8 flex items-center justify-between">
-                <h1 className="text-2xl font-semibold">Your chat history</h1>
+                <h1 className="text-2xl font-semibold">Phases</h1>
                 <Button asChild size="sm">
                     <Link href={projectId ? `/${projectId}` : '#'}>
                         <Plus className="size-4 opacity-75" />
-                        New chat
+                        New Phase
                     </Link>
                 </Button>
             </div>
