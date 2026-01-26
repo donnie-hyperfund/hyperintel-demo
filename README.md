@@ -112,4 +112,3 @@ The project is fully typed. Ensure all new code includes proper TypeScript types
 ## License
 
 Private project - All rights reserved.
-test
