@@ -28,6 +28,7 @@ secrets:
   CF_TOKEN: CF_TOKEN
   AUTH_SECRET: QUEUE_AUTH_SECRET
   VERCEL_BYPASS_SECRET: VERCEL_BYPASS_SECRET
+  FIRECRAWL_API_KEY: FIRECRAWL_API_KEY
 
 # Default secrets included in EVERY worker
 default_secrets: []
@@ -38,7 +39,7 @@ default_secrets: []
 vars:
   CORS_ALLOWED_ORIGIN:
     dev: "https://dev-hyperintel.vercel.app"
-  CLERK_PUBLISHABLE_KEY: "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA"
+  CLERK_PUBLISHABLE_KEY: "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA"
   LANGFUSE_HOST: "https://us.cloud.langfuse.com"
   LANGFUSE_PUBLIC_KEY: "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780"
   LANGFUSE_ENVIRONMENT:

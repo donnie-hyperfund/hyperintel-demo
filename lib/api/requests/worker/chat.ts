@@ -1,7 +1,7 @@
 import { getWorkerUrl } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
 import { frontendEnv } from '@/lib/env';
-import { SendChatActionDto } from '@/lib/schema/chat';
+import { SendChatActionDto, SummarizeActionDto } from '@/lib/schema/chat';
 
 export const sendAction = async (data: SendChatActionDto, accessToken: string) => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
@@ -23,6 +23,27 @@ export const sendAction = async (data: SendChatActionDto, accessToken: string) =
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.ChatAction, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+    });
+};
+
+export const summarize = async (data: SummarizeActionDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.SummarizeAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.SummarizeAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

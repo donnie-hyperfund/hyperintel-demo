@@ -17,6 +17,7 @@ import {
     createContextFactory,
     InferredLocalContext,
 } from '@common/common/local.helpers';
+import FirecrawlApp from '@mendable/firecrawl-js';
 import { waitUntil } from '@vercel/functions';
 import { Langfuse } from 'langfuse';
 import type postgres from 'postgres';
@@ -51,6 +52,9 @@ const projectDeps = {
         secretKey: process.env.LANGFUSE_SECRET_KEY!,
         publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
         baseUrl: process.env.LANGFUSE_HOST,
+    }),
+    firecrawl: new FirecrawlApp({
+        apiKey: process.env.FIRECRAWL_API_KEY!,
     }),
     sql: null as unknown as postgres.Sql,
     eCtx: { waitUntil },

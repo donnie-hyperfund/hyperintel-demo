@@ -3,6 +3,7 @@ import { embedTexts } from '@common/ai/embeddings';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type OpenAI from 'openai';
 import { z } from 'zod';
+import type { Ctx } from '../context';
 
 /** Escape string for PostgreSQL - prevents SQL injection */
 function escapeSqlString(str: string): string {
@@ -10,8 +11,6 @@ function escapeSqlString(str: string): string {
 }
 
 export interface KnowledgeSearchContext {
-    /** OpenAI client for query embeddings (optional - search disabled if not provided) */
-    openai?: OpenAI;
     em: EntityManager;
     projectId: string;
 }
@@ -112,14 +111,15 @@ export function createKnowledgeTools() {
             executor: async (
                 input: { query: string; limit?: number },
                 ctx: KnowledgeSearchContext,
+                eCtx?: Ctx,
             ): Promise<string> => {
-                if (!ctx.openai) {
+                if (!eCtx?.openai) {
                     return 'Semantic search is not available - OpenAI client not configured.';
                 }
 
                 const { query, limit = 5 } = input;
 
-                const results = await searchKnowledge(query, ctx.projectId, ctx.openai, ctx.em, limit, 0.3);
+                const results = await searchKnowledge(query, ctx.projectId, eCtx.openai, ctx.em, limit, 0.3);
 
                 return formatSearchResults(results);
             },

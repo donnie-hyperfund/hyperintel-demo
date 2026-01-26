@@ -14,6 +14,10 @@ export const envSecretMocks = {
     CLERK_SECRET_KEY: makeSecretMock(process.env.CLERK_SECRET_KEY ?? ''),
     LANGFUSE_SECRET_KEY: makeSecretMock(backendEnv.LANGFUSE_SECRET_KEY!),
     AUTH_SECRET: makeSecretMock(process.env.AUTH_SECRET ?? ''),
+    OPENAI_KEY: makeSecretMock(process.env.OPENAI_API_KEY ?? ''),
+    FIRECRAWL_API_KEY: makeSecretMock(process.env.FIRECRAWL_API_KEY ?? ''),
+    // Service Bindings / Queues (mocked)
+    EMBEDDING_QUEUE: { send: () => Promise.resolve() } as any,
     // Non-secrets (plain strings)
     CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? '',
     LANGFUSE_ENVIRONMENT: process.env.LANGFUSE_ENVIRONMENT ?? 'Development',

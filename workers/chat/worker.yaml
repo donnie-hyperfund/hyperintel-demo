@@ -8,6 +8,7 @@ secrets:
   - OPENAI_KEY
   - LANGFUSE_SECRET_KEY
   - AUTH_SECRET
+  - FIRECRAWL_API_KEY
 
 # Queue producer for embedding jobs
 queues:
