@@ -71,7 +71,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const [state, setState] = useState<ChatState>({
         messages: initialMessages,
         isGenerating: false,
-        isLoading: true,
+        isLoading: !!chatId,
         error: null,
         streamingMessageId: null,
     });

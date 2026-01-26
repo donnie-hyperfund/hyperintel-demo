@@ -97,7 +97,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(
                     )}
 
                     {messages.length === 0 && !isGenerating && !isLoading && (
-                        <div className="h-full flex items-center justify-center">
+                        <div className="flex flex-1 items-center justify-center">
                             <ChatEmptyState {...emptyState} />
                         </div>
                     )}
