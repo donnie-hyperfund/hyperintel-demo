@@ -24,7 +24,7 @@
 		"enabled": true
 	},
 	"vars": {
-		"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
+		"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 		"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 		"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 		"LANGFUSE_ENVIRONMENT": "Production"
@@ -68,7 +68,7 @@
 	"env": {
 		"dev": {
 			"vars": {
-				"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
+				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
@@ -114,7 +114,7 @@
 		},
 		"experimental": {
 			"vars": {
-				"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
+				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",

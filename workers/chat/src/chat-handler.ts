@@ -14,6 +14,7 @@ import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, getDraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
+import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
 import { createDocumentEventHandler } from './utils/document-events';
 
 // ============================================================================
@@ -107,6 +108,13 @@ const ALWAYS_LOADED_SLUGS = new Set(['pma/identity-framework', 'pma/core-methodo
 const pmaPromptTools = createPromptTools(PMA_ALIASES, PMA_DISPLAY_NAMES, ALWAYS_LOADED_SLUGS);
 
 // ============================================================================
+// SERVER TOOLS GUIDANCE
+// ============================================================================
+
+const WEB_SEARCH_GUIDANCE = `## Web Search
+You have access to web_search for real-time information. Use it when you need current data, recent events, or facts you're uncertain about.`;
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
@@ -157,11 +165,13 @@ async function getPromptContent(ctx: Ctx, slug: string, localPath: string | null
 /**
  * Build the system prompt, fetching content for all loaded slugs.
  * @param localPath - If provided, loads from local .md files instead of Langfuse
+ * @param serverToolsGuidance - Optional guidance for server-side tools (e.g., web_search)
  */
 async function buildSystemPrompt(
     ctx: Ctx,
     loadedPrompts: Set<string>,
     localPath: string | null = null,
+    serverToolsGuidance?: string,
 ): Promise<string> {
     // Base system prompt
     const systemSlug = USE_SHORT_PROMPTS ? 'pma_short/system-prompt' : 'pma/system-prompt';
@@ -182,6 +192,11 @@ async function buildSystemPrompt(
         if (content) {
             systemPrompt += `\n\n---\n\n# ${slug.toUpperCase()}\n\n${content}`;
         }
+    }
+
+    // Append server tools guidance if provided
+    if (serverToolsGuidance) {
+        systemPrompt += `\n\n---\n\n${serverToolsGuidance}`;
     }
 
     return systemPrompt;
@@ -255,8 +270,6 @@ async function streamInternal(
             draftManager: getDraftManager(),
             // Embedding queue adapter for async indexing
             embeddingQueue,
-            // OpenAI client for knowledge search (optional)
-            openai: ctx.openai,
         };
 
         // Resolve local prompts path from options
@@ -267,18 +280,28 @@ async function streamInternal(
             : null;
 
         // Get initial system prompt
-        const initialSystemPrompt = await buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath);
+        const initialSystemPrompt = await buildSystemPrompt(
+            ctx,
+            agentCtx.loadedPrompts,
+            localPath,
+            WEB_SEARCH_GUIDANCE,
+        );
 
         // Determine inference params - use override if provided, otherwise default
         const defaultInference: ParamsWithType = {
             paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.OPUS, thinking: true, thinkingBudget: 8000 },
+            params: { model: ANTHROPIC_MODELS.OPUS, thinking: true, thinkingBudget: 8000, searchEnabled: true },
         };
         const inferenceParams = options.overrideInference ?? defaultInference;
 
         // Define tools and tool groups (used for agent and token estimation)
-        const allTools = [...pmaPromptTools, ...createDocumentTools(), ...createKnowledgeTools()];
-        const toolGroups = [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup];
+        const allTools = [
+            ...pmaPromptTools,
+            ...createDocumentTools(),
+            ...createKnowledgeTools(),
+            ...createWebScrapeTools(),
+        ];
+        const toolGroups = [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup, WebScrapeToolGroup];
 
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
@@ -298,7 +321,8 @@ async function streamInternal(
                 toolGroups,
                 config: {
                     maxToolCalls: 20,
-                    getSystemPrompt: async () => buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath),
+                    getSystemPrompt: async () =>
+                        buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath, WEB_SEARCH_GUIDANCE),
                     statusUpdates: { enabled: true },
                     preprocessContext,
                 },

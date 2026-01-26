@@ -24,7 +24,7 @@
 		"enabled": true
 	},
 	"vars": {
-		"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
+		"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 		"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 		"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 		"LANGFUSE_ENVIRONMENT": "Production"
@@ -64,6 +64,11 @@
 			"binding": "AUTH_SECRET",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "QUEUE_AUTH_SECRET"
+		},
+		{
+			"binding": "FIRECRAWL_API_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "FIRECRAWL_API_KEY"
 		}
 	],
 	"queues": {
@@ -77,7 +82,7 @@
 	"env": {
 		"dev": {
 			"vars": {
-				"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
+				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
@@ -119,6 +124,11 @@
 					"binding": "AUTH_SECRET",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "QUEUE_AUTH_SECRET"
+				},
+				{
+					"binding": "FIRECRAWL_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "FIRECRAWL_API_KEY"
 				}
 			],
 			"queues": {
@@ -132,7 +142,7 @@
 		},
 		"experimental": {
 			"vars": {
-				"CLERK_PUBLISHABLE_KEY": "pk_test_YnJpZ2h0LWhhcmUtMTkuY2xlcmsuYWNjb3VudHMuZGV2JA",
+				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
@@ -174,6 +184,11 @@
 					"binding": "AUTH_SECRET",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "QUEUE_AUTH_SECRET"
+				},
+				{
+					"binding": "FIRECRAWL_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "FIRECRAWL_API_KEY"
 				}
 			],
 			"queues": {

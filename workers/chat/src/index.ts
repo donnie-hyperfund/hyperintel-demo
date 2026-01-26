@@ -5,8 +5,9 @@ import { HonoEnv, honoMiddlewareAuthedWithOrm, honoMiddlewareWithOrm } from '@wo
 import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
-import { SendChatActionSchema } from '@/lib/schema/chat';
+import { SendChatActionSchema, SummarizeActionSchema } from '@/lib/schema/chat';
 import { chatActionHandler } from './chat-handler';
+import { summarizeActionHandler } from './summarizer';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
 
@@ -27,6 +28,12 @@ app.onError((err) => {
 app.post('/chat', zValidator('json', SendChatActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await chatActionHandler(c.req.valid('json'), c.var);
+    });
+});
+
+app.post('/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await summarizeActionHandler(c.req.valid('json'), c.var);
     });
 });
 
