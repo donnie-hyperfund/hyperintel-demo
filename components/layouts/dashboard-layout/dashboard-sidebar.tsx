@@ -1,34 +1,32 @@
 'use client';
 
-import { Code, FileCode, Layers, MessageSquare, Plus } from 'lucide-react';
+import { ChevronRight, FileCode, MessageSquare, Plus } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
     Sidebar,
     SidebarContent,
     SidebarFooter,
     SidebarGroup,
     SidebarGroupContent,
-    SidebarGroupLabel,
     SidebarHeader,
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
     SidebarTrigger,
     useSidebar,
 } from '@/components/ui/sidebar';
+import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
+import { sortChatsByCreatedAt } from '@/lib/phases';
 import { cn } from '@/lib/utils';
 import { DashboardSidebarFooter } from './dashboard-sidebar-footer';
 
-const navItems = [
-    { icon: MessageSquare, label: 'Chats', href: '/chats' },
-    { icon: FileCode, label: 'Projects', href: '/projects' },
-    { icon: Layers, label: 'Artifacts', href: '/artifacts' },
-    { icon: Code, label: 'Code', href: '/code' },
-];
-
-const projectNames = ['Project Name Goes Here', 'Project Name Goes Here', 'Project Name Goes Here'];
+const navItems = [{ icon: FileCode, label: 'Projects', href: '/projects' }];
 
 export function DashboardSidebar() {
     const { state } = useSidebar();
@@ -37,6 +35,11 @@ export function DashboardSidebar() {
     const params = useParams();
     const pathname = usePathname();
     const projectId = params?.['project-id'] as string | undefined;
+
+    const { data: chatsData } = useFetchChats(projectId, { limit: 20 });
+    const chats = sortChatsByCreatedAt(chatsData?.data ?? []);
+
+    const isPhasesActive = pathname?.startsWith(`/${projectId}/chats`) || pathname === `/${projectId}`;
 
     return (
         <Sidebar collapsible="icon" className="border-r border-neutral-800">
@@ -67,7 +70,7 @@ export function DashboardSidebar() {
                             <SidebarMenuItem>
                                 <SidebarMenuButton
                                     asChild
-                                    tooltip={isCollapsed ? 'New Chat' : undefined}
+                                    tooltip={isCollapsed ? 'New Phase' : undefined}
                                     className="px-4"
                                 >
                                     <Link href={projectId ? `/${projectId}` : '#'}>
@@ -76,14 +79,63 @@ export function DashboardSidebar() {
                                                 <Plus className="size-4 text-neutral-900" />
                                             </div>
                                         </div>
-                                        <span>New Chat</span>
+                                        <span>New Phase</span>
                                     </Link>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
+
+                            {/* Phases with collapsible sub-items */}
+                            <Collapsible asChild defaultOpen={isPhasesActive} className="group/collapsible">
+                                <SidebarMenuItem>
+                                    <div className="relative">
+                                        <SidebarMenuButton
+                                            asChild
+                                            isActive={isPhasesActive}
+                                            tooltip={isCollapsed ? 'Phases' : undefined}
+                                            className={cn('px-4', isPhasesActive && 'bg-neutral-850 text-neutral-100')}
+                                        >
+                                            <Link href={projectId ? `/${projectId}/chats` : '#'}>
+                                                <MessageSquare />
+                                                <span>Phases</span>
+                                            </Link>
+                                        </SidebarMenuButton>
+                                        {chats.length > 0 && (
+                                            <CollapsibleTrigger asChild>
+                                                <button
+                                                    type="button"
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center size-5 rounded-md hover:bg-neutral-800 group-data-[collapsible=icon]:hidden"
+                                                >
+                                                    <ChevronRight className="size-3.5 text-neutral-500 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                                                </button>
+                                            </CollapsibleTrigger>
+                                        )}
+                                    </div>
+                                    <CollapsibleContent>
+                                        <SidebarMenuSub>
+                                            {chats.map((chat, index) => {
+                                                const chatHref = `/${projectId}/chats/${chat.id}`;
+                                                const label = `Phase ${index + 1}`;
+                                                return (
+                                                    <SidebarMenuSubItem key={chat.id}>
+                                                        <SidebarMenuSubButton
+                                                            asChild
+                                                            size="sm"
+                                                            isActive={pathname === chatHref}
+                                                        >
+                                                            <Link href={chatHref}>
+                                                                <span className="truncate">{label}</span>
+                                                            </Link>
+                                                        </SidebarMenuSubButton>
+                                                    </SidebarMenuSubItem>
+                                                );
+                                            })}
+                                        </SidebarMenuSub>
+                                    </CollapsibleContent>
+                                </SidebarMenuItem>
+                            </Collapsible>
+
                             {navItems.map((item) => {
                                 const Icon = item.icon;
-                                // Projects page is at dashboard root, not project-scoped
-                                // TODO proper fix, this is moronic
                                 const isProjectsPage = item.href === '/projects';
                                 const href = isProjectsPage
                                     ? '/projects'
@@ -113,25 +165,6 @@ export function DashboardSidebar() {
                         </SidebarMenu>
                     </SidebarGroupContent>
                 </SidebarGroup>
-
-                {isExpanded && (
-                    <SidebarGroup className="p-0">
-                        <SidebarGroupLabel className="px-6 mb-1 text-xs font-semibold text-neutral-600">
-                            Recents
-                        </SidebarGroupLabel>
-                        <SidebarGroupContent>
-                            <SidebarMenu className="gap-0.5 px-2">
-                                {projectNames.map((name, idx) => (
-                                    <SidebarMenuItem key={idx}>
-                                        <SidebarMenuButton className="px-4 text-sm h-9 text-neutral-400 hover:text-neutral-100">
-                                            <span className="truncate">{name}</span>
-                                        </SidebarMenuButton>
-                                    </SidebarMenuItem>
-                                ))}
-                            </SidebarMenu>
-                        </SidebarGroupContent>
-                    </SidebarGroup>
-                )}
             </SidebarContent>
 
             <SidebarFooter>

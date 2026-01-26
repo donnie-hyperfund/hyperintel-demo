@@ -238,9 +238,7 @@ async function streamInternal(
             // Native Cloudflare Queue binding (available in workers)
             queue: ctx.env.EMBEDDING_QUEUE,
             // HTTP fallback for local development
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL 
-                ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` 
-                : undefined,
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
             authSecret: process.env.AUTH_SECRET,
         });
 

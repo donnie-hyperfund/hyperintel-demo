@@ -10,12 +10,13 @@ import { cn } from '@/lib/utils';
 type ChatItemProps = {
     chat: ChatDto;
     projectId?: string;
+    phaseNumber: number;
 };
 
-export const ChatItem = ({ chat, projectId }: ChatItemProps) => {
+export const ChatItem = ({ chat, projectId, phaseNumber }: ChatItemProps) => {
     const router = useRouter();
 
-    const title = chat.first_message_content || chat.summary || 'Untitled chat';
+    const title = `Phase ${phaseNumber}`;
     const updatedAt = chat.updated_at ? new Date(chat.updated_at) : null;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
 

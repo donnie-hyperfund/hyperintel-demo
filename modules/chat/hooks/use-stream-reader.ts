@@ -22,13 +22,20 @@ type UseStreamReaderOptions = {
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
     /** Callback to set loading state */
     setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
+    /** Called when an artifact stream completes */
+    onArtifactComplete?: () => void;
 };
 
 /**
  * Hook that provides a `readStream` function for processing SSE streams
  * and building StreamBlock-based messages.
  */
-export function useStreamReader({ artifactContext, setMessages, setIsLoading }: UseStreamReaderOptions) {
+export function useStreamReader({
+    artifactContext,
+    setMessages,
+    setIsLoading,
+    onArtifactComplete,
+}: UseStreamReaderOptions) {
     const { addArtifact, updateArtifact, setCurrentArtifact, setStreamingComplete } = artifactContext;
 
     // Streaming state ref to avoid stale closures
@@ -281,6 +288,7 @@ export function useStreamReader({ artifactContext, setMessages, setIsLoading }: 
                                     if (completedDoc) {
                                         setStreamingComplete(completedDoc.artifactId);
                                         streaming.streamingDocs.delete(docKey);
+                                        onArtifactComplete?.();
                                     }
                                     break;
                                 }
@@ -327,7 +335,15 @@ export function useStreamReader({ artifactContext, setMessages, setIsLoading }: 
                 streamingStateRef.current = null;
             }
         },
-        [addArtifact, updateArtifact, setCurrentArtifact, setStreamingComplete, setMessages, setIsLoading],
+        [
+            addArtifact,
+            updateArtifact,
+            setCurrentArtifact,
+            setStreamingComplete,
+            setMessages,
+            setIsLoading,
+            onArtifactComplete,
+        ],
     );
 
     return { readStream };
