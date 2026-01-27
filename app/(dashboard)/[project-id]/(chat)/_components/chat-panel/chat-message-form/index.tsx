@@ -121,7 +121,7 @@ const ChatMessageForm = forwardRef<HTMLFormElement, ChatMessageFormProps>(
                             </Button>
                         </motion.div>
 
-                        <div className="flex items-center h-9 px-1 bg-red-500 justify-between">
+                        <div className="flex items-center h-9 px-1 justify-between">
                             {errors.message && (
                                 <motion.p
                                     initial={{ opacity: 0, y: -10 }}
@@ -132,7 +132,7 @@ const ChatMessageForm = forwardRef<HTMLFormElement, ChatMessageFormProps>(
                                     {errors.message.message}
                                 </motion.p>
                             )}
-                            <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-center" />
+                            <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
                         </div>
                     </div>
                 </form>
