@@ -8,16 +8,19 @@ import { useForm } from 'react-hook-form';
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import type { TokenUsage } from '@/modules/chat/types';
+import { ContextUsageIndicator } from '../context-usage-indicator';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 
 type ChatMessageFormProps = {
     onSubmit: (data: ChatMessageFormValues) => void;
     className?: string;
     isLoading?: boolean;
+    tokenUsage: TokenUsage | null;
 };
 
 const ChatMessageForm = forwardRef<HTMLFormElement, ChatMessageFormProps>(
-    ({ onSubmit, className, isLoading = false }, ref) => {
+    ({ onSubmit, className, isLoading = false, tokenUsage }, ref) => {
         const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
         const {
@@ -72,7 +75,7 @@ const ChatMessageForm = forwardRef<HTMLFormElement, ChatMessageFormProps>(
                 <form
                     ref={ref}
                     onSubmit={handleSubmit(onFormSubmit)}
-                    className={cn('relative flex items-end justify-center pb-6 px-4', className)}
+                    className={cn('relative flex items-end justify-center px-4', className)}
                 >
                     {/* Background component*/}
                     <motion.div
@@ -118,16 +121,19 @@ const ChatMessageForm = forwardRef<HTMLFormElement, ChatMessageFormProps>(
                             </Button>
                         </motion.div>
 
-                        {errors.message && (
-                            <motion.p
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="text-xs text-red-400 mt-1 px-4"
-                            >
-                                {errors.message.message}
-                            </motion.p>
-                        )}
+                        <div className="flex items-center h-9 px-1 bg-red-500 justify-between">
+                            {errors.message && (
+                                <motion.p
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="text-xs text-red-400 justify-self-start"
+                                >
+                                    {errors.message.message}
+                                </motion.p>
+                            )}
+                            <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-center" />
+                        </div>
                     </div>
                 </form>
             </AnimatePresence>

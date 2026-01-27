@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
-import type { PaginationState } from '@/modules/chat/types';
+import type { PaginationState, TokenUsage } from '@/modules/chat/types';
 import type { Message } from '../chat-interface';
 import ChatConversation from './chat-conversation/chat-conversation';
 import ChatMessageForm from './chat-message-form';
@@ -15,6 +15,7 @@ type ChatPanelProps = {
     onSend: (data: ChatMessageFormValues) => void;
     onLoadMore?: () => void;
     pagination?: PaginationState;
+    tokenUsage: TokenUsage | null;
     conversationRef?: React.RefObject<HTMLDivElement | null>;
     formRef?: React.RefObject<HTMLFormElement | null>;
 };
@@ -26,6 +27,7 @@ export default function ChatPanel({
     onSend,
     onLoadMore,
     pagination,
+    tokenUsage,
     conversationRef,
     formRef,
 }: ChatPanelProps) {
@@ -78,6 +80,7 @@ export default function ChatPanel({
                 ref={chatMessageFormRef}
                 onSubmit={handleSend}
                 isLoading={isGenerating}
+                tokenUsage={tokenUsage}
                 className="absolute bottom-0 left-0 right-0"
             />
         </div>

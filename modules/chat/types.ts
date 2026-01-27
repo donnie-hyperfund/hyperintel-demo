@@ -36,6 +36,7 @@ export type ChatState = {
     isLoading: boolean;
     error: Error | null;
     streamingMessageId: string | null;
+    tokenUsage: TokenUsage | null;
 };
 
 export type PaginationState = {
@@ -68,6 +69,22 @@ export type ArtifactMetadata = {
 };
 
 // =============================================================================
+// Token Usage Types
+// =============================================================================
+
+export type TokenBreakdown = {
+    context: number;
+    prompt: number;
+    promptTool: number;
+    toolDef: number;
+};
+
+export type TokenUsage = {
+    usedTokens: number;
+    tokenBreakdown: TokenBreakdown;
+};
+
+// =============================================================================
 // Streaming Types
 // =============================================================================
 
@@ -81,6 +98,7 @@ export type StreamEventType =
     | 'tool_result'
     | 'document_start'
     | 'document_delta'
+    | 'document_patch'
     | 'document_edit'
     | 'document_complete'
     | 'status_update'
@@ -114,7 +132,7 @@ export type StreamEvent =
     // Status & control
     | { type: 'status_update'; status: string }
     | { type: 'error'; error: string }
-    | { type: 'done' }
+    | { type: 'done'; tokenUsage?: TokenUsage }
     | { type: 'done_ext' };
 
 export type StreamState = {

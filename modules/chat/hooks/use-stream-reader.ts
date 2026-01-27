@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from 'react';
 import type { ArtifactContextValue } from '@/modules/chat/providers/artifact-provider';
-import type { Message, StreamBlock } from '../types';
+import type { Message, StreamBlock, TokenUsage } from '../types';
 
 /** Streaming state for building assistant messages */
 type StreamingState = {
@@ -24,6 +24,8 @@ type UseStreamReaderOptions = {
     setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
     /** Called when an artifact stream completes */
     onArtifactComplete?: () => void;
+    /** Called when token usage is received from the done event */
+    onTokenUsage?: (usage: TokenUsage) => void;
 };
 
 /**
@@ -35,6 +37,7 @@ export function useStreamReader({
     setMessages,
     setIsLoading,
     onArtifactComplete,
+    onTokenUsage,
 }: UseStreamReaderOptions) {
     const { addArtifact, updateArtifact, setCurrentArtifact, setStreamingComplete } = artifactContext;
 
@@ -318,6 +321,12 @@ export function useStreamReader({
                                         ),
                                     );
                                     setIsLoading(false);
+                                    if (event.tokenBreakdown && onTokenUsage) {
+                                        onTokenUsage({
+                                            usedTokens: event.usedTokens ?? 0,
+                                            tokenBreakdown: event.tokenBreakdown,
+                                        });
+                                    }
                                     break;
 
                                 default:
@@ -343,6 +352,7 @@ export function useStreamReader({
             setMessages,
             setIsLoading,
             onArtifactComplete,
+            onTokenUsage,
         ],
     );
 

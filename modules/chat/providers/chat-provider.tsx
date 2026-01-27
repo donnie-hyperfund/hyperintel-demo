@@ -10,7 +10,7 @@ import { sendAction } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
-import type { ChatState, Message, PaginationState, StreamBlock } from '../types';
+import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
 export type ChatContextValue = {
     state: ChatState;
@@ -74,6 +74,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         isLoading: !!chatId,
         error: null,
         streamingMessageId: null,
+        tokenUsage: null,
     });
 
     // Pagination state for infinite scroll
@@ -106,12 +107,17 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         globalMutate(artifactKeys.list(projectId));
     }, [globalMutate, projectId]);
 
+    const onTokenUsage = useCallback((usage: TokenUsage) => {
+        setState((prev) => ({ ...prev, tokenUsage: usage }));
+    }, []);
+
     // Use the stream reader hook for SSE processing
     const { readStream } = useStreamReader({
         artifactContext,
         setMessages,
         setIsLoading,
         onArtifactComplete: revalidateArtifacts,
+        onTokenUsage,
     });
 
     /** Convert API message to internal Message format */
