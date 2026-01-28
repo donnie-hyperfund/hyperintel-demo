@@ -75,8 +75,6 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
                 <ChatPanel conversationRef={chatConversationRef} formRef={chatMessageFormRef} />
             </ResizablePanel>
 
-            <ResizableHandle className="w-1 bg-border hover:bg-primary/50 transition-colors" />
-
             {isArtifactsPanelVisible && (
                 <>
                     <ResizableHandle />
