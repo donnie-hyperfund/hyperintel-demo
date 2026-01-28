@@ -6,13 +6,11 @@ import type { PaginationState } from '@/modules/chat/types';
 import type { Message } from '../chat-interface';
 import ChatConversation from './chat-conversation/chat-conversation';
 import ChatMessageForm from './chat-message-form';
-import type { ChatMessageFormValues } from './chat-message-form/schema';
 
 type ChatPanelProps = {
     messages: Message[];
     isGenerating: boolean;
     isLoading: boolean;
-    onSend: (data: ChatMessageFormValues) => void;
     onLoadMore?: () => void;
     pagination?: PaginationState;
     conversationRef?: React.RefObject<HTMLDivElement | null>;
@@ -23,7 +21,6 @@ export default function ChatPanel({
     messages,
     isGenerating,
     isLoading,
-    onSend,
     onLoadMore,
     pagination,
     conversationRef,
@@ -56,11 +53,6 @@ export default function ChatPanel({
         };
     }, [chatConversationRef, chatMessageFormRef]);
 
-    const handleSend = (data: ChatMessageFormValues) => {
-        if (!data.message.trim()) return;
-        onSend(data);
-    };
-
     return (
         <div className="flex flex-col relative h-full">
             <DashboardHeader />
@@ -74,12 +66,7 @@ export default function ChatPanel({
                 ref={chatConversationRef}
             />
 
-            <ChatMessageForm
-                ref={chatMessageFormRef}
-                onSubmit={handleSend}
-                isLoading={isGenerating}
-                className="absolute bottom-0 left-0 right-0"
-            />
+            <ChatMessageForm ref={chatMessageFormRef} className="absolute bottom-0 left-0 right-0" />
         </div>
     );
 }

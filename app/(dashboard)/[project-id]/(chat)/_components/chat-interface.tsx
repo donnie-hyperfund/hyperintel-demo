@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import ChatPanel from './chat-panel';
-import type { ChatMessageFormValues } from './chat-panel/chat-message-form/schema';
 
 // Re-export Message type for consumers
 export type { Message } from '@/modules/chat/types';
@@ -63,11 +62,6 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
         }
     }, [initialMessage, sendMessage]);
 
-    const handleSend = async (data: ChatMessageFormValues) => {
-        if (!data.message.trim()) return;
-        await sendMessage(data.message);
-    };
-
     return (
         <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-full">
             {/* Chat Panel */}
@@ -83,7 +77,6 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
                     messages={messages}
                     isGenerating={isGenerating}
                     isLoading={isLoading}
-                    onSend={handleSend}
                     onLoadMore={loadMoreMessages}
                     pagination={pagination}
                     conversationRef={chatConversationRef}
