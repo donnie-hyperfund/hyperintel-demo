@@ -12,3 +12,15 @@ export const SummarizeActionSchema = z.object({
 });
 
 export type SummarizeActionDto = z.infer<typeof SummarizeActionSchema>;
+
+export interface TokenUsageBreakdown {
+    context: number;
+    prompt: number;
+    promptTool: number;
+    toolDef: number;
+}
+
+export interface TokenUsage {
+    breakdown: TokenUsageBreakdown;
+    total: number;
+}

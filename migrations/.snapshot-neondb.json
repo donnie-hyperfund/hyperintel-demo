@@ -1,754 +1,813 @@
 {
-    "namespaces": ["public"],
-    "name": "public",
-    "tables": [
-        {
-            "columns": {
-                "id": {
-                    "name": "id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "default": "gen_random_uuid()",
-                    "mappedType": "uuid"
-                },
-                "created_at": {
-                    "name": "created_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "updated_at": {
-                    "name": "updated_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "email": {
-                    "name": "email",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "text"
-                },
-                "email_confirmed": {
-                    "name": "email_confirmed",
-                    "type": "boolean",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "default": "false",
-                    "mappedType": "boolean"
-                },
-                "role": {
-                    "name": "role",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "text"
-                },
-                "name": {
-                    "name": "name",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "text"
-                },
-                "clerk_id": {
-                    "name": "clerk_id",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "text"
-                }
-            },
-            "name": "users",
-            "schema": "public",
-            "indexes": [
-                {
-                    "columnNames": ["clerk_id"],
-                    "composite": false,
-                    "keyName": "users_clerk_id_unique",
-                    "constraint": true,
-                    "primary": false,
-                    "unique": true
-                },
-                {
-                    "keyName": "users_pkey",
-                    "columnNames": ["id"],
-                    "composite": false,
-                    "constraint": true,
-                    "primary": true,
-                    "unique": true
-                }
-            ],
-            "checks": [],
-            "foreignKeys": {},
-            "nativeEnums": {}
+  "namespaces": [
+    "public"
+  ],
+  "name": "public",
+  "tables": [
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
         },
-        {
-            "columns": {
-                "id": {
-                    "name": "id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "default": "gen_random_uuid()",
-                    "mappedType": "uuid"
-                },
-                "created_at": {
-                    "name": "created_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "updated_at": {
-                    "name": "updated_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "name": {
-                    "name": "name",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "text"
-                },
-                "description": {
-                    "name": "description",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "text"
-                },
-                "current_phase": {
-                    "name": "current_phase",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "text"
-                },
-                "user_id": {
-                    "name": "user_id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "uuid"
-                },
-                "metadata": {
-                    "name": "metadata",
-                    "type": "jsonb",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "json"
-                }
-            },
-            "name": "projects",
-            "schema": "public",
-            "indexes": [
-                {
-                    "keyName": "projects_pkey",
-                    "columnNames": ["id"],
-                    "composite": false,
-                    "constraint": true,
-                    "primary": true,
-                    "unique": true
-                }
-            ],
-            "checks": [],
-            "foreignKeys": {
-                "projects_fk": {
-                    "constraintName": "projects_fk",
-                    "columnNames": ["user_id"],
-                    "localTableName": "public.projects",
-                    "referencedColumnNames": ["id"],
-                    "referencedTableName": "public.users",
-                    "updateRule": "cascade"
-                }
-            },
-            "nativeEnums": {}
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
         },
-        {
-            "columns": {
-                "id": {
-                    "name": "id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "default": "gen_random_uuid()",
-                    "mappedType": "uuid"
-                },
-                "created_at": {
-                    "name": "created_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "updated_at": {
-                    "name": "updated_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "phase": {
-                    "name": "phase",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "text"
-                },
-                "summary": {
-                    "name": "summary",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "text"
-                },
-                "project_id": {
-                    "name": "project_id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "uuid"
-                },
-                "metadata": {
-                    "name": "metadata",
-                    "type": "jsonb",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "json"
-                }
-            },
-            "name": "chats",
-            "schema": "public",
-            "indexes": [
-                {
-                    "keyName": "chats_pkey",
-                    "columnNames": ["id"],
-                    "composite": false,
-                    "constraint": true,
-                    "primary": true,
-                    "unique": true
-                }
-            ],
-            "checks": [],
-            "foreignKeys": {
-                "chats_fk": {
-                    "constraintName": "chats_fk",
-                    "columnNames": ["project_id"],
-                    "localTableName": "public.chats",
-                    "referencedColumnNames": ["id"],
-                    "referencedTableName": "public.projects",
-                    "updateRule": "cascade"
-                }
-            },
-            "nativeEnums": {}
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
         },
-        {
-            "columns": {
-                "id": {
-                    "name": "id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "default": "gen_random_uuid()",
-                    "mappedType": "uuid"
-                },
-                "created_at": {
-                    "name": "created_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "role": {
-                    "name": "role",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "text"
-                },
-                "content": {
-                    "name": "content",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "text"
-                },
-                "reasoning": {
-                    "name": "reasoning",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "text"
-                },
-                "blocks": {
-                    "name": "blocks",
-                    "type": "jsonb",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "json"
-                },
-                "chat_id": {
-                    "name": "chat_id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "uuid"
-                },
-                "metadata": {
-                    "name": "metadata",
-                    "type": "jsonb",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "json"
-                }
-            },
-            "name": "chat_messages",
-            "schema": "public",
-            "indexes": [
-                {
-                    "keyName": "chat_messages_pkey",
-                    "columnNames": ["id"],
-                    "composite": false,
-                    "constraint": true,
-                    "primary": true,
-                    "unique": true
-                }
-            ],
-            "checks": [],
-            "foreignKeys": {
-                "chat_messages_fk": {
-                    "constraintName": "chat_messages_fk",
-                    "columnNames": ["chat_id"],
-                    "localTableName": "public.chat_messages",
-                    "referencedColumnNames": ["id"],
-                    "referencedTableName": "public.chats",
-                    "updateRule": "cascade"
-                }
-            },
-            "nativeEnums": {}
+        "email": {
+          "name": "email",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
         },
-        {
-            "columns": {
-                "id": {
-                    "name": "id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "default": "gen_random_uuid()",
-                    "mappedType": "uuid"
-                },
-                "created_at": {
-                    "name": "created_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "updated_at": {
-                    "name": "updated_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "key": {
-                    "name": "key",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "text"
-                },
-                "title": {
-                    "name": "title",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "text"
-                },
-                "version": {
-                    "name": "version",
-                    "type": "int",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "default": "1",
-                    "mappedType": "integer"
-                },
-                "chat_id": {
-                    "name": "chat_id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "uuid"
-                },
-                "project_id": {
-                    "name": "project_id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "uuid"
-                },
-                "current_version_id": {
-                    "name": "current_version_id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "uuid"
-                },
-                "metadata": {
-                    "name": "metadata",
-                    "type": "jsonb",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": true,
-                    "mappedType": "json"
-                }
-            },
-            "name": "artifacts",
-            "schema": "public",
-            "indexes": [
-                {
-                    "columnNames": ["current_version_id"],
-                    "composite": false,
-                    "keyName": "artifacts_current_version_id_unique",
-                    "constraint": true,
-                    "primary": false,
-                    "unique": true
-                },
-                {
-                    "keyName": "artifacts_project_id_key_unique",
-                    "columnNames": ["project_id", "key"],
-                    "composite": true,
-                    "constraint": true,
-                    "primary": false,
-                    "unique": true
-                },
-                {
-                    "keyName": "artifacts_pkey",
-                    "columnNames": ["id"],
-                    "composite": false,
-                    "constraint": true,
-                    "primary": true,
-                    "unique": true
-                }
-            ],
-            "checks": [],
-            "foreignKeys": {
-                "artifacts_fk": {
-                    "constraintName": "artifacts_fk",
-                    "columnNames": ["current_version_id"],
-                    "localTableName": "public.artifacts",
-                    "referencedColumnNames": ["id"],
-                    "referencedTableName": "public.artifact_versions",
-                    "deleteRule": "set null",
-                    "updateRule": "cascade"
-                }
-            },
-            "nativeEnums": {}
+        "email_confirmed": {
+          "name": "email_confirmed",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
         },
-        {
-            "columns": {
-                "id": {
-                    "name": "id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "default": "gen_random_uuid()",
-                    "mappedType": "uuid"
-                },
-                "created_at": {
-                    "name": "created_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "artifact_id": {
-                    "name": "artifact_id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "uuid"
-                },
-                "version": {
-                    "name": "version",
-                    "type": "int",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "integer"
-                },
-                "content": {
-                    "name": "content",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "text"
-                }
-            },
-            "name": "artifact_versions",
-            "schema": "public",
-            "indexes": [
-                {
-                    "keyName": "artifact_versions_pkey",
-                    "columnNames": ["id"],
-                    "composite": false,
-                    "constraint": true,
-                    "primary": true,
-                    "unique": true
-                }
-            ],
-            "checks": [],
-            "foreignKeys": {
-                "artifact_versions_fk": {
-                    "constraintName": "artifact_versions_fk",
-                    "columnNames": ["artifact_id"],
-                    "localTableName": "public.artifact_versions",
-                    "referencedColumnNames": ["id"],
-                    "referencedTableName": "public.artifacts",
-                    "updateRule": "cascade"
-                }
-            },
-            "nativeEnums": {}
+        "role": {
+          "name": "role",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
         },
-        {
-            "columns": {
-                "id": {
-                    "name": "id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "default": "gen_random_uuid()",
-                    "mappedType": "uuid"
-                },
-                "created_at": {
-                    "name": "created_at",
-                    "type": "timestamptz(3)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 3,
-                    "default": "now()",
-                    "mappedType": "datetime"
-                },
-                "artifact_version_id": {
-                    "name": "artifact_version_id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "uuid"
-                },
-                "project_id": {
-                    "name": "project_id",
-                    "type": "uuid",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "uuid"
-                },
-                "chunk_index": {
-                    "name": "chunk_index",
-                    "type": "int",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "integer"
-                },
-                "chunk_content": {
-                    "name": "chunk_content",
-                    "type": "text",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "text"
-                },
-                "start_line": {
-                    "name": "start_line",
-                    "type": "int",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "integer"
-                },
-                "end_line": {
-                    "name": "end_line",
-                    "type": "int",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "mappedType": "integer"
-                },
-                "embedding": {
-                    "name": "embedding",
-                    "type": "vector(1024)",
-                    "unsigned": false,
-                    "autoincrement": false,
-                    "primary": false,
-                    "nullable": false,
-                    "length": 1024,
-                    "mappedType": "unknown"
-                }
-            },
-            "name": "artifact_embeddings",
-            "schema": "public",
-            "indexes": [
-                {
-                    "keyName": "artifact_embeddings_project_id_artifact_version_id_index",
-                    "columnNames": ["project_id", "artifact_version_id"],
-                    "composite": true,
-                    "constraint": false,
-                    "primary": false,
-                    "unique": false
-                },
-                {
-                    "keyName": "artifact_embeddings_pkey",
-                    "columnNames": ["id"],
-                    "composite": false,
-                    "constraint": true,
-                    "primary": true,
-                    "unique": true
-                }
-            ],
-            "checks": [],
-            "foreignKeys": {
-                "artifact_embeddings_fk": {
-                    "constraintName": "artifact_embeddings_fk",
-                    "columnNames": ["project_id"],
-                    "localTableName": "public.artifact_embeddings",
-                    "referencedColumnNames": ["id"],
-                    "referencedTableName": "public.projects",
-                    "updateRule": "cascade"
-                }
-            },
-            "nativeEnums": {}
+        "name": {
+          "name": "name",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "clerk_id": {
+          "name": "clerk_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
         }
-    ],
-    "nativeEnums": {}
+      },
+      "name": "users",
+      "schema": "public",
+      "indexes": [
+        {
+          "columnNames": [
+            "clerk_id"
+          ],
+          "composite": false,
+          "keyName": "users_clerk_id_unique",
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "users_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "current_phase": {
+          "name": "current_phase",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        }
+      },
+      "name": "projects",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "projects_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "projects_fk": {
+          "constraintName": "projects_fk",
+          "columnNames": [
+            "user_id"
+          ],
+          "localTableName": "public.projects",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.users",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "phase": {
+          "name": "phase",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "token_usage": {
+          "name": "token_usage",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        }
+      },
+      "name": "chats",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "chats_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "chats_fk": {
+          "constraintName": "chats_fk",
+          "columnNames": [
+            "project_id"
+          ],
+          "localTableName": "public.chats",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.projects",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "reasoning": {
+          "name": "reasoning",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "blocks": {
+          "name": "blocks",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        }
+      },
+      "name": "chat_messages",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "chat_messages_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "chat_messages_fk": {
+          "constraintName": "chat_messages_fk",
+          "columnNames": [
+            "chat_id"
+          ],
+          "localTableName": "public.chat_messages",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.chats",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "1",
+          "mappedType": "integer"
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "current_version_id": {
+          "name": "current_version_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        }
+      },
+      "name": "artifacts",
+      "schema": "public",
+      "indexes": [
+        {
+          "columnNames": [
+            "current_version_id"
+          ],
+          "composite": false,
+          "keyName": "artifacts_current_version_id_unique",
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "artifacts_project_id_key_unique",
+          "columnNames": [
+            "project_id",
+            "key"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "artifacts_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "artifacts_fk": {
+          "constraintName": "artifacts_fk",
+          "columnNames": [
+            "current_version_id"
+          ],
+          "localTableName": "public.artifacts",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.artifact_versions",
+          "deleteRule": "set null",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        }
+      },
+      "name": "artifact_versions",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "artifact_versions_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "artifact_versions_fk": {
+          "constraintName": "artifact_versions_fk",
+          "columnNames": [
+            "artifact_id"
+          ],
+          "localTableName": "public.artifact_versions",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.artifacts",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(3)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 3,
+          "default": "now()",
+          "mappedType": "datetime"
+        },
+        "artifact_version_id": {
+          "name": "artifact_version_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "chunk_index": {
+          "name": "chunk_index",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "chunk_content": {
+          "name": "chunk_content",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "start_line": {
+          "name": "start_line",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "end_line": {
+          "name": "end_line",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "embedding": {
+          "name": "embedding",
+          "type": "vector(1024)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 1024,
+          "mappedType": "unknown"
+        }
+      },
+      "name": "artifact_embeddings",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "artifact_embeddings_project_id_artifact_version_id_index",
+          "columnNames": [
+            "project_id",
+            "artifact_version_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "artifact_embeddings_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "artifact_embeddings_fk": {
+          "constraintName": "artifact_embeddings_fk",
+          "columnNames": [
+            "project_id"
+          ],
+          "localTableName": "public.artifact_embeddings",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.projects",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    }
+  ],
+  "nativeEnums": {}
 }

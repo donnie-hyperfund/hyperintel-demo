@@ -9,7 +9,7 @@ import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import { SendChatActionDto } from '@/lib/schema/chat';
+import { SendChatActionDto, TokenUsage, TokenUsageBreakdown } from '@/lib/schema/chat';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, getDraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
@@ -405,14 +405,6 @@ async function streamInternal(
                         em!.persist(assistantMsg);
                     }
 
-                    // Update chat metadata with loaded prompts
-                    chat.metadata = {
-                        ...chat.metadata,
-                        loadedPrompts: Array.from(agentCtx.loadedPrompts),
-                    };
-
-                    await em!.flush();
-
                     // Calculate token usage estimates
                     // Historical messages + new user message
                     let usedContextTokens = estimateContextTokens(allMessages);
@@ -448,18 +440,34 @@ async function streamInternal(
                     const usedToolDefTokens = toolTokens.toolDefTokens;
 
                     const usedTokens = usedContextTokens + usedPromptTokens + usedToolDefTokens;
+                    const tokenBreakdown: TokenUsageBreakdown = {
+                        context: usedContextTokens,
+                        prompt: usedPromptTokens,
+                        promptTool: usedPromptToolTokens,
+                        toolDef: usedToolDefTokens,
+                    };
+
+                    // Update chat metadata with loaded prompts
+                    chat.metadata = {
+                        ...chat.metadata,
+                        loadedPrompts: Array.from(agentCtx.loadedPrompts),
+                    };
+
+                    const tokenUsage: TokenUsage = {
+                        breakdown: tokenBreakdown,
+                        total: usedTokens,
+                    };
+
+                    chat.token_usage = tokenUsage;
+
+                    await em!.flush();
 
                     // Emit combined done event with token estimates
                     enqueue({
                         type: 'done',
                         outputType: pendingDoneEvent?.outputType ?? 'text',
                         outputTool: pendingDoneEvent?.outputTool,
-                        tokenBreakdown: {
-                            context: usedContextTokens,
-                            prompt: usedPromptTokens,
-                            promptTool: usedPromptToolTokens,
-                            toolDef: usedToolDefTokens,
-                        },
+                        tokenBreakdown,
                         usedTokens,
                     });
                     enqueue('[DONE]');
