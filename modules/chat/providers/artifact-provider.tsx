@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from 'react';
 import type { Artifact } from '../types';
 
 export type ArtifactContextValue = {
@@ -15,6 +15,7 @@ export type ArtifactContextValue = {
     setCurrentArtifact: (id: string | null) => void;
     setLoading: (loading: boolean, title?: string) => void;
     setStreamingComplete: (id: string) => void;
+    findArtifactByIdentifier: (identifier: string) => Artifact | null;
     togglePanel: (visible?: boolean) => void;
 
     // Computed values
@@ -85,6 +86,14 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
         }
     }, []);
 
+    const findArtifactByIdentifier = useCallback(
+        (identifier: string): Artifact | null => {
+            console.log('findArtifactByIdentifier:', identifier, artifacts);
+            return Object.values(artifacts).findLast((a) => a.identifier === identifier) ?? null;
+        },
+        [artifacts],
+    );
+
     const togglePanel = useCallback((visible?: boolean) => {
         setIsVisible((prev) => (visible !== undefined ? visible : !prev));
         if (visible === false) {
@@ -108,6 +117,7 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
                 setCurrentArtifact,
                 setLoading,
                 setStreamingComplete,
+                findArtifactByIdentifier,
                 togglePanel,
 
                 // Computed values

@@ -59,6 +59,7 @@ export type Artifact = {
     type: ArtifactType;
     content: string;
     messageId: string;
+    version?: number;
 };
 
 export type ArtifactMetadata = {

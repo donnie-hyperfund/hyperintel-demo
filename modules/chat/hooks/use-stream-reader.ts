@@ -16,7 +16,7 @@ type UseStreamReaderOptions = {
     /** Artifact context for document streaming */
     artifactContext: Pick<
         ArtifactContextValue,
-        'addArtifact' | 'updateArtifact' | 'setCurrentArtifact' | 'setStreamingComplete'
+        'addArtifact' | 'updateArtifact' | 'setCurrentArtifact' | 'setStreamingComplete' | 'findArtifactByIdentifier'
     >;
     /** Callback to update messages state */
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
@@ -39,7 +39,8 @@ export function useStreamReader({
     onArtifactComplete,
     onTokenUsage,
 }: UseStreamReaderOptions) {
-    const { addArtifact, updateArtifact, setCurrentArtifact, setStreamingComplete } = artifactContext;
+    const { addArtifact, updateArtifact, setCurrentArtifact, setStreamingComplete, findArtifactByIdentifier } =
+        artifactContext;
 
     // Streaming state ref to avoid stale closures
     const streamingStateRef = useRef<StreamingState | null>(null);
@@ -88,6 +89,14 @@ export function useStreamReader({
 
                         try {
                             const event = JSON.parse(jsonString);
+
+                            if (
+                                ['document_start', 'document_delta', 'document_edit', 'document_complete'].includes(
+                                    event.type,
+                                )
+                            ) {
+                                console.log('[stream-reader] event:', event);
+                            }
 
                             if (event.error) {
                                 console.error('Stream error:', event.error);
@@ -209,22 +218,31 @@ export function useStreamReader({
 
                                 case 'document_start': {
                                     const docKey = `${event.name}_${event.pendingVersion}`;
-                                    const artifactId = `doc-${event.name}-v${event.pendingVersion}`;
+                                    const existingArtifact = findArtifactByIdentifier(event.name);
+
+                                    console.log(existingArtifact);
+                                    const artifactId =
+                                        existingArtifact?.id ?? `doc-${event.name}-v${event.pendingVersion}`;
+                                    const content = existingArtifact?.content ?? '';
+
                                     console.log('[stream-reader] document_start:', {
                                         docKey,
                                         artifactId,
                                         name: event.name,
                                         title: event.title,
+                                        isEdit: !!existingArtifact,
                                     });
-                                    streaming.streamingDocs.set(docKey, { artifactId, content: '' });
+
+                                    streaming.streamingDocs.set(docKey, { artifactId, content });
                                     addArtifact(
                                         {
                                             id: artifactId,
                                             identifier: event.name,
-                                            title: event.title || event.name,
+                                            title: event.title || existingArtifact?.title || event.name,
                                             type: 'text/markdown',
-                                            content: '',
+                                            content,
                                             messageId: streamingMsgId,
+                                            version: event.pendingVersion,
                                         },
                                         true,
                                     );
@@ -247,6 +265,7 @@ export function useStreamReader({
                                 case 'document_edit': {
                                     const docKey = `${event.name}_${event.pendingVersion}`;
                                     const doc = streaming.streamingDocs.get(docKey);
+
                                     if (doc && event.edits) {
                                         let content = doc.content;
                                         for (const edit of event.edits) {
@@ -266,6 +285,7 @@ export function useStreamReader({
                                             content = newLines.join('\n');
                                         }
                                         doc.content = content;
+
                                         updateArtifact(doc.artifactId, { content: doc.content });
                                     }
                                     break;
@@ -349,6 +369,7 @@ export function useStreamReader({
             updateArtifact,
             setCurrentArtifact,
             setStreamingComplete,
+            findArtifactByIdentifier,
             setMessages,
             setIsLoading,
             onArtifactComplete,
