@@ -13,6 +13,7 @@ import { MessageBubble } from './message-bubble';
 
 type ChatConversationProps = {
     messages: Message[];
+    isGenerating: boolean;
     isLoading: boolean;
     emptyState?: ChatEmptyStateProps;
     onLoadMore?: () => void;
@@ -29,7 +30,7 @@ const messageContainerVariants = cva('w-full min-w-0 last:mb-0', {
 });
 
 const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(
-    ({ messages, isLoading, emptyState, onLoadMore, pagination }, ref) => {
+    ({ messages, isGenerating, isLoading, emptyState, onLoadMore, pagination }, ref) => {
         const { containerRef } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
             threshold: 100,
         });
@@ -81,7 +82,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(
 
         return (
             <div ref={containerRef} className="relative flex-1 overflow-y-auto p-6">
-                <div className="w-full max-w-4xl mx-auto min-w-0">
+                <div className="w-full max-w-4xl mx-auto min-w-0 min-h-full flex flex-col">
                     {/* Loading indicator for older messages */}
                     {pagination?.isLoadingMore && (
                         <div className="flex justify-center py-4">
@@ -89,8 +90,14 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(
                         </div>
                     )}
 
-                    {messages.length === 0 && !isLoading && (
-                        <div className="h-full flex items-center justify-center">
+                    {isLoading && (
+                        <div className="flex flex-1 justify-center items-center">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        </div>
+                    )}
+
+                    {messages.length === 0 && !isGenerating && !isLoading && (
+                        <div className="flex flex-1 items-center justify-center">
                             <ChatEmptyState {...emptyState} />
                         </div>
                     )}
@@ -112,7 +119,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(
                     </AnimatePresence>
 
                     {/* Loading indicator when waiting for response */}
-                    {isLoading && !messages.some((m) => m.isStreaming) && <ChatLoadingIndicator />}
+                    {isGenerating && !messages.some((m) => m.isStreaming) && <ChatLoadingIndicator />}
                 </div>
             </div>
         );

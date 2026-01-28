@@ -146,7 +146,15 @@ export function parseStreamEventData(data: string): StreamEvent | null {
                 return { type: 'error', error: parsed.error ?? 'Unknown error' };
 
             case 'done':
-                return { type: 'done' };
+                return {
+                    type: 'done',
+                    ...(parsed.tokenBreakdown && {
+                        tokenUsage: {
+                            usedTokens: parsed.usedTokens ?? 0,
+                            tokenBreakdown: parsed.tokenBreakdown,
+                        },
+                    }),
+                };
 
             case 'done_ext':
                 return { type: 'done_ext' };

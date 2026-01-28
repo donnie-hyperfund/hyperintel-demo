@@ -29,6 +29,7 @@
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.71.2",
+        "@clerk/backend": "^2.29.5",
         "@clerk/nextjs": "^6.36.5",
         "@clerk/themes": "^2.4.46",
         "@hono/clerk-auth": "^3.0.3",
