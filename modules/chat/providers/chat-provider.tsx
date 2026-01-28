@@ -150,16 +150,25 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setState((prev) => ({ ...prev, isLoading: true }));
 
         try {
-            const data = await api.messages.list(projectId, chatId, { page: 1 });
-            // API returns DESC order (newest first), reverse for display (newest at bottom)
-            const apiMessages: Message[] = data.data?.map(mapApiMessage) || [];
+            const [messagesData, chatData] = await Promise.all([
+                api.messages.list(projectId, chatId, { page: 1 }),
+                api.chats.get(projectId, chatId),
+            ]);
 
-            setState((prev) => ({ ...prev, messages: apiMessages.reverse(), isLoading: false }));
+            // API returns DESC order (newest first), reverse for display (newest at bottom)
+            const apiMessages: Message[] = messagesData.data?.map(mapApiMessage) || [];
+
+            setState((prev) => ({
+                ...prev,
+                messages: apiMessages.reverse(),
+                isLoading: false,
+                tokenUsage: chatData.token_usage ?? null,
+            }));
             setPagination({
-                page: data.pagination.page,
-                totalPages: data.pagination.totalPages,
+                page: messagesData.pagination.page,
+                totalPages: messagesData.pagination.totalPages,
                 isLoadingMore: false,
-                hasMore: data.pagination.page < data.pagination.totalPages,
+                hasMore: messagesData.pagination.page < messagesData.pagination.totalPages,
             });
         } catch (error) {
             console.error('Error loading messages:', error);

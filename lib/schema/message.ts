@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TokenUsageSchema } from './chat';
 
 // ============================================================================
 // STREAM BLOCK SCHEMAS (mirrors common/ai/agent/types.ts)
@@ -94,6 +95,7 @@ export const ChatDtoSchema = z.object({
     message_count: z.number().optional(),
     first_message_content: z.string().nullable().optional(),
     metadata: z.record(z.unknown()).nullable().optional(),
+    token_usage: TokenUsageSchema.nullable().optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),
 });
