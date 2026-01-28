@@ -15,7 +15,7 @@ async function handleGetChat(
 ): Promise<NextResponse> {
     const { em } = await getOrm();
 
-    const chatData = await em
+    const chat = await em
         .createQueryBuilder(ChatEntity, 'c')
         .select('c.*')
         .addSelect(sql`COUNT(DISTINCT m.id) as message_count`)
@@ -34,17 +34,17 @@ async function handleGetChat(
             'p.user': user.id,
         })
         .groupBy(['c.id'])
-        .execute<any>('get');
+        .getSingleResult();
 
-    if (!chatData) {
+    if (!chat) {
         return CHAT_ERRORS.CHAT_NOT_FOUND;
     }
 
-    const chat = chatData as ChatEntity;
-    chat.message_count = parseInt(chatData.message_count) || 0;
-    chat.first_message_content = chatData.first_message_content || null;
+    if (chat.message_count) {
+        chat.message_count = Number(chat.message_count);
+    }
 
-    const dto: ChatDto = wrap(chat).toJSON();
+    const dto: ChatDto = wrap(chat).toJSON() as ChatDto;
     return NextResponse.json(dto);
 }
 
