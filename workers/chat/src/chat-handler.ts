@@ -494,13 +494,22 @@ async function streamInternal(
                     enqueue({ type: 'search_start', query: event.query, blockId: event.blockId });
                     break;
 
-                case 'search_done':
-                    enqueue({ type: 'search_done', blockId: event.blockId });
+                case 'search_results':
+                    enqueue({ type: 'search_results', blockId: event.blockId, resultCount: event.resultCount });
                     break;
 
                 case 'citation':
                     wasTool = true;
-                    enqueue({ type: 'citation', url: event.url, citedText: event.citedText, blockId: event.blockId });
+                    enqueue({
+                        type: 'citation',
+                        url: event.url,
+                        citedText: event.citedText,
+                        title: event.title,
+                        blockId: event.blockId,
+                        parentTextBlockId: event.parentTextBlockId,
+                        startIndex: event.startIndex,
+                        endIndex: event.endIndex
+                    });
                     break;
 
                 case 'reasoning_start':

@@ -15,6 +15,15 @@ const BaseStreamBlockSchema = z.object({
 export const TextStreamBlockSchema = BaseStreamBlockSchema.extend({
     type: z.literal('text'),
     content: z.string(),
+    citations: z.array(z.object({
+        url: z.string(),
+        title: z.string().optional(),
+        cited_text: z.string(),
+        start_index: z.number(),
+        end_index: z.number(),
+        provider: z.enum(['anthropic', 'openai']),
+        encrypted_index: z.string().optional(),
+    })).optional(),
 });
 
 export const ReasoningStreamBlockSchema = BaseStreamBlockSchema.extend({
@@ -40,6 +49,25 @@ export const SearchStreamBlockSchema = BaseStreamBlockSchema.extend({
     type: z.literal('search'),
     content: z.string(),
     searchQuery: z.string().optional(),
+    provider: z.enum(['anthropic', 'openai', 'openrouter']).optional(),
+    resultCount: z.number().optional(),
+    isComplete: z.boolean().optional(),
+    providerData: z.object({
+        anthropic: z.object({
+            serverToolUseId: z.string(),
+            serverToolInput: z.record(z.unknown()),
+            serverToolResults: z.array(z.object({
+                type: z.literal('web_search_result'),
+                url: z.string(),
+                title: z.string(),
+                encrypted_content: z.string(),
+                page_age: z.string().optional(),
+            })),
+        }).optional(),
+    }).optional(),
+    // Deprecated fields for backwards compat
+    serverToolUseId: z.string().optional(),
+    serverToolInput: z.record(z.unknown()).optional(),
 });
 
 export const CitationStreamBlockSchema = BaseStreamBlockSchema.extend({

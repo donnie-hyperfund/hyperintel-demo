@@ -1,15 +1,38 @@
 'use client';
 
-import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { MarkdownRenderer, type DirectiveHandler } from '@/components/ui/markdown-renderer';
+import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
 import { ArtifactIndicator } from '../../artifact-indicator';
 import type { Message } from '../../chat-interface';
-import { splitByDocumentDirectives } from './document-directives';
 import { ThinkingSection } from './thinking-section';
 import { TypingIndicator } from './typing-indicator';
 
 type MessageBubbleProps = {
     message: Message;
     renderMarkdown?: boolean;
+};
+
+const documentDirective: DirectiveHandler = ({ type, name, label, attributes, children }) => {
+    if (type === 'container') {
+        return (
+            <div>
+                <ArtifactIndicator
+                    documentName={label}
+                    documentVersion={attributes.version}
+                    documentAction={attributes.action}
+                />
+                {children}
+            </div>
+        );
+    }
+
+    return (
+        <ArtifactIndicator
+            documentName={label}
+            documentVersion={attributes.version}
+            documentAction={attributes.action}
+        />
+    );
 };
 
 export function MessageBubble({ message, renderMarkdown = true }: MessageBubbleProps) {
@@ -37,10 +60,9 @@ export function MessageBubble({ message, renderMarkdown = true }: MessageBubbleP
     // Assistant message: show thinking section + text/documents inline
     const thinkingBlocks = blocks.filter((b) => b.type === 'reasoning' || b.type === 'tool_call');
     const textBlocks = blocks.filter((b) => b.type === 'text');
-    const textContent = textBlocks.map((b) => b.content).join('\n');
 
-    // Split content into inline segments (text and documents in order)
-    const segments = splitByDocumentDirectives(textContent);
+    // Convert block-local citations to global positions across concatenated text
+    const { fullText: textContent, citations } = convertBlocksToGlobalAnnotations(blocks, '\n');
 
     return (
         <div className="flex gap-3 justify-start">
@@ -58,30 +80,23 @@ export function MessageBubble({ message, renderMarkdown = true }: MessageBubbleP
                     />
                 )}
 
-                {/* Inline content: text and document cards in order */}
-                {segments.map((segment, index) => {
-                    if (segment.type === 'text') {
-                        return (
-                            <div key={`text-${index}`} className="overflow-hidden rounded-lg px-4 py-2 bg-muted">
-                                {renderMarkdown ? (
-                                    <MarkdownRenderer markdown={segment.content} variant="message" />
-                                ) : (
-                                    <p className="text-sm whitespace-pre-wrap">{segment.content}</p>
-                                )}
-                            </div>
-                        );
-                    }
-                    // Document indicator
-                    const doc = segment.directive;
-                    return (
-                        <ArtifactIndicator
-                            key={`doc-${index}-${doc.name}-${doc.version ?? 0}`}
-                            documentName={doc.name}
-                            documentVersion={doc.version}
-                            documentAction={doc.action}
-                        />
-                    );
-                })}
+                {/* Inline content: text and document cards rendered via markdown */}
+                {textContent && (
+                    <div className="overflow-hidden rounded-lg px-4 py-2 bg-muted">
+                        {renderMarkdown ? (
+                            <MarkdownRenderer
+                                markdown={textContent}
+                                variant="message"
+                                citations={citations.length > 0 ? citations : undefined}
+                                directives={{
+                                    document: documentDirective,
+                                }}
+                            />
+                        ) : (
+                            <p className="text-sm whitespace-pre-wrap">{textContent}</p>
+                        )}
+                    </div>
+                )}
 
                 {/* Show typing indicator if streaming with no content yet */}
                 {isStreaming && blocks.length === 0 && (

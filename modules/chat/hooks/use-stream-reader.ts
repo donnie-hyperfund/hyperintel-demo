@@ -197,6 +197,60 @@ export function useStreamReader({
                                     break;
                                 }
 
+                                case 'search_start': {
+                                    const searchBlockId = event.blockId || `search-${Date.now()}`;
+                                    streaming.blocks.push({
+                                        id: searchBlockId,
+                                        type: 'search',
+                                        content: event.query,
+                                        searchQuery: event.query,
+                                    });
+                                    updateStreamingMessage();
+                                    break;
+                                }
+
+                                case 'search_results': {
+                                    // Update search block with result count and mark complete
+                                    const searchIdx = streaming.blocks.findIndex(
+                                        (b) => b.id === event.blockId && b.type === 'search',
+                                    );
+                                    if (searchIdx !== -1 && streaming.blocks[searchIdx].type === 'search') {
+                                        streaming.blocks[searchIdx] = {
+                                            ...streaming.blocks[searchIdx],
+                                            resultCount: event.resultCount,
+                                            isComplete: true,
+                                        } as StreamBlock;
+                                        updateStreamingMessage();
+                                    }
+                                    break;
+                                }
+
+                                case 'citation': {
+                                    // Find the parent text block and add citation to it
+                                    const textIdx = streaming.blocks.findIndex(
+                                        (b) => b.id === event.parentTextBlockId && b.type === 'text',
+                                    );
+                                    if (textIdx !== -1 && streaming.blocks[textIdx].type === 'text') {
+                                        const textBlock = streaming.blocks[textIdx];
+                                        streaming.blocks[textIdx] = {
+                                            ...textBlock,
+                                            citations: [
+                                                ...(textBlock.citations || []),
+                                                {
+                                                    url: event.url,
+                                                    title: event.title,
+                                                    cited_text: event.citedText,
+                                                    start_index: event.startIndex,
+                                                    end_index: event.endIndex,
+                                                    provider: 'anthropic', // Assume Anthropic for now
+                                                },
+                                            ],
+                                        } as StreamBlock;
+                                        updateStreamingMessage();
+                                    }
+                                    break;
+                                }
+
                                 case 'created':
                                     if (event.id) {
                                         setMessages((prev) =>

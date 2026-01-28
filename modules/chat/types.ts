@@ -96,6 +96,9 @@ export type StreamEventType =
     | 'reasoning_done'
     | 'tool_start'
     | 'tool_result'
+    | 'search_start'
+    | 'search_results'
+    | 'citation'
     | 'document_start'
     | 'document_delta'
     | 'document_patch'
@@ -124,6 +127,19 @@ export type StreamEvent =
     // Tool calls
     | { type: 'tool_start'; id: string; tool: string }
     | { type: 'tool_result'; id: string; result: unknown; success: boolean }
+    // Search & citations
+    | { type: 'search_start'; query: string; blockId: string }
+    | { type: 'search_results'; blockId: string; resultCount: number }
+    | {
+        type: 'citation';
+        url: string;
+        citedText: string;
+        title?: string;
+        blockId: string;
+        parentTextBlockId: string;
+        startIndex: number;
+        endIndex: number;
+    }
     // Documents/artifacts
     | { type: 'document_start'; name: string; title?: string; pendingVersion: number }
     | { type: 'document_delta'; name: string; pendingVersion: number; content: string }
