@@ -40,6 +40,7 @@ default_secrets: []
 # Object = per-env value (missing env = not included for that env)
 vars:
   CORS_ALLOWED_ORIGIN:
+    production: "https://app.hprntl.ai"
     dev: "https://dev-hyperintel.vercel.app"
   CLERK_PUBLISHABLE_KEY:
     production: "pk_live_Y2xlcmsuaHBybnRsLmFpJA"
@@ -52,7 +53,7 @@ vars:
   ENV:
     dev: "dev"  # prod is unset - code defaults to 'prod'
   APP_BASE:
-    production: "https://app.hyperfund.ai/"
+    production: "https://app.hprntl.ai/"
     dev: "https://dev-hyperintel-orpin.vercel.app/"
 
 
