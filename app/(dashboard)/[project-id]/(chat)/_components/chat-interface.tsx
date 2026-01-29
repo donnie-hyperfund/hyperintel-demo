@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
+import ArtifactPreviewPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel';
 import ArtifactsPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/artifacts-panel';
+import ResourcesPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/resources-panel';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { cn } from '@/lib/utils';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import ChatPanel from './chat-panel';
 
@@ -17,7 +19,7 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
-    const { isVisible: isArtifactsPanelVisible } = useArtifactContext();
+    const { panelState, closePanel } = useActivePanelContext();
     const { chatId, loadMessages, sendMessage } = useChatContext();
 
     const chatConversationRef = useRef<HTMLDivElement>(null);
@@ -61,6 +63,9 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
         }
     }, [initialMessage, sendMessage]);
 
+    const isPanelOpen = panelState !== null;
+    const activePanel = panelState?.panel ?? null;
+
     return (
         <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-full">
             {/* Chat Panel */}
@@ -68,22 +73,28 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
                 id="chat-panel"
                 order={1}
                 defaultSize={60}
-                minSize={40}
+                minSize={60}
                 maxSize={80}
-                className={cn(isArtifactsPanelVisible && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
+                className={cn(isPanelOpen && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
             >
                 <ChatPanel conversationRef={chatConversationRef} formRef={chatMessageFormRef} />
             </ResizablePanel>
 
-            {isArtifactsPanelVisible && (
-                <>
+            {isPanelOpen && (
+                <Fragment key={activePanel}>
                     <ResizableHandle />
 
-                    {/* Artifacts Panel */}
-                    <ResizablePanel id="artifacts-panel" order={2} defaultSize={40} minSize={20}>
-                        <ArtifactsPanel />
+                    <ResizablePanel
+                        id="right-panel"
+                        order={2}
+                        defaultSize={activePanel === 'artifact-preview' ? 35 : 20}
+                        minSize={20}
+                    >
+                        {activePanel === 'artifact-preview' && <ArtifactPreviewPanel />}
+                        {activePanel === 'artifacts' && <ArtifactsPanel onClose={closePanel} />}
+                        {activePanel === 'resources' && <ResourcesPanel onClose={closePanel} />}
                     </ResizablePanel>
-                </>
+                </Fragment>
             )}
         </ResizablePanelGroup>
     );
