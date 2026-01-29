@@ -316,7 +316,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
                         if (event.type === 'done' && event.newChatId) {
                             setState((prev) => ({ ...prev, isSummarizing: false }));
-                            window.location.href = `/${projectId}/chats/${event.newChatId}`;
+                            window.location.href = `/${projectId}/${event.newChatId}`;
                             return;
                         }
                     } catch {
