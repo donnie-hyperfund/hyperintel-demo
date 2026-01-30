@@ -8,6 +8,7 @@ import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { artifactKeys } from '@/lib/api/client/fetchers/artifacts';
 import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
+import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock } from '../types';
@@ -61,6 +62,7 @@ function createUserMessage(content: string): Message {
 
 export function ChatProvider({ children, projectId, initialChatId, initialMessages = [] }: ChatProviderProps) {
     const artifactContext = useArtifactContext();
+    const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
@@ -111,11 +113,19 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         globalMutate(artifactKeys.list(projectId));
     }, [globalMutate, projectId]);
 
+    const handleArtifactOpen = useCallback(
+        (artifactId: string) => {
+            openPanel({ panel: 'artifact-preview', artifactId });
+        },
+        [openPanel],
+    );
+
     // Use the stream reader hook for SSE processing
     const { readStream } = useStreamReader({
         artifactContext,
         setMessages,
         setIsLoading,
+        onArtifactOpen: handleArtifactOpen,
         onArtifactComplete: revalidateArtifacts,
     });
 
@@ -306,7 +316,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
                         if (event.type === 'done' && event.newChatId) {
                             setState((prev) => ({ ...prev, isSummarizing: false }));
-                            window.location.href = `/${projectId}/chats/${event.newChatId}`;
+                            window.location.href = `/${projectId}/${event.newChatId}`;
                             return;
                         }
                     } catch {
