@@ -61,6 +61,9 @@ export type Artifact = {
     content: string;
     messageId: string;
     version?: number;
+    isLoading?: boolean;
+    isStreaming?: boolean;
+    isUpdating?: boolean;
 };
 
 export type ArtifactMetadata = {

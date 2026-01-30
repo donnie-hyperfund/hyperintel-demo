@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
@@ -20,6 +20,8 @@ type ArtifactViewerProps = {
     onCloseAction?: () => void;
     /** Whether content is being streamed - enables auto-scroll to bottom */
     isStreaming?: boolean;
+    /** Whether an existing document is being patched */
+    isUpdating?: boolean;
 };
 
 /** Reusable artifact viewer with header and markdown content */
@@ -31,6 +33,7 @@ export function ArtifactViewer({
     backHref,
     onCloseAction,
     isStreaming = false,
+    isUpdating = false,
 }: ArtifactViewerProps) {
     const prevTitleRef = useRef<string | null>(null);
 
@@ -70,6 +73,16 @@ export function ArtifactViewer({
                         </div>
                     )}
                 </div>
+
+                {/* Updating overlay */}
+                {isUpdating && (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-xs">
+                        <div className="flex items-center gap-2 text-md font-medium text-muted-foreground">
+                            <Loader2 className="size-5 animate-spin" />
+                            Patching document...
+                        </div>
+                    </div>
+                )}
 
                 {/* Scroll to bottom button */}
                 {!isAtBottom && content.length > 0 && (
