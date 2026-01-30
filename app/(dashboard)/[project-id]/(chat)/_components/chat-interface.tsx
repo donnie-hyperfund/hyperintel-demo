@@ -23,7 +23,7 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
     const { messages, isGenerating, isLoading } = state;
 
     const chatConversationRef = useRef<HTMLDivElement>(null);
-    const chatMessageFormRef = useRef<HTMLFormElement>(null);
+    const chatMessageFormRef = useRef<HTMLDivElement>(null);
 
     // Padding adjustment for message form
     useEffect(() => {

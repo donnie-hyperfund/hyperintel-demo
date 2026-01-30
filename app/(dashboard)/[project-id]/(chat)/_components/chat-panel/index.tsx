@@ -16,7 +16,7 @@ type ChatPanelProps = {
     onLoadMore?: () => void;
     pagination?: PaginationState;
     conversationRef?: React.RefObject<HTMLDivElement | null>;
-    formRef?: React.RefObject<HTMLFormElement | null>;
+    formRef?: React.RefObject<HTMLDivElement | null>;
 };
 
 export default function ChatPanel({
@@ -30,7 +30,7 @@ export default function ChatPanel({
     formRef,
 }: ChatPanelProps) {
     const internalConversationRef = useRef<HTMLDivElement>(null);
-    const internalFormRef = useRef<HTMLFormElement>(null);
+    const internalFormRef = useRef<HTMLDivElement>(null);
 
     const chatConversationRef = conversationRef ?? internalConversationRef;
     const chatMessageFormRef = formRef ?? internalFormRef;
