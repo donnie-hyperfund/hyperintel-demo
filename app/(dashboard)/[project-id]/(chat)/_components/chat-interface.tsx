@@ -18,8 +18,7 @@ interface ChatInterfaceProps {
 
 export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
     const { isVisible: isArtifactsPanelVisible } = useArtifactContext();
-    const { state, chatId, loadMessages, loadMoreMessages, sendMessage, pagination } = useChatContext();
-    const { messages, isGenerating, isLoading } = state;
+    const { chatId, loadMessages, sendMessage } = useChatContext();
 
     const chatConversationRef = useRef<HTMLDivElement>(null);
     const chatMessageFormRef = useRef<HTMLDivElement>(null);
@@ -73,18 +72,8 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
                 maxSize={80}
                 className={cn(isArtifactsPanelVisible && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
             >
-                <ChatPanel
-                    messages={messages}
-                    isGenerating={isGenerating}
-                    isLoading={isLoading}
-                    onLoadMore={loadMoreMessages}
-                    pagination={pagination}
-                    conversationRef={chatConversationRef}
-                    formRef={chatMessageFormRef}
-                />
+                <ChatPanel conversationRef={chatConversationRef} formRef={chatMessageFormRef} />
             </ResizablePanel>
-
-            <ResizableHandle className="w-1 bg-border hover:bg-primary/50 transition-colors" />
 
             {isArtifactsPanelVisible && (
                 <>
