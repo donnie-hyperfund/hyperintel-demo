@@ -19,8 +19,8 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
-    const { panelState, closePanel } = useActivePanelContext();
     const { chatId, loadMessages, sendMessage } = useChatContext();
+    const { panelState, closePanel } = useActivePanelContext();
 
     const chatConversationRef = useRef<HTMLDivElement>(null);
     const chatMessageFormRef = useRef<HTMLDivElement>(null);

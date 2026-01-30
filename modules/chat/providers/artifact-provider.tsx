@@ -5,13 +5,8 @@ import type { Artifact } from '../types';
 
 export type ArtifactContextValue = {
     artifacts: Record<string, Artifact>;
-    streamingArtifactId: string | null;
-    isLoading: boolean;
-    loadingTitle: string | null;
-    addArtifact: (artifact: Artifact, isStreaming?: boolean) => void;
+    addArtifact: (artifact: Artifact) => void;
     updateArtifact: (id: string, updates: Partial<Artifact>) => void;
-    setLoading: (loading: boolean, title?: string) => void;
-    setStreamingComplete: (id: string) => void;
 };
 
 const ArtifactContext = createContext<ArtifactContextValue | null>(null);
@@ -22,13 +17,11 @@ type ArtifactProviderProps = {
 
 export function ArtifactProvider({ children }: ArtifactProviderProps) {
     const [artifacts, setArtifacts] = useState<Record<string, Artifact>>({});
-    const [streamingArtifactId, setStreamingArtifactId] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [loadingTitle, setLoadingTitle] = useState<string | null>(null);
 
-    const addArtifact = useCallback((artifact: Artifact, isStreaming = false) => {
+    const addArtifact = useCallback((artifact: Artifact) => {
         setArtifacts((prev) => {
-            if (prev[artifact.id]?.content === artifact.content) {
+            const existing = prev[artifact.id];
+            if (existing?.content === artifact.content && existing?.isLoading === artifact.isLoading && existing?.isStreaming === artifact.isStreaming && existing?.isUpdating === artifact.isUpdating) {
                 return prev;
             }
             return {
@@ -36,13 +29,6 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
                 [artifact.id]: artifact,
             };
         });
-        if (isStreaming) {
-            setStreamingArtifactId(artifact.id);
-        }
-    }, []);
-
-    const setStreamingComplete = useCallback((id: string) => {
-        setStreamingArtifactId((prev) => (prev === id ? null : prev));
     }, []);
 
     const updateArtifact = useCallback((id: string, updates: Partial<Artifact>) => {
@@ -57,22 +43,12 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
         });
     }, []);
 
-    const setLoading = useCallback((loading: boolean, title?: string) => {
-        setIsLoading(loading);
-        setLoadingTitle(title ?? null);
-    }, []);
-
     return (
         <ArtifactContext.Provider
             value={{
                 artifacts,
-                streamingArtifactId,
-                isLoading,
-                loadingTitle,
                 addArtifact,
                 updateArtifact,
-                setLoading,
-                setStreamingComplete,
             }}
         >
             {children}

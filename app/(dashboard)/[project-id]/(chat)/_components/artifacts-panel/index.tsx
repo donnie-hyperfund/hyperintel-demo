@@ -20,7 +20,7 @@ export default function ArtifactsPanel({ onClose }: ArtifactsPanelProps) {
     const params = useParams();
     const { getToken } = useAuth();
     const projectId = params?.['project-id'] as string | undefined;
-    const { addArtifact, setLoading } = useArtifactContext();
+    const { addArtifact, updateArtifact } = useArtifactContext();
     const { openPanel } = useActivePanelContext();
     const { data: artifactsData, isLoading: artifactsLoading } = useFetchArtifacts(projectId);
 
@@ -28,26 +28,31 @@ export default function ArtifactsPanel({ onClose }: ArtifactsPanelProps) {
 
     const handleArtifactClick = async (artifactId: string, title: string) => {
         if (!projectId) return;
-        setLoading(true, title);
-        openPanel({ panel: 'artifact-preview', artifactId: null });
+        const localId = `artifact-${artifactId}`;
+
+        addArtifact({
+            id: localId,
+            identifier: artifactId,
+            title,
+            type: 'text/markdown',
+            content: '',
+            messageId: '',
+            isLoading: true,
+        });
+        openPanel({ panel: 'artifact-preview', artifactId: localId });
 
         try {
             const api = createArtifactApi(getToken);
             const artifact = await api.get(projectId, artifactId);
-            const localId = `artifact-${artifact.id}-v${artifact.version}`;
 
-            addArtifact({
-                id: localId,
+            updateArtifact(localId, {
                 identifier: artifact.key,
                 title: artifact.title,
-                type: 'text/markdown',
                 content: artifact.current_version?.content ?? '',
-                messageId: '',
+                isLoading: false,
             });
-            setLoading(false);
-            openPanel({ panel: 'artifact-preview', artifactId: localId });
         } catch {
-            setLoading(false);
+            updateArtifact(localId, { isLoading: false });
         }
     };
 

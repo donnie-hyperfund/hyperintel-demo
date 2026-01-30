@@ -11,7 +11,7 @@ import type { ChatMessageDto } from '@/lib/schema/message';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
-import type { ChatState, Message, PaginationState, StreamBlock } from '../types';
+import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
 export type ChatContextValue = {
     state: ChatState;
@@ -81,6 +81,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         isLoading: !!chatId,
         error: null,
         streamingMessageId: null,
+        tokenUsage: null,
     });
 
     // Pagination state for infinite scroll
@@ -113,6 +114,10 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         globalMutate(artifactKeys.list(projectId));
     }, [globalMutate, projectId]);
 
+    const onTokenUsage = useCallback((usage: TokenUsage) => {
+        setState((prev) => ({ ...prev, tokenUsage: usage }));
+    }, []);
+
     const handleArtifactOpen = useCallback(
         (artifactId: string) => {
             openPanel({ panel: 'artifact-preview', artifactId });
@@ -127,6 +132,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setIsLoading,
         onArtifactOpen: handleArtifactOpen,
         onArtifactComplete: revalidateArtifacts,
+        onTokenUsage,
     });
 
     /** Convert API message to internal Message format */

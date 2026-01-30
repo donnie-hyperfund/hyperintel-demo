@@ -9,17 +9,19 @@ import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/componen
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { ContextUsageIndicator } from '../context-usage-indicator';
 import { NextStagePill } from './next-stage-pill';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 
 type ChatMessageFormProps = {
     className?: string;
+    ref?: React.RefObject<HTMLDivElement | null>;
 };
 
-const ChatMessageForm = forwardRef<HTMLDivElement, ChatMessageFormProps>(({ className }, ref) => {
+const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
     const {
         sendMessage,
-        state: { isGenerating, isSummarizing, isLoading },
+        state: { isGenerating, isSummarizing, isLoading, tokenUsage },
     } = useChatContext();
 
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
@@ -78,10 +80,7 @@ const ChatMessageForm = forwardRef<HTMLDivElement, ChatMessageFormProps>(({ clas
             <NextStagePill />
 
             <AnimatePresence>
-                <form
-                    onSubmit={handleSubmit(onFormSubmit)}
-                    className="relative flex items-end justify-center pb-6 px-4"
-                >
+                <form onSubmit={handleSubmit(onFormSubmit)} className="relative flex items-end justify-center px-4">
                     {/* Background component*/}
                     <motion.div
                         initial={{ opacity: 0 }}
@@ -128,23 +127,24 @@ const ChatMessageForm = forwardRef<HTMLDivElement, ChatMessageFormProps>(({ clas
                             </Button>
                         </motion.div>
 
-                        {errors.message && (
-                            <motion.p
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="text-xs text-red-400 mt-1 px-4"
-                            >
-                                {errors.message.message}
-                            </motion.p>
-                        )}
+                        <div className="flex items-center h-9 px-1 justify-between">
+                            {errors.message && (
+                                <motion.p
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="text-xs text-red-400 justify-self-start"
+                                >
+                                    {errors.message.message}
+                                </motion.p>
+                            )}
+                            <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
+                        </div>
                     </div>
                 </form>
             </AnimatePresence>
         </div>
     );
-});
-
-ChatMessageForm.displayName = 'ChatMessageForm';
+};
 
 export default ChatMessageForm;

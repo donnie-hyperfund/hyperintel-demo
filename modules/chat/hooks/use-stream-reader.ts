@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from 'react';
 import type { ArtifactContextValue } from '@/modules/chat/providers/artifact-provider';
-import type { Message, StreamBlock } from '../types';
+import type { Message, StreamBlock, TokenUsage } from '../types';
 
 /** Streaming state for building assistant messages */
 type StreamingState = {
@@ -14,7 +14,7 @@ type StreamingState = {
 
 type UseStreamReaderOptions = {
     /** Artifact context for document streaming */
-    artifactContext: Pick<ArtifactContextValue, 'addArtifact' | 'updateArtifact' | 'setStreamingComplete'>;
+    artifactContext: Pick<ArtifactContextValue, 'artifacts' | 'addArtifact' | 'updateArtifact'>;
     /** Callback to update messages state */
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
     /** Callback to set loading state */
@@ -23,6 +23,8 @@ type UseStreamReaderOptions = {
     onArtifactOpen?: (artifactId: string) => void;
     /** Called when an artifact stream completes */
     onArtifactComplete?: () => void;
+    /** Called when token usage is received from the done event */
+    onTokenUsage?: (usage: TokenUsage) => void;
 };
 
 /**
@@ -35,8 +37,9 @@ export function useStreamReader({
     setIsLoading,
     onArtifactOpen,
     onArtifactComplete,
+    onTokenUsage,
 }: UseStreamReaderOptions) {
-    const { addArtifact, updateArtifact, setStreamingComplete } = artifactContext;
+    const { addArtifact, updateArtifact } = artifactContext;
 
     // Streaming state ref to avoid stale closures
     const streamingStateRef = useRef<StreamingState | null>(null);
@@ -90,6 +93,8 @@ export function useStreamReader({
                                 console.error('Stream error:', event.error);
                                 break;
                             }
+
+                            console.log('[stream-reader] event:', event);
 
                             switch (event.type) {
                                 case 'reasoning_start': {
@@ -205,45 +210,41 @@ export function useStreamReader({
                                     break;
 
                                 case 'document_start': {
-                                    const docKey = `${event.name}_${event.pendingVersion}`;
-                                    const artifactId = `doc-${event.name}-v${event.pendingVersion}`;
-                                    console.log('[stream-reader] document_start:', {
-                                        docKey,
-                                        artifactId,
-                                        name: event.name,
-                                        title: event.title,
+                                    const artifactId = event.name;
+                                    const existingArtifact = artifactContext.artifacts[artifactId];
+                                    const content = existingArtifact?.content ?? '';
+                                    const hasExistingContent = !!existingArtifact?.content;
+
+                                    streaming.streamingDocs.set(artifactId, { artifactId, content });
+                                    addArtifact({
+                                        id: artifactId,
+                                        identifier: event.name,
+                                        title: event.title || existingArtifact?.title || event.name,
+                                        type: 'text/markdown',
+                                        content,
+                                        messageId: streamingMsgId,
+                                        version: event.pendingVersion,
+                                        isStreaming: true,
+                                        isUpdating: hasExistingContent,
                                     });
-                                    streaming.streamingDocs.set(docKey, { artifactId, content: '' });
-                                    addArtifact(
-                                        {
-                                            id: artifactId,
-                                            identifier: event.name,
-                                            title: event.title || event.name,
-                                            type: 'text/markdown',
-                                            content: '',
-                                            messageId: streamingMsgId,
-                                        },
-                                        true,
-                                    );
                                     onArtifactOpen?.(artifactId);
                                     break;
                                 }
 
                                 case 'document_delta': {
-                                    const docKey = `${event.name}_${event.pendingVersion}`;
-                                    const doc = streaming.streamingDocs.get(docKey);
+                                    const doc = streaming.streamingDocs.get(event.name);
                                     if (doc) {
                                         doc.content += event.content;
                                         updateArtifact(doc.artifactId, { content: doc.content });
                                     } else {
-                                        console.warn('[stream-reader] document_delta: doc not found for key', docKey);
+                                        console.warn('[stream-reader] document_delta: doc not found for', event.name);
                                     }
                                     break;
                                 }
 
                                 case 'document_edit': {
-                                    const docKey = `${event.name}_${event.pendingVersion}`;
-                                    const doc = streaming.streamingDocs.get(docKey);
+                                    const doc = streaming.streamingDocs.get(event.name);
+
                                     if (doc && event.edits) {
                                         let content = doc.content;
                                         for (const edit of event.edits) {
@@ -263,33 +264,23 @@ export function useStreamReader({
                                             content = newLines.join('\n');
                                         }
                                         doc.content = content;
-                                        updateArtifact(doc.artifactId, { content: doc.content });
+
+                                        updateArtifact(doc.artifactId, { content: doc.content, isUpdating: false });
                                     }
                                     break;
                                 }
 
                                 case 'document_complete': {
-                                    // Try version first, then fall back to checking all keys with this name
-                                    // (pendingVersion becomes version after finalization)
-                                    let docKey = `${event.name}_${event.version}`;
-                                    let completedDoc = streaming.streamingDocs.get(docKey);
+                                    const completedDoc = streaming.streamingDocs.get(event.name);
+                                    const artifactIdToComplete = completedDoc?.artifactId ?? event.name;
 
-                                    // If not found, search for any doc with matching name
-                                    if (!completedDoc) {
-                                        for (const [key, doc] of streaming.streamingDocs.entries()) {
-                                            if (key.startsWith(`${event.name}_`)) {
-                                                completedDoc = doc;
-                                                docKey = key;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if (completedDoc) {
-                                        setStreamingComplete(completedDoc.artifactId);
-                                        streaming.streamingDocs.delete(docKey);
-                                        onArtifactComplete?.();
-                                    }
+                                    updateArtifact(artifactIdToComplete, {
+                                        isStreaming: false,
+                                        isUpdating: false,
+                                        version: event.version,
+                                    });
+                                    streaming.streamingDocs.delete(event.name);
+                                    onArtifactComplete?.();
                                     break;
                                 }
 
@@ -318,6 +309,12 @@ export function useStreamReader({
                                         ),
                                     );
                                     setIsLoading(false);
+                                    if (event.tokenBreakdown && onTokenUsage) {
+                                        onTokenUsage({
+                                            usedTokens: event.usedTokens ?? 0,
+                                            tokenBreakdown: event.tokenBreakdown,
+                                        });
+                                    }
                                     break;
 
                                 default:
@@ -336,13 +333,14 @@ export function useStreamReader({
             }
         },
         [
+            artifactContext,
             addArtifact,
             updateArtifact,
-            setStreamingComplete,
             setMessages,
             setIsLoading,
             onArtifactOpen,
             onArtifactComplete,
+            onTokenUsage,
         ],
     );
 

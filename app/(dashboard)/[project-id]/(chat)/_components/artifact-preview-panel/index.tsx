@@ -7,17 +7,17 @@ import { ArtifactViewer } from './artifact-viewer';
 
 export default function ArtifactPreviewPanel() {
     const { panelState, closePanel } = useActivePanelContext();
-    const { artifacts, isLoading, loadingTitle, streamingArtifactId, setLoading } = useArtifactContext();
+    const { artifacts } = useArtifactContext();
 
     const artifactId = panelState?.panel === 'artifact-preview' ? panelState.artifactId : null;
     const currentArtifact = artifactId ? (artifacts[artifactId] ?? null) : null;
 
-    const handleClose = () => {
-        closePanel();
-        setLoading(false);
-    };
+    const isLoading = currentArtifact?.isLoading;
+    const isStreaming = currentArtifact?.isStreaming;
+    const isUpdating = currentArtifact?.isUpdating;
+    const showSkeleton = (isLoading || isStreaming) && !currentArtifact?.content;
 
-    if (isLoading) {
+    if (showSkeleton) {
         return (
             <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">
                 <div className="flex-1 flex items-center justify-center text-muted-foreground">
@@ -25,7 +25,7 @@ export default function ArtifactPreviewPanel() {
                         <Loader2 className="size-12 mx-auto animate-spin text-primary" />
                         <div className="space-y-1">
                             <p className="text-sm font-medium text-foreground">
-                                {loadingTitle ?? 'Loading document...'}
+                                {currentArtifact?.title ?? 'Loading document...'}
                             </p>
                             <p className="text-xs text-muted-foreground">Fetching content</p>
                         </div>
@@ -53,8 +53,9 @@ export default function ArtifactPreviewPanel() {
             <ArtifactViewer
                 title={currentArtifact.title}
                 content={currentArtifact.content}
-                onCloseAction={handleClose}
-                isStreaming={currentArtifact.id === streamingArtifactId}
+                onCloseAction={closePanel}
+                isStreaming={!!isStreaming}
+                isUpdating={!!isUpdating}
             />
         </div>
     );
