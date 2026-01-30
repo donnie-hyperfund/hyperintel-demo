@@ -5,12 +5,33 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
+
+export type VersionStatus = 'proposed' | 'approved' | 'rejected' | 'superseded';
+
+const STATUS_CONFIG: Record<VersionStatus, { label: string; className: string }> = {
+    proposed: { label: 'Pending', className: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+    approved: { label: 'Approved', className: 'bg-green-500/20 text-green-400 border-green-500/30' },
+    rejected: { label: 'Rejected', className: 'bg-red-500/20 text-red-400 border-red-500/30' },
+    superseded: { label: 'Superseded', className: 'bg-neutral-500/20 text-neutral-400 border-neutral-500/30' },
+};
+
+export function VersionStatusBadge({ status }: { status: VersionStatus }) {
+    const config = STATUS_CONFIG[status];
+    return (
+        <span className={cn('px-1.5 py-0.5 text-[10px] font-medium rounded border', config.className)}>
+            {config.label}
+        </span>
+    );
+}
 
 type ArtifactHeaderProps = {
     title: string;
     content: string;
     /** Version number to display */
     version?: number;
+    /** Version status */
+    status?: VersionStatus;
     /** Subtitle text (e.g., "Updated 2 hours ago") */
     subtitle?: string;
     /** Back link URL - shows back arrow instead of close button */
@@ -19,7 +40,7 @@ type ArtifactHeaderProps = {
     onCloseAction?: () => void;
 };
 
-export function ArtifactHeader({ title, content, version, subtitle, backHref, onCloseAction }: ArtifactHeaderProps) {
+export function ArtifactHeader({ title, content, version, status, subtitle, backHref, onCloseAction }: ArtifactHeaderProps) {
     const [copied, setCopied] = useState(false);
     const [downloaded, setDownloaded] = useState(false);
 
@@ -57,10 +78,11 @@ export function ArtifactHeader({ title, content, version, subtitle, backHref, on
                 <FileText className="size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                     <span className="text-sm font-medium truncate block">{title}</span>
-                    {(version !== undefined || subtitle) && (
+                    {(version !== undefined || status || subtitle) && (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             {version !== undefined && <span>v{version}</span>}
-                            {version !== undefined && subtitle && <span>·</span>}
+                            {status && <VersionStatusBadge status={status} />}
+                            {(version !== undefined || status) && subtitle && <span>·</span>}
                             {subtitle && <span>{subtitle}</span>}
                         </div>
                     )}

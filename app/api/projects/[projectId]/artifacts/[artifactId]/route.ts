@@ -2,6 +2,7 @@ import { wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { type ArtifactDto } from '@/lib/schema/artifact';
@@ -35,7 +36,16 @@ async function handleGetArtifact(
         return ERRORS.ARTIFACT_NOT_FOUND;
     }
 
-    const dto: ArtifactDto = wrap(artifact).toJSON();
+    // TODO: Extra query - could join versions in main query instead
+    const proposedVersion = await em.findOne(ArtifactVersionEntity, {
+        artifact: artifact.id,
+        status: 'proposed',
+    });
+
+    const dto: ArtifactDto = {
+        ...wrap(artifact).toJSON(),
+        proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
+    };
     return NextResponse.json(dto);
 }
 

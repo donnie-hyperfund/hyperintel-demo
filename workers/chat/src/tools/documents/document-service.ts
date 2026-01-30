@@ -5,11 +5,18 @@
  * Handles CRUD operations with proper name normalization.
  *
  * TODO: move what applicable to lib/ ?
+ *
+ * Versioning:
+ * - All version CONTENT is immutable once created
+ * - Versions have status: proposed | approved | rejected | superseded
+ * - Only ONE proposed version can exist per artifact at a time
+ * - When agent creates new version while proposed exists → old becomes superseded
+ * - current_version always points to latest approved (null if none approved yet)
  */
 
 import type { EntityManager } from '@mikro-orm/core';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
-import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 
 // ============================================================================
 // UTILITIES
@@ -148,6 +155,74 @@ export function applyEdits(content: string, edits: EditOperation[]): EditResult 
 }
 
 // ============================================================================
+// VERSION STATUS HELPERS
+// ============================================================================
+
+/**
+ * Find the latest version with a specific status.
+ */
+export async function findVersionByStatus(
+    em: EntityManager,
+    artifactId: string,
+    status: VersionStatus,
+): Promise<ArtifactVersionEntity | null> {
+    return em.findOne(
+        ArtifactVersionEntity,
+        { artifact: artifactId, status },
+        { orderBy: { version: 'DESC' } },
+    );
+}
+
+/**
+ * Find the best version to base edits on.
+ * Priority: proposed > rejected > approved
+ */
+export async function findBaseVersionForEdit(
+    em: EntityManager,
+    artifactId: string,
+): Promise<
+    | { version: ArtifactVersionEntity; mode: 'supersede-proposed' | 'revise-rejected' | 'edit-approved' }
+    | { error: string }
+> {
+    // Check for proposed - will supersede it
+    const proposed = await findVersionByStatus(em, artifactId, 'proposed');
+    if (proposed) {
+        return { version: proposed, mode: 'supersede-proposed' };
+    }
+
+    // Check for rejected - revise it
+    const rejected = await findVersionByStatus(em, artifactId, 'rejected');
+    if (rejected) {
+        return { version: rejected, mode: 'revise-rejected' };
+    }
+
+    // Default: base on approved
+    const approved = await findVersionByStatus(em, artifactId, 'approved');
+    if (approved) {
+        return { version: approved, mode: 'edit-approved' };
+    }
+
+    return { error: 'No version found to edit' };
+}
+
+/**
+ * Mark a proposed version as superseded.
+ */
+export async function supersedeProposedVersion(
+    em: EntityManager,
+    artifactId: string,
+    newVersionNumber: number,
+): Promise<void> {
+    const proposed = await findVersionByStatus(em, artifactId, 'proposed');
+    if (proposed) {
+        proposed.status = 'superseded';
+        proposed.rejection_reason = `Superseded by v${newVersionNumber}`;
+        proposed.status_changed_at = new Date();
+        await em.flush();
+    }
+}
+
+// ============================================================================
 // DATABASE OPERATIONS
 // ============================================================================
 
@@ -155,13 +230,18 @@ export interface DocumentInfo {
     id: string;
     name: string;
     title: string;
-    version: number;
-    content: string;
+    currentVersion: number | null;
+    currentContent: string | null;
+    proposedVersion: number | null;
+    proposedContent: string | null;
+    rejectedVersion: number | null;
+    rejectedContent: string | null;
+    rejectionReason: string | null;
     lineCount: number;
 }
 
 /**
- * Find document by name in project.
+ * Find document by name in project with version status info.
  */
 export async function findDocumentByName(
     em: EntityManager,
@@ -173,47 +253,85 @@ export async function findDocumentByName(
     const artifact = await em.findOne(
         ArtifactEntity,
         { project: projectId, key: normalizedName },
-        { populate: ['current_version'] },
+        { populate: ['current_version', 'versions'] },
     );
 
     if (!artifact) return null;
+
+    const versions = artifact.versions.getItems();
+    const proposed = versions.find((v) => v.status === 'proposed');
+    const rejected = versions
+        .filter((v) => v.status === 'rejected')
+        .sort((a, b) => b.version - a.version)[0];
+
+    const currentContent = artifact.current_version?.content ?? null;
+    const proposedContent = proposed?.content ?? null;
+    const rejectedContent = rejected?.content ?? null;
 
     return {
         id: artifact.id,
         name: artifact.key,
         title: artifact.title,
-        version: artifact.version,
-        content: artifact.current_version?.content ?? '',
-        lineCount: countLines(artifact.current_version?.content ?? ''),
+        currentVersion: artifact.current_version?.version ?? null,
+        currentContent,
+        proposedVersion: proposed?.version ?? null,
+        proposedContent,
+        rejectedVersion: rejected?.version ?? null,
+        rejectedContent,
+        rejectionReason: rejected?.rejection_reason ?? null,
+        lineCount: countLines(proposedContent ?? currentContent ?? ''),
         // TODO: Use lineCount from entity once added
     };
 }
 
+export interface DocumentListItem {
+    name: string;
+    title: string;
+    lines: number;
+    currentVersion: number | null;
+    currentStatus: 'approved' | null;
+    latestVersion: number;
+    latestStatus: VersionStatus;
+    hasProposed: boolean;
+}
+
 /**
- * List all documents in project.
+ * List all documents in project with version status info.
  */
 export async function listDocuments(
     em: EntityManager,
     projectId: string,
     filter?: { search?: string },
-): Promise<Array<{ name: string; title: string; lines: number; version: number }>> {
+): Promise<DocumentListItem[]> {
+    // TODO: Add search filter on name/title when needed
     const where: Record<string, unknown> = { project: projectId };
 
-    // TODO: Add search filter on name/title when needed
+    const artifacts = await em.find(ArtifactEntity, where, { populate: ['current_version', 'versions'] });
 
-    const artifacts = await em.find(ArtifactEntity, where, { populate: ['current_version'] });
+    return artifacts.map((a) => {
+        const versions = a.versions.getItems();
+        const latest = versions.sort((x, y) => y.version - x.version)[0];
+        const proposed = versions.find((v) => v.status === 'proposed');
 
-    return artifacts.map((a) => ({
-        name: a.key,
-        title: a.title,
-        lines: countLines(a.current_version?.content ?? ''),
-        version: a.version,
-    }));
+        const contentForLines = proposed?.content ?? a.current_version?.content ?? '';
+
+        return {
+            name: a.key,
+            title: a.title,
+            lines: countLines(contentForLines),
+            currentVersion: a.current_version?.version ?? null,
+            currentStatus: a.current_version ? ('approved' as const) : null,
+            latestVersion: latest?.version ?? 0,
+            latestStatus: latest?.status ?? 'approved',
+            hasProposed: !!proposed,
+        };
+    });
 }
 
 /**
  * Create or update a document with new content.
- * Returns info about the action taken.
+ * Creates version with status 'proposed' - does NOT update current_version.
+ * If proposed version exists, it becomes superseded.
  */
 export async function upsertDocument(
     em: EntityManager,
@@ -223,52 +341,62 @@ export async function upsertDocument(
     title: string,
     content: string,
 ): Promise<{
-    action: 'created' | 'replaced';
+    action: 'created' | 'proposed';
     name: string;
     version: number;
     versionId: string;
     lines: number;
-    previousVersion?: number;
-    previousVersionLines?: number;
+    supersededVersion?: number;
 }> {
     const normalizedName = normalizeDocumentName(name);
     const lineCount = countLines(content);
 
-    // Check if exists
+    // Check if artifact exists
     const existing = await em.findOne(
         ArtifactEntity,
         { project: projectId, key: normalizedName },
-        { populate: ['current_version'] },
+        { populate: ['current_version', 'versions'] },
     );
 
     if (existing) {
-        // Replace existing
-        const previousVersion = existing.version;
-        const previousLineCount = countLines(existing.current_version?.content ?? '');
+        // Find current max version number
+        const versions = existing.versions.getItems();
+        const maxVersion = Math.max(...versions.map((v) => v.version), 0);
+        const newVersionNum = maxVersion + 1;
 
-        // Create new version
+        // Supersede any existing proposed version
+        const existingProposed = versions.find((v) => v.status === 'proposed');
+        const supersededVersion = existingProposed?.version;
+
+        if (existingProposed) {
+            existingProposed.status = 'superseded';
+            existingProposed.rejection_reason = `Superseded by v${newVersionNum}`;
+            existingProposed.status_changed_at = new Date();
+        }
+
+        // Create new proposed version
         const newVersion = new ArtifactVersionEntity();
         newVersion.artifact = existing;
-        newVersion.version = previousVersion + 1;
+        newVersion.version = newVersionNum;
         newVersion.content = content;
+        newVersion.status = 'proposed';
+        newVersion.status_changed_at = new Date();
 
         em.persist(newVersion);
 
-        // Update artifact
-        existing.version = previousVersion + 1;
+        // Update artifact's version counter (but NOT current_version - that only changes on approval)
+        existing.version = newVersionNum;
         existing.title = title;
-        existing.current_version = newVersion;
 
         await em.flush();
 
         return {
-            action: 'replaced',
+            action: 'proposed',
             name: normalizedName,
-            version: previousVersion + 1,
+            version: newVersionNum,
             versionId: newVersion.id,
             lines: lineCount,
-            previousVersion,
-            previousVersionLines: previousLineCount,
+            supersededVersion,
         };
     } else {
         // Create new - two-phase insert wrapped in transaction to handle circular FK
@@ -276,27 +404,29 @@ export async function upsertDocument(
         let createdVersionId = '';
 
         await em.transactional(async (txEm) => {
-            // Phase 1: Create artifact (current_version will be NULL initially)
+            // Phase 1: Create artifact (current_version will be NULL - nothing approved yet)
             const artifact = new ArtifactEntity();
             artifact.key = normalizedName;
             artifact.title = title;
             artifact.version = 1;
             artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
             artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
+            // current_version stays null until first approval
 
             txEm.persist(artifact);
             await txEm.flush();
 
-            // Phase 2: Create version and link it
+            // Phase 2: Create proposed version
             const version = new ArtifactVersionEntity();
             version.artifact = artifact;
             version.version = 1;
             version.content = content;
+            version.status = 'proposed';
+            version.status_changed_at = new Date();
 
             txEm.persist(version);
-            artifact.current_version = version;
-
             await txEm.flush();
+
             createdVersionId = version.id;
         });
 
@@ -311,47 +441,61 @@ export async function upsertDocument(
 }
 
 /**
- * Update document content directly (for edit_document on committed version).
+ * Approve a proposed version - makes it the current_version.
  */
-export async function updateDocumentContent(
+export async function approveVersion(
     em: EntityManager,
-    projectId: string,
-    name: string,
-    newContent: string,
-): Promise<{
-    version: number;
-    linesNow: number;
-} | null> {
-    const normalizedName = normalizeDocumentName(name);
+    versionId: string,
+    approvedBy?: string,
+): Promise<{ success: true; version: number } | { success: false; error: string }> {
+    const version = await em.findOne(ArtifactVersionEntity, { id: versionId }, { populate: ['artifact'] });
 
-    const existing = await em.findOne(
-        ArtifactEntity,
-        { project: projectId, key: normalizedName },
-        { populate: ['current_version'] },
-    );
+    if (!version) {
+        return { success: false, error: 'Version not found' };
+    }
 
-    if (!existing) return null;
+    if (version.status !== 'proposed') {
+        return { success: false, error: `Cannot approve version with status '${version.status}'` };
+    }
 
-    const previousVersion = existing.version;
-    const lineCount = countLines(newContent);
+    // Update version status
+    version.status = 'approved';
+    version.status_changed_at = new Date();
+    version.status_changed_by = approvedBy;
 
-    // Create new version
-    const newVersion = em.create(ArtifactVersionEntity, {
-        artifact: existing,
-        version: previousVersion + 1,
-        content: newContent,
-        // TODO: lineCount field
-    });
-    em.persist(newVersion);
-
-    // Update artifact
-    existing.version = previousVersion + 1;
-    existing.current_version = newVersion;
+    // Update artifact's current_version
+    version.artifact.current_version = version;
 
     await em.flush();
 
-    return {
-        version: previousVersion + 1,
-        linesNow: lineCount,
-    };
+    return { success: true, version: version.version };
+}
+
+/**
+ * Reject a proposed version.
+ */
+export async function rejectVersion(
+    em: EntityManager,
+    versionId: string,
+    reason: string,
+    rejectedBy?: string,
+): Promise<{ success: true; version: number } | { success: false; error: string }> {
+    const version = await em.findOne(ArtifactVersionEntity, { id: versionId });
+
+    if (!version) {
+        return { success: false, error: 'Version not found' };
+    }
+
+    if (version.status !== 'proposed') {
+        return { success: false, error: `Cannot reject version with status '${version.status}'` };
+    }
+
+    version.status = 'rejected';
+    version.rejection_reason = reason;
+    version.status_changed_at = new Date();
+    version.status_changed_by = rejectedBy;
+
+    await em.flush();
+
+    return { success: true, version: version.version };
 }

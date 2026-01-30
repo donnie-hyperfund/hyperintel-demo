@@ -11,7 +11,7 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
 import { Ctx } from './context';
-import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, getDraftManager } from './tools/documents';
+import { createDocumentTools, DocumentToolGroup, DraftManager, type DocumentToolsContext } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
@@ -265,7 +265,7 @@ async function streamInternal(
             em: em!,
             projectId: chat.project.id,
             chatId: chat.id,
-            draftManager: getDraftManager(),
+            draftManager: new DraftManager(),
             // Embedding queue adapter for async indexing
             embeddingQueue,
         };

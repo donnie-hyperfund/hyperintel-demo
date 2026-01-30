@@ -5,13 +5,15 @@ import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
-import { ArtifactHeader } from './artifact-header';
+import { ArtifactHeader, type VersionStatus } from './artifact-header';
 
 type ArtifactViewerProps = {
     title: string;
     content: string;
     /** Version number to display */
     version?: number;
+    /** Version status */
+    status?: VersionStatus;
     /** Subtitle text (e.g., "Updated 2 hours ago") */
     subtitle?: string;
     /** Back link URL - shows back arrow */
@@ -27,6 +29,7 @@ export function ArtifactViewer({
     title,
     content,
     version,
+    status,
     subtitle,
     backHref,
     onCloseAction,
@@ -54,6 +57,7 @@ export function ArtifactViewer({
                 title={title}
                 content={content}
                 version={version}
+                status={status}
                 subtitle={subtitle}
                 backHref={backHref}
                 onCloseAction={onCloseAction}

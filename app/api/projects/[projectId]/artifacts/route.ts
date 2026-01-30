@@ -4,6 +4,7 @@ import { withAuth } from '@/lib/api/auth-guard';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { type ArtifactDto, ListArtifactsQuerySchema } from '@/lib/schema/artifact';
@@ -39,7 +40,15 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
             return NextResponse.json({ error: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 });
         }
 
-        const dto: ArtifactDto = wrap(artifact).toJSON();
+        const proposedVersion = await em.findOne(ArtifactVersionEntity, {
+            artifact: artifact.id,
+            status: 'proposed',
+        });
+
+        const dto: ArtifactDto = {
+            ...wrap(artifact).toJSON(),
+            proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
+        };
         return NextResponse.json(dto);
     }
 
@@ -60,8 +69,22 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         perPage: queryData.limit ?? 20,
     });
 
+    // Batch load proposed versions for all artifacts
+    const artifactIds = nodes.map((a: ArtifactEntity) => a.id);
+    const proposedVersions = artifactIds.length
+        ? await em.find(ArtifactVersionEntity, {
+              artifact: { $in: artifactIds },
+              status: 'proposed',
+          })
+        : [];
+    const proposedByArtifact = new Map(proposedVersions.map((v) => [v.artifact.id, v]));
+
     const mappedNodes = nodes.map((artifact: ArtifactEntity): ArtifactDto => {
-        return wrap(artifact).toJSON();
+        const proposed = proposedByArtifact.get(artifact.id);
+        return {
+            ...wrap(artifact).toJSON(),
+            proposed_version: proposed ? wrap(proposed).toJSON() : undefined,
+        };
     });
 
     return NextResponse.json(
