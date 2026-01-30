@@ -16,12 +16,14 @@ type UseStreamReaderOptions = {
     /** Artifact context for document streaming */
     artifactContext: Pick<
         ArtifactContextValue,
-        'addArtifact' | 'updateArtifact' | 'setCurrentArtifact' | 'setStreamingComplete' | 'findArtifactByIdentifier'
+        'addArtifact' | 'updateArtifact' | 'setStreamingComplete' | 'findArtifactByIdentifier'
     >;
     /** Callback to update messages state */
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
     /** Callback to set loading state */
     setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
+    /** Called when a streamed artifact should be shown in the preview panel */
+    onArtifactOpen?: (artifactId: string) => void;
     /** Called when an artifact stream completes */
     onArtifactComplete?: () => void;
     /** Called when token usage is received from the done event */
@@ -36,11 +38,11 @@ export function useStreamReader({
     artifactContext,
     setMessages,
     setIsLoading,
+    onArtifactOpen,
     onArtifactComplete,
     onTokenUsage,
 }: UseStreamReaderOptions) {
-    const { addArtifact, updateArtifact, setCurrentArtifact, setStreamingComplete, findArtifactByIdentifier } =
-        artifactContext;
+    const { addArtifact, updateArtifact, setStreamingComplete, findArtifactByIdentifier } = artifactContext;
 
     // Streaming state ref to avoid stale closures
     const streamingStateRef = useRef<StreamingState | null>(null);
@@ -246,7 +248,7 @@ export function useStreamReader({
                                         },
                                         true,
                                     );
-                                    setCurrentArtifact(artifactId);
+                                    onArtifactOpen?.(artifactId);
                                     break;
                                 }
 
@@ -367,11 +369,11 @@ export function useStreamReader({
         [
             addArtifact,
             updateArtifact,
-            setCurrentArtifact,
             setStreamingComplete,
             findArtifactByIdentifier,
             setMessages,
             setIsLoading,
+            onArtifactOpen,
             onArtifactComplete,
             onTokenUsage,
         ],

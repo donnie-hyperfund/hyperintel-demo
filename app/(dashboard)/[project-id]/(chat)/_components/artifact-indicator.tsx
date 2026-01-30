@@ -5,6 +5,7 @@ import { FileText } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import { cn } from '@/lib/utils';
+import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import type { MessageArtifactRef } from '@/modules/chat/types';
 
@@ -30,33 +31,24 @@ export function ArtifactIndicator({
     const params = useParams();
     const projectId = params['project-id'] as string;
     const { getToken } = useAuth();
-    const { currentArtifactId, setCurrentArtifact, artifacts, addArtifact, setLoading, isLoading } =
-        useArtifactContext();
+    const { panelState, openPanel, closePanel } = useActivePanelContext();
+    const { artifacts, addArtifact, setLoading, isLoading } = useArtifactContext();
 
     // Determine the artifact ID and title
     const artifactId = artifactRef?.id ?? (documentVersion ? `doc-${documentName}-v${documentVersion}` : null);
     const title = artifactRef?.title ?? documentName ?? 'Document';
     const artifactInContext = artifactId ? artifacts[artifactId] : null;
 
-    const isSelected = currentArtifactId === artifactId;
-
-    // Get action icon
-    // const getActionLabel = () => {
-    //     if (!documentAction) return null;
-    //     switch (documentAction) {
-    //         case 'created':
-    //             return 'Created';
-    //         case 'replaced':
-    //             return 'Replaced';
-    //         default:
-    //             return 'Updated';
-    //     }
-    // };
+    const isSelected = panelState?.panel === 'artifact-preview' && panelState.artifactId === artifactId;
 
     const handleClick = async () => {
-        // If we have an artifact ref or it's already in context, just show it
+        // If we have an artifact ref or it's already in context, just toggle it
         if (artifactRef || artifactInContext) {
-            setCurrentArtifact(isSelected ? null : (artifactId ?? null));
+            if (isSelected) {
+                closePanel();
+            } else {
+                openPanel({ panel: 'artifact-preview', artifactId: artifactId ?? null });
+            }
             return;
         }
 
@@ -65,6 +57,7 @@ export function ArtifactIndicator({
 
         // Open panel with loading state immediately
         setLoading(true, documentName);
+        openPanel({ panel: 'artifact-preview', artifactId: null });
 
         try {
             const api = createArtifactApi(getToken);
@@ -81,7 +74,8 @@ export function ArtifactIndicator({
                     content: artifact.current_version?.content ?? '',
                     messageId: '',
                 });
-                setCurrentArtifact(localArtifactId);
+                setLoading(false);
+                openPanel({ panel: 'artifact-preview', artifactId: localArtifactId });
             } else {
                 setLoading(false);
             }
@@ -90,8 +84,6 @@ export function ArtifactIndicator({
             setLoading(false);
         }
     };
-
-    // const actionLabel = getActionLabel();
 
     return (
         <button

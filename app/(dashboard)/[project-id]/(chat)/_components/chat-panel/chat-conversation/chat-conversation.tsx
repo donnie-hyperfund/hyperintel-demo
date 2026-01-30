@@ -5,19 +5,13 @@ import { Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
-import type { PaginationState } from '@/modules/chat/types';
-import type { Message } from '../../chat-interface';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { ChatEmptyState, type ChatEmptyStateProps } from './chat-empty-state';
 import { ChatLoadingIndicator } from './chat-loading-indicator';
 import { MessageBubble } from './message-bubble';
 
 type ChatConversationProps = {
-    messages: Message[];
-    isGenerating: boolean;
-    isLoading: boolean;
     emptyState?: ChatEmptyStateProps;
-    onLoadMore?: () => void;
-    pagination?: PaginationState;
 };
 
 const messageContainerVariants = cva('w-full min-w-0 last:mb-0', {
@@ -29,102 +23,103 @@ const messageContainerVariants = cva('w-full min-w-0 last:mb-0', {
     },
 });
 
-const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(
-    ({ messages, isGenerating, isLoading, emptyState, onLoadMore, pagination }, ref) => {
-        const { containerRef } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
-            threshold: 100,
-        });
+const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ emptyState }, ref) => {
+    const { state, pagination, loadMoreMessages } = useChatContext();
+    const { messages, isGenerating, isLoading } = state;
 
-        // Track previous scroll height to maintain position after loading more
-        const prevScrollHeightRef = useRef<number>(0);
-        const isRestoringScrollRef = useRef(false);
+    const { containerRef } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
+        threshold: 100,
+    });
 
-        useImperativeHandle(ref, () => containerRef.current!, [containerRef]);
+    // Track previous scroll height to maintain position after loading more
+    const prevScrollHeightRef = useRef<number>(0);
+    const isRestoringScrollRef = useRef(false);
 
-        // Detect scroll to top and trigger loading more messages
-        const handleScroll = useCallback(() => {
-            const container = containerRef.current;
-            if (!container || !onLoadMore || !pagination) return;
+    useImperativeHandle(ref, () => containerRef.current!, [containerRef]);
 
-            // If near the top (within 100px) and there are more messages to load
-            if (container.scrollTop < 100 && pagination.hasMore && !pagination.isLoadingMore) {
-                // Save current scroll height before loading
-                prevScrollHeightRef.current = container.scrollHeight;
-                isRestoringScrollRef.current = true;
-                onLoadMore();
-            }
-        }, [containerRef, onLoadMore, pagination]);
+    // Detect scroll to top and trigger loading more messages
+    const handleScroll = useCallback(() => {
+        const container = containerRef.current;
+        if (!container) return;
 
-        // Restore scroll position after loading more messages
-        useEffect(() => {
-            const container = containerRef.current;
-            if (!container || !isRestoringScrollRef.current) return;
+        // If near the top (within 100px) and there are more messages to load
+        if (container.scrollTop < 100 && pagination.hasMore && !pagination.isLoadingMore) {
+            // Save current scroll height before loading
+            prevScrollHeightRef.current = container.scrollHeight;
+            isRestoringScrollRef.current = true;
+            loadMoreMessages();
+        }
+    }, [containerRef, pagination, loadMoreMessages]);
 
-            if (!pagination?.isLoadingMore && prevScrollHeightRef.current > 0) {
-                // Calculate how much content was added and scroll to maintain position
-                const newScrollHeight = container.scrollHeight;
-                const scrollDiff = newScrollHeight - prevScrollHeightRef.current;
-                container.scrollTop = scrollDiff;
+    // Restore scroll position after loading more messages
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container || !isRestoringScrollRef.current) return;
 
-                prevScrollHeightRef.current = 0;
-                isRestoringScrollRef.current = false;
-            }
-        }, [containerRef, pagination?.isLoadingMore, messages.length]);
+        if (!pagination?.isLoadingMore && prevScrollHeightRef.current > 0) {
+            // Calculate how much content was added and scroll to maintain position
+            const newScrollHeight = container.scrollHeight;
+            const scrollDiff = newScrollHeight - prevScrollHeightRef.current;
+            container.scrollTop = scrollDiff;
 
-        // Attach scroll listener
-        useEffect(() => {
-            const container = containerRef.current;
-            if (!container) return;
+            prevScrollHeightRef.current = 0;
+            isRestoringScrollRef.current = false;
+        }
+    }, [containerRef, pagination?.isLoadingMore, messages.length]);
 
-            container.addEventListener('scroll', handleScroll);
-            return () => container.removeEventListener('scroll', handleScroll);
-        }, [containerRef, handleScroll]);
+    // Attach scroll listener
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
 
-        return (
-            <div ref={containerRef} className="relative flex-1 overflow-y-auto p-6">
-                <div className="w-full max-w-4xl mx-auto min-w-0 min-h-full flex flex-col">
-                    {/* Loading indicator for older messages */}
-                    {pagination?.isLoadingMore && (
-                        <div className="flex justify-center py-4">
-                            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                        </div>
-                    )}
+        container.addEventListener('scroll', handleScroll);
+        return () => container.removeEventListener('scroll', handleScroll);
+    }, [containerRef, handleScroll]);
 
-                    {isLoading && (
-                        <div className="flex flex-1 justify-center items-center">
-                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                        </div>
-                    )}
+    return (
+        <div ref={containerRef} className="relative flex-1 overflow-y-auto p-6">
+            <div className="w-full max-w-4xl mx-auto min-w-0 min-h-full flex flex-col">
+                {/* Loading indicator for older messages */}
+                {pagination?.isLoadingMore && (
+                    <div className="flex justify-center py-4">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                )}
 
-                    {messages.length === 0 && !isGenerating && !isLoading && (
-                        <div className="flex flex-1 items-center justify-center">
-                            <ChatEmptyState {...emptyState} />
-                        </div>
-                    )}
+                {isLoading && (
+                    <div className="flex flex-1 justify-center items-center">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                )}
 
-                    {/* Render all messages with animations */}
-                    <AnimatePresence initial={false}>
-                        {messages.map((message, index) => (
-                            <motion.div
-                                key={message.id ?? index}
-                                initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                                transition={{ duration: 0.3, ease: 'easeInOut' }}
-                                className={messageContainerVariants({ role: message.role })}
-                            >
-                                <MessageBubble message={message} />
-                            </motion.div>
-                        ))}
-                    </AnimatePresence>
+                {messages.length === 0 && !isGenerating && !isLoading && (
+                    <div className="flex flex-1 items-center justify-center">
+                        <ChatEmptyState {...emptyState} />
+                    </div>
+                )}
 
-                    {/* Loading indicator when waiting for response */}
-                    {isGenerating && !messages.some((m) => m.isStreaming) && <ChatLoadingIndicator />}
-                </div>
+                {/* Render all messages with animations */}
+                <AnimatePresence initial={false}>
+                    {messages.map((message, index) => (
+                        <motion.div
+                            key={message.id ?? index}
+                            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                            className={messageContainerVariants({ role: message.role })}
+                        >
+                            <MessageBubble message={message} />
+                        </motion.div>
+                    ))}
+                </AnimatePresence>
+
+                {/* Loading indicator when waiting for response */}
+                {isGenerating && !messages.some((m) => m.isStreaming) && <ChatLoadingIndicator />}
             </div>
-        );
-    },
-);
+        </div>
+    );
+});
 
 ChatConversation.displayName = 'ChatConversation';
 

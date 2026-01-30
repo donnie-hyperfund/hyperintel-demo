@@ -33,6 +33,7 @@ export type Conversation = {
 export type ChatState = {
     messages: Message[];
     isGenerating: boolean;
+    isSummarizing: boolean;
     isLoading: boolean;
     error: Error | null;
     streamingMessageId: string | null;
