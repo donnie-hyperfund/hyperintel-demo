@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { HttpQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { withAuth } from '@/lib/api/auth-guard';
-import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { createAiVersion } from '@/lib/orm/artifacts/artifact.helpers';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
@@ -57,6 +58,23 @@ async function handleApproveVersion(
     version.artifact.current_version = version;
 
     await em.flush();
+
+    // Create AI copy for semantic search
+    const aiVersion = await createAiVersion(em, version.artifact, version);
+
+    // Queue embedding job for AI version
+    const embeddingWorkerUrl = process.env.EMBEDDING_WORKER_URL;
+    const embeddingAuthSecret = process.env.EMBEDDING_AUTH_SECRET;
+    if (embeddingWorkerUrl && embeddingAuthSecret) {
+        const embeddingQueue = new HttpQueueAdapter(embeddingWorkerUrl, embeddingAuthSecret);
+        await embeddingQueue.send({
+            type: 'index_artifact_version',
+            projectId,
+            versionId: aiVersion.versionId,
+            content: version.content,
+            documentName: version.artifact.key,
+        });
+    }
 
     return NextResponse.json({
         success: true,

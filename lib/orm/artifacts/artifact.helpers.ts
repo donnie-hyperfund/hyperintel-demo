@@ -3,6 +3,8 @@ import { chunkContent } from '@common/ai/utils/chunking';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type { OpenRouter } from '@openrouter/sdk';
 import type OpenAI from 'openai';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 
 export interface ArtifactVersionLike {
     id: string;
@@ -108,4 +110,39 @@ export async function reindexProject(
     }
 
     return { total, artifacts: artifacts.length };
+}
+
+/**
+ * Create an AI version from an approved user version.
+ * Called when a user approves a version - creates a version with audience=AI for semantic search.
+ */
+export async function createAiVersion(
+    em: EntityManager,
+    artifact: ArtifactEntity,
+    approvedVersion: ArtifactVersionEntity,
+): Promise<{ versionId: string }> {
+    // Supersede any existing AI version for this artifact
+    const existingAiVersion = await em.findOne(ArtifactVersionEntity, {
+        artifact: artifact.id,
+        audience: 'ai',
+        status: 'approved',
+    });
+    if (existingAiVersion) {
+        existingAiVersion.status = 'superseded';
+        existingAiVersion.status_changed_at = new Date();
+    }
+
+    // Create AI copy of the approved version
+    const aiVersion = em.create(ArtifactVersionEntity, {
+        artifact,
+        version: approvedVersion.version,
+        content: approvedVersion.content,
+        status: 'approved',
+        status_changed_at: new Date(),
+        audience: 'ai',
+    });
+
+    await em.flush();
+
+    return { versionId: aiVersion.id };
 }

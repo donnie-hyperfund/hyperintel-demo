@@ -684,6 +684,16 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "audience": {
+          "name": "audience",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'user'",
+          "mappedType": "text"
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamptz",
