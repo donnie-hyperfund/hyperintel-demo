@@ -149,7 +149,6 @@ async function streamInternal(
                 contentThreshold: 5,
             },
             [],
-            { config: { maxToolCalls: 0 } },
         );
 
         let summaryContent = '';
