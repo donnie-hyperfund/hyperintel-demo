@@ -1,16 +1,12 @@
-import { type NextRequest, NextResponse } from 'next/server';
 import { HttpQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { createAiVersion } from '@/lib/orm/artifacts/artifact.helpers';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 
 const ERRORS = {
-    VERSION_NOT_FOUND: NextResponse.json(
-        { error: 'Version not found', code: 'VERSION_NOT_FOUND' },
-        { status: 404 },
-    ),
+    VERSION_NOT_FOUND: NextResponse.json({ error: 'Version not found', code: 'VERSION_NOT_FOUND' }, { status: 404 }),
     INVALID_STATUS: (status: string) =>
         NextResponse.json(
             { error: `Cannot approve version with status '${status}'`, code: 'INVALID_STATUS' },
@@ -56,11 +52,9 @@ async function handleApproveVersion(
 
     // Update artifact's current_version
     version.artifact.current_version = version;
+    version.ai_content = version.content;
 
     await em.flush();
-
-    // Create AI copy for semantic search
-    const aiVersion = await createAiVersion(em, version.artifact, version);
 
     // Queue embedding job for AI version
     const embeddingWorkerUrl = process.env.EMBEDDING_WORKER_URL;
@@ -70,9 +64,10 @@ async function handleApproveVersion(
         await embeddingQueue.send({
             type: 'index_artifact_version',
             projectId,
-            versionId: aiVersion.versionId,
+            versionId: version.ai_content,
             content: version.content,
             documentName: version.artifact.key,
+            is_ai_content: true,
         });
     }
 
@@ -83,10 +78,7 @@ async function handleApproveVersion(
     });
 }
 
-export async function POST(
-    req: NextRequest,
-    { params }: { params: Promise<RouteParams> },
-): Promise<NextResponse> {
+export async function POST(req: NextRequest, { params }: { params: Promise<RouteParams> }): Promise<NextResponse> {
     return withAuth(async (request, user) => {
         const resolvedParams = await params;
         return await handleApproveVersion(request, resolvedParams, user);

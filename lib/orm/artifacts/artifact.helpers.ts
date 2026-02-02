@@ -35,6 +35,7 @@ export async function indexArtifactVersion(
     artifactVersion: ArtifactVersionLike,
     projectId: string,
     EmbeddingEntity: ArtifactEmbeddingEntityConstructor,
+    is_ai_content: boolean,
 ): Promise<{ indexed: number; deleted: number }> {
     const deleted = await em.nativeDelete(EmbeddingEntity, {
         artifact_version: artifactVersion.id,
@@ -57,14 +58,15 @@ export async function indexArtifactVersion(
         const escapedContent = escapeSqlString(chunk.content);
 
         await conn.execute(
-            `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chunk_index, chunk_content, start_line, end_line, embedding)
-             VALUES ('${artifactVersion.id}', '${projectId}', ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector)`,
+            `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chunk_index, chunk_content, start_line, end_line, embedding, is_ai_content)
+             VALUES ('${artifactVersion.id}', '${projectId}', ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector, ${is_ai_content})`,
         );
     }
 
     return { indexed: chunks.length, deleted };
 }
 
+// TODO re-index ai_content too.
 export async function reindexProject(
     openaiClient: OpenAI,
     openrouterClient: OpenRouter,
@@ -110,39 +112,4 @@ export async function reindexProject(
     }
 
     return { total, artifacts: artifacts.length };
-}
-
-/**
- * Create an AI version from an approved user version.
- * Called when a user approves a version - creates a version with audience=AI for semantic search.
- */
-export async function createAiVersion(
-    em: EntityManager,
-    artifact: ArtifactEntity,
-    approvedVersion: ArtifactVersionEntity,
-): Promise<{ versionId: string }> {
-    // Supersede any existing AI version for this artifact
-    const existingAiVersion = await em.findOne(ArtifactVersionEntity, {
-        artifact: artifact.id,
-        audience: 'ai',
-        status: 'approved',
-    });
-    if (existingAiVersion) {
-        existingAiVersion.status = 'superseded';
-        existingAiVersion.status_changed_at = new Date();
-    }
-
-    // Create AI copy of the approved version
-    const aiVersion = em.create(ArtifactVersionEntity, {
-        artifact,
-        version: approvedVersion.version,
-        content: approvedVersion.content,
-        status: 'approved',
-        status_changed_at: new Date(),
-        audience: 'ai',
-    });
-
-    await em.flush();
-
-    return { versionId: aiVersion.id };
 }

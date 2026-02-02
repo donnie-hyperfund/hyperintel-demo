@@ -3,7 +3,6 @@ import type { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entit
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 
 export type VersionStatus = 'proposed' | 'approved' | 'rejected' | 'superseded';
-export type VersionAudience = 'user' | 'ai';
 
 @Entity({ tableName: 'artifact_versions' })
 @Index({ properties: ['artifact', 'status'] })
@@ -17,6 +16,9 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'text' })
     content!: string;
 
+    @Property({ type: 'text', nullable: true })
+    ai_content?: string & Opt;
+
     @Property({ type: 'text', default: 'approved' })
     status!: VersionStatus & Opt;
 
@@ -28,9 +30,6 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
 
     @Property({ type: 'uuid', nullable: true })
     status_changed_by?: string;
-
-    @Property({ type: 'text', default: 'user' })
-    audience!: VersionAudience & Opt;
 
     @Property({
         type: 'timestamptz',
