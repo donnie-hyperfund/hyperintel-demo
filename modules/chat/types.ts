@@ -33,6 +33,7 @@ export type Conversation = {
 export type ChatState = {
     messages: Message[];
     isGenerating: boolean;
+    isSummarizing: boolean;
     isLoading: boolean;
     error: Error | null;
     streamingMessageId: string | null;
@@ -59,6 +60,10 @@ export type Artifact = {
     type: ArtifactType;
     content: string;
     messageId: string;
+    version?: number;
+    isLoading?: boolean;
+    isStreaming?: boolean;
+    isUpdating?: boolean;
 };
 
 export type ArtifactMetadata = {
