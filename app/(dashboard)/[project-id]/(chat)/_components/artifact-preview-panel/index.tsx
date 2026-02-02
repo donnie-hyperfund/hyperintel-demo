@@ -21,6 +21,8 @@ export default function ArtifactPreviewPanel() {
     const activeVersion = currentArtifact ? getActiveVersion(currentArtifact) : undefined;
     const showSkeleton = (isLoading || isStreaming) && !content;
 
+    console.log('currentArtifact', currentArtifact, artifacts);
+
     if (showSkeleton) {
         return (
             <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">

@@ -3,6 +3,7 @@
 import { useCallback, useRef } from 'react';
 import type { ArtifactContextValue } from '@/modules/chat/providers/artifact-provider';
 import type { Message, StreamBlock, TokenUsage } from '../types';
+import { getArtifactContent } from '../types';
 
 /** Streaming state for building assistant messages */
 type StreamingState = {
@@ -266,18 +267,23 @@ export function useStreamReader({
                                 case 'document_start': {
                                     const artifactId = event.name;
                                     const existingArtifact = artifactContext.artifacts[artifactId];
-                                    const content = existingArtifact?.content ?? '';
-                                    const hasExistingContent = !!existingArtifact?.content;
+                                    const content = existingArtifact ? getArtifactContent(existingArtifact) : '';
+                                    const hasExistingContent = !!content;
 
                                     streaming.streamingDocs.set(artifactId, { artifactId, content });
                                     addArtifact({
                                         id: artifactId,
-                                        identifier: event.name,
+                                        key: event.name,
                                         title: event.title || existingArtifact?.title || event.name,
-                                        type: 'text/markdown',
-                                        content,
-                                        messageId: streamingMsgId,
                                         version: event.pendingVersion,
+                                        current_version: existingArtifact?.current_version,
+                                        proposed_version: {
+                                            id: '',
+                                            version: event.pendingVersion,
+                                            content,
+                                            status: 'proposed',
+                                            created_at: new Date().toISOString(),
+                                        },
                                         isStreaming: true,
                                         isUpdating: hasExistingContent,
                                     });
@@ -289,7 +295,9 @@ export function useStreamReader({
                                     const doc = streaming.streamingDocs.get(event.name);
                                     if (doc) {
                                         doc.content += event.content;
-                                        updateArtifact(doc.artifactId, { content: doc.content });
+                                        updateArtifact(doc.artifactId, {
+                                            proposed_version: { content: doc.content },
+                                        });
                                     } else {
                                         console.warn('[stream-reader] document_delta: doc not found for', event.name);
                                     }
@@ -319,7 +327,13 @@ export function useStreamReader({
                                         }
                                         doc.content = content;
 
-                                        updateArtifact(doc.artifactId, { content: doc.content, isUpdating: false });
+                                        console.log('doc.content', doc.content);
+
+                                        updateArtifact(doc.artifactId, {
+                                            proposed_version: { content: doc.content },
+                                            isUpdating: false,
+                                            isStreaming: false,
+                                        });
                                     }
                                     break;
                                 }
@@ -332,6 +346,7 @@ export function useStreamReader({
                                         isStreaming: false,
                                         isUpdating: false,
                                         version: event.version,
+                                        proposed_version: { version: event.version, status: 'proposed' },
                                     });
                                     streaming.streamingDocs.delete(event.name);
                                     onArtifactComplete?.();

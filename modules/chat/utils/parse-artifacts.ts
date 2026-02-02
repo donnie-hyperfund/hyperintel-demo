@@ -122,16 +122,20 @@ export function parseArtifactsFromMessage(messageId: string, content: string): A
     return parsed
         .filter((p) => p.content && p.metadata.identifier)
         .map((p) => {
-            const identifier = p.metadata.identifier ?? 'unknown';
+            const key = p.metadata.identifier ?? 'unknown';
             const title = p.metadata.title ?? 'Untitled';
 
             return {
-                id: `${identifier}_${messageId}`.replace(/\s+/g, '_').toLowerCase(),
-                identifier,
+                id: `${key}_${messageId}`.replace(/\s+/g, '_').toLowerCase(),
+                key,
                 title,
-                type: 'text/markdown' as const,
-                content: p.content,
-                messageId,
+                proposed_version: {
+                    id: '',
+                    version: 1,
+                    content: p.content,
+                    status: 'proposed' as const,
+                    created_at: new Date().toISOString(),
+                },
             };
         });
 }

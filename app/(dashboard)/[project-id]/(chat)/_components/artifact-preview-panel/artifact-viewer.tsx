@@ -1,16 +1,13 @@
 'use client';
 
-import { useAuth } from '@clerk/nextjs';
-import { Check, ChevronDown, Loader2, X as XIcon } from 'lucide-react';
-import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSWRConfig } from 'swr';
+import { ChevronDown, Loader2 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
-import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import type { VersionStatus } from '@/lib/schema/artifact';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactHeader } from './artifact-header';
 
 type ArtifactViewerProps = {
@@ -48,56 +45,9 @@ export function ArtifactViewer({
     isUpdating = false,
 }: ArtifactViewerProps) {
     const prevTitleRef = useRef<string | null>(null);
-    const params = useParams();
-    const { getToken } = useAuth();
-    const { mutate: globalMutate } = useSWRConfig();
-    const { updateArtifact } = useArtifactContext();
 
-    const projectId = params?.['project-id'] as string | undefined;
-
-    // Approval state
-    const [isApproving, setIsApproving] = useState(false);
-    const [isRejecting, setIsRejecting] = useState(false);
-    const [showRejectInput, setShowRejectInput] = useState(false);
-    const [rejectReason, setRejectReason] = useState('');
-
-    const showApprovalBar = status === 'proposed' && !isStreaming;
-
-    const handleApprove = useCallback(async () => {
-        if (!projectId || !artifactKey) return;
-        setIsApproving(true);
-        try {
-            const api = createArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey);
-            if (!artifact.proposed_version) throw new Error('No proposed version found');
-            await api.approveVersion(projectId, artifact.id, artifact.proposed_version.id);
-            updateArtifact(artifactKey, { proposed_version: { status: 'approved' } });
-            globalMutate(artifactKeys.list(projectId));
-        } catch (err) {
-            console.error('Failed to approve:', err);
-        } finally {
-            setIsApproving(false);
-        }
-    }, [projectId, artifactKey, getToken, updateArtifact, globalMutate]);
-
-    const handleReject = useCallback(async () => {
-        if (!projectId || !artifactKey || !rejectReason.trim()) return;
-        setIsRejecting(true);
-        try {
-            const api = createArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey);
-            if (!artifact.proposed_version) throw new Error('No proposed version found');
-            await api.rejectVersion(projectId, artifact.id, artifact.proposed_version.id, rejectReason.trim());
-            updateArtifact(artifactKey, { proposed_version: { status: 'rejected' } });
-            globalMutate(artifactKeys.list(projectId));
-            setShowRejectInput(false);
-            setRejectReason('');
-        } catch (err) {
-            console.error('Failed to reject:', err);
-        } finally {
-            setIsRejecting(false);
-        }
-    }, [projectId, artifactKey, rejectReason, getToken, updateArtifact, globalMutate]);
+    console.log(!isStreaming && !!artifactKey, status === 'proposed');
+    const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey;
 
     // Auto-scroll is disabled when not streaming
     const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content], {
@@ -162,57 +112,7 @@ export function ArtifactViewer({
             </div>
 
             {/* Approval bar */}
-            {showApprovalBar && (
-                <div className="border-t border-border px-4 py-3 space-y-2">
-                    <p className="text-xs text-muted-foreground text-center">This document is awaiting your approval</p>
-                    {showRejectInput ? (
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="text"
-                                value={rejectReason}
-                                onChange={(e) => setRejectReason(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleReject()}
-                                placeholder="Reason for rejection..."
-                                className="flex-1 rounded-md border border-border bg-neutral-900 px-3 py-1.5 text-sm outline-none focus:border-primary"
-                                autoFocus
-                            />
-                            <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={handleReject}
-                                disabled={isRejecting || !rejectReason.trim()}
-                            >
-                                {isRejecting ? <Loader2 className="size-3 animate-spin" /> : 'Reject'}
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                    setShowRejectInput(false);
-                                    setRejectReason('');
-                                }}
-                            >
-                                Cancel
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-center gap-2">
-                            <Button size="sm" onClick={handleApprove} disabled={isApproving}>
-                                {isApproving ? (
-                                    <Loader2 className="size-3 animate-spin mr-1" />
-                                ) : (
-                                    <Check className="size-3 mr-1" />
-                                )}
-                                Approve
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => setShowRejectInput(true)}>
-                                <XIcon className="size-3 mr-1" />
-                                Reject
-                            </Button>
-                        </div>
-                    )}
-                </div>
-            )}
+            {showApprovalBar && <ArtifactApprovalBar artifactKey={artifactKey} />}
         </div>
     );
 }

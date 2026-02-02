@@ -57,11 +57,8 @@ export function ArtifactIndicator({
         // Add artifact with loading state immediately
         addArtifact({
             id: documentName,
-            identifier: documentName,
+            key: documentName,
             title: documentName,
-            type: 'text/markdown',
-            content: '',
-            messageId: '',
             isLoading: true,
         });
         openPanel({ panel: 'artifact-preview', artifactId: documentName });
@@ -72,9 +69,11 @@ export function ArtifactIndicator({
 
             if (artifact) {
                 updateArtifact(documentName, {
-                    identifier: artifact.key,
+                    key: artifact.key,
                     title: artifact.title,
-                    content: artifact.current_version?.content ?? '',
+                    current_version: artifact.current_version ?? undefined,
+                    proposed_version: artifact.proposed_version ?? undefined,
+                    updated_at: artifact.updated_at,
                     isLoading: false,
                 });
             } else {
