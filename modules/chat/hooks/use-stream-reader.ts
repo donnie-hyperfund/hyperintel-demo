@@ -97,6 +97,8 @@ export function useStreamReader({
 
                             console.log('[stream-reader] event:', event);
 
+                            console.log('event.type', event.type);
+
                             switch (event.type) {
                                 case 'reasoning_start': {
                                     const reasoningBlockId = event.blockId || `reasoning-${Date.now()}`;
