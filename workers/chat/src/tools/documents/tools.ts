@@ -19,6 +19,7 @@ import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
+import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import type { Ctx } from '../../context';
 import {
     applyEdits,
@@ -29,7 +30,6 @@ import {
     extractViewport,
     findDocumentByName,
     listDocuments as listDocumentsDb,
-    normalizeDocumentName,
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
@@ -159,7 +159,7 @@ You MUST call finalize_document when done or content will be lost.`,
                 const { mode, name, title } = input;
                 const { em, projectId, draftManager } = ctx;
 
-                const normalizedName = normalizeDocumentName(name);
+                const normalizedName = normalizeArtifactKey(name);
 
                 // Check for existing document
                 const existing = await findDocumentByName(em, projectId, normalizedName);
@@ -414,7 +414,7 @@ Version options:
                 const { name, version: versionMode, startLine, endLine } = input;
                 const { em, projectId, draftManager } = ctx;
 
-                const normalizedName = normalizeDocumentName(name);
+                const normalizedName = normalizeArtifactKey(name);
 
                 // Check for active editing draft first
                 const draft = draftManager.getCurrent();
