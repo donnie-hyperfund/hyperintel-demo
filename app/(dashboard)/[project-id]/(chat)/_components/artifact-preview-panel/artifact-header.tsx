@@ -1,48 +1,37 @@
 'use client';
 
+import { formatDistanceToNow } from 'date-fns';
 import { ArrowLeft, Check, Copy, Download, FileText, X } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
-
-export type VersionStatus = 'proposed' | 'approved' | 'rejected' | 'superseded';
-
-const STATUS_CONFIG: Record<VersionStatus, { label: string; className: string }> = {
-    proposed: { label: 'Pending', className: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
-    approved: { label: 'Approved', className: 'bg-green-500/20 text-green-400 border-green-500/30' },
-    rejected: { label: 'Rejected', className: 'bg-red-500/20 text-red-400 border-red-500/30' },
-    superseded: { label: 'Superseded', className: 'bg-neutral-500/20 text-neutral-400 border-neutral-500/30' },
-};
-
-export function VersionStatusBadge({ status }: { status: VersionStatus }) {
-    const config = STATUS_CONFIG[status];
-    return (
-        <span className={cn('px-1.5 py-0.5 text-[10px] font-medium rounded border', config.className)}>
-            {config.label}
-        </span>
-    );
-}
+import type { VersionStatus } from '@/lib/schema/artifact';
+import { VersionStatusBadge } from '../version-status-badge';
 
 type ArtifactHeaderProps = {
     title: string;
     content: string;
-    /** Version number to display */
     version?: number;
-    /** Version status */
     status?: VersionStatus;
-    /** Subtitle text (e.g., "Updated 2 hours ago") */
-    subtitle?: string;
-    /** Back link URL - shows back arrow instead of close button */
     backHref?: string;
-    /** Close handler - shows X button (ignored if backHref is set) */
+    updatedAt?: Date;
     onCloseAction?: () => void;
 };
 
-export function ArtifactHeader({ title, content, version, status, subtitle, backHref, onCloseAction }: ArtifactHeaderProps) {
+export function ArtifactHeader({
+    title,
+    content,
+    version,
+    status,
+    backHref,
+    updatedAt,
+    onCloseAction,
+}: ArtifactHeaderProps) {
     const [copied, setCopied] = useState(false);
     const [downloaded, setDownloaded] = useState(false);
+
+    const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : undefined;
 
     const handleCopy = async () => {
         await navigator.clipboard.writeText(content);
@@ -66,8 +55,8 @@ export function ArtifactHeader({ title, content, version, status, subtitle, back
     };
 
     return (
-        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border">
-            <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center justify-between gap-2 h-14 px-4 border-b border-border">
+            <div className="flex items-center gap-2.5 min-w-0">
                 {backHref && (
                     <Button variant="ghost" size="icon-sm" asChild>
                         <Link href={backHref}>
@@ -75,17 +64,23 @@ export function ArtifactHeader({ title, content, version, status, subtitle, back
                         </Link>
                     </Button>
                 )}
-                <FileText className="size-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0">
-                    <span className="text-sm font-medium truncate block">{title}</span>
-                    {(version !== undefined || status || subtitle) && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            {version !== undefined && <span>v{version}</span>}
+                <div className="flex gap-3 items-center">
+                    <FileText className="size-5 shrink-0 text-neutral-500 mt-0.5" />
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="line-clamp-1 text-sm font-medium">{title}</span>
                             {status && <VersionStatusBadge status={status} />}
-                            {(version !== undefined || status) && subtitle && <span>·</span>}
-                            {subtitle && <span>{subtitle}</span>}
                         </div>
-                    )}
+                        <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
+                            <span>v{version}</span>
+                            {timeAgo && (
+                                <>
+                                    <span>·</span>
+                                    <span>{timeAgo}</span>
+                                </>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
 

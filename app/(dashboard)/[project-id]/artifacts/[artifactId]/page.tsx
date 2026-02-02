@@ -32,15 +32,15 @@ export default function ArtifactDetailPage() {
     }
 
     const content = artifact.current_version?.content ?? '';
-    const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
-    const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
+    const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : undefined;
+    const createdAt = artifact.created_at ? new Date(artifact.created_at) : undefined;
 
     return (
         <ArtifactViewer
             title={artifact.title}
             content={content}
             version={artifact.version}
-            subtitle={timeAgo ? `Updated ${timeAgo}` : undefined}
+            updatedAt={updatedAt || createdAt}
             backHref={`/${projectId}/artifacts`}
         />
     );
