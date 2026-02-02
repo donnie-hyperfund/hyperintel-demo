@@ -148,7 +148,7 @@
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "Development",
-				"CORS_ALLOWED_ORIGIN": "https://dev-hyperintel.vercel.app"
+				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai"
 			},
 			"secrets_store_secrets": [
 				{
