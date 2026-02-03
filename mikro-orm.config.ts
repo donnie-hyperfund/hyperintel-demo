@@ -13,7 +13,7 @@ class CustomUnderscoreNamingStrategy extends UnderscoreNamingStrategy {
             tableName = tableName.substring(tableName.indexOf('.') + 1);
         }
         if (type === 'foreign') {
-            return `${tableName}_fk`;
+            return `${tableName}_${columns.join('_')}_fk`;
         }
         return super.indexName(tableName, columns, type);
     }

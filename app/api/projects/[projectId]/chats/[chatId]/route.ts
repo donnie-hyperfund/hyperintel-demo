@@ -1,10 +1,12 @@
 import { sql, wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { type ChatDto } from '@/lib/schema/message';
+import { type ChatDocumentSummaryDto, type ChatDto } from '@/lib/schema/message';
 import { CHAT_ERRORS } from '../errors';
 
 async function handleGetChat(
@@ -44,7 +46,43 @@ async function handleGetChat(
         chat.message_count = Number(chat.message_count);
     }
 
-    const dto: ChatDto = wrap(chat).toJSON() as ChatDto;
+    // Get all message IDs for this chat
+    const messageIds = await em
+        .createQueryBuilder(ChatMessageEntity, 'm')
+        .select('m.id')
+        .where({ chat: chatId })
+        .execute<{ id: string }[]>();
+
+    // Find versions created in this chat (via chat_message relation)
+    const versions =
+        messageIds.length > 0
+            ? await em.find(
+                  ArtifactVersionEntity,
+                  { chat_message: { $in: messageIds.map((m) => m.id) } },
+                  { populate: ['artifact', 'artifact.current_version'] },
+              )
+            : [];
+
+    // Build document summaries - group by artifact, show version created in this chat
+    const documents: ChatDocumentSummaryDto[] = versions.map((version) => {
+        const artifact = version.artifact;
+        const currentVersion = artifact.current_version;
+        return {
+            id: artifact.id,
+            key: artifact.key,
+            title: artifact.title,
+            current_version: currentVersion?.version ?? null,
+            newest_version: version.version,
+            status: version.status,
+            created_at: version.created_at,
+            updated_at: artifact.updated_at,
+        };
+    });
+
+    const dto: ChatDto = {
+        ...(wrap(chat).toJSON() as ChatDto),
+        documents,
+    };
     return NextResponse.json(dto);
 }
 

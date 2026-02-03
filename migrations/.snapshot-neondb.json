@@ -209,8 +209,8 @@
       ],
       "checks": [],
       "foreignKeys": {
-        "projects_fk": {
-          "constraintName": "projects_fk",
+        "projects_user_id_fk": {
+          "constraintName": "projects_user_id_fk",
           "columnNames": [
             "user_id"
           ],
@@ -320,8 +320,8 @@
       ],
       "checks": [],
       "foreignKeys": {
-        "chats_fk": {
-          "constraintName": "chats_fk",
+        "chats_project_id_fk": {
+          "constraintName": "chats_project_id_fk",
           "columnNames": [
             "project_id"
           ],
@@ -429,8 +429,8 @@
       ],
       "checks": [],
       "foreignKeys": {
-        "chat_messages_fk": {
-          "constraintName": "chat_messages_fk",
+        "chat_messages_chat_id_fk": {
+          "constraintName": "chat_messages_chat_id_fk",
           "columnNames": [
             "chat_id"
           ],
@@ -580,8 +580,32 @@
       ],
       "checks": [],
       "foreignKeys": {
-        "artifacts_fk": {
-          "constraintName": "artifacts_fk",
+        "artifacts_chat_id_fk": {
+          "constraintName": "artifacts_chat_id_fk",
+          "columnNames": [
+            "chat_id"
+          ],
+          "localTableName": "public.artifacts",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.chats",
+          "updateRule": "cascade"
+        },
+        "artifacts_project_id_fk": {
+          "constraintName": "artifacts_project_id_fk",
+          "columnNames": [
+            "project_id"
+          ],
+          "localTableName": "public.artifacts",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.projects",
+          "updateRule": "cascade"
+        },
+        "artifacts_current_version_id_fk": {
+          "constraintName": "artifacts_current_version_id_fk",
           "columnNames": [
             "current_version_id"
           ],
@@ -626,6 +650,15 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
+          "mappedType": "uuid"
+        },
+        "chat_message_id": {
+          "name": "chat_message_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
           "mappedType": "uuid"
         },
         "version": {
@@ -723,8 +756,8 @@
       ],
       "checks": [],
       "foreignKeys": {
-        "artifact_versions_fk": {
-          "constraintName": "artifact_versions_fk",
+        "artifact_versions_artifact_id_fk": {
+          "constraintName": "artifact_versions_artifact_id_fk",
           "columnNames": [
             "artifact_id"
           ],
@@ -733,6 +766,19 @@
             "id"
           ],
           "referencedTableName": "public.artifacts",
+          "updateRule": "cascade"
+        },
+        "artifact_versions_chat_message_id_fk": {
+          "constraintName": "artifact_versions_chat_message_id_fk",
+          "columnNames": [
+            "chat_message_id"
+          ],
+          "localTableName": "public.artifact_versions",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.chat_messages",
+          "deleteRule": "set null",
           "updateRule": "cascade"
         }
       },
@@ -853,8 +899,20 @@
       ],
       "checks": [],
       "foreignKeys": {
-        "artifact_embeddings_fk": {
-          "constraintName": "artifact_embeddings_fk",
+        "artifact_embeddings_artifact_version_id_fk": {
+          "constraintName": "artifact_embeddings_artifact_version_id_fk",
+          "columnNames": [
+            "artifact_version_id"
+          ],
+          "localTableName": "public.artifact_embeddings",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.artifact_versions",
+          "updateRule": "cascade"
+        },
+        "artifact_embeddings_project_id_fk": {
+          "constraintName": "artifact_embeddings_project_id_fk",
           "columnNames": [
             "project_id"
           ],

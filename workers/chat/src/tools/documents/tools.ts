@@ -49,6 +49,8 @@ export interface DocumentToolsContext {
     draftManager: DraftManager;
     /** Embedding queue adapter for async indexing (optional) */
     embeddingQueue?: EmbeddingQueueAdapter;
+    /** Version IDs created during this turn - will be linked to assistant message after persist */
+    createdVersionIds: string[];
 }
 
 // ============================================================================
@@ -64,6 +66,8 @@ export const DocumentToolGroup: AgentToolGroup = {
 2. \`write_document\` / \`patch_document\` - Make changes
 3. \`finalize_document\` - Save (MUST call or content is lost)
 
+Avoid read/patch loops - read once, make all pending edits, then finalize.
+
 ## Document Statuses
 - \`proposed\`: Saved, awaiting user approval
 - \`approved\`: Live version users see
@@ -73,7 +77,8 @@ export const DocumentToolGroup: AgentToolGroup = {
 ## Approval
 \`finalize_document\` saves as "proposed". User approves via UI to make it live ("approved").
 If you finalize again before approval, old proposed becomes "superseded".`,
-    behavioralGuidance: 'Always finalize your work. Tool responses show version status.',
+    behavioralGuidance:
+        'Complete all pending edits before finalizing. Batch multiple edits into one patch_document call.',
     tools: [
         'begin_document',
         'write_document',
@@ -291,11 +296,10 @@ Content streams to the UI in real-time.`,
         // ----------------------------------------------------------------
         {
             name: 'patch_document' as const,
-            description: `Make precise edits to the current editing draft using line ranges and exact content matching.
+            description: `Make precise edits to the current draft. Batch multiple edits into one call when possible.
 
-Requires an active draft started with begin_document.
-Each edit specifies a line range to search within, the exact content to find, and the replacement.
-Edits are applied atomically - all must succeed or none are applied.`,
+Each edit: line range + exact oldContent to find + newContent replacement.
+Edits are atomic - all succeed or none apply. No need to read_document between patches.`,
             parameters: PatchDocumentParams,
             executor: (input: z.infer<typeof PatchDocumentParams>, ctx: DocumentToolsContext) => {
                 const { edits } = input;
@@ -345,13 +349,16 @@ The version is saved with status "proposed" - it will NOT be live until a user a
 If a proposed version already exists, it will be marked as "superseded".`,
             parameters: FinalizeDocumentParams,
             executor: async (_input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
-                const { em, projectId, chatId, draftManager, embeddingQueue } = ctx;
+                const { em, projectId, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
 
                 try {
                     const draft = draftManager.requireCurrent();
 
                     // Persist to database as proposed
                     const result = await upsertDocument(em, projectId, chatId, draft.name, draft.title, draft.content);
+
+                    // Track version for linking to assistant message later
+                    createdVersionIds.push(result.versionId);
 
                     // Only clear draft after successful persist
                     draftManager.discard();
