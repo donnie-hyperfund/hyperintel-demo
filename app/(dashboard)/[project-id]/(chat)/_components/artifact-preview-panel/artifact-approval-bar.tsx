@@ -43,7 +43,7 @@ export function ArtifactApprovalBar({ artifactKey }: ArtifactApprovalBarProps) {
     };
 
     return (
-        <div className="border-t border-border px-4 py-3 space-y-2">
+        <div className="border-t border-border px-4 pt-4 pb-6 space-y-2.5">
             <p className="text-xs text-muted-foreground text-center">This document is awaiting your approval</p>
             <div className="flex items-center justify-center gap-2">
                 <Button size="sm" variant="outline" onClick={handleReject} disabled={isRejecting}>

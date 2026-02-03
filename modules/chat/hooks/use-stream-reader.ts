@@ -329,8 +329,6 @@ export function useStreamReader({
                                         }
                                         doc.content = content;
 
-                                        console.log('doc.content', doc.content);
-
                                         updateArtifact(doc.artifactId, {
                                             proposed_version: { content: doc.content },
                                             isUpdating: false,

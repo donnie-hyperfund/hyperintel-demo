@@ -21,6 +21,12 @@ export default function ArtifactPreviewPanel() {
     const activeVersion = currentArtifact ? getActiveVersion(currentArtifact) : undefined;
     const showSkeleton = (isLoading || isStreaming) && !content;
 
+    // Get previous content for diff comparison (current_version when viewing proposed)
+    const previousContent =
+        currentArtifact?.proposed_version && currentArtifact?.current_version
+            ? currentArtifact.current_version.content
+            : undefined;
+
     console.log('currentArtifact', currentArtifact, artifacts);
 
     if (showSkeleton) {
@@ -59,6 +65,7 @@ export default function ArtifactPreviewPanel() {
             <ArtifactViewer
                 title={currentArtifact.title}
                 content={content}
+                previousContent={previousContent}
                 version={activeVersion?.version}
                 status={activeVersion?.status}
                 artifactKey={currentArtifact.key}
