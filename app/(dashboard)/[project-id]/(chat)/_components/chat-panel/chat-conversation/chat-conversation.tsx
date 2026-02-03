@@ -4,11 +4,11 @@ import { cva } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import { TypingIndicator } from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel/chat-conversation/typing-indicator';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { ChatMessage } from '../chat-message/chat-message';
 import { ChatEmptyState, type ChatEmptyStateProps } from './chat-empty-state';
-import { ChatLoadingIndicator } from './chat-loading-indicator';
-import { MessageBubble } from './message-bubble';
 
 type ChatConversationProps = {
     emptyState?: ChatEmptyStateProps;
@@ -109,13 +109,13 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
                             transition={{ duration: 0.3, ease: 'easeInOut' }}
                             className={messageContainerVariants({ role: message.role })}
                         >
-                            <MessageBubble message={message} />
+                            <ChatMessage message={message} />
                         </motion.div>
                     ))}
                 </AnimatePresence>
 
                 {/* Loading indicator when waiting for response */}
-                {isGenerating && !messages.some((m) => m.isStreaming) && <ChatLoadingIndicator />}
+                {isGenerating && !messages.some((m) => m.isStreaming) && <TypingIndicator className="py-2" />}
             </div>
         </div>
     );
