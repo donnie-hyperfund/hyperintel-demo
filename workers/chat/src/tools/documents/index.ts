@@ -16,7 +16,6 @@ export {
     findVersionByStatus,
     formatWithLineNumbers,
     listDocuments,
-    normalizeDocumentName,
     rejectVersion,
     supersedeProposedVersion,
     upsertDocument,

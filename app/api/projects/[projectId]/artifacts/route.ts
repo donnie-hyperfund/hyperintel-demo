@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
+import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
@@ -23,6 +24,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
 
     // If key is provided, fetch single artifact by key
     if (queryData.key) {
+        const normalizedKey = normalizeArtifactKey(queryData.key);
         const artifact = await em
             .createQueryBuilder(ArtifactEntity, 'a')
             .select('a.*')
@@ -30,7 +32,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
             .leftJoin('a.project', 'p')
             .leftJoinAndSelect('a.current_version', 'cv')
             .where({
-                'a.key': queryData.key,
+                'a.key': normalizedKey,
                 'p.id': projectId,
                 'p.user': user.id,
             })

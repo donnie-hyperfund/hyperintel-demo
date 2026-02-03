@@ -15,20 +15,13 @@
  */
 
 import type { EntityManager } from '@mikro-orm/core';
+import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 
 // ============================================================================
 // UTILITIES
 // ============================================================================
-
-/**
- * Normalize document name - ensure .md extension.
- */
-export function normalizeDocumentName(name: string): string {
-    const trimmed = name.trim();
-    return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
-}
 
 /**
  * Count lines in content.
@@ -248,7 +241,7 @@ export async function findDocumentByName(
     projectId: string,
     name: string,
 ): Promise<DocumentInfo | null> {
-    const normalizedName = normalizeDocumentName(name);
+    const normalizedName = normalizeArtifactKey(name);
 
     const artifact = await em.findOne(
         ArtifactEntity,
@@ -348,7 +341,7 @@ export async function upsertDocument(
     lines: number;
     supersededVersion?: number;
 }> {
-    const normalizedName = normalizeDocumentName(name);
+    const normalizedName = normalizeArtifactKey(name);
     const lineCount = countLines(content);
 
     // Check if artifact exists

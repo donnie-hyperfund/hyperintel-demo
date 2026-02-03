@@ -5,10 +5,11 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { type ArtifactDto } from '@/lib/schema/artifact';
+import { type ArtifactDto, GetArtifactQuerySchema } from '@/lib/schema/artifact';
 
 const ERRORS = {
     ARTIFACT_NOT_FOUND: NextResponse.json({ error: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 }),
+    VERSION_NOT_FOUND: NextResponse.json({ error: 'Version not found', code: 'VERSION_NOT_FOUND' }, { status: 404 }),
 };
 
 async function handleGetArtifact(
@@ -18,6 +19,8 @@ async function handleGetArtifact(
     user: UserEntity,
 ): Promise<NextResponse> {
     const { em } = await getOrm();
+
+    const query = GetArtifactQuerySchema.parse(Object.fromEntries(req.nextUrl.searchParams));
 
     const artifact = await em
         .createQueryBuilder(ArtifactEntity, 'a')
@@ -42,9 +45,22 @@ async function handleGetArtifact(
         status: 'proposed',
     });
 
+    // Load specific version if requested via ?version=N
+    let loadedVersion: ArtifactVersionEntity | null = null;
+    if (query.version !== undefined) {
+        loadedVersion = await em.findOne(ArtifactVersionEntity, {
+            artifact: artifact.id,
+            version: query.version,
+        });
+        if (!loadedVersion) {
+            return ERRORS.VERSION_NOT_FOUND;
+        }
+    }
+
     const dto: ArtifactDto = {
         ...wrap(artifact).toJSON(),
         proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
+        loaded_version: loadedVersion ? wrap(loadedVersion).toJSON() : undefined,
     };
     return NextResponse.json(dto);
 }

@@ -7,6 +7,7 @@ import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapt
 import { getLangfusePrompt, getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
@@ -257,6 +258,9 @@ async function streamInternal(
             authSecret: process.env.AUTH_SECRET,
         });
 
+        // Track version IDs created during this turn - will be linked to assistant message after persist
+        const createdVersionIds: string[] = [];
+
         // Create combined agent context for all tool types
         const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
             // Prompt tools context
@@ -268,6 +272,7 @@ async function streamInternal(
             draftManager: new DraftManager(),
             // Embedding queue adapter for async indexing
             embeddingQueue,
+            createdVersionIds,
         };
 
         // Resolve local prompts path from options
@@ -394,8 +399,9 @@ async function streamInternal(
                     // Save assistant reply with structured data
                     const streamLog = event.streamLog;
                     const assistantContent = streamLog.fullContent ?? '';
+                    let assistantMsg: ChatMessageEntity | null = null;
                     if (assistantContent || streamLog.blocks.length > 0) {
-                        const assistantMsg = em!.create(ChatMessageEntity, {
+                        assistantMsg = em!.create(ChatMessageEntity, {
                             chat: chatId,
                             role: 'assistant',
                             content: assistantContent,
@@ -403,6 +409,15 @@ async function streamInternal(
                             blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
                         });
                         em!.persist(assistantMsg);
+                    }
+
+                    // Link created document versions to the assistant message
+                    if (assistantMsg && createdVersionIds.length > 0) {
+                        await em!
+                            .createQueryBuilder(ArtifactVersionEntity)
+                            .update({ chat_message: assistantMsg.id })
+                            .where({ id: { $in: createdVersionIds } })
+                            .execute();
                     }
 
                     // Calculate token usage estimates

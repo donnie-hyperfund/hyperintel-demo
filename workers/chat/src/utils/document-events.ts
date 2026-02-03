@@ -151,15 +151,15 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                 }
 
                 // finalize_document: emit document_complete and clear state
-                if (result.result?.version !== undefined && result.result?.lines !== undefined) {
-                    const name = result.result.name || activeDoc?.name;
+                if (result.version !== undefined && result.lines !== undefined) {
+                    const name = result.name || activeDoc?.name;
                     if (name) {
                         const completeEvent: DocumentEvent = {
                             type: 'document_complete',
                             name,
-                            version: result.result.version,
-                            lines: result.result.lines,
-                            action: result.result.action || 'created',
+                            version: result.version,
+                            lines: result.lines,
+                            action: result.action || 'created',
                             status: 'proposed',
                         };
 
