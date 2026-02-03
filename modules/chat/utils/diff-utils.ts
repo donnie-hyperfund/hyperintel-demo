@@ -229,7 +229,50 @@ export function computeDiff(oldContent: string, newContent: string): DiffResult 
     };
 }
 
-// Legacy export for backwards compatibility
-export function groupDiffIntoBlocks(diff: DiffResult): DiffBlock[] {
-    return diff.blocks;
+/**
+ * Convert diff result to markdown with diff directives.
+ * Added content is wrapped in :::diff-added directives.
+ * Removed content is wrapped in :::diff-removed directives.
+ * Unchanged content is left as-is.
+ */
+export function diffToMarkdownWithDirectives(diff: DiffResult): string {
+    const parts: string[] = [];
+
+    for (const block of diff.blocks) {
+        const content = block.content.trim();
+        if (!content) continue;
+
+        if (block.type === 'added') {
+            parts.push(`:::diff-added\n${content}\n:::`);
+        } else if (block.type === 'removed') {
+            parts.push(`:::diff-removed\n${content}\n:::`);
+        } else {
+            parts.push(content);
+        }
+    }
+
+    return parts.join('\n\n');
+}
+
+export type DiffData = {
+    /** Markdown content with diff directives for rendering */
+    markdownWithDiff: string;
+    /** Whether there are any changes */
+    hasChanges: boolean;
+    /** Stats about the diff */
+    stats: DiffResult['stats'];
+};
+
+/**
+ * Compute diff and return markdown with directives ready for rendering.
+ * This is the main function to use for diffing artifacts.
+ */
+export function computeDiffWithDirectives(oldContent: string, newContent: string): DiffData {
+    const diff = computeDiff(oldContent, newContent);
+
+    return {
+        markdownWithDiff: diffToMarkdownWithDirectives(diff),
+        hasChanges: diff.hasChanges,
+        stats: diff.stats,
+    };
 }

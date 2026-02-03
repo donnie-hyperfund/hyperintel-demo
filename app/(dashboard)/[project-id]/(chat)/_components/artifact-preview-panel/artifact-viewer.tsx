@@ -3,14 +3,13 @@
 import { ChevronDown, GitCompare, Loader2, Minus, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import type { VersionStatus } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
-import { computeDiff } from '@/modules/chat/utils/diff-utils';
+import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactHeader } from './artifact-header';
-import { DiffViewer } from './diff-viewer';
 
 type ArtifactViewerProps = {
     title: string;
@@ -35,6 +34,19 @@ type ArtifactViewerProps = {
     isUpdating?: boolean;
 };
 
+const diffDirectives: Record<string, DirectiveHandler> = {
+    'diff-added': ({ children }) => (
+        <div className="diff-block diff-added bg-green-950/30 border-l-2 border-green-500 pl-4 pr-4 -mr-6 -ml-6 py-3 my-2">
+            {children}
+        </div>
+    ),
+    'diff-removed': ({ children }) => (
+        <div className="diff-block diff-removed bg-red-950/30 border-l-2 border-red-500 pl-4 pr-4 -mr-6 -ml-6 py-3 my-2 opacity-60 line-through decoration-red-400/50">
+            {children}
+        </div>
+    ),
+};
+
 /** Reusable artifact viewer with header and markdown content */
 export function ArtifactViewer({
     title,
@@ -55,11 +67,12 @@ export function ArtifactViewer({
     const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey;
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
 
-    // Compute diff stats for display
-    const diffStats = useMemo(() => {
+    console.log('previousContent', previousContent, content);
+
+    // Compute diff once - get both stats and markdown with directives
+    const diffData = useMemo(() => {
         if (!canShowDiff || !previousContent) return null;
-        const diff = computeDiff(previousContent, content);
-        return diff.stats;
+        return computeDiffWithDirectives(previousContent, content);
     }, [canShowDiff, previousContent, content]);
 
     // Auto-scroll is disabled when not streaming
@@ -76,6 +89,9 @@ export function ArtifactViewer({
         prevTitleRef.current = title;
     }, [isStreaming, title, containerRef]);
 
+    const markdownContent = showDiff && diffData ? diffData.markdownWithDiff : content;
+    const directives = showDiff && diffData ? diffDirectives : undefined;
+
     return (
         <div className="flex flex-col h-full bg-neutral-975">
             <ArtifactHeader
@@ -91,15 +107,9 @@ export function ArtifactViewer({
             {/* Preview */}
             <div className="relative flex-1 min-h-0">
                 <div ref={containerRef} className="h-full overflow-y-auto">
-                    {showDiff && previousContent ? (
-                        <DiffViewer
-                            oldContent={previousContent}
-                            newContent={content}
-                            className="min-h-full"
-                        />
-                    ) : content ? (
+                    {markdownContent ? (
                         <div className="p-6">
-                            <MarkdownRenderer markdown={content} />
+                            <MarkdownRenderer markdown={markdownContent} directives={directives} />
                         </div>
                     ) : (
                         <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -133,20 +143,18 @@ export function ArtifactViewer({
             </div>
 
             {/* Diff controls bar */}
-            {canShowDiff && (
+            {canShowDiff && diffData && (
                 <div className="flex items-center justify-between px-4 py-1.5 border-t border-neutral-800 bg-neutral-900/50">
-                    {diffStats && (
-                        <div className="flex items-center gap-4 text-xs">
-                            <span className="flex items-center gap-1 text-green-400">
-                                <Plus className="size-3.5" />
-                                {diffStats.added} {diffStats.added === 1 ? 'line' : 'lines'} added
-                            </span>
-                            <span className="flex items-center gap-1 text-red-400">
-                                <Minus className="size-3.5" />
-                                {diffStats.removed} {diffStats.removed === 1 ? 'line' : 'lines'} removed
-                            </span>
-                        </div>
-                    )}
+                    <div className="flex items-center gap-4 text-xs">
+                        <span className="flex items-center gap-1 text-green-400">
+                            <Plus className="size-3.5" />
+                            {diffData.stats.added} {diffData.stats.added === 1 ? 'line' : 'lines'} added
+                        </span>
+                        <span className="flex items-center gap-1 text-red-400">
+                            <Minus className="size-3.5" />
+                            {diffData.stats.removed} {diffData.stats.removed === 1 ? 'line' : 'lines'} removed
+                        </span>
+                    </div>
                     <Button
                         variant="ghost"
                         size="sm"
@@ -155,7 +163,7 @@ export function ArtifactViewer({
                             'gap-2 text-xs h-7',
                             showDiff
                                 ? 'bg-neutral-700/50 text-neutral-200 hover:bg-neutral-700/70'
-                                : 'text-neutral-400 hover:text-neutral-300'
+                                : 'text-neutral-400 hover:text-neutral-300',
                         )}
                     >
                         <GitCompare className="size-3.5" />
