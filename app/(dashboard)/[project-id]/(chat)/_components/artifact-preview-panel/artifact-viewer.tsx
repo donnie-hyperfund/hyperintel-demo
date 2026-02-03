@@ -1,15 +1,15 @@
 'use client';
 
-import { ChevronDown, GitCompare, Loader2, Minus, Plus } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import type { VersionStatus } from '@/lib/schema/artifact';
-import { cn } from '@/lib/utils';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactHeader } from './artifact-header';
+import { DiffControlBar } from './diff-control-bar';
 
 type ArtifactViewerProps = {
     title: string;
@@ -48,7 +48,7 @@ const diffDirectives: Record<string, DirectiveHandler> = {
 };
 
 /** Reusable artifact viewer with header and markdown content */
-export function ArtifactViewer({
+export const ArtifactViewer = ({
     title,
     content,
     previousContent,
@@ -60,16 +60,13 @@ export function ArtifactViewer({
     onCloseAction,
     isStreaming = false,
     isUpdating = false,
-}: ArtifactViewerProps) {
+}: ArtifactViewerProps) => {
     const prevTitleRef = useRef<string | null>(null);
-    const [showDiff, setShowDiff] = useState(false);
+    const [isDiffVisible, setIsDiffVisible] = useState(false);
 
     const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey;
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
 
-    console.log('previousContent', previousContent, content);
-
-    // Compute diff once - get both stats and markdown with directives
     const diffData = useMemo(() => {
         if (!canShowDiff || !previousContent) return null;
         return computeDiffWithDirectives(previousContent, content);
@@ -81,6 +78,8 @@ export function ArtifactViewer({
         disabled: !isStreaming,
     });
 
+    const toggleDiffVisibility = () => setIsDiffVisible((prev) => !prev);
+
     // Scroll to top when a new artifact is loaded (title changes and not streaming)
     useEffect(() => {
         if (!isStreaming && containerRef.current && prevTitleRef.current !== title) {
@@ -89,8 +88,7 @@ export function ArtifactViewer({
         prevTitleRef.current = title;
     }, [isStreaming, title, containerRef]);
 
-    const markdownContent = showDiff && diffData ? diffData.markdownWithDiff : content;
-    const directives = showDiff && diffData ? diffDirectives : undefined;
+    const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
     return (
         <div className="flex flex-col h-full bg-neutral-975">
@@ -109,7 +107,7 @@ export function ArtifactViewer({
                 <div ref={containerRef} className="h-full overflow-y-auto">
                     {markdownContent ? (
                         <div className="p-6">
-                            <MarkdownRenderer markdown={markdownContent} directives={directives} />
+                            <MarkdownRenderer markdown={markdownContent} directives={diffDirectives} />
                         </div>
                     ) : (
                         <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -129,7 +127,7 @@ export function ArtifactViewer({
                 )}
 
                 {/* Scroll to bottom button */}
-                {!isAtBottom && content.length > 0 && !showDiff && (
+                {!isAtBottom && content.length > 0 && (
                     <Button
                         onClick={() => scrollToBottom({ behavior: 'smooth' })}
                         size="icon-lg"
@@ -144,36 +142,11 @@ export function ArtifactViewer({
 
             {/* Diff controls bar */}
             {canShowDiff && diffData && (
-                <div className="flex items-center justify-between px-4 py-1.5 border-t border-neutral-800 bg-neutral-900/50">
-                    <div className="flex items-center gap-4 text-xs">
-                        <span className="flex items-center gap-1 text-green-400">
-                            <Plus className="size-3.5" />
-                            {diffData.stats.added} {diffData.stats.added === 1 ? 'line' : 'lines'} added
-                        </span>
-                        <span className="flex items-center gap-1 text-red-400">
-                            <Minus className="size-3.5" />
-                            {diffData.stats.removed} {diffData.stats.removed === 1 ? 'line' : 'lines'} removed
-                        </span>
-                    </div>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowDiff(!showDiff)}
-                        className={cn(
-                            'gap-2 text-xs h-7',
-                            showDiff
-                                ? 'bg-neutral-700/50 text-neutral-200 hover:bg-neutral-700/70'
-                                : 'text-neutral-400 hover:text-neutral-300',
-                        )}
-                    >
-                        <GitCompare className="size-3.5" />
-                        {showDiff ? 'Hide changes' : 'View changes'}
-                    </Button>
-                </div>
+                <DiffControlBar diffData={diffData} isDiffVisible={isDiffVisible} onToggle={toggleDiffVisibility} />
             )}
 
             {/* Approval bar */}
             {showApprovalBar && <ArtifactApprovalBar artifactKey={artifactKey} />}
         </div>
     );
-}
+};
