@@ -3,10 +3,10 @@
 import { formatDistanceToNow } from 'date-fns';
 import { FileText } from 'lucide-react';
 import { useParams } from 'next/navigation';
+import { ArtifactViewer } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel/artifact-viewer';
+import { ArtifactViewerSkeleton } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel/artifact-viewer-skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchArtifact } from '@/lib/api/client/hooks/use-artifacts';
-import { ArtifactViewer } from '../../(chat)/_components/artifacts-panel/artifact-viewer';
-import { ArtifactViewerSkeleton } from '../../(chat)/_components/artifacts-panel/artifact-viewer-skeleton';
 
 export default function ArtifactDetailPage() {
     const params = useParams();

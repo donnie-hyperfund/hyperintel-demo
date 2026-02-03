@@ -39,4 +39,8 @@ function PopoverAnchor({ ...props }: React.ComponentProps<typeof PopoverPrimitiv
     return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
 }
 
-export { Popover, PopoverTrigger, PopoverContent, PopoverAnchor };
+function PopoverScrollArea({ className, ...props }: React.ComponentProps<'div'>) {
+    return <div data-slot="popover-scroll-area" className={cn('max-h-64 overflow-y-auto', className)} {...props} />;
+}
+
+export { Popover, PopoverTrigger, PopoverContent, PopoverAnchor, PopoverScrollArea };

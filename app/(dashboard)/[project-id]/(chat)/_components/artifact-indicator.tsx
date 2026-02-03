@@ -5,6 +5,7 @@ import { FileText } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import { cn } from '@/lib/utils';
+import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import type { MessageArtifactRef } from '@/modules/chat/types';
 
@@ -30,74 +31,66 @@ export function ArtifactIndicator({
     const params = useParams();
     const projectId = params['project-id'] as string;
     const { getToken } = useAuth();
-    const { currentArtifactId, setCurrentArtifact, artifacts, addArtifact, setLoading, isLoading } =
-        useArtifactContext();
+    const { panelState, openPanel, closePanel } = useActivePanelContext();
+    const { artifacts, addArtifact, updateArtifact } = useArtifactContext();
 
-    // Determine the artifact ID and title
-    const artifactId = artifactRef?.id ?? (documentVersion ? `doc-${documentName}-v${documentVersion}` : null);
+    const artifactId = artifactRef?.id ?? documentName ?? null;
     const title = artifactRef?.title ?? documentName ?? 'Document';
     const artifactInContext = artifactId ? artifacts[artifactId] : null;
 
-    const isSelected = currentArtifactId === artifactId;
-
-    // Get action icon
-    // const getActionLabel = () => {
-    //     if (!documentAction) return null;
-    //     switch (documentAction) {
-    //         case 'created':
-    //             return 'Created';
-    //         case 'replaced':
-    //             return 'Replaced';
-    //         default:
-    //             return 'Updated';
-    //     }
-    // };
+    const isSelected = panelState?.panel === 'artifact-preview' && panelState.artifactId === artifactId;
 
     const handleClick = async () => {
-        // If we have an artifact ref or it's already in context, just show it
+        // If we have an artifact ref or it's already in context, just toggle it
         if (artifactRef || artifactInContext) {
-            setCurrentArtifact(isSelected ? null : (artifactId ?? null));
+            if (isSelected) {
+                closePanel();
+            } else {
+                openPanel({ panel: 'artifact-preview', artifactId: artifactId ?? null });
+            }
             return;
         }
 
         // Need to fetch from backend
         if (!projectId || !documentName) return;
 
-        // Open panel with loading state immediately
-        setLoading(true, documentName);
+        // Add artifact with loading state immediately
+        addArtifact({
+            id: documentName,
+            identifier: documentName,
+            title: documentName,
+            type: 'text/markdown',
+            content: '',
+            messageId: '',
+            isLoading: true,
+        });
+        openPanel({ panel: 'artifact-preview', artifactId: documentName });
 
         try {
             const api = createArtifactApi(getToken);
             const artifact = await api.getByKey(projectId, documentName);
 
             if (artifact) {
-                // Create a local artifact ID and add to context
-                const localArtifactId = `doc-${documentName}-v${artifact.version}`;
-                addArtifact({
-                    id: localArtifactId,
+                updateArtifact(documentName, {
                     identifier: artifact.key,
                     title: artifact.title,
-                    type: 'text/markdown',
                     content: artifact.current_version?.content ?? '',
-                    messageId: '',
+                    isLoading: false,
                 });
-                setCurrentArtifact(localArtifactId);
             } else {
-                setLoading(false);
+                updateArtifact(documentName, { isLoading: false });
             }
         } catch (error) {
             console.error('Failed to fetch artifact:', error);
-            setLoading(false);
+            updateArtifact(documentName, { isLoading: false });
         }
     };
-
-    // const actionLabel = getActionLabel();
 
     return (
         <button
             type="button"
             onClick={handleClick}
-            disabled={isLoading}
+            disabled={artifactInContext?.isLoading}
             className={cn(
                 'cursor-pointer group relative w-full min-w-[280px] max-w-[400px] flex items-center gap-3 px-4 py-3.5 rounded-xl border transition-all duration-200 text-left hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-50',
                 isSelected

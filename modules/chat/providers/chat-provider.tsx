@@ -6,8 +6,9 @@ import { useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { artifactKeys } from '@/lib/api/client/fetchers/artifacts';
-import { sendAction } from '@/lib/api/requests/worker/chat';
+import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
+import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
@@ -30,6 +31,10 @@ export type ChatContextValue = {
     stopGeneration: () => void;
     /** Set the current chat ID */
     setChatId: (chatId: string | null) => void;
+    /** Summarize the current chat and navigate to the new one */
+    summarizeChat: () => void;
+    /** Whether the chat has any artifacts (documents created) */
+    hasArtifacts: boolean;
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -57,6 +62,7 @@ function createUserMessage(content: string): Message {
 
 export function ChatProvider({ children, projectId, initialChatId, initialMessages = [] }: ChatProviderProps) {
     const artifactContext = useArtifactContext();
+    const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
@@ -71,6 +77,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const [state, setState] = useState<ChatState>({
         messages: initialMessages,
         isGenerating: false,
+        isSummarizing: false,
         isLoading: !!chatId,
         error: null,
         streamingMessageId: null,
@@ -111,11 +118,19 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setState((prev) => ({ ...prev, tokenUsage: usage }));
     }, []);
 
+    const handleArtifactOpen = useCallback(
+        (artifactId: string) => {
+            openPanel({ panel: 'artifact-preview', artifactId });
+        },
+        [openPanel],
+    );
+
     // Use the stream reader hook for SSE processing
     const { readStream } = useStreamReader({
         artifactContext,
         setMessages,
         setIsLoading,
+        onArtifactOpen: handleArtifactOpen,
         onArtifactComplete: revalidateArtifacts,
         onTokenUsage,
     });
@@ -274,6 +289,67 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         [api, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
     );
 
+    /** Summarize current chat and navigate to the new one */
+    const summarizeChat = useCallback(async () => {
+        if (!chatId || state.isSummarizing) return;
+
+        setState((prev) => ({ ...prev, isSummarizing: true, error: null }));
+
+        try {
+            const accessToken = (await getToken()) ?? '';
+            const response = await summarize({ chatId }, accessToken);
+
+            if (!response.body) {
+                throw new Error('No response stream');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const jsonStr = line.replace('data: ', '').trim();
+                    if (jsonStr === '[DONE]') continue;
+
+                    try {
+                        const event = JSON.parse(jsonStr);
+
+                        // TODO: Uncomment this when backend is fixed
+                        // if (event.type === 'error') {
+                        //     setState((prev) => ({ ...prev, isSummarizing: false, error: new Error(event.error) }));
+                        //     return;
+                        // }
+
+                        if (event.type === 'done' && event.newChatId) {
+                            setState((prev) => ({ ...prev, isSummarizing: false }));
+                            window.location.href = `/${projectId}/${event.newChatId}`;
+                            return;
+                        }
+                    } catch {
+                        // skip unparseable lines
+                    }
+                }
+            }
+
+            setState((prev) => ({ ...prev, isSummarizing: false }));
+        } catch (err) {
+            setState((prev) => ({
+                ...prev,
+                isSummarizing: false,
+                error: err instanceof Error ? err : new Error('Summarization failed'),
+            }));
+        }
+    }, [chatId, getToken, projectId, state.isSummarizing]);
+
     /** Stop the current generation */
     const stopGeneration = useCallback(() => {
         if (abortControllerRef.current) {
@@ -302,6 +378,10 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 sendMessage,
                 stopGeneration,
                 setChatId,
+                summarizeChat,
+
+                // Computed values
+                hasArtifacts: Object.keys(artifactContext.artifacts).length > 0,
             }}
         >
             {children}

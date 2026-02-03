@@ -1,9 +1,9 @@
 import { ChatModule } from '@/modules/chat/providers/chat-module';
-import ChatInterface from '../../(chat)/_components/chat-interface';
+import ChatInterface from '../_components/chat-interface';
 
-interface ChatPageProps {
+type ChatPageProps = {
     params: Promise<{ 'project-id': string; chatId: string }>;
-}
+};
 
 export default async function ChatPage({ params }: ChatPageProps) {
     const { chatId, 'project-id': projectId } = await params;
