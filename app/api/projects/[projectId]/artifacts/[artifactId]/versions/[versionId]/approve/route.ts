@@ -64,7 +64,7 @@ async function handleApproveVersion(
         await embeddingQueue.send({
             type: 'index_artifact_version',
             projectId,
-            versionId: version.ai_content,
+            versionId: version.id,
             content: version.content,
             documentName: version.artifact.key,
             is_ai_content: true,
