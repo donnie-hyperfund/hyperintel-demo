@@ -2,6 +2,7 @@
 export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { StreamBlock } from '@/common/ai/agent/types';
+import type { ArtifactDto, ArtifactVersionDto } from '@/lib/schema/artifact';
 
 // =============================================================================
 // Chat Types
@@ -51,27 +52,24 @@ export type PaginationState = {
 // Artifact Types
 // =============================================================================
 
-export type ArtifactType = 'text/markdown';
-
-export type Artifact = {
+export type Artifact = Partial<ArtifactDto> & {
     id: string;
-    identifier: string;
+    key: string;
     title: string;
-    type: ArtifactType;
-    content: string;
-    messageId: string;
-    version?: number;
     isLoading?: boolean;
     isStreaming?: boolean;
     isUpdating?: boolean;
 };
 
-export type ArtifactMetadata = {
-    identifier: string;
-    title: string;
-    type: ArtifactType;
-    language?: string;
-};
+/** Get the most relevant version: proposed takes priority over current */
+export function getActiveVersion(artifact: Artifact): ArtifactVersionDto | undefined {
+    return artifact.proposed_version ?? artifact.current_version;
+}
+
+/** Get display content from the active version */
+export function getArtifactContent(artifact: Artifact): string {
+    return getActiveVersion(artifact)?.content ?? '';
+}
 
 // =============================================================================
 // Token Usage Types

@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
+import { cva } from 'class-variance-authority';
 import { FileText } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
@@ -8,6 +9,23 @@ import { cn } from '@/lib/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import type { MessageArtifactRef } from '@/modules/chat/types';
+import { VersionStatusBadge } from './version-status-badge';
+
+const indicatorVariants = cva(
+    'group w-full max-w-[400px] flex items-center gap-4 rounded-3 border p-4 my-4 text-left transition-colors disabled:cursor-default disabled:opacity-50 bg-gradient-to-br',
+    {
+        variants: {
+            state: {
+                default:
+                    'from-neutral-400/5 via-neutral-400/3 to-neutral-400/2 border-border hover:from-neutral-400/10 hover:via-neutral-400/6 hover:to-neutral-400/3',
+                selected: 'from-neutral-400/12 via-neutral-400/10 to-neutral-400/6 border-neutral-500/50',
+            },
+        },
+        defaultVariants: {
+            state: 'default',
+        },
+    },
+);
 
 type ArtifactIndicatorProps = {
     /** Artifact reference when artifact is already in context */
@@ -37,11 +55,16 @@ export function ArtifactIndicator({
     const artifactId = artifactRef?.id ?? documentName ?? null;
     const title = artifactRef?.title ?? documentName ?? 'Document';
     const artifactInContext = artifactId ? artifacts[artifactId] : null;
+    const status = (artifactInContext?.proposed_version ?? artifactInContext?.current_version)?.status;
+    const version =
+        documentVersion ??
+        (artifactInContext
+            ? (artifactInContext.proposed_version?.version ?? artifactInContext.current_version?.version)
+            : undefined);
 
     const isSelected = panelState?.panel === 'artifact-preview' && panelState.artifactId === artifactId;
 
     const handleClick = async () => {
-        // If we have an artifact ref or it's already in context, just toggle it
         if (artifactRef || artifactInContext) {
             if (isSelected) {
                 closePanel();
@@ -51,17 +74,12 @@ export function ArtifactIndicator({
             return;
         }
 
-        // Need to fetch from backend
         if (!projectId || !documentName) return;
 
-        // Add artifact with loading state immediately
         addArtifact({
             id: documentName,
-            identifier: documentName,
+            key: documentName,
             title: documentName,
-            type: 'text/markdown',
-            content: '',
-            messageId: '',
             isLoading: true,
         });
         openPanel({ panel: 'artifact-preview', artifactId: documentName });
@@ -72,9 +90,11 @@ export function ArtifactIndicator({
 
             if (artifact) {
                 updateArtifact(documentName, {
-                    identifier: artifact.key,
+                    key: artifact.key,
                     title: artifact.title,
-                    content: artifact.current_version?.content ?? '',
+                    current_version: artifact.current_version ?? undefined,
+                    proposed_version: artifact.proposed_version ?? undefined,
+                    updated_at: artifact.updated_at,
                     isLoading: false,
                 });
             } else {
@@ -91,40 +111,25 @@ export function ArtifactIndicator({
             type="button"
             onClick={handleClick}
             disabled={artifactInContext?.isLoading}
-            className={cn(
-                'cursor-pointer group relative w-full min-w-[280px] max-w-[400px] flex items-center gap-3 px-4 py-3.5 rounded-xl border transition-all duration-200 text-left hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-50',
-                isSelected
-                    ? 'bg-gradient-to-br from-green-500/14 via-green-500/10 to-neutral-500/12 border-green-400/35 shadow-sm shadow-green-400/8'
-                    : 'bg-gradient-to-br from-green-500/6 via-green-500/4 to-neutral-500/5 border-neutral-200/5 hover:border-green-400/20',
-                className,
-            )}
+            className={cn(indicatorVariants({ state: isSelected ? 'selected' : 'default' }), className)}
         >
-            {/* Gradient overlay on hover */}
-            <div className="absolute inset-0 rounded-xl opacity-0 transition-opacity duration-300 bg-gradient-to-br from-green-500/4 to-neutral-500/5 group-hover:opacity-100" />
+            <FileText className="size-6 shrink-0 text-neutral-500" />
 
-            {/* Icon container with gradient background */}
-            <div className="relative shrink-0 size-10 rounded-lg flex items-center justify-center bg-gradient-to-br from-green-600 to-emerald-500 shadow-sm shadow-green-400/15">
-                <FileText className="size-5 text-white/95" strokeWidth={2} />
-            </div>
-
-            {/* Content */}
-            <div className="relative flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-sm font-semibold truncate text-foreground group-hover:text-green-500 transition-colors duration-200">
-                        {title}
-                    </span>
-                    {documentVersion && (
-                        <span className="text-xs text-muted-foreground font-medium">v{documentVersion}</span>
+            <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium truncate">{title}</span>
+                    {status && <VersionStatusBadge status={status} />}
+                </div>
+                <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
+                    {version && <span>v{version}</span>}
+                    {documentAction && (
+                        <>
+                            {version && <span>·</span>}
+                            <span className="capitalize">{documentAction}</span>
+                        </>
                     )}
                 </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground font-medium">{'Deliverable'}</span>
-                    {isSelected && <span className="text-xs text-green-500 font-medium">• Open</span>}
-                </div>
             </div>
-
-            {/* Selection indicator */}
-            {isSelected && <div className="absolute top-2 right-2 size-2 rounded-full bg-green-500" />}
         </button>
     );
 }

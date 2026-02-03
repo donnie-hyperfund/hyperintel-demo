@@ -26,15 +26,9 @@ const markdownVariants = cva('position-relative max-w-none', {
             message: 'prose-message',
             document: 'prose-document',
         },
-        diffType: {
-            default: '[&_a]:text-blue-400',
-            'diff-added': '[&_a]:text-green-400',
-            'diff-removed': '[&_a]:text-red-400',
-        },
     },
     defaultVariants: {
         variant: 'document',
-        diffType: 'default',
     },
 });
 
@@ -61,7 +55,6 @@ type MarkdownRendererProps = {
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     markdown,
     id,
-    diffType,
     variant,
     citations,
     directives,
@@ -167,7 +160,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     }, []);
 
     return (
-        <div className={cn(markdownVariants({ diffType, variant }))}>
+        <div className={cn(markdownVariants({ variant }))}>
             <Markdown
                 remarkPlugins={remarkPlugins}
                 rehypePlugins={rehypePlugins}

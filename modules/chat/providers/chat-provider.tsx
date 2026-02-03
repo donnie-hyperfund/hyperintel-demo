@@ -12,6 +12,7 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
+import { getActiveVersion } from '../types';
 
 export type ChatContextValue = {
     state: ChatState;
@@ -35,6 +36,8 @@ export type ChatContextValue = {
     summarizeChat: () => void;
     /** Whether the chat has any artifacts (documents created) */
     hasArtifacts: boolean;
+    /** Whether any artifact has a pending proposal awaiting approval */
+    hasPendingProposal: boolean;
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -382,6 +385,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
                 // Computed values
                 hasArtifacts: Object.keys(artifactContext.artifacts).length > 0,
+                hasPendingProposal: Object.values(artifactContext.artifacts).some((a) => getActiveVersion(a)?.status === 'proposed'),
             }}
         >
             {children}

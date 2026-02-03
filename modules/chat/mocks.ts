@@ -19,10 +19,14 @@ export const MOCK_MESSAGES: Message[] = [
 export const MOCK_ARTIFACTS: Artifact[] = [
     {
         id: 'example-artifact_1',
-        identifier: 'example-artifact',
+        key: 'example-artifact',
         title: 'Example Document',
-        type: 'text/markdown',
-        messageId: '2',
-        content: '# Example Document\n\nThis is an example artifact.',
+        proposed_version: {
+            id: 'mock-version-1',
+            version: 1,
+            content: '# Example Document\n\nThis is an example artifact.',
+            status: 'proposed',
+            created_at: new Date().toISOString(),
+        },
     },
 ];

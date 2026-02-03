@@ -1,5 +1,6 @@
 import { useAuth } from '@clerk/nextjs';
-import useSWR, { type SWRConfiguration } from 'swr';
+import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
+import useSWRMutation from 'swr/mutation';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { artifactKeys, createArtifactApi } from '../fetchers/artifacts';
 import type { PaginatedResponse, PaginationParams } from '../types';
@@ -52,5 +53,39 @@ export function useFetchArtifactByKey(
             return createArtifactApi(getToken).getByKey(projectId, key);
         },
         { revalidateOnFocus: false, ...config },
+    );
+}
+
+export function useApproveArtifactVersion(projectId: string, artifactKey: string) {
+    const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
+
+    return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[]>(
+        [...artifactKeys.byKey(projectId, artifactKey)],
+        async () => {
+            const api = createArtifactApi(getToken);
+            const artifact = await api.getByKey(projectId, artifactKey);
+            if (!artifact.proposed_version) throw new Error('No proposed version');
+            await api.approveVersion(projectId, artifact.id, artifact.proposed_version.id);
+            globalMutate(artifactKeys.list(projectId));
+            return api.getByKey(projectId, artifactKey);
+        },
+    );
+}
+
+export function useRejectArtifactVersion(projectId: string, artifactKey: string) {
+    const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
+
+    return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[], string>(
+        [...artifactKeys.byKey(projectId, artifactKey)],
+        async (_, { arg: reason }) => {
+            const api = createArtifactApi(getToken);
+            const artifact = await api.getByKey(projectId, artifactKey);
+            if (!artifact.proposed_version) throw new Error('No proposed version');
+            await api.rejectVersion(projectId, artifact.id, artifact.proposed_version.id, reason);
+            globalMutate(artifactKeys.list(projectId));
+            return api.getByKey(projectId, artifactKey);
+        },
     );
 }
