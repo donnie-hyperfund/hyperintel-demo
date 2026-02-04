@@ -56,7 +56,7 @@ export function useFetchArtifactByKey(
     );
 }
 
-export function useApproveArtifactVersion(projectId: string, artifactKey: string) {
+export function useApproveArtifactVersion(projectId: string, artifactKey: string, artifactVersion: number) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
@@ -64,16 +64,16 @@ export function useApproveArtifactVersion(projectId: string, artifactKey: string
         [...artifactKeys.byKey(projectId, artifactKey)],
         async () => {
             const api = createArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey);
+            const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
             if (!artifact.proposed_version) throw new Error('No proposed version');
             await api.approveVersion(projectId, artifact.id, artifact.proposed_version.id);
             globalMutate(artifactKeys.list(projectId));
-            return api.getByKey(projectId, artifactKey);
+            return api.getByKey(projectId, artifactKey, artifactVersion);
         },
     );
 }
 
-export function useRejectArtifactVersion(projectId: string, artifactKey: string) {
+export function useRejectArtifactVersion(projectId: string, artifactKey: string, artifactVersion: number) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
@@ -81,11 +81,11 @@ export function useRejectArtifactVersion(projectId: string, artifactKey: string)
         [...artifactKeys.byKey(projectId, artifactKey)],
         async (_, { arg: reason }) => {
             const api = createArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey);
+            const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
             if (!artifact.proposed_version) throw new Error('No proposed version');
             await api.rejectVersion(projectId, artifact.id, artifact.proposed_version.id, reason);
             globalMutate(artifactKeys.list(projectId));
-            return api.getByKey(projectId, artifactKey);
+            return api.getByKey(projectId, artifactKey, artifactVersion);
         },
     );
 }

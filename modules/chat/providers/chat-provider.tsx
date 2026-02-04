@@ -122,8 +122,8 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     }, []);
 
     const handleArtifactOpen = useCallback(
-        (artifactId: string) => {
-            openPanel({ panel: 'artifact-preview', artifactId });
+        (artifactId: string, version: number) => {
+            openPanel({ panel: 'artifact-preview', artifactId, version });
         },
         [openPanel],
     );
@@ -383,9 +383,11 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 setChatId,
                 summarizeChat,
 
-                // Computed values
+                // Computed values - check all versions for pending proposals
                 hasArtifacts: Object.keys(artifactContext.artifacts).length > 0,
-                hasPendingProposal: Object.values(artifactContext.artifacts).some((a) => getActiveVersion(a)?.status === 'proposed'),
+                hasPendingProposal: Object.values(artifactContext.artifacts).some((artifactVersions) =>
+                    Object.values(artifactVersions).some((artifact) => artifact.proposed_version?.status === 'proposed'),
+                ),
             }}
         >
             {children}

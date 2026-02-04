@@ -15,13 +15,13 @@ type StreamingState = {
 
 type UseStreamReaderOptions = {
     /** Artifact context for document streaming */
-    artifactContext: Pick<ArtifactContextValue, 'artifacts' | 'addArtifact' | 'updateArtifact'>;
+    artifactContext: Pick<ArtifactContextValue, 'getArtifact' | 'addArtifact' | 'updateArtifact'>;
     /** Callback to update messages state */
     setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
     /** Callback to set loading state */
     setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
     /** Called when a streamed artifact should be shown in the preview panel */
-    onArtifactOpen?: (artifactId: string) => void;
+    onArtifactOpen?: (artifactId: string, version: number) => void;
     /** Called when an artifact stream completes */
     onArtifactComplete?: () => void;
     /** Called when token usage is received from the done event */
@@ -40,7 +40,7 @@ export function useStreamReader({
     onArtifactComplete,
     onTokenUsage,
 }: UseStreamReaderOptions) {
-    const { addArtifact, updateArtifact } = artifactContext;
+    const { getArtifact, addArtifact, updateArtifact } = artifactContext;
 
     // Streaming state ref to avoid stale closures
     const streamingStateRef = useRef<StreamingState | null>(null);
@@ -268,28 +268,31 @@ export function useStreamReader({
 
                                 case 'document_start': {
                                     const artifactId = event.name;
-                                    const existingArtifact = artifactContext.artifacts[artifactId];
+                                    const existingArtifact = getArtifact(artifactId, 'latest');
                                     const content = existingArtifact ? getArtifactContent(existingArtifact) : '';
                                     const hasExistingContent = !!content;
 
                                     streaming.streamingDocs.set(artifactId, { artifactId, content });
-                                    addArtifact({
-                                        id: artifactId,
-                                        key: event.name,
-                                        title: event.title || existingArtifact?.title || event.name,
-                                        version: event.pendingVersion,
-                                        current_version: existingArtifact?.current_version,
-                                        proposed_version: {
-                                            id: '',
+                                    addArtifact(
+                                        {
+                                            id: artifactId,
+                                            key: event.name,
+                                            title: event.title || existingArtifact?.title || event.name,
                                             version: event.pendingVersion,
-                                            content,
-                                            status: 'proposed',
-                                            created_at: new Date().toISOString(),
+                                            current_version: existingArtifact?.current_version,
+                                            proposed_version: {
+                                                id: '',
+                                                version: event.pendingVersion,
+                                                content,
+                                                status: 'proposed',
+                                                created_at: new Date().toISOString(),
+                                            },
+                                            isStreaming: true,
+                                            isUpdating: hasExistingContent,
                                         },
-                                        isStreaming: true,
-                                        isUpdating: hasExistingContent,
-                                    });
-                                    onArtifactOpen?.(artifactId);
+                                        'latest',
+                                    );
+                                    onArtifactOpen?.(artifactId, event.pendingVersion);
                                     break;
                                 }
 
@@ -297,9 +300,13 @@ export function useStreamReader({
                                     const doc = streaming.streamingDocs.get(event.name);
                                     if (doc) {
                                         doc.content += event.content;
-                                        updateArtifact(doc.artifactId, {
-                                            proposed_version: { content: doc.content },
-                                        });
+                                        updateArtifact(
+                                            doc.artifactId,
+                                            {
+                                                proposed_version: { content: doc.content },
+                                            },
+                                            'latest',
+                                        );
                                     } else {
                                         console.warn('[stream-reader] document_delta: doc not found for', event.name);
                                     }
@@ -329,11 +336,15 @@ export function useStreamReader({
                                         }
                                         doc.content = content;
 
-                                        updateArtifact(doc.artifactId, {
-                                            proposed_version: { content: doc.content },
-                                            isUpdating: false,
-                                            isStreaming: false,
-                                        });
+                                        updateArtifact(
+                                            doc.artifactId,
+                                            {
+                                                proposed_version: { content: doc.content },
+                                                isUpdating: false,
+                                                isStreaming: false,
+                                            },
+                                            'latest',
+                                        );
                                     }
                                     break;
                                 }
@@ -342,12 +353,16 @@ export function useStreamReader({
                                     const completedDoc = streaming.streamingDocs.get(event.name);
                                     const artifactIdToComplete = completedDoc?.artifactId ?? event.name;
 
-                                    updateArtifact(artifactIdToComplete, {
-                                        isStreaming: false,
-                                        isUpdating: false,
-                                        version: event.version,
-                                        proposed_version: { version: event.version, status: 'proposed' },
-                                    });
+                                    updateArtifact(
+                                        artifactIdToComplete,
+                                        {
+                                            isStreaming: false,
+                                            isUpdating: false,
+                                            version: event.version,
+                                            proposed_version: { version: event.version, status: 'proposed' },
+                                        },
+                                        'latest',
+                                    );
                                     streaming.streamingDocs.delete(event.name);
                                     onArtifactComplete?.();
                                     break;
@@ -402,7 +417,7 @@ export function useStreamReader({
             }
         },
         [
-            artifactContext,
+            getArtifact,
             addArtifact,
             updateArtifact,
             setMessages,

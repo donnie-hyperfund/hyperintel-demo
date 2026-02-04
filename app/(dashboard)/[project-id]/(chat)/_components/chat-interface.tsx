@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useRef } from 'react';
-import ArtifactPreviewPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel';
+import { ArtifactPreviewPanel } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel';
 import ArtifactsPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/artifacts-panel';
 import ResourcesPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/resources-panel';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -90,7 +90,9 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
                         defaultSize={activePanel === 'artifact-preview' ? 35 : 20}
                         minSize={20}
                     >
-                        {activePanel === 'artifact-preview' && <ArtifactPreviewPanel />}
+                        {panelState.panel === 'artifact-preview' && (
+                            <ArtifactPreviewPanel version={panelState.version} artifactId={panelState.artifactId} />
+                        )}
                         {activePanel === 'artifacts' && <ArtifactsPanel onClose={closePanel} />}
                         {activePanel === 'resources' && <ResourcesPanel onClose={closePanel} />}
                     </ResizablePanel>

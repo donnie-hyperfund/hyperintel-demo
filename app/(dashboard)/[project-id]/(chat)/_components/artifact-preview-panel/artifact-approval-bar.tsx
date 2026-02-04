@@ -8,22 +8,23 @@ import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 
 type ArtifactApprovalBarProps = {
     artifactKey: string;
+    artifactVersion: number;
 };
 
-export function ArtifactApprovalBar({ artifactKey }: ArtifactApprovalBarProps) {
+export function ArtifactApprovalBar({ artifactKey, artifactVersion }: ArtifactApprovalBarProps) {
     const { updateArtifact } = useArtifactContext();
 
     const params = useParams();
     const projectId = params?.['project-id'] as string;
 
-    const { trigger: approve, isMutating: isApproving } = useApproveArtifactVersion(projectId, artifactKey);
-    const { trigger: reject, isMutating: isRejecting } = useRejectArtifactVersion(projectId, artifactKey);
+    const { trigger: approve, isMutating: isApproving } = useApproveArtifactVersion(projectId, artifactKey, artifactVersion);
+    const { trigger: reject, isMutating: isRejecting } = useRejectArtifactVersion(projectId, artifactKey, artifactVersion);
 
     const handleApprove = async () => {
         try {
             const updated = await approve();
             if (updated) {
-                updateArtifact(artifactKey, updated, { merge: false });
+                updateArtifact(artifactKey, updated, artifactVersion, { merge: false });
             }
         } catch (err) {
             console.error('Failed to approve:', err);
@@ -32,10 +33,10 @@ export function ArtifactApprovalBar({ artifactKey }: ArtifactApprovalBarProps) {
 
     const handleReject = async () => {
         try {
-            // TODO: What about reason, how should we handle it?
-            const updated = await reject('');
+            // TODO: Remove the need for the reason
+            const updated = await reject('rejected');
             if (updated) {
-                updateArtifact(artifactKey, updated, { merge: false });
+                updateArtifact(artifactKey, updated, artifactVersion, { merge: false });
             }
         } catch (err) {
             console.error('Failed to reject:', err);
@@ -47,19 +48,11 @@ export function ArtifactApprovalBar({ artifactKey }: ArtifactApprovalBarProps) {
             <p className="text-xs text-muted-foreground text-center">This document is awaiting your approval</p>
             <div className="flex items-center justify-center gap-2">
                 <Button size="sm" variant="outline" onClick={handleReject} disabled={isRejecting}>
-                    {isRejecting ? (
-                        <Loader2 className="size-3 animate-spin mr-1" />
-                    ) : (
-                        <XIcon className="size-3 mr-1" />
-                    )}
+                    {isRejecting ? <Loader2 className="size-3 animate-spin mr-1" /> : <XIcon className="size-3 mr-1" />}
                     Reject
                 </Button>
                 <Button size="sm" onClick={handleApprove} disabled={isApproving}>
-                    {isApproving ? (
-                        <Loader2 className="size-3 animate-spin mr-1" />
-                    ) : (
-                        <Check className="size-3 mr-1" />
-                    )}
+                    {isApproving ? <Loader2 className="size-3 animate-spin mr-1" /> : <Check className="size-3 mr-1" />}
                     Approve
                 </Button>
             </div>

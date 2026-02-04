@@ -24,27 +24,35 @@ export function ArtifactList() {
         async (artifact: ArtifactDto) => {
             if (!projectId) return;
             const localId = `artifact-${artifact.id}`;
+            const version = artifact.version;
 
-            addArtifact({
-                id: localId,
-                key: artifact.key,
-                title: artifact.title,
-                isLoading: true,
-            });
-            openPanel({ panel: 'artifact-preview', artifactId: localId });
+            addArtifact(
+                {
+                    id: localId,
+                    key: artifact.key,
+                    title: artifact.title,
+                    isLoading: true,
+                },
+                version,
+            );
+            openPanel({ panel: 'artifact-preview', artifactId: localId, version });
 
             try {
                 const api = createArtifactApi(getToken);
-                const data = await api.get(projectId, artifact.id);
+                const data = await api.getByKey(projectId, artifact.key);
 
-                updateArtifact(localId, {
-                    ...data,
-                    id: localId,
-                    key: data.key,
-                    isLoading: false,
-                });
+                updateArtifact(
+                    localId,
+                    {
+                        ...data,
+                        id: localId,
+                        key: data.key,
+                        isLoading: false,
+                    },
+                    version,
+                );
             } catch {
-                updateArtifact(localId, { isLoading: false });
+                updateArtifact(localId, { isLoading: false }, version);
             }
         },
         [projectId, getToken, addArtifact, updateArtifact, openPanel],

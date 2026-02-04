@@ -3,7 +3,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
 
 export type PanelState =
-    | { panel: 'artifact-preview'; artifactId: string | null }
+    | { panel: 'artifact-preview'; artifactId: string; version: number }
     | { panel: 'artifacts' }
     | { panel: 'resources' }
     | null;

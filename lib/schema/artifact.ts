@@ -7,6 +7,7 @@ export const ListArtifactsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),
     key: z.string().optional(),
+    version: z.coerce.number().int().positive().optional(),
 });
 export type ListArtifactsQueryDto = z.infer<typeof ListArtifactsQuerySchema>;
 

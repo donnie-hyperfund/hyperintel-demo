@@ -15,10 +15,19 @@ type UpdateArtifactOptions = {
     merge?: boolean;
 };
 
+export type ArtifactStore = Record<string, Record<string, Artifact>>;
+export type VersionKey = 'latest' | number;
+
 export type ArtifactContextValue = {
-    artifacts: Record<string, Artifact>;
-    addArtifact: (artifact: Artifact) => void;
-    updateArtifact: (id: string, updates: ArtifactUpdate, options?: UpdateArtifactOptions) => void;
+    artifacts: ArtifactStore;
+    getArtifact: (id: string, version?: VersionKey) => Artifact | null;
+    addArtifact: (artifact: Artifact, version?: VersionKey) => void;
+    updateArtifact: (
+        id: string,
+        updates: ArtifactUpdate,
+        version?: VersionKey,
+        options?: UpdateArtifactOptions,
+    ) => void;
 };
 
 const ArtifactContext = createContext<ArtifactContextValue | null>(null);
@@ -28,11 +37,20 @@ type ArtifactProviderProps = {
 };
 
 export function ArtifactProvider({ children }: ArtifactProviderProps) {
-    const [artifacts, setArtifacts] = useState<Record<string, Artifact>>({});
+    const [artifacts, setArtifacts] = useState<ArtifactStore>({});
 
-    const addArtifact = useCallback((artifact: Artifact) => {
+    const getArtifact = useCallback(
+        (id: string, version: VersionKey = 'latest'): Artifact | null => {
+            return artifacts[id]?.[String(version)] ?? null;
+        },
+        [artifacts],
+    );
+
+    const addArtifact = useCallback((artifact: Artifact, version: VersionKey = 'latest') => {
+        const versionKey = String(version);
+
         setArtifacts((prev) => {
-            const existing = prev[artifact.id];
+            const existing = prev[artifact.id]?.[versionKey];
             const newContent = getArtifactContent(artifact);
             const existingContent = existing ? getArtifactContent(existing) : '';
             if (
@@ -43,22 +61,27 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
             ) {
                 return prev;
             }
-            console.log('added artifact', {
-                ...prev,
-                [artifact.id]: artifact,
-            });
 
             return {
                 ...prev,
-                [artifact.id]: artifact,
+                [artifact.id]: {
+                    ...prev[artifact.id],
+                    [versionKey]: artifact,
+                },
             };
         });
     }, []);
 
     const updateArtifact = useCallback(
-        (id: string, updates: ArtifactUpdate, options: UpdateArtifactOptions = { merge: true }) => {
+        (
+            id: string,
+            updates: ArtifactUpdate,
+            version: VersionKey = 'latest',
+            options: UpdateArtifactOptions = { merge: true },
+        ) => {
+            const versionKey = String(version);
             setArtifacts((prev) => {
-                const existing = prev[id];
+                const existing = prev[id]?.[versionKey];
                 if (!existing) return prev;
 
                 if (options.merge) {
@@ -77,22 +100,22 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
                         } as ArtifactVersionDto;
                     }
 
-                    console.log(
-                        'updated artifact',
-                        {
-                            ...prev,
-                            [id]: merged,
+                    return {
+                        ...prev,
+                        [id]: {
+                            ...prev[id],
+                            [versionKey]: merged,
                         },
-                        updates,
-                        !!updates.proposed_version,
-                        !!existing.proposed_version,
-                    );
-
-                    return { ...prev, [id]: merged };
+                    };
                 }
 
-                // TODO: Make it typesafe
-                return { ...prev, [id]: updates as Artifact };
+                return {
+                    ...prev,
+                    [id]: {
+                        ...prev[id],
+                        [versionKey]: updates as Artifact,
+                    },
+                };
             });
         },
         [],
@@ -102,6 +125,7 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
         <ArtifactContext.Provider
             value={{
                 artifacts,
+                getArtifact,
                 addArtifact,
                 updateArtifact,
             }}

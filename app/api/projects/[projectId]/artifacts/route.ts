@@ -18,6 +18,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         page: searchParams.get('page') ?? undefined,
         limit: searchParams.get('limit') ?? undefined,
         key: searchParams.get('key') ?? undefined,
+        version: searchParams.get('version') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
@@ -42,6 +43,34 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
             return NextResponse.json({ error: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 });
         }
 
+        // If specific version requested, use it as proposed and version-1 as current (for diffing)
+        if (queryData.version !== undefined) {
+            const requestedVersion = await em.findOne(ArtifactVersionEntity, {
+                artifact: artifact.id,
+                version: queryData.version,
+            });
+            if (!requestedVersion) {
+                return NextResponse.json({ error: 'Version not found', code: 'VERSION_NOT_FOUND' }, { status: 404 });
+            }
+
+            // Fetch previous version for diff comparison (undefined if version is 1)
+            const previousVersion =
+                queryData.version > 1
+                    ? await em.findOne(ArtifactVersionEntity, {
+                          artifact: artifact.id,
+                          version: queryData.version - 1,
+                      })
+                    : null;
+
+            const dto: ArtifactDto = {
+                ...wrap(artifact).toJSON(),
+                current_version: previousVersion ? wrap(previousVersion).toJSON() : undefined,
+                proposed_version: wrap(requestedVersion).toJSON(),
+            };
+            return NextResponse.json(dto);
+        }
+
+        // Default: fetch actual current and proposed versions
         const proposedVersion = await em.findOne(ArtifactVersionEntity, {
             artifact: artifact.id,
             status: 'proposed',

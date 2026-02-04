@@ -61,9 +61,9 @@ export type Artifact = Partial<ArtifactDto> & {
     isUpdating?: boolean;
 };
 
-/** Get the most relevant version: proposed takes priority over current */
+/** Get the most relevant version: loaded > proposed > current */
 export function getActiveVersion(artifact: Artifact): ArtifactVersionDto | undefined {
-    return artifact.proposed_version ?? artifact.current_version;
+    return artifact.loaded_version ?? artifact.proposed_version ?? artifact.current_version;
 }
 
 /** Get display content from the active version */

@@ -17,7 +17,7 @@ type ArtifactViewerProps = {
     /** Previous version content for diff comparison */
     previousContent?: string;
     /** Version number to display */
-    version?: number;
+    version: number;
     /** Version status */
     status?: VersionStatus;
     /** Artifact identifier (key) for API lookups */
@@ -146,7 +146,7 @@ export const ArtifactViewer = ({
             )}
 
             {/* Approval bar */}
-            {showApprovalBar && <ArtifactApprovalBar artifactKey={artifactKey} />}
+            {showApprovalBar && <ArtifactApprovalBar artifactKey={artifactKey} artifactVersion={version} />}
         </div>
     );
 };
