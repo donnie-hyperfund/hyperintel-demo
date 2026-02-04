@@ -127,6 +127,22 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         [openPanel],
     );
 
+    const fetchArtifact = useCallback(
+        async (artifactKey: string, version: number) => {
+            try {
+                const artifact = await api.artifacts.getByKey(projectId, artifactKey, version);
+                if (artifact) {
+                    artifactContext.addArtifact(artifact, version);
+                }
+                return artifact;
+            } catch (error) {
+                console.error('Failed to fetch artifact:', error);
+                return null;
+            }
+        },
+        [api.artifacts, projectId, artifactContext],
+    );
+
     // Use the stream reader hook for SSE processing
     const { readStream } = useStreamReader({
         artifactContext,
@@ -135,6 +151,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         onArtifactOpen: handleArtifactOpen,
         onArtifactComplete: revalidateArtifacts,
         onTokenUsage,
+        fetchArtifact,
     });
 
     /** Convert API message to internal Message format */

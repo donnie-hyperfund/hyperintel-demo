@@ -2,10 +2,8 @@
 
 import { useCallback, useRef } from 'react';
 import type { ArtifactContextValue } from '@/modules/chat/providers/artifact-provider';
-import {
-    getLatestApprovedArtifactContent,
-    getLatestApprovedArtifactVersion,
-} from '@/modules/chat/providers/artifact-provider/utils';
+import { getLatestApprovedArtifactContent } from '@/modules/chat/providers/artifact-provider/utils';
+import type { Artifact } from '@/modules/chat/types';
 import type { Message, StreamBlock, TokenUsage } from '../types';
 
 /** Streaming state for building assistant messages */
@@ -14,6 +12,13 @@ type StreamingState = {
     currentTextBlockId: string | null;
     currentReasoningBlockId: string | null;
     streamingDocs: Map<string, { artifactId: string; content: string; version: number }>;
+};
+
+/** Document event for queue processing */
+type DocumentEvent = {
+    type: 'document_start' | 'document_delta' | 'document_edit' | 'document_complete';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    payload: any;
 };
 
 type UseStreamReaderOptions = {
@@ -29,6 +34,8 @@ type UseStreamReaderOptions = {
     onArtifactComplete?: () => void;
     /** Called when token usage is received from the done event */
     onTokenUsage?: (usage: TokenUsage) => void;
+    /** Fetch artifact from API when not available in store */
+    fetchArtifact?: (artifactKey: string, version: number) => Promise<Artifact | null>;
 };
 
 /**
@@ -42,6 +49,7 @@ export function useStreamReader({
     onArtifactOpen,
     onArtifactComplete,
     onTokenUsage,
+    fetchArtifact,
 }: UseStreamReaderOptions) {
     const { getArtifact, addArtifact, updateArtifact } = artifactContext;
 
@@ -74,6 +82,206 @@ export function useStreamReader({
                 setMessages((prev) =>
                     prev.map((msg) => (msg.id === streamingMsgId ? { ...msg, blocks: [...streaming.blocks] } : msg)),
                 );
+            };
+
+            // Document event queue - processes document events sequentially
+            // This allows async operations (like fetching) without blocking other events
+            // TODO: Please refactor this
+            const documentQueue: DocumentEvent[] = [];
+            let isProcessingDocuments = false;
+
+            const handleDocumentEvent = async (event: DocumentEvent) => {
+                const { type, payload } = event;
+
+                switch (type) {
+                    case 'document_start': {
+                        const artifactId = payload.name;
+                        const now = new Date().toISOString();
+
+                        if (payload.mode === 'create') {
+                            streaming.streamingDocs.set(artifactId, {
+                                artifactId,
+                                content: '',
+                                version: 1,
+                            });
+
+                            addArtifact(
+                                {
+                                    id: artifactId,
+                                    key: payload.name,
+                                    title: payload.title,
+                                    version: 1,
+                                    proposed_version: {
+                                        id: '',
+                                        version: 1,
+                                        content: '',
+                                        status: 'proposed',
+                                        created_at: now,
+                                        updated_at: now,
+                                    },
+                                    created_at: now,
+                                    updated_at: now,
+                                    isStreaming: true,
+                                    isUpdating: false,
+                                    isLoading: false,
+                                },
+                                1,
+                            );
+
+                            onArtifactOpen?.(artifactId, 1);
+                        } else if (payload.mode === 'edit') {
+                            const loadedVersion = payload.loadedVersion ?? 1;
+                            let existingArtifact = getArtifact(artifactId, loadedVersion);
+
+                            // Fetch artifact if not in store
+                            if (!existingArtifact && fetchArtifact) {
+                                existingArtifact = await fetchArtifact(artifactId, loadedVersion);
+                            }
+
+                            const newVersion = loadedVersion + 1;
+
+                            streaming.streamingDocs.set(artifactId, {
+                                artifactId,
+                                content: existingArtifact
+                                    ? (getLatestApprovedArtifactContent(existingArtifact) ?? '')
+                                    : '',
+                                version: newVersion,
+                            });
+
+                            const loadedContent = existingArtifact
+                                ? getLatestApprovedArtifactContent(existingArtifact)
+                                : undefined;
+
+                            addArtifact(
+                                {
+                                    id: artifactId,
+                                    key: payload.name,
+                                    title: payload.title,
+                                    version: newVersion,
+                                    current_version: loadedContent
+                                        ? {
+                                              id: '',
+                                              version: loadedVersion,
+                                              content: loadedContent,
+                                              status: 'approved',
+                                              created_at: now,
+                                              updated_at: now,
+                                          }
+                                        : undefined,
+                                    proposed_version: {
+                                        id: '',
+                                        version: newVersion,
+                                        content: loadedContent ?? '',
+                                        status: 'proposed',
+                                        created_at: now,
+                                        updated_at: now,
+                                    },
+                                    created_at: now,
+                                    updated_at: now,
+                                    isStreaming: true,
+                                    isUpdating: true,
+                                },
+                                newVersion,
+                            );
+
+                            onArtifactOpen?.(artifactId, newVersion);
+                        }
+                        break;
+                    }
+
+                    case 'document_delta': {
+                        const doc = streaming.streamingDocs.get(payload.name);
+                        if (doc) {
+                            doc.content += payload.content;
+                            updateArtifact(
+                                doc.artifactId,
+                                {
+                                    proposed_version: { content: doc.content },
+                                },
+                                doc.version,
+                            );
+                        } else {
+                            console.warn('[stream-reader] document_delta: doc not found for', payload.name);
+                        }
+                        break;
+                    }
+
+                    case 'document_edit': {
+                        const doc = streaming.streamingDocs.get(payload.name);
+
+                        if (doc && payload.edits) {
+                            let content = doc.content;
+                            for (const edit of payload.edits) {
+                                const lines = content.split('\n');
+                                const rangeStart = Math.max(0, edit.startLine - 1);
+                                const rangeEnd = Math.min(lines.length, edit.endLine);
+                                const rangeContent = lines.slice(rangeStart, rangeEnd).join('\n');
+                                const newRangeContent = rangeContent.replace(edit.oldContent, edit.newContent);
+                                const newLines = [
+                                    ...lines.slice(0, rangeStart),
+                                    ...newRangeContent.split('\n'),
+                                    ...lines.slice(rangeEnd),
+                                ];
+                                content = newLines.join('\n');
+                            }
+                            doc.content = content;
+
+                            updateArtifact(
+                                doc.artifactId,
+                                {
+                                    proposed_version: { content: doc.content },
+                                    isUpdating: false,
+                                    isStreaming: false,
+                                },
+                                doc.version,
+                            );
+                        }
+                        break;
+                    }
+
+                    case 'document_complete': {
+                        const completedDoc = streaming.streamingDocs.get(payload.name);
+                        if (!completedDoc) {
+                            console.warn('[stream-reader] document_complete: doc not found for', payload.name);
+                            break;
+                        }
+
+                        updateArtifact(
+                            completedDoc.artifactId,
+                            {
+                                isStreaming: false,
+                                isUpdating: false,
+                                version: completedDoc.version,
+                                proposed_version: { version: completedDoc.version, status: 'proposed' },
+                            },
+                            completedDoc.version,
+                        );
+                        streaming.streamingDocs.delete(payload.name);
+                        onArtifactComplete?.();
+                        break;
+                    }
+
+                    default:
+                        console.warn('[stream-reader] unknown document event type:', type);
+                        break;
+                }
+            };
+
+            const processDocumentQueue = async () => {
+                if (isProcessingDocuments) return;
+                isProcessingDocuments = true;
+
+                while (documentQueue.length > 0) {
+                    const event = documentQueue.shift()!;
+                    await handleDocumentEvent(event);
+                }
+
+                isProcessingDocuments = false;
+            };
+
+            const queueDocumentEvent = (type: DocumentEvent['type'], payload: unknown) => {
+                documentQueue.push({ type, payload });
+                void processDocumentQueue();
             };
 
             try {
@@ -265,173 +473,12 @@ export function useStreamReader({
                                     }
                                     break;
 
-                                case 'document_start': {
-                                    const artifactId = event.name;
-                                    const now = new Date().toISOString();
-
-                                    if (event.mode === 'create') {
-                                        streaming.streamingDocs.set(artifactId, {
-                                            artifactId,
-                                            content: '',
-                                            version: 1,
-                                        });
-
-                                        addArtifact(
-                                            {
-                                                id: artifactId,
-                                                key: event.name,
-                                                title: event.title,
-                                                version: 1,
-                                                proposed_version: {
-                                                    id: '',
-                                                    version: 1,
-                                                    content: '',
-                                                    status: 'proposed',
-                                                    created_at: now,
-                                                    updated_at: now,
-                                                },
-                                                created_at: now,
-                                                updated_at: now,
-                                                isStreaming: true,
-                                                isUpdating: false,
-                                                isLoading: false,
-                                            },
-                                            1,
-                                        );
-
-                                        onArtifactOpen?.(artifactId, 1);
-                                    } else if (event.mode === 'edit') {
-                                        const loadedVersion = event.loadedVersion ?? 1;
-                                        const existingArtifact = getArtifact(artifactId, loadedVersion);
-                                        const newVersion = loadedVersion + 1;
-
-                                        streaming.streamingDocs.set(artifactId, {
-                                            artifactId,
-                                            content: existingArtifact
-                                                ? (getLatestApprovedArtifactContent(existingArtifact) ?? '')
-                                                : '',
-                                            version: newVersion,
-                                        });
-
-                                        const loadedContent = existingArtifact
-                                            ? getLatestApprovedArtifactContent(existingArtifact)
-                                            : undefined;
-
-                                        addArtifact(
-                                            {
-                                                id: artifactId,
-                                                key: event.name,
-                                                title: event.title,
-                                                version: newVersion,
-                                                current_version: loadedContent
-                                                    ? {
-                                                          id: '',
-                                                          version: loadedVersion,
-                                                          content: loadedContent,
-                                                          status: 'approved',
-                                                          created_at: now,
-                                                          updated_at: now,
-                                                      }
-                                                    : undefined,
-                                                proposed_version: {
-                                                    id: '',
-                                                    version: newVersion,
-                                                    content: loadedContent ?? '',
-                                                    status: 'proposed',
-                                                    created_at: now,
-                                                    updated_at: now,
-                                                },
-                                                created_at: now,
-                                                updated_at: now,
-                                                isStreaming: true,
-                                                isUpdating: true,
-                                            },
-                                            newVersion,
-                                        );
-
-                                        onArtifactOpen?.(artifactId, newVersion);
-                                    }
-
+                                case 'document_start':
+                                case 'document_delta':
+                                case 'document_edit':
+                                case 'document_complete':
+                                    queueDocumentEvent(event.type, event);
                                     break;
-                                }
-
-                                case 'document_delta': {
-                                    const doc = streaming.streamingDocs.get(event.name);
-                                    if (doc) {
-                                        doc.content += event.content;
-                                        updateArtifact(
-                                            doc.artifactId,
-                                            {
-                                                proposed_version: { content: doc.content },
-                                            },
-                                            doc.version,
-                                        );
-                                    } else {
-                                        console.warn('[stream-reader] document_delta: doc not found for', event.name);
-                                    }
-                                    break;
-                                }
-
-                                case 'document_edit': {
-                                    const doc = streaming.streamingDocs.get(event.name);
-
-                                    if (doc && event.edits) {
-                                        let content = doc.content;
-                                        for (const edit of event.edits) {
-                                            const lines = content.split('\n');
-                                            const rangeStart = Math.max(0, edit.startLine - 1);
-                                            const rangeEnd = Math.min(lines.length, edit.endLine);
-                                            const rangeContent = lines.slice(rangeStart, rangeEnd).join('\n');
-                                            const newRangeContent = rangeContent.replace(
-                                                edit.oldContent,
-                                                edit.newContent,
-                                            );
-                                            const newLines = [
-                                                ...lines.slice(0, rangeStart),
-                                                ...newRangeContent.split('\n'),
-                                                ...lines.slice(rangeEnd),
-                                            ];
-                                            content = newLines.join('\n');
-                                        }
-                                        doc.content = content;
-
-                                        updateArtifact(
-                                            doc.artifactId,
-                                            {
-                                                proposed_version: { content: doc.content },
-                                                isUpdating: false,
-                                                isStreaming: false,
-                                            },
-                                            doc.version,
-                                        );
-                                    }
-                                    break;
-                                }
-
-                                case 'document_complete': {
-                                    const completedDoc = streaming.streamingDocs.get(event.name);
-                                    if (!completedDoc) {
-                                        console.warn(
-                                            '[stream-reader] document_complete: doc not found for',
-                                            event.name,
-                                        );
-                                        break;
-                                    }
-
-                                    updateArtifact(
-                                        completedDoc.artifactId,
-                                        {
-                                            isStreaming: false,
-                                            isUpdating: false,
-                                            version: completedDoc.version,
-                                            proposed_version: { version: completedDoc.version, status: 'proposed' },
-                                        },
-                                        completedDoc.version,
-                                    );
-                                    streaming.streamingDocs.delete(event.name);
-                                    onArtifactComplete?.();
-                                    break;
-                                }
 
                                 case 'status_update':
                                     setMessages((prev) =>
@@ -490,6 +537,7 @@ export function useStreamReader({
             onArtifactOpen,
             onArtifactComplete,
             onTokenUsage,
+            fetchArtifact,
         ],
     );
 
