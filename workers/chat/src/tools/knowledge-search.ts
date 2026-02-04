@@ -50,6 +50,8 @@ async function searchKnowledge(
         JOIN artifact_versions av ON ae.artifact_version_id = av.id
         JOIN artifacts a ON av.artifact_id = a.id
         WHERE ae.project_id = '${escapedProjectId}'
+          AND ae.is_ai_content = true
+          AND a.current_version_id = av.id
           AND 1 - (ae.embedding <=> '${embeddingStr}'::vector) >= ${minSimilarity}
         ORDER BY ae.embedding <=> '${embeddingStr}'::vector
         LIMIT ${limit}

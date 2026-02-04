@@ -44,3 +44,14 @@ export const ArtifactDtoSchema = z.object({
     updated_at: z.union([z.string(), z.date()]),
 });
 export type ArtifactDto = z.infer<typeof ArtifactDtoSchema>;
+
+export const ApproveArtifactActionSchema = z.object({
+    versionId: z.string().uuid(),
+});
+export type ApproveArtifactActionDto = z.infer<typeof ApproveArtifactActionSchema>;
+
+export const RejectArtifactActionSchema = z.object({
+    versionId: z.string().uuid(),
+    reason: z.string().min(1, 'Rejection reason is required'),
+});
+export type RejectArtifactActionDto = z.infer<typeof RejectArtifactActionSchema>;

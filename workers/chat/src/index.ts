@@ -6,8 +6,10 @@ import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import { SendChatActionSchema, SummarizeActionSchema } from '@/lib/schema/chat';
+import { ApproveArtifactActionSchema, RejectArtifactActionSchema } from '@/lib/schema/artifact';
 import { chatActionHandler } from './chat-handler';
 import { summarizeActionHandler } from './summarizer';
+import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
 
@@ -34,6 +36,18 @@ app.post('/chat', zValidator('json', SendChatActionSchema), async (c) => {
 app.post('/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await summarizeActionHandler(c.req.valid('json'), c.var);
+    });
+});
+
+app.post('/artifacts/approve', zValidator('json', ApproveArtifactActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await approveArtifactHandler(c.req.valid('json'), c.var);
+    });
+});
+
+app.post('/artifacts/reject', zValidator('json', RejectArtifactActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await rejectArtifactHandler(c.req.valid('json'), c.var);
     });
 });
 
