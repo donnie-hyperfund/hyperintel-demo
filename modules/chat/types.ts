@@ -61,16 +61,6 @@ export type Artifact = Partial<ArtifactDto> & {
     isUpdating?: boolean;
 };
 
-/** Get the most relevant version: loaded > proposed > current */
-export function getActiveVersion(artifact: Artifact): ArtifactVersionDto | undefined {
-    return artifact.loaded_version ?? artifact.proposed_version ?? artifact.current_version;
-}
-
-/** Get display content from the active version */
-export function getArtifactContent(artifact: Artifact): string {
-    return getActiveVersion(artifact)?.content ?? '';
-}
-
 // =============================================================================
 // Token Usage Types
 // =============================================================================

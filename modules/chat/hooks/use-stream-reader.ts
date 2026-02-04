@@ -2,15 +2,18 @@
 
 import { useCallback, useRef } from 'react';
 import type { ArtifactContextValue } from '@/modules/chat/providers/artifact-provider';
+import {
+    getLatestApprovedArtifactContent,
+    getLatestApprovedArtifactVersion,
+} from '@/modules/chat/providers/artifact-provider/utils';
 import type { Message, StreamBlock, TokenUsage } from '../types';
-import { getArtifactContent } from '../types';
 
 /** Streaming state for building assistant messages */
 type StreamingState = {
     blocks: StreamBlock[];
     currentTextBlockId: string | null;
     currentReasoningBlockId: string | null;
-    streamingDocs: Map<string, { artifactId: string; content: string }>;
+    streamingDocs: Map<string, { artifactId: string; content: string; version: number }>;
 };
 
 type UseStreamReaderOptions = {
@@ -94,10 +97,6 @@ export function useStreamReader({
                                 console.error('Stream error:', event.error);
                                 break;
                             }
-
-                            console.log('[stream-reader] event:', event);
-
-                            console.log('event.type', event.type);
 
                             switch (event.type) {
                                 case 'reasoning_start': {
@@ -268,31 +267,91 @@ export function useStreamReader({
 
                                 case 'document_start': {
                                     const artifactId = event.name;
-                                    const existingArtifact = getArtifact(artifactId, 'latest');
-                                    const content = existingArtifact ? getArtifactContent(existingArtifact) : '';
-                                    const hasExistingContent = !!content;
+                                    const now = new Date().toISOString();
 
-                                    streaming.streamingDocs.set(artifactId, { artifactId, content });
-                                    addArtifact(
-                                        {
-                                            id: artifactId,
-                                            key: event.name,
-                                            title: event.title || existingArtifact?.title || event.name,
-                                            version: event.pendingVersion,
-                                            current_version: existingArtifact?.current_version,
-                                            proposed_version: {
-                                                id: '',
-                                                version: event.pendingVersion,
-                                                content,
-                                                status: 'proposed',
-                                                created_at: new Date().toISOString(),
+                                    if (event.mode === 'create') {
+                                        streaming.streamingDocs.set(artifactId, {
+                                            artifactId,
+                                            content: '',
+                                            version: 1,
+                                        });
+
+                                        addArtifact(
+                                            {
+                                                id: artifactId,
+                                                key: event.name,
+                                                title: event.title,
+                                                version: 1,
+                                                proposed_version: {
+                                                    id: '',
+                                                    version: 1,
+                                                    content: '',
+                                                    status: 'proposed',
+                                                    created_at: now,
+                                                    updated_at: now,
+                                                },
+                                                created_at: now,
+                                                updated_at: now,
+                                                isStreaming: true,
+                                                isUpdating: false,
+                                                isLoading: false,
                                             },
-                                            isStreaming: true,
-                                            isUpdating: hasExistingContent,
-                                        },
-                                        'latest',
-                                    );
-                                    onArtifactOpen?.(artifactId, event.pendingVersion);
+                                            1,
+                                        );
+
+                                        onArtifactOpen?.(artifactId, 1);
+                                    } else if (event.mode === 'edit') {
+                                        const loadedVersion = event.loadedVersion ?? 1;
+                                        const existingArtifact = getArtifact(artifactId, loadedVersion);
+                                        const newVersion = loadedVersion + 1;
+
+                                        streaming.streamingDocs.set(artifactId, {
+                                            artifactId,
+                                            content: existingArtifact
+                                                ? (getLatestApprovedArtifactContent(existingArtifact) ?? '')
+                                                : '',
+                                            version: newVersion,
+                                        });
+
+                                        const loadedContent = existingArtifact
+                                            ? getLatestApprovedArtifactContent(existingArtifact)
+                                            : undefined;
+
+                                        addArtifact(
+                                            {
+                                                id: artifactId,
+                                                key: event.name,
+                                                title: event.title,
+                                                version: newVersion,
+                                                current_version: loadedContent
+                                                    ? {
+                                                          id: '',
+                                                          version: loadedVersion,
+                                                          content: loadedContent,
+                                                          status: 'approved',
+                                                          created_at: now,
+                                                          updated_at: now,
+                                                      }
+                                                    : undefined,
+                                                proposed_version: {
+                                                    id: '',
+                                                    version: newVersion,
+                                                    content: loadedContent ?? '',
+                                                    status: 'proposed',
+                                                    created_at: now,
+                                                    updated_at: now,
+                                                },
+                                                created_at: now,
+                                                updated_at: now,
+                                                isStreaming: true,
+                                                isUpdating: true,
+                                            },
+                                            newVersion,
+                                        );
+
+                                        onArtifactOpen?.(artifactId, newVersion);
+                                    }
+
                                     break;
                                 }
 
@@ -305,7 +364,7 @@ export function useStreamReader({
                                             {
                                                 proposed_version: { content: doc.content },
                                             },
-                                            'latest',
+                                            doc.version,
                                         );
                                     } else {
                                         console.warn('[stream-reader] document_delta: doc not found for', event.name);
@@ -343,7 +402,7 @@ export function useStreamReader({
                                                 isUpdating: false,
                                                 isStreaming: false,
                                             },
-                                            'latest',
+                                            doc.version,
                                         );
                                     }
                                     break;
@@ -351,17 +410,23 @@ export function useStreamReader({
 
                                 case 'document_complete': {
                                     const completedDoc = streaming.streamingDocs.get(event.name);
-                                    const artifactIdToComplete = completedDoc?.artifactId ?? event.name;
+                                    if (!completedDoc) {
+                                        console.warn(
+                                            '[stream-reader] document_complete: doc not found for',
+                                            event.name,
+                                        );
+                                        break;
+                                    }
 
                                     updateArtifact(
-                                        artifactIdToComplete,
+                                        completedDoc.artifactId,
                                         {
                                             isStreaming: false,
                                             isUpdating: false,
-                                            version: event.version,
-                                            proposed_version: { version: event.version, status: 'proposed' },
+                                            version: completedDoc.version,
+                                            proposed_version: { version: completedDoc.version, status: 'proposed' },
                                         },
-                                        'latest',
+                                        completedDoc.version,
                                     );
                                     streaming.streamingDocs.delete(event.name);
                                     onArtifactComplete?.();

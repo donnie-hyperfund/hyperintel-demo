@@ -12,7 +12,6 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
-import { getActiveVersion } from '../types';
 
 export type ChatContextValue = {
     state: ChatState;

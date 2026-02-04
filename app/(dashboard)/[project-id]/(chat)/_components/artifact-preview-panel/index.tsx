@@ -3,7 +3,7 @@
 import { FileText, Loader2 } from 'lucide-react';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { getActiveVersion, getArtifactContent } from '@/modules/chat/types';
+import { getArtifactContent, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
 type ArtifactPreviewPanelProps = {
@@ -24,7 +24,7 @@ export const ArtifactPreviewPanel = ({ version, artifactId }: ArtifactPreviewPan
     const isStreaming = currentArtifact?.isStreaming;
     const isUpdating = currentArtifact?.isUpdating;
     const content = currentArtifact ? getArtifactContent(currentArtifact) : '';
-    const activeVersion = currentArtifact ? getActiveVersion(currentArtifact) : undefined;
+    const activeVersion = currentArtifact ? getArtifactVersion(currentArtifact) : undefined;
     const showSkeleton = (isLoading || isStreaming) && !content;
 
     // Get previous content for diff comparison (current_version when viewing proposed)
