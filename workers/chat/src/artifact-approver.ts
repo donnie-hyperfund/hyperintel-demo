@@ -2,55 +2,26 @@ import { runInferenceNoStream, AIParamsType } from '@common/ai/inference/run-inf
 import { ANTHROPIC_MODELS } from '@common/ai/types/models';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import { getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { Ctx } from './context';
 
-const YAML_GENERATION_SYSTEM_PROMPT = `You are a document analyzer that generates structured YAML metadata.
-
-Analyze the provided document and generate a YAML specification that describes it.
-
-Requirements:
-1. Generate ONLY valid YAML (no markdown code fences, no extra text)
-2. Use the exact structure shown below
-3. Extract key information from both document and conversation context
-4. Be concise but informative
-5. Ensure all YAML keys and values are properly formatted
-
-Output Format:
-
-document_specification:
-  type: "<document type: requirements/design/analysis/specification/report>"
-  title: "<document title>"
-  summary: "<2-3 sentence summary>"
-  key_attributes:
-    audience: "<target audience>"
-    purpose: "<primary purpose>"
-    scope: "<what the document covers>"
-  content_structure:
-    sections:
-      - name: "<section name>"
-        summary: "<brief description>"
-      - name: "<section name>"
-        summary: "<brief description>"
-    key_points:
-      - "<important point 1>"
-      - "<important point 2>"
-      - "<important point 3>"
-  metadata:
-    conversation_context: "<how this document was created from the chat>"
-    version: "1.0"
-
-Generate the YAML now.`;
-
-const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.OPUS;
+const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
+const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
 
 async function generateYAMLForArtifact(
     content: string,
     messages: ChatMessageEntity[],
     ctx: Ctx,
 ): Promise<string> {
+    if (!ctx.langfuse) {
+        throw new Error('Langfuse client not available');
+    }
+
+    const systemPrompt = await getLangfusePromptRaw(ctx.langfuse, YAML_PROMPT_SLUG);
+
     const conversationContext = messages.map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
@@ -62,7 +33,7 @@ async function generateYAMLForArtifact(
             model: YAML_GENERATION_MODEL,
             maxTokens: 4000,
         },
-        instructions: YAML_GENERATION_SYSTEM_PROMPT,
+        instructions: systemPrompt,
         context: [
             ...conversationContext,
             {
@@ -103,7 +74,7 @@ export async function approveArtifactHandler(
         .leftJoinAndSelect('v.artifact', 'a')
         .leftJoinAndSelect('a.chat', 'c')
         .leftJoinAndSelect('a.project', 'p')
-        .leftJoin('p.user', 'u')
+        .leftJoinAndSelect('p.user', 'u')
         .where({
             'v.id': versionId,
             'u.clerkId': user.userId,
@@ -144,7 +115,7 @@ export async function approveArtifactHandler(
     version.ai_content = yamlContent;
     version.status = 'approved';
     version.status_changed_at = new Date();
-    version.status_changed_by = user.userId;
+    version.status_changed_by = version.artifact.project.user.id;
     version.artifact.current_version = version;
 
     await em.flush();
@@ -192,8 +163,8 @@ export async function rejectArtifactHandler(
         .createQueryBuilder(ArtifactVersionEntity, 'v')
         .select('v.*')
         .leftJoinAndSelect('v.artifact', 'a')
-        .leftJoin('a.project', 'p')
-        .leftJoin('p.user', 'u')
+        .leftJoinAndSelect('a.project', 'p')
+        .leftJoinAndSelect('p.user', 'u')
         .where({
             'v.id': versionId,
             'u.clerkId': user.userId,
@@ -217,7 +188,7 @@ export async function rejectArtifactHandler(
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
-    version.status_changed_by = user.userId;
+    version.status_changed_by = version.artifact.project.user.id;
 
     await em.flush();
 
