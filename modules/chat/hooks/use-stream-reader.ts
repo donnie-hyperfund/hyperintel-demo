@@ -3,7 +3,7 @@
 import { useCallback, useRef } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
 import type { ArtifactContextValue } from '@/modules/chat/providers/artifact-provider';
-import { getLatestApprovedArtifactContent } from '@/modules/chat/providers/artifact-provider/utils';
+import { getArtifactContent } from '@/modules/chat/providers/artifact-provider/utils';
 import type { Artifact } from '@/modules/chat/types';
 import type { Message, StreamBlock, TokenUsage } from '../types';
 
@@ -97,6 +97,8 @@ export function useStreamReader({
                         const artifactId = payload.name;
                         const now = new Date().toISOString();
 
+                        console.log('document_start', event, payload);
+
                         // Notify that a document stream has started
                         onDocumentStart?.();
 
@@ -144,15 +146,11 @@ export function useStreamReader({
 
                             streaming.streamingDocs.set(artifactId, {
                                 artifactId,
-                                content: existingArtifact
-                                    ? (getLatestApprovedArtifactContent(existingArtifact) ?? '')
-                                    : '',
+                                content: existingArtifact ? (getArtifactContent(existingArtifact) ?? '') : '',
                                 version: newVersion,
                             });
 
-                            const loadedContent = existingArtifact
-                                ? getLatestApprovedArtifactContent(existingArtifact)
-                                : undefined;
+                            const loadedContent = existingArtifact ? getArtifactContent(existingArtifact) : undefined;
 
                             addArtifact(
                                 {
@@ -211,6 +209,8 @@ export function useStreamReader({
                     case 'document_edit': {
                         const doc = streaming.streamingDocs.get(payload.name);
 
+                        console.log(event, payload);
+
                         if (doc && payload.edits) {
                             let content = doc.content;
                             for (const edit of payload.edits) {
@@ -227,6 +227,8 @@ export function useStreamReader({
                                 content = newLines.join('\n');
                             }
                             doc.content = content;
+
+                            console.log('doc.content', doc.content);
 
                             updateArtifact(
                                 doc.artifactId,

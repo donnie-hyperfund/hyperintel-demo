@@ -280,7 +280,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                     setChatId(chatIdToUse);
 
                     // Update URL without navigation using history API
-                    window.history.replaceState(null, '', `/${projectId}/chats/${chatIdToUse}`);
+                    window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
 
                     // Revalidate chats list so sidebar and header update
                     globalMutate((key) => Array.isArray(key) && key[0] === 'chats' && key[1] === 'list');
