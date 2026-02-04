@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef } from 'react';
+import { AsyncEventQueue } from '@/lib/async-event-queue';
 import type { ArtifactContextValue } from '@/modules/chat/providers/artifact-provider';
 import { getLatestApprovedArtifactContent } from '@/modules/chat/providers/artifact-provider/utils';
 import type { Artifact } from '@/modules/chat/types';
@@ -36,6 +37,8 @@ type UseStreamReaderOptions = {
     onTokenUsage?: (usage: TokenUsage) => void;
     /** Fetch artifact from API when not available in store */
     fetchArtifact?: (artifactKey: string, version: number) => Promise<Artifact | null>;
+    /** Called when a document stream starts */
+    onDocumentStart?: () => void;
 };
 
 /**
@@ -50,6 +53,7 @@ export function useStreamReader({
     onArtifactComplete,
     onTokenUsage,
     fetchArtifact,
+    onDocumentStart,
 }: UseStreamReaderOptions) {
     const { getArtifact, addArtifact, updateArtifact } = artifactContext;
 
@@ -84,12 +88,7 @@ export function useStreamReader({
                 );
             };
 
-            // Document event queue - processes document events sequentially
-            // This allows async operations (like fetching) without blocking other events
-            // TODO: Please refactor this
-            const documentQueue: DocumentEvent[] = [];
-            let isProcessingDocuments = false;
-
+            // Document event handler for sequential processing with async support
             const handleDocumentEvent = async (event: DocumentEvent) => {
                 const { type, payload } = event;
 
@@ -97,6 +96,9 @@ export function useStreamReader({
                     case 'document_start': {
                         const artifactId = payload.name;
                         const now = new Date().toISOString();
+
+                        // Notify that a document stream has started
+                        onDocumentStart?.();
 
                         if (payload.mode === 'create') {
                             streaming.streamingDocs.set(artifactId, {
@@ -267,22 +269,8 @@ export function useStreamReader({
                 }
             };
 
-            const processDocumentQueue = async () => {
-                if (isProcessingDocuments) return;
-                isProcessingDocuments = true;
-
-                while (documentQueue.length > 0) {
-                    const event = documentQueue.shift()!;
-                    await handleDocumentEvent(event);
-                }
-
-                isProcessingDocuments = false;
-            };
-
-            const queueDocumentEvent = (type: DocumentEvent['type'], payload: unknown) => {
-                documentQueue.push({ type, payload });
-                void processDocumentQueue();
-            };
+            // Queue for processing document events sequentially without blocking other events
+            const documentQueue = new AsyncEventQueue<DocumentEvent>(handleDocumentEvent);
 
             try {
                 while (true) {
@@ -477,7 +465,7 @@ export function useStreamReader({
                                 case 'document_delta':
                                 case 'document_edit':
                                 case 'document_complete':
-                                    queueDocumentEvent(event.type, event);
+                                    documentQueue.push({ type: event.type, payload: event });
                                     break;
 
                                 case 'status_update':
@@ -538,6 +526,7 @@ export function useStreamReader({
             onArtifactComplete,
             onTokenUsage,
             fetchArtifact,
+            onDocumentStart,
         ],
     );
 

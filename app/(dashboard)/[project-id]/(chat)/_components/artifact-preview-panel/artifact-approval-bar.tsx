@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { useApproveArtifactVersion, useRejectArtifactVersion } from '@/lib/api/client/hooks/use-artifacts';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 type ArtifactApprovalBarProps = {
     artifactKey: string;
@@ -13,6 +14,7 @@ type ArtifactApprovalBarProps = {
 
 export function ArtifactApprovalBar({ artifactKey, artifactVersion }: ArtifactApprovalBarProps) {
     const { updateArtifact } = useArtifactContext();
+    const { clearPendingChanges } = useChatContext();
 
     const params = useParams();
     const projectId = params?.['project-id'] as string;
@@ -25,6 +27,7 @@ export function ArtifactApprovalBar({ artifactKey, artifactVersion }: ArtifactAp
             const updated = await approve();
             if (updated) {
                 updateArtifact(artifactKey, updated, artifactVersion, { merge: false });
+                clearPendingChanges();
             }
         } catch (err) {
             console.error('Failed to approve:', err);
@@ -37,6 +40,7 @@ export function ArtifactApprovalBar({ artifactKey, artifactVersion }: ArtifactAp
             const updated = await reject('rejected');
             if (updated) {
                 updateArtifact(artifactKey, updated, artifactVersion, { merge: false });
+                clearPendingChanges();
             }
         } catch (err) {
             console.error('Failed to reject:', err);

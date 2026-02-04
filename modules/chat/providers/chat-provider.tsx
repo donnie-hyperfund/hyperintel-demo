@@ -35,8 +35,8 @@ export type ChatContextValue = {
     summarizeChat: () => void;
     /** Whether the chat has any artifacts (documents created) */
     hasArtifacts: boolean;
-    /** Whether any artifact has a pending proposal awaiting approval */
-    hasPendingProposal: boolean;
+    /** Set hasPendingChanges to false (call after approve/reject) */
+    clearPendingChanges: () => void;
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -84,6 +84,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         error: null,
         streamingMessageId: null,
         tokenUsage: null,
+        hasPendingChanges: false,
     });
 
     // Pagination state for infinite scroll
@@ -120,6 +121,14 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setState((prev) => ({ ...prev, tokenUsage: usage }));
     }, []);
 
+    const onDocumentStart = useCallback(() => {
+        setState((prev) => ({ ...prev, hasPendingChanges: true }));
+    }, []);
+
+    const clearPendingChanges = useCallback(() => {
+        setState((prev) => ({ ...prev, hasPendingChanges: false }));
+    }, []);
+
     const handleArtifactOpen = useCallback(
         (artifactId: string, version: number) => {
             openPanel({ panel: 'artifact-preview', artifactId, version });
@@ -152,6 +161,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         onArtifactComplete: revalidateArtifacts,
         onTokenUsage,
         fetchArtifact,
+        onDocumentStart,
     });
 
     /** Convert API message to internal Message format */
@@ -197,6 +207,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 messages: apiMessages.reverse(),
                 isLoading: false,
                 tokenUsage: chatData.token_usage ?? null,
+                hasPendingChanges: chatData.has_pending_changes ?? false,
             }));
             setPagination({
                 page: messagesData.pagination.page,
@@ -398,12 +409,10 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 stopGeneration,
                 setChatId,
                 summarizeChat,
+                clearPendingChanges,
 
-                // Computed values - check all versions for pending proposals
+                // Computed values
                 hasArtifacts: Object.keys(artifactContext.artifacts).length > 0,
-                hasPendingProposal: Object.values(artifactContext.artifacts).some((artifactVersions) =>
-                    Object.values(artifactVersions).some((artifact) => artifact.proposed_version?.status === 'proposed'),
-                ),
             }}
         >
             {children}

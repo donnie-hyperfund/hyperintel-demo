@@ -153,6 +153,8 @@ export const ChatDtoSchema = z.object({
     documents: z.array(ChatDocumentSummaryDtoSchema).optional(),
     metadata: z.record(z.unknown()).nullable().optional(),
     token_usage: TokenUsageSchema.nullable().optional(),
+    /** Whether the chat has any pending document changes awaiting approval */
+    has_pending_changes: z.boolean().optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),
 });
