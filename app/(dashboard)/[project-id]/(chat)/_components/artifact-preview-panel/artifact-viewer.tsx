@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import type { VersionStatus } from '@/lib/schema/artifact';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactHeader } from './artifact-header';
@@ -64,7 +65,12 @@ export const ArtifactViewer = ({
     const prevTitleRef = useRef<string | null>(null);
     const [isDiffVisible, setIsDiffVisible] = useState(false);
 
-    const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey;
+    const {
+        state: { messages },
+    } = useChatContext();
+
+    const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
+    const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
 
     const diffData = useMemo(() => {
