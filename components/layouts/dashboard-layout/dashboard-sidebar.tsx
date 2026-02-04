@@ -113,7 +113,7 @@ export function DashboardSidebar() {
                                     <CollapsibleContent>
                                         <SidebarMenuSub>
                                             {chats.map((chat, index) => {
-                                                const chatHref = `/${projectId}/chats/${chat.id}`;
+                                                const chatHref = `/${projectId}/${chat.id}`;
                                                 const label = `Phase ${index + 1}`;
                                                 return (
                                                     <SidebarMenuSubItem key={chat.id}>
@@ -136,15 +136,8 @@ export function DashboardSidebar() {
 
                             {navItems.map((item) => {
                                 const Icon = item.icon;
-                                const isProjectsPage = item.href === '/projects';
-                                const href = isProjectsPage
-                                    ? '/projects'
-                                    : projectId
-                                      ? `/${projectId}${item.href}`
-                                      : '#';
-                                const isActive = isProjectsPage
-                                    ? pathname === '/projects'
-                                    : pathname?.startsWith(`/${projectId}${item.href}`);
+                                const href = projectId ? `/${projectId}${item.href}` : '#';
+                                const isActive = pathname?.startsWith(`/${projectId}${item.href}`);
 
                                 return (
                                     <SidebarMenuItem key={item.label}>
