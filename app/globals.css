@@ -135,47 +135,47 @@
 }
 
 .prose-message :where(p):not(:where([class~="not-prose"] *)) {
-  margin-top: 0.75em;
-  margin-bottom: 0.125em;
+  margin-top: 0.55em;
+  margin-bottom: 0.1em;
 }
 
 .prose-message :where([class~="lead"]):not(:where([class~="not-prose"] *)) {
-  font-size: 1.125em;
+  font-size: 1.1em;
   line-height: 1.5;
-  margin-top: 0.75em;
-  margin-bottom: 0.125em;
+  margin-top: 0.55em;
+  margin-bottom: 0.1em;
 }
 
 .prose-message :where(h1):not(:where([class~="not-prose"] *)) {
   font-size: 1.5em;
   font-weight: 700;
   line-height: 1.25;
-  margin-top: 1em;
-  margin-bottom: 0.125em;
+  margin-top: 0.75em;
+  margin-bottom: 0.1em;
 }
 
 .prose-message :where(h2):not(:where([class~="not-prose"] *)) {
   font-size: 1.25em;
   font-weight: 700;
   line-height: 1.3;
-  margin-top: 1em;
-  margin-bottom: 0.125em;
+  margin-top: 0.75em;
+  margin-bottom: 0.1em;
 }
 
 .prose-message :where(h3):not(:where([class~="not-prose"] *)) {
   font-size: 1em;
   font-weight: 700;
   line-height: 1.4;
-  margin-top: 0.875em;
-  margin-bottom: 0.125em;
+  margin-top: 0.65em;
+  margin-bottom: 0.1em;
 }
 
 .prose-message :where(h4):not(:where([class~="not-prose"] *)) {
   font-size: 1em;
   font-weight: 700;
   line-height: 1.5;
-  margin-top: 0.75em;
-  margin-bottom: 0.125em;
+  margin-top: 0.55em;
+  margin-bottom: 0.1em;
 }
 
 .prose-message :where(strong):not(:where([class~="not-prose"] *)) {
@@ -194,21 +194,21 @@
 }
 
 .prose-message :where(ul):not(:where([class~="not-prose"] *)) {
-  margin-top: 0.5em;
-  margin-bottom: 0.125em;
+  margin-top: 0.4em;
+  margin-bottom: 0.1em;
   padding-left: 1.5em;
   list-style-type: disc;
 }
 
 .prose-message :where(ol):not(:where([class~="not-prose"] *)) {
-  margin-top: 0.5em;
-  margin-bottom: 0.125em;
+  margin-top: 0.4em;
+  margin-bottom: 0.1em;
   padding-left: 1.5em;
   list-style-type: decimal;
 }
 
 .prose-message :where(li):not(:where([class~="not-prose"] *)) {
-  margin-top: 0.25em;
+  margin-top: 0.2em;
   margin-bottom: 0;
   padding-left: 0.25em;
 }
@@ -218,8 +218,8 @@
 }
 
 .prose-message :where(blockquote):not(:where([class~="not-prose"] *)) {
-  margin-top: 0.75em;
-  margin-bottom: 0.125em;
+  margin-top: 0.55em;
+  margin-bottom: 0.1em;
   padding-left: 1em;
   border-left: 3px solid currentColor;
   opacity: 0.85;
@@ -227,8 +227,8 @@
 }
 
 .prose-message :where(pre):not(:where([class~="not-prose"] *)) {
-  margin-top: 0.75em;
-  margin-bottom: 0.25em;
+  margin-top: 0.55em;
+  margin-bottom: 0.2em;
   padding: 0.625em 0.875em;
   font-size: 0.875em;
   line-height: 1.6;
@@ -240,8 +240,8 @@
 }
 
 .prose-message :where(.prose-table-wrapper):not(:where([class~="not-prose"] *)) {
-  margin-top: 0.75em;
-  margin-bottom: 0.25em;
+  margin-top: 0.55em;
+  margin-bottom: 0.2em;
   overflow-x: auto;
   width: 100%;
 }
@@ -270,23 +270,23 @@
 }
 
 .prose-message :where(hr):not(:where([class~="not-prose"] *)) {
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
+  margin-top: 1.1em;
+  margin-bottom: 0.4em;
 }
 
 .prose-message :where(img):not(:where([class~="not-prose"] *)) {
-  margin-top: 0.75em;
-  margin-bottom: 0.25em;
+  margin-top: 0.55em;
+  margin-bottom: 0.2em;
 }
 
 .prose-message :where(figure):not(:where([class~="not-prose"] *)) {
-  margin-top: 0.75em;
-  margin-bottom: 0.25em;
+  margin-top: 0.55em;
+  margin-bottom: 0.2em;
 }
 
 .prose-message :where(figcaption):not(:where([class~="not-prose"] *)) {
   font-size: 0.875em;
-  margin-top: 0.375em;
+  margin-top: 0.3em;
 }
 
 /* prose-document: For document preview - default sizing, compact spacing */
@@ -456,5 +456,5 @@
 
 .prose-document :where(figcaption):not(:where([class~="not-prose"] *)) {
   font-size: 0.875em;
-  margin-top: 0.375em;
+  margin-top: 0.4em;
 }

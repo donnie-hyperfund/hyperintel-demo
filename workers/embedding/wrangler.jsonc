@@ -24,10 +24,11 @@
 		"enabled": true
 	},
 	"vars": {
-		"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
+		"CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuaHBybnRsLmFpJA",
 		"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 		"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
-		"LANGFUSE_ENVIRONMENT": "Production"
+		"LANGFUSE_ENVIRONMENT": "Production",
+		"CORS_ALLOWED_ORIGIN": "https://app.hprntl.ai"
 	},
 	"secrets_store_secrets": [
 		{

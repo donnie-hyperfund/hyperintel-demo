@@ -5,23 +5,31 @@
  * This design leverages sequential tool streaming for optimal UX.
  *
  * Flow:
- * 1. begin_document(mode, name, title?) → creates draft
- * 2. write_document(content) or edit_draft(search, replace) → modify draft
- * 3. finalize_document() → commits to database
+ * 1. begin_document(mode, name, title?) → creates editing draft (in-memory)
+ * 2. write_document(content) or patch_document(edits) → modify draft
+ * 3. finalize_document() → saves as proposed version (awaiting approval)
+ *
+ * Versioning:
+ * - finalize_document creates a "proposed" version (not immediately live)
+ * - User approves via UI → becomes "approved" (live)
+ * - If agent finalizes again before approval → old proposed becomes "superseded"
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
+import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import type { Ctx } from '../../context';
 import {
     applyEdits,
     countLines,
+    type DocumentInfo,
+    type DocumentListItem,
     type EditOperation,
     extractViewport,
     findDocumentByName,
     listDocuments as listDocumentsDb,
-    normalizeDocumentName,
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
@@ -41,6 +49,8 @@ export interface DocumentToolsContext {
     draftManager: DraftManager;
     /** Embedding queue adapter for async indexing (optional) */
     embeddingQueue?: EmbeddingQueueAdapter;
+    /** Version IDs created during this turn - will be linked to assistant message after persist */
+    createdVersionIds: string[];
 }
 
 // ============================================================================
@@ -50,16 +60,25 @@ export interface DocumentToolsContext {
 export const DocumentToolGroup: AgentToolGroup = {
     name: 'Document Management',
     slug: 'document_',
-    description: 'Tools for creating, reading, and editing documents in the project knowledge base.',
-    guidance: `For document creation/editing, use the multi-call pattern:
-1. begin_document(mode, name, title?) - Start draft
-2. write_document(content) - Add content (can call multiple times)
-3. patch_document(edits) - Precision line-based edits (optional)
-4. finalize_document() - Commit to database
+    description: 'Tools for creating, reading, and editing documents with version control.',
+    guidance: `## Workflow
+1. \`begin_document\` - Start editing (auto-loads best version to work from)
+2. \`write_document\` / \`patch_document\` - Make changes
+3. \`finalize_document\` - Save (MUST call or content is lost)
 
-You MUST call finalize_document when done or content will be lost.`,
+Avoid read/patch loops - read once, make all pending edits, then finalize.
+
+## Document Statuses
+- \`proposed\`: Saved, awaiting user approval
+- \`approved\`: Live version users see
+- \`rejected\`: User rejected with feedback - revise it
+- \`superseded\`: You saved a newer version before previous was approved
+
+## Approval
+\`finalize_document\` saves as "proposed". User approves via UI to make it live ("approved").
+If you finalize again before approval, old proposed becomes "superseded".`,
     behavioralGuidance:
-        'Document directives (::document[name]{...}) are automatically injected after finalize_document - never output them yourself.',
+        'Complete all pending edits before finalizing. Batch multiple edits into one patch_document call.',
     tools: [
         'begin_document',
         'write_document',
@@ -76,16 +95,16 @@ You MUST call finalize_document when done or content will be lost.`,
 
 const BeginDocumentParams = z.object({
     mode: z
-        .enum(['create', 'replace', 'edit'])
+        .enum(['create', 'edit'])
         .describe(
-            'Operation mode: "create" (fails if exists), "replace" (fails if not exists), "edit" (loads existing content)',
+            'Operation mode: "create" (new document, fails if exists), "edit" (modify existing, loads best version to edit)',
         ),
     name: z.string().min(1).describe('Document name (e.g., "analysis.md"). Extension auto-appended if missing.'),
-    title: z.string().optional().nullable().describe('Display title for the document (required for create/replace).'),
+    title: z.string().optional().nullable().describe('Display title for the document (required for create).'),
 });
 
 const WriteDocumentParams = z.object({
-    content: z.string().describe('Content to append to the current draft.'),
+    content: z.string().describe('Content to append to the current editing draft.'),
 });
 
 const PatchDocumentParams = z.object({
@@ -106,6 +125,10 @@ const FinalizeDocumentParams = z.object({});
 
 const ReadDocumentParams = z.object({
     name: z.string().min(1).describe('Document name to read.'),
+    version: z
+        .enum(['approved', 'proposed', 'latest'])
+        .default('latest')
+        .describe('Which version to read: "approved" (live), "proposed" (pending approval), "latest" (most recent).'),
     startLine: z.number().int().positive().optional().nullable().describe('First line to return (1-indexed).'),
     endLine: z.number().int().positive().optional().nullable().describe('Last line to return (inclusive).'),
 });
@@ -121,16 +144,18 @@ const ListDocumentsParams = z.object({
 export function createDocumentTools() {
     return [
         // ----------------------------------------------------------------
-        // begin_document - Start draft session
+        // begin_document - Start editing draft session
         // ----------------------------------------------------------------
         {
             name: 'begin_document' as const,
-            description: `Start a document draft session.
+            description: `Start a document editing draft session.
 
 Modes:
 - "create": Create new document (fails if exists)
-- "replace": Replace existing document (fails if not exists)  
-- "edit": Edit existing document (loads current content, fails if not exists)
+- "edit": Edit existing document - automatically loads the best version:
+  • If proposed version exists → loads it (continue your pending work)
+  • If rejected version exists → loads it with rejection reason (revise it)
+  • Otherwise → loads approved version (start new changes)
 
 After calling this, use write_document to add content or patch_document for precise edits.
 You MUST call finalize_document when done or content will be lost.`,
@@ -139,7 +164,7 @@ You MUST call finalize_document when done or content will be lost.`,
                 const { mode, name, title } = input;
                 const { em, projectId, draftManager } = ctx;
 
-                const normalizedName = normalizeDocumentName(name);
+                const normalizedName = normalizeArtifactKey(name);
 
                 // Check for existing document
                 const existing = await findDocumentByName(em, projectId, normalizedName);
@@ -147,24 +172,59 @@ You MUST call finalize_document when done or content will be lost.`,
                 // Validate based on mode
                 if (mode === 'create' && existing) {
                     return {
-                        error: `Document "${normalizedName}" already exists (v${existing.version}). Use mode="replace" to overwrite.`,
+                        error: `Document "${normalizedName}" already exists. Use mode="edit" to modify it.`,
                     };
                 }
-                if ((mode === 'replace' || mode === 'edit') && !existing) {
+                if (mode === 'edit' && !existing) {
                     return {
                         error: `Document "${normalizedName}" does not exist. Use mode="create" for new documents.`,
                     };
                 }
 
-                // Require title for create/replace
-                const docTitle = title || existing?.title || normalizedName;
-                if ((mode === 'create' || mode === 'replace') && !title) {
-                    // Auto-generate title from name if not provided
+                // Handle CREATE mode
+                if (mode === 'create') {
+                    const docTitle = title || normalizedName;
+                    try {
+                        const draft = draftManager.begin(projectId, normalizedName, docTitle, mode, '', undefined);
+                        return {
+                            status: 'editing',
+                            mode: 'create',
+                            name: normalizedName,
+                            title: draft.title,
+                            lines: 0,
+                            message: 'Draft started. Use write_document to add content, then finalize_document.',
+                        };
+                    } catch (err: any) {
+                        return { error: err.message };
+                    }
                 }
 
-                // Create draft
-                const initialContent = mode === 'edit' ? existing?.content || '' : '';
-                const previousVersion = existing?.version;
+                // Handle EDIT mode - load best version based on status
+                const docTitle = title || existing!.title;
+                let contentToLoad: string;
+                let loadedFrom: string;
+                let loadedVersion: number | null;
+                let rejectionReason: string | null = null;
+
+                if (existing!.proposedVersion !== null && existing!.proposedContent !== null) {
+                    // Continue editing proposed version
+                    contentToLoad = existing!.proposedContent;
+                    loadedFrom = 'proposed';
+                    loadedVersion = existing!.proposedVersion;
+                } else if (existing!.rejectedVersion !== null && existing!.rejectedContent !== null) {
+                    // Revise rejected version - load its content so agent can fix it
+                    contentToLoad = existing!.rejectedContent;
+                    loadedFrom = 'rejected';
+                    loadedVersion = existing!.rejectedVersion;
+                    rejectionReason = existing!.rejectionReason;
+                } else if (existing!.currentContent !== null) {
+                    // Edit from approved version
+                    contentToLoad = existing!.currentContent;
+                    loadedFrom = 'approved';
+                    loadedVersion = existing!.currentVersion;
+                } else {
+                    return { error: 'No version available to edit.' };
+                }
 
                 try {
                     const draft = draftManager.begin(
@@ -172,21 +232,26 @@ You MUST call finalize_document when done or content will be lost.`,
                         normalizedName,
                         docTitle,
                         mode,
-                        initialContent,
-                        previousVersion,
+                        contentToLoad,
+                        loadedVersion ?? undefined,
                     );
 
+                    const messages: Record<string, string> = {
+                        proposed: `Continuing proposed v${loadedVersion}. Make changes, then finalize_document.`,
+                        rejected: `Revising rejected v${loadedVersion}. Address feedback, then finalize_document.`,
+                        approved: `Editing from approved v${loadedVersion}. Make changes, then finalize_document.`,
+                    };
+
                     return {
-                        status: 'draft' as const,
-                        mode,
+                        status: 'editing',
+                        mode: 'edit',
                         name: normalizedName,
                         title: draft.title,
-                        pendingVersion: (previousVersion ?? 0) + 1,
+                        loadedFrom,
+                        loadedVersion,
                         lines: countLines(draft.content),
-                        message:
-                            mode === 'edit'
-                                ? `Loaded existing content (${countLines(draft.content)} lines). Use patch_document for changes, then finalize_document.`
-                                : `Draft started. Use write_document to add content, then finalize_document.`,
+                        message: messages[loadedFrom],
+                        ...(rejectionReason && { rejectionReason }),
                     };
                 } catch (err: any) {
                     return { error: err.message };
@@ -195,11 +260,11 @@ You MUST call finalize_document when done or content will be lost.`,
         },
 
         // ----------------------------------------------------------------
-        // write_document - Append to draft
+        // write_document - Append to editing draft
         // ----------------------------------------------------------------
         {
             name: 'write_document' as const,
-            description: `Append content to the current document draft.
+            description: `Append content to the current editing draft.
 
 Requires an active draft started with begin_document.
 Can be called multiple times to add content in chunks.
@@ -215,7 +280,7 @@ Content streams to the UI in real-time.`,
                     const totalLines = countLines(draft.content);
 
                     return {
-                        status: 'written' as const,
+                        status: 'written',
                         charsAdded: content.length,
                         linesAdded: addedLines,
                         totalLines,
@@ -231,11 +296,10 @@ Content streams to the UI in real-time.`,
         // ----------------------------------------------------------------
         {
             name: 'patch_document' as const,
-            description: `Make precise edits to the current draft using line ranges and exact content matching.
+            description: `Make precise edits to the current draft. Batch multiple edits into one call when possible.
 
-Requires an active draft started with begin_document.
-Each edit specifies a line range to search within, the exact content to find, and the replacement.
-Edits are applied atomically - all must succeed or none are applied.`,
+Each edit: line range + exact oldContent to find + newContent replacement.
+Edits are atomic - all succeed or none apply. No need to read_document between patches.`,
             parameters: PatchDocumentParams,
             executor: (input: z.infer<typeof PatchDocumentParams>, ctx: DocumentToolsContext) => {
                 const { edits } = input;
@@ -263,7 +327,7 @@ Edits are applied atomically - all must succeed or none are applied.`,
                     draftManager.setContent(result.newContent!);
 
                     return {
-                        status: 'edited' as const,
+                        status: 'edited',
                         editsApplied: edits.length,
                         linesNow: result.linesNow,
                     };
@@ -274,27 +338,34 @@ Edits are applied atomically - all must succeed or none are applied.`,
         },
 
         // ----------------------------------------------------------------
-        // finalize_document - Commit draft
+        // finalize_document - Save as proposed version
         // ----------------------------------------------------------------
         {
             name: 'finalize_document' as const,
-            description: `Commit the current draft to the database.
+            description: `Save the current editing draft as a proposed version.
 
 You MUST call this after begin_document or the content will be lost.
-Returns the final version number and line count.`,
+The version is saved with status "proposed" - it will NOT be live until a user approves it.
+If a proposed version already exists, it will be marked as "superseded".`,
             parameters: FinalizeDocumentParams,
-            executor: async (_input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext) => {
-                const { em, projectId, chatId, draftManager, embeddingQueue } = ctx;
+            executor: async (_input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
+                const { em, projectId, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
 
                 try {
-                    const draft = draftManager.finalize();
+                    const draft = draftManager.requireCurrent();
 
-                    // Persist to database
+                    // Persist to database as proposed
                     const result = await upsertDocument(em, projectId, chatId, draft.name, draft.title, draft.content);
 
-                    // Queue embedding job (async, non-blocking)
+                    // Track version for linking to assistant message later
+                    createdVersionIds.push(result.versionId);
+
+                    // Only clear draft after successful persist
+                    draftManager.discard();
+
+                    // Queue embedding job for the new version (fire-and-forget)
                     if (embeddingQueue) {
-                        embeddingQueue
+                        const embedPromise = embeddingQueue
                             .send({
                                 type: 'index_artifact_version',
                                 projectId,
@@ -302,20 +373,29 @@ Returns the final version number and line count.`,
                                 content: draft.content,
                                 documentName: draft.name,
                             })
-                            .catch((err) => {
-                                console.error('[finalize_document] Failed to queue embedding job:', err);
-                            });
+                            .catch((err) => console.error('[finalize_document] Embedding queue error:', err));
+
+                        rCtx?.eCtx?.waitUntil(embedPromise);
                     }
 
-                    return {
+                    const response: Record<string, unknown> = {
                         result: {
                             action: result.action,
                             name: draft.name,
                             version: result.version,
+                            status: 'proposed',
                             lines: result.lines,
                         },
-                        appendedOutput: `::document[${draft.name}]{version=${result.version} action=${result.action} lines=${result.lines}}`,
+                        appendedOutput: `::document[${draft.name}]{version=${result.version} status=proposed lines=${result.lines}}`,
+                        message: `Saved as proposed v${result.version}. Awaiting user approval to become live.`,
                     };
+
+                    if (result.supersededVersion) {
+                        response.supersededVersion = result.supersededVersion;
+                        response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded.`;
+                    }
+
+                    return response;
                 } catch (err: any) {
                     return { error: err.message };
                 }
@@ -329,30 +409,35 @@ Returns the final version number and line count.`,
             name: 'read_document' as const,
             description: `View document content with optional line range.
 
-If you have an active draft for this document, returns the draft content.
-Otherwise returns the committed version.
-Response includes mode: "draft" | "committed" to indicate which you're viewing.`,
+If you have an active editing draft for this document, returns the draft content.
+Otherwise returns the requested version from the database.
+
+Version options:
+- "approved": The live version (what users see)
+- "proposed": The pending version awaiting approval
+- "latest": The most recent version regardless of status (default)`,
             parameters: ReadDocumentParams,
             executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext) => {
-                const { name, startLine, endLine } = input;
+                const { name, version: versionMode, startLine, endLine } = input;
                 const { em, projectId, draftManager } = ctx;
 
-                const normalizedName = normalizeDocumentName(name);
+                const normalizedName = normalizeArtifactKey(name);
 
-                // Check for active draft first
+                // Check for active editing draft first
                 const draft = draftManager.getCurrent();
                 if (draft && draft.name === normalizedName) {
                     const viewport = extractViewport(draft.content, startLine ?? undefined, endLine ?? undefined);
                     return {
-                        mode: 'draft' as const,
+                        source: 'editing_draft',
                         name: normalizedName,
                         totalLines: viewport.totalLines,
                         viewport: { startLine: viewport.startLine, endLine: viewport.endLine },
                         content: viewport.content,
+                        message: 'Reading from your current editing session (not yet saved).',
                     };
                 }
 
-                // Check committed version
+                // Fetch from database
                 const doc = await findDocumentByName(em, projectId, normalizedName);
                 if (!doc) {
                     return {
@@ -360,24 +445,97 @@ Response includes mode: "draft" | "committed" to indicate which you're viewing.`
                     };
                 }
 
-                const viewport = extractViewport(doc.content, startLine ?? undefined, endLine ?? undefined);
-                return {
-                    mode: 'committed' as const,
+                // Determine which content to return based on version mode
+                let content: string | null = null;
+                let source: string;
+                let version: number | null = null;
+
+                switch (versionMode) {
+                    case 'approved':
+                        content = doc.currentContent;
+                        version = doc.currentVersion;
+                        source = 'approved';
+                        if (!content) {
+                            return {
+                                error: `No approved version exists for "${normalizedName}". Document may be pending first approval.`,
+                                hasProposed: doc.proposedVersion !== null,
+                                proposedVersion: doc.proposedVersion,
+                            };
+                        }
+                        break;
+
+                    case 'proposed':
+                        content = doc.proposedContent;
+                        version = doc.proposedVersion;
+                        source = 'proposed';
+                        if (!content) {
+                            return {
+                                error: `No proposed version exists for "${normalizedName}".`,
+                                hasApproved: doc.currentVersion !== null,
+                                approvedVersion: doc.currentVersion,
+                            };
+                        }
+                        break;
+
+                    case 'latest':
+                    default:
+                        // Prefer proposed > approved > rejected
+                        if (doc.proposedContent !== null) {
+                            content = doc.proposedContent;
+                            version = doc.proposedVersion;
+                            source = 'proposed';
+                        } else if (doc.currentContent !== null) {
+                            content = doc.currentContent;
+                            version = doc.currentVersion;
+                            source = 'approved';
+                        } else if (doc.rejectedContent !== null) {
+                            content = doc.rejectedContent;
+                            version = doc.rejectedVersion;
+                            source = 'rejected';
+                        } else {
+                            return { error: `No content available for "${normalizedName}".` };
+                        }
+                        break;
+                }
+
+                const viewport = extractViewport(content, startLine ?? undefined, endLine ?? undefined);
+
+                const response: Record<string, unknown> = {
+                    source,
                     name: normalizedName,
-                    version: doc.version,
+                    version,
+                    status: source,
                     totalLines: viewport.totalLines,
                     viewport: { startLine: viewport.startLine, endLine: viewport.endLine },
                     content: viewport.content,
                 };
+
+                // Add hints about other versions
+                if (source === 'approved' && doc.proposedVersion !== null) {
+                    response.hasProposed = true;
+                    response.proposedVersion = doc.proposedVersion;
+                }
+                if (source === 'proposed' && doc.currentVersion !== null) {
+                    response.hasApproved = true;
+                    response.approvedVersion = doc.currentVersion;
+                }
+
+                return response;
             },
         },
 
         // ----------------------------------------------------------------
-        // list_documents - Browse
+        // list_documents - Browse with status info
         // ----------------------------------------------------------------
         {
             name: 'list_documents' as const,
-            description: 'List all documents in the project knowledge base.',
+            description: `List all documents in the project with version status information.
+
+Shows for each document:
+- currentVersion: The approved (live) version number, or null if none approved yet
+- latestVersion: The most recent version number (any status)
+- latestStatus: Status of the latest version (proposed/approved/rejected/superseded)
+- hasProposed: Whether there's a proposed version awaiting approval`,
             parameters: ListDocumentsParams,
             executor: async (input: z.infer<typeof ListDocumentsParams>, ctx: DocumentToolsContext) => {
                 const { search } = input;
@@ -386,11 +544,14 @@ Response includes mode: "draft" | "committed" to indicate which you're viewing.`
                 const documents = await listDocumentsDb(em, projectId, search ? { search } : undefined);
 
                 return {
-                    documents: documents.map((d) => ({
+                    documents: documents.map((d: DocumentListItem) => ({
                         name: d.name,
                         title: d.title,
                         lines: d.lines,
-                        version: d.version,
+                        currentVersion: d.currentVersion,
+                        latestVersion: d.latestVersion,
+                        latestStatus: d.latestStatus,
+                        hasProposed: d.hasProposed,
                     })),
                 };
             },

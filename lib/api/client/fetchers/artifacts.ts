@@ -5,6 +5,10 @@ import type { PaginatedResponse, PaginationParams } from '../types';
 const ENDPOINTS = {
     root: (projectId: string) => `/api/projects/${projectId}/artifacts`,
     byId: (projectId: string, artifactId: string) => `/api/projects/${projectId}/artifacts/${artifactId}`,
+    approve: (projectId: string, artifactId: string, versionId: string) =>
+        `/api/projects/${projectId}/artifacts/${artifactId}/versions/${versionId}/approve`,
+    reject: (projectId: string, artifactId: string, versionId: string) =>
+        `/api/projects/${projectId}/artifacts/${artifactId}/versions/${versionId}/reject`,
 } as const;
 
 export const artifactKeys = {
@@ -32,8 +36,27 @@ export function createArtifactApi(getToken: TokenGetter) {
             return data;
         },
 
-        getByKey: async (projectId: string, key: string) => {
-            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.root(projectId), { key }));
+        getByKey: async (projectId: string, key: string, version?: number) => {
+            const params: Record<string, string | number> = { key };
+            if (version !== undefined) {
+                params.version = version;
+            }
+            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.root(projectId), params));
+            return data;
+        },
+
+        approveVersion: async (projectId: string, artifactId: string, versionId: string) => {
+            const { data } = await axios.post<{ success: true; version: number; status: 'approved' }>(
+                ENDPOINTS.approve(projectId, artifactId, versionId),
+            );
+            return data;
+        },
+
+        rejectVersion: async (projectId: string, artifactId: string, versionId: string, reason: string) => {
+            const { data } = await axios.post<{ success: true; version: number; status: 'rejected' }>(
+                ENDPOINTS.reject(projectId, artifactId, versionId),
+                { reason },
+            );
             return data;
         },
     };

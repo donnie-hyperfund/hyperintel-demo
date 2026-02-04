@@ -13,11 +13,13 @@ class CustomUnderscoreNamingStrategy extends UnderscoreNamingStrategy {
             tableName = tableName.substring(tableName.indexOf('.') + 1);
         }
         if (type === 'foreign') {
-            return `${tableName}_fk`;
+            return `${tableName}_${columns.join('_')}_fk`;
         }
         return super.indexName(tableName, columns, type);
     }
 }
+
+const ssl = (process.env.DATABASE_USE_SSL ?? 'true') === 'true';
 
 const filteredEntities = Object.entries(entities)
     .filter(([name, v]) => v && name.endsWith('Entity'))
@@ -30,7 +32,7 @@ export const config: Options = {
     namingStrategy: CustomUnderscoreNamingStrategy,
     driver: PostgreSqlDriver,
     driverOptions: {
-        connection: { ssl: true },
+        connection: { ssl },
     },
 };
 

@@ -133,6 +133,13 @@ async function streamInternal(
             ...(m.blocks && { blocks: m.blocks }),
         }));
 
+        // Anthropic requires conversation to end with user message for model to respond.
+        // Without this, if chat ends with assistant message, model may return empty/minimal content.
+        historyMessages.push({
+            role: 'user' as const,
+            content: 'Please provide a comprehensive summary of this conversation.',
+        });
+
         const inferenceParams = options.overrideInference ?? {
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.SONNET },
@@ -145,11 +152,10 @@ async function streamInternal(
                 ...inferenceParams,
                 instructions,
                 context: historyMessages,
-                countReasoningAsContent: false,
+                countReasoningAsContent: true,
                 contentThreshold: 5,
             },
             [],
-            { config: { maxToolCalls: 0 } },
         );
 
         let summaryContent = '';

@@ -35,6 +35,8 @@ export type ChatContextValue = {
     summarizeChat: () => void;
     /** Whether the chat has any artifacts (documents created) */
     hasArtifacts: boolean;
+    /** Set hasPendingChanges to false (call after approve/reject) */
+    clearPendingChanges: () => void;
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -82,6 +84,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         error: null,
         streamingMessageId: null,
         tokenUsage: null,
+        hasPendingChanges: false,
     });
 
     // Pagination state for infinite scroll
@@ -118,11 +121,35 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setState((prev) => ({ ...prev, tokenUsage: usage }));
     }, []);
 
+    const onDocumentStart = useCallback(() => {
+        setState((prev) => ({ ...prev, hasPendingChanges: true }));
+    }, []);
+
+    const clearPendingChanges = useCallback(() => {
+        setState((prev) => ({ ...prev, hasPendingChanges: false }));
+    }, []);
+
     const handleArtifactOpen = useCallback(
-        (artifactId: string) => {
-            openPanel({ panel: 'artifact-preview', artifactId });
+        (artifactId: string, version: number) => {
+            openPanel({ panel: 'artifact-preview', artifactId, version });
         },
         [openPanel],
+    );
+
+    const fetchArtifact = useCallback(
+        async (artifactKey: string, version: number) => {
+            try {
+                const artifact = await api.artifacts.getByKey(projectId, artifactKey, version);
+                if (artifact) {
+                    artifactContext.addArtifact(artifact, version);
+                }
+                return artifact;
+            } catch (error) {
+                console.error('Failed to fetch artifact:', error);
+                return null;
+            }
+        },
+        [api.artifacts, projectId, artifactContext],
     );
 
     // Use the stream reader hook for SSE processing
@@ -133,6 +160,8 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         onArtifactOpen: handleArtifactOpen,
         onArtifactComplete: revalidateArtifacts,
         onTokenUsage,
+        fetchArtifact,
+        onDocumentStart,
     });
 
     /** Convert API message to internal Message format */
@@ -165,16 +194,26 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setState((prev) => ({ ...prev, isLoading: true }));
 
         try {
-            const data = await api.messages.list(projectId, chatId, { page: 1 });
-            // API returns DESC order (newest first), reverse for display (newest at bottom)
-            const apiMessages: Message[] = data.data?.map(mapApiMessage) || [];
+            const [messagesData, chatData] = await Promise.all([
+                api.messages.list(projectId, chatId, { page: 1 }),
+                api.chats.get(projectId, chatId),
+            ]);
 
-            setState((prev) => ({ ...prev, messages: apiMessages.reverse(), isLoading: false }));
+            // API returns DESC order (newest first), reverse for display (newest at bottom)
+            const apiMessages: Message[] = messagesData.data?.map(mapApiMessage) || [];
+
+            setState((prev) => ({
+                ...prev,
+                messages: apiMessages.reverse(),
+                isLoading: false,
+                tokenUsage: chatData.token_usage ?? null,
+                hasPendingChanges: chatData.has_pending_changes ?? false,
+            }));
             setPagination({
-                page: data.pagination.page,
-                totalPages: data.pagination.totalPages,
+                page: messagesData.pagination.page,
+                totalPages: messagesData.pagination.totalPages,
                 isLoadingMore: false,
-                hasMore: data.pagination.page < data.pagination.totalPages,
+                hasMore: messagesData.pagination.page < messagesData.pagination.totalPages,
             });
         } catch (error) {
             console.error('Error loading messages:', error);
@@ -370,6 +409,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 stopGeneration,
                 setChatId,
                 summarizeChat,
+                clearPendingChanges,
 
                 // Computed values
                 hasArtifacts: Object.keys(artifactContext.artifacts).length > 0,

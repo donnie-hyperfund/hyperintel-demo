@@ -3,19 +3,35 @@
 import { FileText, Loader2 } from 'lucide-react';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { getArtifactContent, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
-export default function ArtifactPreviewPanel() {
-    const { panelState, closePanel } = useActivePanelContext();
-    const { artifacts } = useArtifactContext();
+type ArtifactPreviewPanelProps = {
+    version: number;
+    artifactId: string;
+};
 
-    const artifactId = panelState?.panel === 'artifact-preview' ? panelState.artifactId : null;
-    const currentArtifact = artifactId ? (artifacts[artifactId] ?? null) : null;
+export const ArtifactPreviewPanel = ({ version, artifactId }: ArtifactPreviewPanelProps) => {
+    const { closePanel } = useActivePanelContext();
+    const { getArtifact } = useArtifactContext();
 
+    const currentArtifact = artifactId && version ? getArtifact(artifactId, version) : null;
+
+    const updatedAt = currentArtifact?.proposed_version?.updated_at
+        ? new Date(currentArtifact?.proposed_version?.updated_at)
+        : undefined;
     const isLoading = currentArtifact?.isLoading;
     const isStreaming = currentArtifact?.isStreaming;
     const isUpdating = currentArtifact?.isUpdating;
-    const showSkeleton = (isLoading || isStreaming) && !currentArtifact?.content;
+    const content = currentArtifact ? getArtifactContent(currentArtifact) : '';
+    const activeVersion = currentArtifact ? getArtifactVersion(currentArtifact) : undefined;
+    const showSkeleton = (isLoading || isStreaming) && !content;
+
+    // Get previous content for diff comparison (current_version when viewing proposed)
+    const previousContent =
+        currentArtifact?.proposed_version && currentArtifact?.current_version
+            ? currentArtifact.current_version.content
+            : undefined;
 
     if (showSkeleton) {
         return (
@@ -52,11 +68,16 @@ export default function ArtifactPreviewPanel() {
         <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
             <ArtifactViewer
                 title={currentArtifact.title}
-                content={currentArtifact.content}
+                content={content}
+                previousContent={previousContent}
+                version={version}
+                status={activeVersion?.status}
+                artifactKey={currentArtifact.key}
+                updatedAt={updatedAt}
                 onCloseAction={closePanel}
                 isStreaming={!!isStreaming}
                 isUpdating={!!isUpdating}
             />
         </div>
     );
-}
+};
