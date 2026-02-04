@@ -113,7 +113,7 @@ export function DashboardSidebar() {
                                     <CollapsibleContent>
                                         <SidebarMenuSub>
                                             {chats.map((chat, index) => {
-                                                const chatHref = `/${projectId}/${chat.id}`;
+                                                const chatHref = `/${projectId}/chats/${chat.id}`;
                                                 const label = `Phase ${index + 1}`;
                                                 return (
                                                     <SidebarMenuSubItem key={chat.id}>
