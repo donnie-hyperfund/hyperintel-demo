@@ -12,7 +12,11 @@ import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 import { ProjectItem, ProjectItemSkeleton } from './project-item';
 
-export const ProjectList = () => {
+type ProjectListProps = {
+    currentProjectId: string;
+};
+
+export const ProjectList = ({ currentProjectId }: ProjectListProps) => {
     const router = useRouter();
     const { user } = useUser();
     const { data, error, isLoading } = useFetchProjects();
@@ -75,7 +79,12 @@ export const ProjectList = () => {
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
                 {projects.map((project) => (
-                    <ProjectItem key={project.id} project={project} onClick={() => handleProjectClick(project)} />
+                    <ProjectItem
+                        key={project.id}
+                        project={project}
+                        isSelected={project.id === currentProjectId}
+                        onClick={() => handleProjectClick(project)}
+                    />
                 ))}
             </div>
         </>
