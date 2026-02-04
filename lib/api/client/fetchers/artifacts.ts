@@ -49,7 +49,7 @@ export function createArtifactApi(getToken: TokenGetter) {
             const { data } = await axios.post<{ success: true; version: number; status: 'approved' }>(
                 ENDPOINTS.approve(projectId, artifactId, versionId),
                 undefined,
-                { timeout: 60000 },
+                { timeout: 1200000 },
             );
             return data;
         },
@@ -58,7 +58,7 @@ export function createArtifactApi(getToken: TokenGetter) {
             const { data } = await axios.post<{ success: true; version: number; status: 'rejected' }>(
                 ENDPOINTS.reject(projectId, artifactId, versionId),
                 { reason },
-                { timeout: 60000 },
+                { timeout: 1200000 },
             );
             return data;
         },
