@@ -41,6 +41,13 @@ export function DashboardSidebar() {
 
     const isPhasesActive = pathname?.startsWith(`/${projectId}/chats`) || pathname === `/${projectId}`;
 
+    const handleNewPhase = (e: React.MouseEvent) => {
+        e.preventDefault();
+        if (projectId) {
+            window.location.href = `/${projectId}`;
+        }
+    };
+
     return (
         <Sidebar collapsible="icon" className="border-r border-neutral-800">
             <SidebarHeader
@@ -73,7 +80,7 @@ export function DashboardSidebar() {
                                     tooltip={isCollapsed ? 'New Phase' : undefined}
                                     className="px-4"
                                 >
-                                    <Link href={projectId ? `/${projectId}` : '#'}>
+                                    <Link href={projectId ? `/${projectId}` : '#'} onClick={handleNewPhase}>
                                         <div className="w-4 h-4 flex items-center justify-center overflow-visible">
                                             <div className="flex items-center justify-center size-6 rounded-full bg-green-500 shrink-0">
                                                 <Plus className="size-4 text-neutral-900" />

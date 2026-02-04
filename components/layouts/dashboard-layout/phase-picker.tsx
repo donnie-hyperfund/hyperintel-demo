@@ -18,6 +18,12 @@ export function PhasePicker({ projectId, chats, currentChatId, phaseName }: Phas
     const [open, setOpen] = useState(false);
     const isNewChat = !currentChatId;
 
+    const handleNewPhase = (e: React.MouseEvent) => {
+        e.preventDefault();
+        setOpen(false);
+        window.location.href = `/${projectId}`;
+    };
+
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
@@ -61,7 +67,7 @@ export function PhasePicker({ projectId, chats, currentChatId, phaseName }: Phas
                 <div className="border-t border-border sticky bottom-0 bg-popover">
                     <Link
                         href={`/${projectId}`}
-                        onClick={() => setOpen(false)}
+                        onClick={handleNewPhase}
                         className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
                         <Plus className="size-3.5" />
