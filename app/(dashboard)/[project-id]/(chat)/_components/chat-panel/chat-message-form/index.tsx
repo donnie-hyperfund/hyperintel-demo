@@ -77,7 +77,8 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
 
     return (
         <div ref={ref} className={className}>
-            <NextStagePill />
+            {/* TODO: Add back when summarizer is implemented */}
+            {/* <NextStagePill /> */}
 
             <AnimatePresence>
                 <form onSubmit={handleSubmit(onFormSubmit)} className="relative flex items-end justify-center px-4">
