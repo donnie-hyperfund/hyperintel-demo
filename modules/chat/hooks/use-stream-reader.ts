@@ -97,8 +97,6 @@ export function useStreamReader({
                         const artifactId = payload.name;
                         const now = new Date().toISOString();
 
-                        console.log('document_start', event, payload);
-
                         // Notify that a document stream has started
                         onDocumentStart?.();
 
@@ -209,8 +207,6 @@ export function useStreamReader({
                     case 'document_edit': {
                         const doc = streaming.streamingDocs.get(payload.name);
 
-                        console.log(event, payload);
-
                         if (doc && payload.edits) {
                             let content = doc.content;
                             for (const edit of payload.edits) {
@@ -227,8 +223,6 @@ export function useStreamReader({
                                 content = newLines.join('\n');
                             }
                             doc.content = content;
-
-                            console.log('doc.content', doc.content);
 
                             updateArtifact(
                                 doc.artifactId,
