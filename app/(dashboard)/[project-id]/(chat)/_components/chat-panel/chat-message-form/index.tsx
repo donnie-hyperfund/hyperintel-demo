@@ -3,14 +3,13 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Send } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { forwardRef, useCallback, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
-import { NextStagePill } from './next-stage-pill';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 
 type ChatMessageFormProps = {
