@@ -33,6 +33,7 @@ import {
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
+import { shouldGenerateAiContent } from './document-classifier';
 
 // ============================================================================
 // TYPES
@@ -76,9 +77,12 @@ Avoid read/patch loops - read once, make all pending edits, then finalize.
 
 ## Approval
 \`finalize_document\` saves as "proposed". User approves via UI to make it live ("approved").
-If you finalize again before approval, old proposed becomes "superseded".`,
+If you finalize again before approval, old proposed becomes "superseded".
+
+## Important
+\`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.`,
     behavioralGuidance:
-        'Complete all pending edits before finalizing. Batch multiple edits into one patch_document call.',
+        'Complete all pending edits before finalizing. Batch multiple edits into one patch_document call. Do NOT include meta-labels like "AI Readable Specification", "Machine Readable Format", or similar markers in documents - write clean, professional content that reads naturally.',
     tools: [
         'begin_document',
         'write_document',
@@ -86,6 +90,7 @@ If you finalize again before approval, old proposed becomes "superseded".`,
         'finalize_document',
         'read_document',
         'list_documents',
+        'search_knowledge',
     ],
 };
 
@@ -365,6 +370,16 @@ If a proposed version already exists, it will be marked as "superseded".`,
 
                     // Queue embedding job for the new version (fire-and-forget)
                     if (embeddingQueue) {
+                        // Classify document to determine if AI-readable content should be generated
+                        const generateAiContent = rCtx
+                            ? await shouldGenerateAiContent(rCtx, draft.name, draft.title, draft.content)
+                            : true; // Default to true if no context
+
+                        console.log('[finalize_document] AI content classification:', {
+                            documentName: draft.name,
+                            generateAiContent,
+                        });
+
                         const embedPromise = embeddingQueue
                             .send({
                                 type: 'index_artifact_version',
@@ -372,6 +387,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                                 versionId: result.versionId,
                                 content: draft.content,
                                 documentName: draft.name,
+                                is_ai_content: generateAiContent,
                             })
                             .catch((err) => console.error('[finalize_document] Embedding queue error:', err));
 
