@@ -12,7 +12,6 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
-import { getActiveVersion } from '../types';
 
 export type ChatContextValue = {
     state: ChatState;
@@ -36,8 +35,8 @@ export type ChatContextValue = {
     summarizeChat: () => void;
     /** Whether the chat has any artifacts (documents created) */
     hasArtifacts: boolean;
-    /** Whether any artifact has a pending proposal awaiting approval */
-    hasPendingProposal: boolean;
+    /** Set hasPendingChanges to false (call after approve/reject) */
+    clearPendingChanges: () => void;
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -85,6 +84,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         error: null,
         streamingMessageId: null,
         tokenUsage: null,
+        hasPendingChanges: false,
     });
 
     // Pagination state for infinite scroll
@@ -121,11 +121,35 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setState((prev) => ({ ...prev, tokenUsage: usage }));
     }, []);
 
+    const onDocumentStart = useCallback(() => {
+        setState((prev) => ({ ...prev, hasPendingChanges: true }));
+    }, []);
+
+    const clearPendingChanges = useCallback(() => {
+        setState((prev) => ({ ...prev, hasPendingChanges: false }));
+    }, []);
+
     const handleArtifactOpen = useCallback(
-        (artifactId: string) => {
-            openPanel({ panel: 'artifact-preview', artifactId });
+        (artifactId: string, version: number) => {
+            openPanel({ panel: 'artifact-preview', artifactId, version });
         },
         [openPanel],
+    );
+
+    const fetchArtifact = useCallback(
+        async (artifactKey: string, version: number) => {
+            try {
+                const artifact = await api.artifacts.getByKey(projectId, artifactKey, version);
+                if (artifact) {
+                    artifactContext.addArtifact(artifact, version);
+                }
+                return artifact;
+            } catch (error) {
+                console.error('Failed to fetch artifact:', error);
+                return null;
+            }
+        },
+        [api.artifacts, projectId, artifactContext],
     );
 
     // Use the stream reader hook for SSE processing
@@ -136,6 +160,8 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         onArtifactOpen: handleArtifactOpen,
         onArtifactComplete: revalidateArtifacts,
         onTokenUsage,
+        fetchArtifact,
+        onDocumentStart,
     });
 
     /** Convert API message to internal Message format */
@@ -181,6 +207,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 messages: apiMessages.reverse(),
                 isLoading: false,
                 tokenUsage: chatData.token_usage ?? null,
+                hasPendingChanges: chatData.has_pending_changes ?? false,
             }));
             setPagination({
                 page: messagesData.pagination.page,
@@ -382,10 +409,10 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 stopGeneration,
                 setChatId,
                 summarizeChat,
+                clearPendingChanges,
 
                 // Computed values
                 hasArtifacts: Object.keys(artifactContext.artifacts).length > 0,
-                hasPendingProposal: Object.values(artifactContext.artifacts).some((a) => getActiveVersion(a)?.status === 'proposed'),
             }}
         >
             {children}

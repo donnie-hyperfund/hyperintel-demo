@@ -1,10 +1,11 @@
 import { sql, wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { type ChatDto } from '@/lib/schema/message';
+import { type ChatDocumentSummaryDto, type ChatDto } from '@/lib/schema/message';
 import { CHAT_ERRORS } from '../errors';
 
 async function handleGetChat(
@@ -44,7 +45,42 @@ async function handleGetChat(
         chat.message_count = Number(chat.message_count);
     }
 
-    const dto: ChatDto = wrap(chat).toJSON() as ChatDto;
+    // Find all artifacts belonging to this chat
+    const artifacts = await em.find(
+        ArtifactEntity,
+        { chat: chatId },
+        { populate: ['current_version', 'versions'] },
+    );
+
+    // Build document summaries
+    const documents: ChatDocumentSummaryDto[] = artifacts.map((artifact) => {
+        const currentVersion = artifact.current_version;
+        // Get the newest version number from all versions
+        const newestVersion = artifact.versions.getItems().reduce((max, v) => Math.max(max, v.version), 0);
+        // Get the status of the newest version
+        const newestVersionEntity = artifact.versions.getItems().find((v) => v.version === newestVersion);
+        return {
+            id: artifact.id,
+            key: artifact.key,
+            title: artifact.title,
+            current_version: currentVersion?.version ?? null,
+            newest_version: newestVersion,
+            status: newestVersionEntity?.status ?? 'approved',
+            created_at: newestVersionEntity?.created_at ?? artifact.created_at,
+            updated_at: artifact.updated_at,
+        };
+    });
+
+    // Compute has_pending_changes - true if any version across all artifacts is in 'proposed' status
+    const hasPendingChanges = artifacts.some((artifact) =>
+        artifact.versions.getItems().some((v) => v.status === 'proposed'),
+    );
+
+    const dto: ChatDto = {
+        ...(wrap(chat).toJSON() as ChatDto),
+        documents,
+        has_pending_changes: hasPendingChanges,
+    };
     return NextResponse.json(dto);
 }
 

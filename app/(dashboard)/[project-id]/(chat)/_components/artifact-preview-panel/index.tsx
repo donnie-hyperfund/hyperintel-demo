@@ -3,22 +3,28 @@
 import { FileText, Loader2 } from 'lucide-react';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { getActiveVersion, getArtifactContent } from '@/modules/chat/types';
+import { getArtifactContent, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
-export default function ArtifactPreviewPanel() {
-    const { panelState, closePanel } = useActivePanelContext();
-    const { artifacts } = useArtifactContext();
+type ArtifactPreviewPanelProps = {
+    version: number;
+    artifactId: string;
+};
 
-    const artifactId = panelState?.panel === 'artifact-preview' ? panelState.artifactId : null;
-    const currentArtifact = artifactId ? (artifacts[artifactId] ?? null) : null;
+export const ArtifactPreviewPanel = ({ version, artifactId }: ArtifactPreviewPanelProps) => {
+    const { closePanel } = useActivePanelContext();
+    const { getArtifact } = useArtifactContext();
 
-    const updatedAt = currentArtifact?.updated_at ? new Date(currentArtifact.updated_at) : undefined;
+    const currentArtifact = artifactId && version ? getArtifact(artifactId, version) : null;
+
+    const updatedAt = currentArtifact?.proposed_version?.updated_at
+        ? new Date(currentArtifact?.proposed_version?.updated_at)
+        : undefined;
     const isLoading = currentArtifact?.isLoading;
     const isStreaming = currentArtifact?.isStreaming;
     const isUpdating = currentArtifact?.isUpdating;
     const content = currentArtifact ? getArtifactContent(currentArtifact) : '';
-    const activeVersion = currentArtifact ? getActiveVersion(currentArtifact) : undefined;
+    const activeVersion = currentArtifact ? getArtifactVersion(currentArtifact) : undefined;
     const showSkeleton = (isLoading || isStreaming) && !content;
 
     // Get previous content for diff comparison (current_version when viewing proposed)
@@ -26,8 +32,6 @@ export default function ArtifactPreviewPanel() {
         currentArtifact?.proposed_version && currentArtifact?.current_version
             ? currentArtifact.current_version.content
             : undefined;
-
-    console.log('currentArtifact', currentArtifact, artifacts);
 
     if (showSkeleton) {
         return (
@@ -66,7 +70,7 @@ export default function ArtifactPreviewPanel() {
                 title={currentArtifact.title}
                 content={content}
                 previousContent={previousContent}
-                version={activeVersion?.version}
+                version={version}
                 status={activeVersion?.status}
                 artifactKey={currentArtifact.key}
                 updatedAt={updatedAt}
@@ -76,4 +80,4 @@ export default function ArtifactPreviewPanel() {
             />
         </div>
     );
-}
+};

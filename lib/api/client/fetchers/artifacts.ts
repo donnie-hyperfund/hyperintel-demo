@@ -36,8 +36,12 @@ export function createArtifactApi(getToken: TokenGetter) {
             return data;
         },
 
-        getByKey: async (projectId: string, key: string) => {
-            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.root(projectId), { key }));
+        getByKey: async (projectId: string, key: string, version?: number) => {
+            const params: Record<string, string | number> = { key };
+            if (version !== undefined) {
+                params.version = version;
+            }
+            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.root(projectId), params));
             return data;
         },
 

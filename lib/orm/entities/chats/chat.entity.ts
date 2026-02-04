@@ -28,6 +28,9 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'number', persist: false })
     message_count?: number;
 
+    @Property({ type: 'boolean', persist: false })
+    has_pending_changes?: boolean;
+
     @Property({ type: 'text', persist: false })
     first_message_content?: Nullable<string>;
 }

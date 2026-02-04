@@ -7,11 +7,12 @@ import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapt
 import { getLangfusePrompt, getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
 import { Ctx } from './context';
-import { createDocumentTools, DocumentToolGroup, DraftManager, type DocumentToolsContext } from './tools/documents';
+import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
@@ -133,6 +134,19 @@ async function compileTemplate(template: string, params?: Record<string, unknown
 
 const USE_SHORT_PROMPTS = false;
 const DEFAULT_LOCAL_PROMPTS_PATH = 'zlocal/prompts';
+
+/**
+ * Parse LOCAL_PROMPT_LOCATION env var.
+ * - undefined/empty → null (use Langfuse)
+ * - "true" → true (use default local path)
+ * - other string → that string (use as custom path)
+ */
+function parseLocalPromptEnv(): true | string | null {
+    const envValue = process?.env?.LOCAL_PROMPT_LOCATION;
+    if (!envValue) return null;
+    if (envValue === 'true') return true;
+    return envValue;
+}
 
 /** Convert Langfuse slug to local filename (strips folder prefix, adds .md) */
 function slugToLocalFile(slug: string): string {
@@ -257,6 +271,9 @@ async function streamInternal(
             authSecret: process.env.AUTH_SECRET,
         });
 
+        // Track version IDs created during this turn - will be linked to assistant message after persist
+        const createdVersionIds: string[] = [];
+
         // Create combined agent context for all tool types
         const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
             // Prompt tools context
@@ -268,13 +285,15 @@ async function streamInternal(
             draftManager: new DraftManager(),
             // Embedding queue adapter for async indexing
             embeddingQueue,
+            createdVersionIds,
         };
 
-        // Resolve local prompts path from options
-        const localPath = options.useLocalPrompts
-            ? options.useLocalPrompts === true
+        // Resolve local prompts path from options, falling back to env var
+        const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
+        const localPath = localPromptsSetting
+            ? localPromptsSetting === true
                 ? DEFAULT_LOCAL_PROMPTS_PATH
-                : options.useLocalPrompts
+                : localPromptsSetting
             : null;
 
         // Get initial system prompt
@@ -340,17 +359,17 @@ async function streamInternal(
 
         for await (const event of stream) {
             const eventTime = Date.now();
-            console.log(
-                `[STREAM] ${eventTime} event: ${event.type}`,
-                event.type === 'tool_call_delta' ? `delta len=${event.delta?.length}` : '',
-            );
+            //console.log(
+            //    `[STREAM] ${eventTime} event: ${event.type}`,
+            //    event.type === 'tool_call_delta' ? `delta len=${event.delta?.length}` : '',
+            //);
 
             // Let document handler process the event
             await docEvents.handle(event);
 
             const afterHandle = Date.now();
             if (afterHandle - eventTime > 10) {
-                console.log(`[STREAM] ${afterHandle} handle took ${afterHandle - eventTime}ms for ${event.type}`);
+                //console.log(`[STREAM] ${afterHandle} handle took ${afterHandle - eventTime}ms for ${event.type}`);
             }
 
             switch (event.type) {
@@ -394,8 +413,9 @@ async function streamInternal(
                     // Save assistant reply with structured data
                     const streamLog = event.streamLog;
                     const assistantContent = streamLog.fullContent ?? '';
+                    let assistantMsg: ChatMessageEntity | null = null;
                     if (assistantContent || streamLog.blocks.length > 0) {
-                        const assistantMsg = em!.create(ChatMessageEntity, {
+                        assistantMsg = em!.create(ChatMessageEntity, {
                             chat: chatId,
                             role: 'assistant',
                             content: assistantContent,
@@ -403,6 +423,15 @@ async function streamInternal(
                             blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
                         });
                         em!.persist(assistantMsg);
+                    }
+
+                    // Link created document versions to the assistant message
+                    if (assistantMsg && createdVersionIds.length > 0) {
+                        await em!
+                            .createQueryBuilder(ArtifactVersionEntity)
+                            .update({ chat_message: assistantMsg.id })
+                            .where({ id: { $in: createdVersionIds } })
+                            .execute();
                     }
 
                     // Calculate token usage estimates
@@ -508,7 +537,7 @@ async function streamInternal(
                         blockId: event.blockId,
                         parentTextBlockId: event.parentTextBlockId,
                         startIndex: event.startIndex,
-                        endIndex: event.endIndex
+                        endIndex: event.endIndex,
                     });
                     break;
 

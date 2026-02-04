@@ -7,8 +7,14 @@ export const ListArtifactsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),
     key: z.string().optional(),
+    version: z.coerce.number().int().positive().optional(),
 });
 export type ListArtifactsQueryDto = z.infer<typeof ListArtifactsQuerySchema>;
+
+export const GetArtifactQuerySchema = z.object({
+    version: z.coerce.number().int().positive().optional(),
+});
+export type GetArtifactQueryDto = z.infer<typeof GetArtifactQuerySchema>;
 
 export const ArtifactVersionDtoSchema = z.object({
     id: z.string().uuid(),
@@ -32,6 +38,7 @@ export const ArtifactDtoSchema = z.object({
     project: z.union([z.string().uuid(), z.object({}).passthrough()]),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
+    loaded_version: ArtifactVersionDtoSchema.optional(),
     metadata: z.record(z.unknown()).nullable().optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),

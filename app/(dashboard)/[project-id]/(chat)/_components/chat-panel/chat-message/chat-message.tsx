@@ -12,14 +12,13 @@ type ChatMessageProps = {
     renderMarkdown?: boolean;
 };
 
-const documentDirective: DirectiveHandler = ({ type, name, label, attributes, children }) => {
+const documentDirective: DirectiveHandler = ({ type, label, attributes, children }) => {
     if (type === 'container') {
         return (
             <div>
                 <ArtifactIndicator
                     documentName={label}
                     documentVersion={attributes.version}
-                    documentAction={attributes.action}
                 />
                 {children}
             </div>
@@ -30,7 +29,6 @@ const documentDirective: DirectiveHandler = ({ type, name, label, attributes, ch
         <ArtifactIndicator
             documentName={label}
             documentVersion={attributes.version}
-            documentAction={attributes.action}
         />
     );
 };
