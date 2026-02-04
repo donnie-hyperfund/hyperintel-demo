@@ -19,6 +19,8 @@ class CustomUnderscoreNamingStrategy extends UnderscoreNamingStrategy {
     }
 }
 
+const ssl = (process.env.DATABASE_USE_SSL ?? 'true') === 'true';
+
 const filteredEntities = Object.entries(entities)
     .filter(([name, v]) => v && name.endsWith('Entity'))
     .map(([, v]) => v);
@@ -30,7 +32,7 @@ export const config: Options = {
     namingStrategy: CustomUnderscoreNamingStrategy,
     driver: PostgreSqlDriver,
     driverOptions: {
-        connection: { ssl: true },
+        connection: { ssl },
     },
 };
 
