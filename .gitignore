@@ -14,3 +14,4 @@ lib/orm/metadata.json
 package-lock.json
 yarn.lock
 *.tsbuildinfo
+zlocal

@@ -72,6 +72,7 @@ export const ArtifactPreviewPanel = ({ version, artifactId }: ArtifactPreviewPan
                 previousContent={previousContent}
                 version={version}
                 status={activeVersion?.status}
+                artifactId={artifactId}
                 artifactKey={currentArtifact.key}
                 updatedAt={updatedAt}
                 onCloseAction={closePanel}

@@ -23,6 +23,8 @@ type ArtifactViewerProps = {
     status?: VersionStatus;
     /** Artifact identifier (key) for API lookups */
     artifactKey?: string;
+    /** Artifact ID for store lookups */
+    artifactId?: string;
     /** Updated at date */
     updatedAt?: Date;
     /** Back link URL - shows back arrow */
@@ -56,6 +58,7 @@ export const ArtifactViewer = ({
     version,
     status,
     artifactKey,
+    artifactId,
     updatedAt,
     backHref,
     onCloseAction,
@@ -64,6 +67,7 @@ export const ArtifactViewer = ({
 }: ArtifactViewerProps) => {
     const prevTitleRef = useRef<string | null>(null);
     const [isDiffVisible, setIsDiffVisible] = useState(false);
+    const [isProcessingApproval, setIsProcessingApproval] = useState(false);
 
     const {
         state: { messages },
@@ -123,11 +127,11 @@ export const ArtifactViewer = ({
                 </div>
 
                 {/* Updating overlay */}
-                {isUpdating && (
+                {(isUpdating || isProcessingApproval) && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-xs">
                         <div className="flex items-center gap-2 text-md font-medium text-muted-foreground">
                             <Loader2 className="size-5 animate-spin" />
-                            Making changes...
+                            {isProcessingApproval ? 'Processing...' : 'Making changes...'}
                         </div>
                     </div>
                 )}
@@ -152,7 +156,14 @@ export const ArtifactViewer = ({
             )}
 
             {/* Approval bar */}
-            {showApprovalBar && <ArtifactApprovalBar artifactKey={artifactKey} artifactVersion={version} />}
+            {showApprovalBar && (
+                <ArtifactApprovalBar
+                    artifactId={artifactId!}
+                    artifactKey={artifactKey}
+                    artifactVersion={version}
+                    onProcessingChange={setIsProcessingApproval}
+                />
+            )}
         </div>
     );
 };
