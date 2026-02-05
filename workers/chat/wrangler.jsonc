@@ -27,7 +27,7 @@
 		"CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuaHBybnRsLmFpJA",
 		"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 		"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
-		"LANGFUSE_ENVIRONMENT": "Production",
+		"LANGFUSE_ENVIRONMENT": "production",
 		"CORS_ALLOWED_ORIGIN": "https://app.hprntl.ai"
 	},
 	"secrets_store_secrets": [
@@ -87,7 +87,7 @@
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
-				"LANGFUSE_ENVIRONMENT": "Development",
+				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai"
 			},
 			"secrets_store_secrets": [
@@ -147,7 +147,7 @@
 				"ENV": "dev",
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
-				"LANGFUSE_ENVIRONMENT": "Development",
+				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai"
 			},
 			"secrets_store_secrets": [

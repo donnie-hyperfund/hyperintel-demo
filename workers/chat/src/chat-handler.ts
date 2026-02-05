@@ -170,7 +170,7 @@ async function getPromptContent(ctx: Ctx, slug: string, localPath: string | null
     }
     // Fallback to Langfuse
     try {
-        return await getLangfusePromptRaw(ctx.langfuse!, slug);
+        return await getLangfusePromptRaw(ctx.langfuse!, slug, ctx.env);
     } catch {
         return null;
     }
