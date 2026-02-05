@@ -1,6 +1,7 @@
 import { useAuth } from '@clerk/nextjs';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRMutation from 'swr/mutation';
+import { approveArtifact, rejectArtifact } from '@/lib/api/requests/worker/chat';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { artifactKeys, createArtifactApi } from '../fetchers/artifacts';
 import type { PaginatedResponse, PaginationParams } from '../types';
@@ -66,7 +67,16 @@ export function useApproveArtifactVersion(projectId: string, artifactKey: string
             const api = createArtifactApi(getToken);
             const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
             if (!artifact.proposed_version) throw new Error('No proposed version');
-            await api.approveVersion(projectId, artifact.id, artifact.proposed_version.id);
+
+            const token = await getToken();
+            if (!token) throw new Error('Not authenticated');
+
+            const response = await approveArtifact({ versionId: artifact.proposed_version.id }, token);
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Failed to approve artifact');
+            }
+
             globalMutate(artifactKeys.list(projectId));
             return api.getByKey(projectId, artifactKey, artifactVersion);
         },
@@ -83,7 +93,16 @@ export function useRejectArtifactVersion(projectId: string, artifactKey: string,
             const api = createArtifactApi(getToken);
             const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
             if (!artifact.proposed_version) throw new Error('No proposed version');
-            await api.rejectVersion(projectId, artifact.id, artifact.proposed_version.id, reason);
+
+            const token = await getToken();
+            if (!token) throw new Error('Not authenticated');
+
+            const response = await rejectArtifact({ versionId: artifact.proposed_version.id, reason }, token);
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Failed to reject artifact');
+            }
+
             globalMutate(artifactKeys.list(projectId));
             return api.getByKey(projectId, artifactKey, artifactVersion);
         },

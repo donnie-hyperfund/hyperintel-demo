@@ -50,6 +50,8 @@ async function searchKnowledge(
         JOIN artifact_versions av ON ae.artifact_version_id = av.id
         JOIN artifacts a ON av.artifact_id = a.id
         WHERE ae.project_id = '${escapedProjectId}'
+          AND ae.is_ai_content = true
+          AND a.current_version_id = av.id
           AND 1 - (ae.embedding <=> '${embeddingStr}'::vector) >= ${minSimilarity}
         ORDER BY ae.embedding <=> '${embeddingStr}'::vector
         LIMIT ${limit}
@@ -96,8 +98,9 @@ export const KnowledgeSearchToolGroup: AgentToolGroup = {
     slug: 'knowledge',
     name: 'Knowledge Base',
     description: 'Tools for searching and retrieving information from project documents.',
-    guidance:
-        'Use search_knowledge to find relevant information from project documents. Use list_documents to see all available documents.',
+    guidance: `Use search_knowledge to find relevant information from project documents. Use list_documents to see all available documents.
+
+**CRITICAL: At the START of every new conversation or phase/stage, you MUST call search_knowledge FIRST to gather relevant context from previous work before responding to the user.** This ensures continuity across phases and prevents redundant work.`,
     tools: ['search_knowledge', 'list_documents'],
 };
 
@@ -106,7 +109,7 @@ export function createKnowledgeTools() {
         {
             name: 'search_knowledge' as const,
             description:
-                'Search project knowledge base using semantic similarity. Use this to find relevant information from previously created documents and artifacts.',
+                'Search project knowledge base using semantic similarity. Use this to find relevant information from previously created documents and artifacts. MUST be called at the start of every new conversation/phase/stage to gather context.',
             parameters: SearchKnowledgeParams,
             executor: async (
                 input: { query: string; limit?: number },

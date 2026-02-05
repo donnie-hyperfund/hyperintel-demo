@@ -29,6 +29,11 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'text' })
     content!: string;
 
+    // TODO: When user roles are implemented, update serializer to show ai_content for admin users
+    // Example: serializer: (value, entity, context) => isAdmin(context.user) ? value : undefined
+    @Property({ type: 'text', nullable: true, serializer: () => undefined })
+    ai_content?: string & Opt;
+
     @Property({ type: 'text', default: 'approved' })
     status!: VersionStatus & Opt;
 

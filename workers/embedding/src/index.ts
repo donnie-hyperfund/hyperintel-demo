@@ -57,6 +57,7 @@ async function processMessage(
                 { id: message.versionId, content: message.content },
                 message.projectId,
                 ArtifactEmbeddingEntity,
+                message.is_ai_content ?? false,
             );
 
             console.log(
