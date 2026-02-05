@@ -28,6 +28,8 @@ export type ArtifactContextValue = {
         version?: VersionKey,
         options?: UpdateArtifactOptions,
     ) => void;
+    /** Returns true if any artifact has a proposed version with status 'proposed' */
+    hasPendingArtifacts: () => boolean;
 };
 
 const ArtifactContext = createContext<ArtifactContextValue | null>(null);
@@ -71,6 +73,12 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
             };
         });
     }, []);
+
+    const hasPendingArtifacts = useCallback(() => {
+        return Object.values(artifacts).some((versions) =>
+            Object.values(versions).some((artifact) => artifact.proposed_version?.status === 'proposed'),
+        );
+    }, [artifacts]);
 
     const updateArtifact = useCallback(
         (
@@ -128,6 +136,7 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
                 getArtifact,
                 addArtifact,
                 updateArtifact,
+                hasPendingArtifacts,
             }}
         >
             {children}
