@@ -71,7 +71,7 @@ async function getSummarizerPrompt(ctx: Ctx): Promise<string> {
     // biome-ignore lint/correctness/noConstantCondition: omg
     if (true) return FALLBACK_SUMMARIZER_PROMPT;
     try {
-        const prompt = await getLangfusePromptRaw(ctx.langfuse, 'pma/summarizer');
+        const prompt = await getLangfusePromptRaw(ctx.langfuse, 'pma/summarizer', ctx.env);
         return prompt || FALLBACK_SUMMARIZER_PROMPT;
     } catch {
         return FALLBACK_SUMMARIZER_PROMPT;

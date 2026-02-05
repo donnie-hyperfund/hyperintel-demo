@@ -48,8 +48,8 @@ vars:
   LANGFUSE_HOST: "https://us.cloud.langfuse.com"
   LANGFUSE_PUBLIC_KEY: "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780"
   LANGFUSE_ENVIRONMENT:
-    production: "Production"
-    dev: "Development"
+    production: "production"
+    dev: "development"
   ENV:
     dev: "dev"  # prod is unset - code defaults to 'prod'
   APP_BASE:

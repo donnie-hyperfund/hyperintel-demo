@@ -21,7 +21,7 @@ async function generateYAMLForArtifact(
         throw new Error('Langfuse client not available');
     }
 
-    const systemPrompt = await getLangfusePromptRaw(ctx.langfuse, YAML_PROMPT_SLUG);
+    const systemPrompt = await getLangfusePromptRaw(ctx.langfuse, YAML_PROMPT_SLUG, ctx.env);
 
     const conversationContext = messages.map((m) => ({
         role: m.role as 'user' | 'assistant',
