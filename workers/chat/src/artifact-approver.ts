@@ -210,6 +210,7 @@ export async function rejectArtifactHandler(
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
     version.status_changed_by = version.artifact.project.user.id;
+    version.artifact.current_version = version;
 
     await em.flush();
 
