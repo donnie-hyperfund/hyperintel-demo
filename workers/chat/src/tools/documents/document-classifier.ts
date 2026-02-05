@@ -22,6 +22,9 @@ import { AIParamsType, runInferenceNoStream } from '@common/ai/inference';
 import type { Ctx } from '../../context';
 import { COMMON_MODELS } from '@/common/ai/types';
 
+const DEFAULT_MODEL = COMMON_MODELS.GEMINI_FLASH_3;
+const FALLBACK_MODELS = [COMMON_MODELS.GEMINI_FLASH, COMMON_MODELS.GPT_4_1_MINI, COMMON_MODELS.CLAUDE_HAIKU];
+
 const ClassificationResultSchema = z.object({
     isInternalDocument: z.boolean(),
     documentType: z.string(),
@@ -61,6 +64,38 @@ Respond with a JSON object:
 }`;
 
 /**
+ * Attempt classification with a specific model.
+ * Returns ClassificationResult on success, null on failure.
+ */
+async function classifyWithModel(
+    ctx: Ctx,
+    userPrompt: string,
+    model: string,
+): Promise<ClassificationResult | null> {
+    try {
+        const result = await runInferenceNoStream(ctx, {
+            paramsType: AIParamsType.OpenRouter,
+            instructions: CLASSIFICATION_PROMPT,
+            context: [{ role: 'user', content: userPrompt }],
+            params: {
+                model,
+                maxTokens: 200,
+            },
+            schema: ClassificationResultSchema,
+        });
+
+        // Handle both 'success' and 'soft-error' (soft-error means JSON was repaired but still valid)
+        if ((result.status === 'success' || result.status === 'soft-error') && result.result) {
+            return result.result as ClassificationResult;
+        }
+
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Classify a document to determine if it should have AI-readable content generated.
  *
  * @param ctx - Worker context with OpenRouter SDK
@@ -79,45 +114,26 @@ export async function shouldGenerateAiContent(
         return false;
     }
 
-    try {
-        const userPrompt = `Document Name: ${documentName}
+    const userPrompt = `Document Name: ${documentName}
 Document Title: ${documentTitle}`;
 
-        const result = await runInferenceNoStream(ctx, {
-            paramsType: AIParamsType.OpenRouter,
-            instructions: CLASSIFICATION_PROMPT,
-            context: [{ role: 'user', content: userPrompt }],
-            params: {
-                model: COMMON_MODELS.GEMINI_FLASH_3,
-                maxTokens: 200,
-            },
-            schema: ClassificationResultSchema,
-        });
+    const modelsToTry = [DEFAULT_MODEL, ...FALLBACK_MODELS.filter((m) => m !== DEFAULT_MODEL)];
 
-        console.log('[document-classifier] Raw inference result:', {
-            status: result.status,
-            hasResult: !!result.result,
-            error: result.error,
-        });
-
-        // Handle both 'success' and 'soft-error' (soft-error means JSON was repaired but still valid)
-        if ((result.status === 'success' || result.status === 'soft-error') && result.result) {
-            const classification = result.result as ClassificationResult;
+    for (const model of modelsToTry) {
+        const result = await classifyWithModel(ctx, userPrompt, model);
+        if (result) {
             console.log('[document-classifier] Classification result:', {
                 documentName,
-                isInternalDocument: classification.isInternalDocument,
-                documentType: classification.documentType,
-                confidence: classification.confidence,
+                model,
+                isInternalDocument: result.isInternalDocument,
+                documentType: result.documentType,
+                confidence: result.confidence,
             });
-            return classification.isInternalDocument;
+            return result.isInternalDocument;
         }
-
-        // If classification failed, default to false (don't generate for unknown docs)
-        console.warn('[document-classifier] Classification failed, defaulting to NO AI content:', result.status, result.error);
-        return false;
-    } catch (error) {
-        console.error('[document-classifier] Error classifying document:', error);
-        // On error, default to false (don't generate for unknown docs)
-        return false;
+        console.warn(`[document-classifier] Model ${model} failed, trying fallback...`);
     }
+
+    console.warn('[document-classifier] All models failed, defaulting to NO AI content');
+    return false;
 }
