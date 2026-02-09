@@ -21,6 +21,7 @@ import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import type { Ctx } from '../../context';
+import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import {
     applyEdits,
     countLines,
@@ -29,6 +30,7 @@ import {
     type EditOperation,
     extractViewport,
     findDocumentByName,
+    findVersionByStatus,
     listDocuments as listDocumentsDb,
     upsertDocument,
 } from './document-service';
@@ -78,6 +80,7 @@ Avoid read/patch loops - read once, make all pending edits, then finalize.
 ## Approval
 \`finalize_document\` saves as "proposed". User approves via UI to make it live ("approved").
 If you finalize again before approval, old proposed becomes "superseded".
+You can also approve or reject documents directly via \`approve_document\` and \`reject_document\` tools when asked by the user in chat.
 
 ## Important
 \`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.`,
@@ -91,6 +94,8 @@ If you finalize again before approval, old proposed becomes "superseded".
         'read_document',
         'list_documents',
         'search_knowledge',
+        'approve_document',
+        'reject_document',
     ],
 };
 
@@ -140,6 +145,15 @@ const ReadDocumentParams = z.object({
 
 const ListDocumentsParams = z.object({
     search: z.string().optional().nullable().describe('Optional filter by name/title substring.'),
+});
+
+const ApproveDocumentParams = z.object({
+    name: z.string().min(1).describe('Document name to approve (e.g., "analysis.md").'),
+});
+
+const RejectDocumentParams = z.object({
+    name: z.string().min(1).describe('Document name to reject (e.g., "analysis.md").'),
+    reason: z.string().min(1).describe('Reason for rejection - feedback for the author on what needs to change.'),
 });
 
 // ============================================================================
@@ -570,6 +584,102 @@ Shows for each document:
                         hasProposed: d.hasProposed,
                     })),
                 };
+            },
+        },
+
+        // ----------------------------------------------------------------
+        // approve_document - Approve a proposed document version
+        // ----------------------------------------------------------------
+        {
+            name: 'approve_document' as const,
+            description: `Approve a proposed document version, making it the live (approved) version.
+
+Only works on documents that have a proposed version awaiting approval.
+This triggers AI content generation (YAML) for internal documents and queues embedding indexing.`,
+            parameters: ApproveDocumentParams,
+            executor: async (input: z.infer<typeof ApproveDocumentParams>, ctx: DocumentToolsContext, eCtx?: Ctx) => {
+                const { name } = input;
+                const { em, projectId } = ctx;
+
+                if (!eCtx) {
+                    return { error: 'Execution context not available' };
+                }
+
+                const normalizedName = normalizeArtifactKey(name);
+                const doc = await findDocumentByName(em, projectId, normalizedName);
+
+                if (!doc) {
+                    return { error: `Document "${normalizedName}" not found.` };
+                }
+
+                if (doc.proposedVersion === null) {
+                    return { error: `Document "${normalizedName}" has no proposed version to approve.` };
+                }
+
+                // Find the proposed version entity to get its UUID
+                const proposedVersion = await findVersionByStatus(em, doc.id, 'proposed');
+                if (!proposedVersion) {
+                    return { error: `Proposed version for "${normalizedName}" not found.` };
+                }
+
+                try {
+                    const result = await approveArtifactHandler({ versionId: proposedVersion.id }, eCtx);
+                    return {
+                        ...result,
+                        name: normalizedName,
+                        message: `Document "${normalizedName}" v${result.version} has been approved and is now live.`,
+                    };
+                } catch (err: any) {
+                    return { error: err.message || 'Failed to approve document' };
+                }
+            },
+        },
+
+        // ----------------------------------------------------------------
+        // reject_document - Reject a proposed document version
+        // ----------------------------------------------------------------
+        {
+            name: 'reject_document' as const,
+            description: `Reject a proposed document version with feedback.
+
+Only works on documents that have a proposed version awaiting approval.
+The rejection reason is stored and will be shown when the document is next edited.`,
+            parameters: RejectDocumentParams,
+            executor: async (input: z.infer<typeof RejectDocumentParams>, ctx: DocumentToolsContext, eCtx?: Ctx) => {
+                const { name, reason } = input;
+                const { em, projectId } = ctx;
+
+                if (!eCtx) {
+                    return { error: 'Execution context not available' };
+                }
+
+                const normalizedName = normalizeArtifactKey(name);
+                const doc = await findDocumentByName(em, projectId, normalizedName);
+
+                if (!doc) {
+                    return { error: `Document "${normalizedName}" not found.` };
+                }
+
+                if (doc.proposedVersion === null) {
+                    return { error: `Document "${normalizedName}" has no proposed version to reject.` };
+                }
+
+                // Find the proposed version entity to get its UUID
+                const proposedVersion = await findVersionByStatus(em, doc.id, 'proposed');
+                if (!proposedVersion) {
+                    return { error: `Proposed version for "${normalizedName}" not found.` };
+                }
+
+                try {
+                    const result = await rejectArtifactHandler({ versionId: proposedVersion.id, reason }, eCtx);
+                    return {
+                        ...result,
+                        name: normalizedName,
+                        message: `Document "${normalizedName}" v${result.version} has been rejected. Reason: ${reason}`,
+                    };
+                } catch (err: any) {
+                    return { error: err.message || 'Failed to reject document' };
+                }
             },
         },
     ] as const;
