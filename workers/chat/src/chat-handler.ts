@@ -15,7 +15,12 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
 import { createDocumentEventHandler } from './utils/document-events';
-import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv, slugToLocalFile } from './utils/prompt-loader';
+import {
+    DEFAULT_LOCAL_PROMPTS_PATH,
+    getPromptContent,
+    parseLocalPromptEnv,
+    slugToLocalFile,
+} from './utils/prompt-loader';
 
 // ============================================================================
 // CONTEXT PREPROCESSING
@@ -207,11 +212,25 @@ async function streamInternal(
 
         // Load history from database
         const dbMessages = await em!.find(ChatMessageEntity, { chat: chatId }, { orderBy: { created_at: 'ASC' } });
-        const historyMessages = dbMessages.map((m) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-            ...(m.blocks && { blocks: m.blocks }),
-        }));
+        // TODO helper...
+        const historyMessages = dbMessages.map((m) => {
+            if (m.is_error) {
+                // Errored turn: content + reasoning as embedded text, NO blocks (may be incomplete/corrupt)
+                let safeContent = m.content || '';
+                if (m.reasoning) {
+                    safeContent = `<thinking>${m.reasoning}</thinking>\n\n${safeContent}`;
+                }
+                if (safeContent) {
+                    safeContent += '\n\n[This response was interrupted by an error]';
+                }
+                return { role: m.role as 'user' | 'assistant', content: safeContent };
+            }
+            return {
+                role: m.role as 'user' | 'assistant',
+                content: m.content,
+                ...(m.blocks && { blocks: m.blocks }),
+            };
+        });
 
         // Add the new user message
         const allMessages = [...historyMessages, { role: 'user' as const, content: message }];
@@ -299,6 +318,12 @@ async function streamInternal(
                         buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath, WEB_SEARCH_GUIDANCE),
                     statusUpdates: { enabled: true },
                     preprocessContext,
+                    onTurnComplete: () => {
+                        if (agentCtx.draftManager.hasActive()) {
+                            return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
+                        }
+                        return null;
+                    },
                 },
             },
         );
@@ -358,6 +383,8 @@ async function streamInternal(
                     break;
 
                 case 'done_ext': {
+                    const isError = !!event.error;
+
                     // Save user message with request start time (prevents timestamp collision with assistant)
                     const userMsg = em!.create(ChatMessageEntity, {
                         chat: chatId,
@@ -371,13 +398,25 @@ async function streamInternal(
                     const streamLog = event.streamLog;
                     const assistantContent = streamLog.fullContent ?? '';
                     let assistantMsg: ChatMessageEntity | null = null;
-                    if (assistantContent || streamLog.blocks.length > 0) {
+                    if (isError || assistantContent || streamLog.blocks.length > 0) {
+                        const debugData: Record<string, unknown> = {};
+                        if (event.inferenceLog) debugData.inferenceLog = event.inferenceLog;
+                        if (isError) {
+                            debugData.error = serializeException(event.error!.raw);
+                            debugData.rawResponse = event.error!.rawResponse ?? null;
+                        }
+
                         assistantMsg = em!.create(ChatMessageEntity, {
                             chat: chatId,
                             role: 'assistant',
                             content: assistantContent,
                             reasoning: streamLog.fullReasoning || null,
                             blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
+                            ...(isError && {
+                                is_error: true,
+                                metadata: { error: event.error!.message },
+                            }),
+                            ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
                         });
                         em!.persist(assistantMsg);
                     }
@@ -453,6 +492,7 @@ async function streamInternal(
                         outputTool: pendingDoneEvent?.outputTool,
                         tokenBreakdown,
                         usedTokens,
+                        ...(isError && { error: event.error!.message }),
                     });
                     enqueue('[DONE]');
                     break;
@@ -472,7 +512,7 @@ async function streamInternal(
                     break;
 
                 case 'error':
-                    enqueue({ type: 'error', error: String(event.error) });
+                    enqueue({ type: 'error', error: String(event.error), soft: event.soft ?? false });
                     break;
 
                 case 'search_start':
@@ -515,6 +555,16 @@ async function streamInternal(
                     });
                     break;
 
+                case 'retry_attempt':
+                    enqueue({
+                        type: 'retry_attempt',
+                        attempt: event.attempt,
+                        maxAttempts: event.maxAttempts,
+                        reason: event.reason,
+                        provider: event.provider,
+                    });
+                    break;
+
                 default:
                     // Ignore or log other types silently if needed
                     break;
@@ -539,7 +589,10 @@ async function streamInternal(
             const errorMsg = em!.create(ChatMessageEntity, {
                 chat: chatId,
                 role: 'assistant',
-                content: 'Sorry, there was an error processing your request. Please try again.',
+                content: '',
+                is_error: true,
+                metadata: { error: serialized.message || JSON.stringify(serialized) },
+                debug_data: { error: serialized },
             });
             em!.persist(errorMsg);
 

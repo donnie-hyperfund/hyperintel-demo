@@ -21,8 +21,15 @@ export class ChatMessageEntity extends IdCreatedColumns {
     @ManyToOne('ChatEntity', { fieldName: 'chat_id', serializer: (chat) => chat.id })
     chat!: ChatEntity;
 
+    @Property({ type: 'boolean', default: false })
+    is_error?: boolean;
+
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
+
+    /** Internal debug data (serialized errors, raw responses, inference logs). Never sent to frontend. */
+    @Property({ type: 'json', nullable: true })
+    debug_data?: Nullable<Record<string, unknown>>;
 
     /**
      * Custom JSON serialization with optional block redaction.
@@ -30,6 +37,7 @@ export class ChatMessageEntity extends IdCreatedColumns {
      */
     toJSON(groups?: string[]): Record<string, unknown> {
         const base = wrap(this).toObject() as Record<string, unknown>;
+        delete base.debug_data;
 
         // Apply block redaction based on groups (future use)
         if (this.blocks && groups) {
