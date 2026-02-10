@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { z as z4 } from 'zod/v4';
+import { zfd } from 'zod-form-data';
 
 export const VersionStatusSchema = z.enum(['proposed', 'approved', 'rejected', 'superseded']);
 export type VersionStatus = z.infer<typeof VersionStatusSchema>;
@@ -55,3 +57,22 @@ export const RejectArtifactActionSchema = z.object({
     reason: z.string().min(1, 'Rejection reason is required'),
 });
 export type RejectArtifactActionDto = z.infer<typeof RejectArtifactActionSchema>;
+
+export const MAX_ARTIFACT_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB
+// TODO: Add '.docx' once we have conversion (e.g. mammoth)
+export const ALLOWED_ARTIFACT_EXTENSIONS = ['.md'];
+
+export const UploadArtifactSchema = zfd.formData({
+    file: zfd.file(
+        z4.instanceof(File).refine(
+            (f) => f.size <= MAX_ARTIFACT_UPLOAD_SIZE,
+            // TODO proper formatting
+            `File too large (max ${MAX_ARTIFACT_UPLOAD_SIZE / 1024 / 1024}MB)`,
+        ),
+    ),
+    projectId: zfd.text(z4.string().uuid()),
+    // TODO: Make optional once we migrate chat_id to nullable on artifacts table
+    chatId: zfd.text(z4.string().uuid()),
+    title: zfd.text(z4.string().min(1).optional()),
+});
+export type UploadArtifactDto = z4.infer<typeof UploadArtifactSchema>;
