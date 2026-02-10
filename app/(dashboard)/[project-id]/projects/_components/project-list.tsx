@@ -1,15 +1,35 @@
 'use client';
 
+import { useUser } from '@clerk/nextjs';
 import { FileCode, Plus } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchProjects } from '@/lib/api/client/hooks/use-projects';
+import { setCurrentProjectCookie } from '@/lib/cookies/project';
+import type { ProjectDto } from '@/lib/schema/project';
 import { ProjectItem, ProjectItemSkeleton } from './project-item';
 
-export const ProjectList = () => {
+type ProjectListProps = {
+    currentProjectId: string;
+};
+
+export const ProjectList = ({ currentProjectId }: ProjectListProps) => {
+    const router = useRouter();
+    const { user } = useUser();
     const { data, error, isLoading } = useFetchProjects();
     const projects = data?.data ?? [];
+
+    const handleProjectClick = useCallback(
+        (project: ProjectDto) => {
+            if (!user?.id) return;
+            setCurrentProjectCookie(user.id, project.id);
+            router.push(`/${project.id}`);
+        },
+        [user?.id, router],
+    );
 
     if (error) {
         return (
@@ -59,7 +79,12 @@ export const ProjectList = () => {
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
                 {projects.map((project) => (
-                    <ProjectItem key={project.id} project={project} />
+                    <ProjectItem
+                        key={project.id}
+                        project={project}
+                        isSelected={project.id === currentProjectId}
+                        onClick={() => handleProjectClick(project)}
+                    />
                 ))}
             </div>
         </>

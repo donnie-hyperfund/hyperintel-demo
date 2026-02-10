@@ -35,5 +35,6 @@ export function preprocessMarkdown(input: string): string {
     // Replace ⏳ emoji with a placeholder that we'll handle in components
     processedInput = processedInput.replace(/⏳/g, '<span class="hourglass-spinner-placeholder"></span>');
 
+    // BUG: Should return processedInput, currently returns original input
     return input;
 }

@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google';
 import type React from 'react';
 import './globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
+import NextTopLoader from 'nextjs-toploader';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -39,6 +40,7 @@ export default function RootLayout({
         <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up" afterSignOutUrl="/sign-in">
             <html lang="en" className="dark">
                 <body className={`${inter.className} antialiased`}>
+                    <NextTopLoader color="oklch(0.69 0.19 145)" showSpinner={false} shadow={false} zIndex={100} />
                     {children}
                     <Analytics />
                 </body>

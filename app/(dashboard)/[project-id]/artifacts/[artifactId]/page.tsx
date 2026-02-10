@@ -3,10 +3,10 @@
 import { formatDistanceToNow } from 'date-fns';
 import { FileText } from 'lucide-react';
 import { useParams } from 'next/navigation';
+import { ArtifactViewer } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel/artifact-viewer';
+import { ArtifactViewerSkeleton } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel/artifact-viewer-skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchArtifact } from '@/lib/api/client/hooks/use-artifacts';
-import { ArtifactViewer } from '../../(chat)/_components/artifacts-panel/artifact-viewer';
-import { ArtifactViewerSkeleton } from '../../(chat)/_components/artifacts-panel/artifact-viewer-skeleton';
 
 export default function ArtifactDetailPage() {
     const params = useParams();
@@ -32,15 +32,15 @@ export default function ArtifactDetailPage() {
     }
 
     const content = artifact.current_version?.content ?? '';
-    const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
-    const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
+    const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : undefined;
+    const createdAt = artifact.created_at ? new Date(artifact.created_at) : undefined;
 
     return (
         <ArtifactViewer
             title={artifact.title}
             content={content}
             version={artifact.version}
-            subtitle={timeAgo ? `Updated ${timeAgo}` : undefined}
+            updatedAt={updatedAt || createdAt}
             backHref={`/${projectId}/artifacts`}
         />
     );

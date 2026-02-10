@@ -11,9 +11,18 @@ set -e
 if [ -n "$GITHUB_REPO_CLONE_TOKEN" ]; then
     echo "Configuring Git for private submodule access using token..."
     git config --global url."https://${GITHUB_REPO_CLONE_TOKEN}@github.com/".insteadOf "https://github.com/"
-    git submodule update --init --recursive
-    echo "Submodules initialized successfully"
-    exit 0
+
+    if output=$(git submodule update --init --recursive 2>&1); then
+        echo "Submodules initialized successfully"
+        exit 0
+    fi
+
+    # Token failed - revert config and fall through to other methods
+    git config --global --unset url."https://${GITHUB_REPO_CLONE_TOKEN}@github.com/".insteadOf
+
+    sanitized_output=$(echo "$output" | sed "s/${GITHUB_REPO_CLONE_TOKEN}/[REDACTED]/g")
+    echo "$sanitized_output"
+    echo "Token authentication failed, trying other methods..."
 fi
 
 # Check if SSH keys are available (check for common SSH key locations)

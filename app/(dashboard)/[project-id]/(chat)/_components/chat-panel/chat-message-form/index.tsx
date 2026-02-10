@@ -3,77 +3,84 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Send } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { forwardRef, useCallback, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { ContextUsageIndicator } from '../context-usage-indicator';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 
 type ChatMessageFormProps = {
-    onSubmit: (data: ChatMessageFormValues) => void;
     className?: string;
-    isLoading?: boolean;
+    ref?: React.RefObject<HTMLDivElement | null>;
 };
 
-const ChatMessageForm = forwardRef<HTMLFormElement, ChatMessageFormProps>(
-    ({ onSubmit, className, isLoading = false }, ref) => {
-        const textareaRef = useRef<AutoExpandingTextareaRef>(null);
+const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
+    const {
+        sendMessage,
+        state: { isGenerating, isSummarizing, isLoading, tokenUsage },
+    } = useChatContext();
 
-        const {
-            register,
-            handleSubmit,
-            reset,
-            watch,
-            formState: { errors },
-        } = useForm<ChatMessageFormValues>({
-            resolver: zodResolver(chatMessageFormSchema),
-            defaultValues: {
-                message: '',
-            },
-        });
+    const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
-        const message = watch('message');
-        const hasContent = message && message.trim().length > 0;
+    const {
+        register,
+        handleSubmit,
+        reset,
+        watch,
+        formState: { errors },
+    } = useForm<ChatMessageFormValues>({
+        resolver: zodResolver(chatMessageFormSchema),
+        defaultValues: {
+            message: '',
+        },
+    });
 
-        const onFormSubmit = (data: ChatMessageFormValues) => {
-            onSubmit(data);
-            reset({ message: '' });
-            textareaRef.current?.updateTextareaHeight();
-        };
+    const message = watch('message');
+    const hasContent = message && message.trim().length > 0;
+    const isDisabled = !hasContent || isGenerating || isSummarizing || isLoading;
 
-        const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (hasContent && !isLoading) {
-                    handleSubmit(onFormSubmit)();
-                }
+    const onFormSubmit = async (data: ChatMessageFormValues) => {
+        if (!data.message.trim()) return;
+        reset({ message: '' });
+        textareaRef.current?.updateTextareaHeight();
+        await sendMessage(data.message);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (!isDisabled) {
+                handleSubmit(onFormSubmit)();
             }
-        };
+        }
+    };
 
-        const handleContainerClick = useCallback(() => {
-            textareaRef.current?.focus();
-        }, []);
+    const handleContainerClick = useCallback(() => {
+        textareaRef.current?.focus();
+    }, []);
 
-        const { onChange, onBlur, name, ref: registerRef } = register('message');
+    const { onChange, onBlur, name, ref: registerRef } = register('message');
 
-        const mergedRef = useCallback(
-            (node: AutoExpandingTextareaRef | null) => {
-                registerRef(node);
-                if (node) {
-                    textareaRef.current = node;
-                }
-            },
-            [registerRef],
-        );
+    const mergedRef = useCallback(
+        (node: AutoExpandingTextareaRef | null) => {
+            registerRef(node);
+            if (node) {
+                textareaRef.current = node;
+            }
+        },
+        [registerRef],
+    );
 
-        return (
+    return (
+        <div ref={ref} className={className}>
+            {/* TODO: Add back when summarizer is implemented */}
+            {/* <NextStagePill /> */}
+
             <AnimatePresence>
-                <form
-                    ref={ref}
-                    onSubmit={handleSubmit(onFormSubmit)}
-                    className={cn('relative flex items-end justify-center pb-6 px-4', className)}
-                >
+                <form onSubmit={handleSubmit(onFormSubmit)} className="relative flex items-end justify-center px-4">
                     {/* Background component*/}
                     <motion.div
                         initial={{ opacity: 0 }}
@@ -81,7 +88,9 @@ const ChatMessageForm = forwardRef<HTMLFormElement, ChatMessageFormProps>(
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.2 }}
                         className="absolute inset-0 pointer-events-none"
-                        style={{ background: 'linear-gradient(to bottom, transparent 0px, var(--color-card) 2rem)' }}
+                        style={{
+                            background: 'linear-gradient(to bottom, transparent 0px, var(--color-card) 2rem)',
+                        }}
                     />
 
                     <div className="w-full max-w-4xl relative z-10">
@@ -113,28 +122,29 @@ const ChatMessageForm = forwardRef<HTMLFormElement, ChatMessageFormProps>(
                                 />
                             </div>
 
-                            <Button type="submit" disabled={!hasContent || isLoading} className="shrink-0" size="icon">
+                            <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
                                 <Send className="size-4" />
                             </Button>
                         </motion.div>
 
-                        {errors.message && (
-                            <motion.p
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="text-xs text-red-400 mt-1 px-4"
-                            >
-                                {errors.message.message}
-                            </motion.p>
-                        )}
+                        <div className="flex items-center h-9 px-1 justify-between">
+                            {errors.message && (
+                                <motion.p
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="text-xs text-red-400 justify-self-start"
+                                >
+                                    {errors.message.message}
+                                </motion.p>
+                            )}
+                            <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
+                        </div>
                     </div>
                 </form>
             </AnimatePresence>
-        );
-    },
-);
-
-ChatMessageForm.displayName = 'ChatMessageForm';
+        </div>
+    );
+};
 
 export default ChatMessageForm;

@@ -6,11 +6,12 @@ import { useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { artifactKeys } from '@/lib/api/client/fetchers/artifacts';
-import { sendAction } from '@/lib/api/requests/worker/chat';
+import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
+import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
-import type { ChatState, Message, PaginationState, StreamBlock } from '../types';
+import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
 export type ChatContextValue = {
     state: ChatState;
@@ -30,6 +31,12 @@ export type ChatContextValue = {
     stopGeneration: () => void;
     /** Set the current chat ID */
     setChatId: (chatId: string | null) => void;
+    /** Summarize the current chat and navigate to the new one */
+    summarizeChat: () => void;
+    /** Whether the chat has any artifacts (documents created) */
+    hasArtifacts: boolean;
+    /** Set hasPendingChanges to false (call after approve/reject) */
+    clearPendingChanges: () => void;
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -57,6 +64,7 @@ function createUserMessage(content: string): Message {
 
 export function ChatProvider({ children, projectId, initialChatId, initialMessages = [] }: ChatProviderProps) {
     const artifactContext = useArtifactContext();
+    const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
@@ -71,9 +79,12 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const [state, setState] = useState<ChatState>({
         messages: initialMessages,
         isGenerating: false,
+        isSummarizing: false,
         isLoading: !!chatId,
         error: null,
         streamingMessageId: null,
+        tokenUsage: null,
+        hasPendingChanges: false,
     });
 
     // Pagination state for infinite scroll
@@ -106,12 +117,51 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         globalMutate(artifactKeys.list(projectId));
     }, [globalMutate, projectId]);
 
+    const onTokenUsage = useCallback((usage: TokenUsage) => {
+        setState((prev) => ({ ...prev, tokenUsage: usage }));
+    }, []);
+
+    const onDocumentStart = useCallback(() => {
+        setState((prev) => ({ ...prev, hasPendingChanges: true }));
+    }, []);
+
+    const clearPendingChanges = useCallback(() => {
+        setState((prev) => ({ ...prev, hasPendingChanges: false }));
+    }, []);
+
+    const handleArtifactOpen = useCallback(
+        (artifactId: string, version: number) => {
+            openPanel({ panel: 'artifact-preview', artifactId, version });
+        },
+        [openPanel],
+    );
+
+    const fetchArtifact = useCallback(
+        async (artifactKey: string, version: number) => {
+            try {
+                const artifact = await api.artifacts.getByKey(projectId, artifactKey, version);
+                if (artifact) {
+                    artifactContext.addArtifact(artifact, version);
+                }
+                return artifact;
+            } catch (error) {
+                console.error('Failed to fetch artifact:', error);
+                return null;
+            }
+        },
+        [api.artifacts, projectId, artifactContext],
+    );
+
     // Use the stream reader hook for SSE processing
     const { readStream } = useStreamReader({
         artifactContext,
         setMessages,
         setIsLoading,
+        onArtifactOpen: handleArtifactOpen,
         onArtifactComplete: revalidateArtifacts,
+        onTokenUsage,
+        fetchArtifact,
+        onDocumentStart,
     });
 
     /** Convert API message to internal Message format */
@@ -144,16 +194,26 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setState((prev) => ({ ...prev, isLoading: true }));
 
         try {
-            const data = await api.messages.list(projectId, chatId, { page: 1 });
-            // API returns DESC order (newest first), reverse for display (newest at bottom)
-            const apiMessages: Message[] = data.data?.map(mapApiMessage) || [];
+            const [messagesData, chatData] = await Promise.all([
+                api.messages.list(projectId, chatId, { page: 1 }),
+                api.chats.get(projectId, chatId),
+            ]);
 
-            setState((prev) => ({ ...prev, messages: apiMessages.reverse(), isLoading: false }));
+            // API returns DESC order (newest first), reverse for display (newest at bottom)
+            const apiMessages: Message[] = messagesData.data?.map(mapApiMessage) || [];
+
+            setState((prev) => ({
+                ...prev,
+                messages: apiMessages.reverse(),
+                isLoading: false,
+                tokenUsage: chatData.token_usage ?? null,
+                hasPendingChanges: chatData.has_pending_changes ?? false,
+            }));
             setPagination({
-                page: data.pagination.page,
-                totalPages: data.pagination.totalPages,
+                page: messagesData.pagination.page,
+                totalPages: messagesData.pagination.totalPages,
                 isLoadingMore: false,
-                hasMore: data.pagination.page < data.pagination.totalPages,
+                hasMore: messagesData.pagination.page < messagesData.pagination.totalPages,
             });
         } catch (error) {
             console.error('Error loading messages:', error);
@@ -220,7 +280,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                     setChatId(chatIdToUse);
 
                     // Update URL without navigation using history API
-                    window.history.replaceState(null, '', `/${projectId}/chats/${chatIdToUse}`);
+                    window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
 
                     // Revalidate chats list so sidebar and header update
                     globalMutate((key) => Array.isArray(key) && key[0] === 'chats' && key[1] === 'list');
@@ -259,6 +319,67 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         [api, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
     );
 
+    /** Summarize current chat and navigate to the new one */
+    const summarizeChat = useCallback(async () => {
+        if (!chatId || state.isSummarizing) return;
+
+        setState((prev) => ({ ...prev, isSummarizing: true, error: null }));
+
+        try {
+            const accessToken = (await getToken()) ?? '';
+            const response = await summarize({ chatId }, accessToken);
+
+            if (!response.body) {
+                throw new Error('No response stream');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const jsonStr = line.replace('data: ', '').trim();
+                    if (jsonStr === '[DONE]') continue;
+
+                    try {
+                        const event = JSON.parse(jsonStr);
+
+                        // TODO: Uncomment this when backend is fixed
+                        // if (event.type === 'error') {
+                        //     setState((prev) => ({ ...prev, isSummarizing: false, error: new Error(event.error) }));
+                        //     return;
+                        // }
+
+                        if (event.type === 'done' && event.newChatId) {
+                            setState((prev) => ({ ...prev, isSummarizing: false }));
+                            window.location.href = `/${projectId}/${event.newChatId}`;
+                            return;
+                        }
+                    } catch {
+                        // skip unparseable lines
+                    }
+                }
+            }
+
+            setState((prev) => ({ ...prev, isSummarizing: false }));
+        } catch (err) {
+            setState((prev) => ({
+                ...prev,
+                isSummarizing: false,
+                error: err instanceof Error ? err : new Error('Summarization failed'),
+            }));
+        }
+    }, [chatId, getToken, projectId, state.isSummarizing]);
+
     /** Stop the current generation */
     const stopGeneration = useCallback(() => {
         if (abortControllerRef.current) {
@@ -287,6 +408,11 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 sendMessage,
                 stopGeneration,
                 setChatId,
+                summarizeChat,
+                clearPendingChanges,
+
+                // Computed values
+                hasArtifacts: Object.keys(artifactContext.artifacts).length > 0,
             }}
         >
             {children}

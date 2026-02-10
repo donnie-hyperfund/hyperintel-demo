@@ -1,54 +1,25 @@
 'use client';
 
-import { FileText, Loader2 } from 'lucide-react';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { ArtifactViewer } from './artifact-viewer';
+import { X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ArtifactList } from './artifact-list';
 
-/** Chat panel wrapper that uses artifact context */
-export default function ArtifactsPanel() {
-    const { togglePanel, currentArtifact, isLoading, loadingTitle, isCurrentArtifactStreaming } = useArtifactContext();
+type ArtifactsPanelProps = {
+    onClose: () => void;
+};
 
-    // Loading state
-    if (isLoading) {
-        return (
-            <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">
-                <div className="flex-1 flex items-center justify-center text-muted-foreground">
-                    <div className="text-center space-y-4">
-                        <Loader2 className="size-12 mx-auto animate-spin text-primary" />
-                        <div className="space-y-1">
-                            <p className="text-sm font-medium text-foreground">
-                                {loadingTitle ?? 'Loading document...'}
-                            </p>
-                            <p className="text-xs text-muted-foreground">Fetching content</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // Empty state
-    if (!currentArtifact) {
-        return (
-            <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">
-                <div className="flex-1 flex items-center justify-center text-muted-foreground">
-                    <div className="text-center space-y-2">
-                        <FileText className="size-12 mx-auto opacity-50" />
-                        <p className="text-sm">Select a document to preview</p>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
+export default function ArtifactsPanel({ onClose }: ArtifactsPanelProps) {
     return (
-        <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
-            <ArtifactViewer
-                title={currentArtifact.title}
-                content={currentArtifact.content}
-                onCloseAction={() => togglePanel(false)}
-                isStreaming={isCurrentArtifactStreaming}
-            />
+        <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">
+            <div className="flex items-center justify-between px-4 h-14 border-b border-border shrink-0">
+                <h2 className="text-sm font-medium">Artifacts</h2>
+                <Button variant="ghost" size="icon" className="size-7" onClick={onClose}>
+                    <X className="size-4" />
+                </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+                <ArtifactList />
+            </div>
         </div>
     );
 }

@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
+import { ArtifactPreviewPanel } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel';
 import ArtifactsPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/artifacts-panel';
+import ResourcesPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/resources-panel';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { cn } from '@/lib/utils';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import ChatPanel from './chat-panel';
-import type { ChatMessageFormValues } from './chat-panel/chat-message-form/schema';
 
 // Re-export Message type for consumers
 export type { Message } from '@/modules/chat/types';
@@ -18,12 +19,11 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
-    const { isVisible: isArtifactsPanelVisible } = useArtifactContext();
-    const { state, chatId, loadMessages, loadMoreMessages, sendMessage, pagination } = useChatContext();
-    const { messages, isGenerating, isLoading } = state;
+    const { chatId, loadMessages, sendMessage } = useChatContext();
+    const { panelState, closePanel } = useActivePanelContext();
 
     const chatConversationRef = useRef<HTMLDivElement>(null);
-    const chatMessageFormRef = useRef<HTMLFormElement>(null);
+    const chatMessageFormRef = useRef<HTMLDivElement>(null);
 
     // Padding adjustment for message form
     useEffect(() => {
@@ -63,10 +63,8 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
         }
     }, [initialMessage, sendMessage]);
 
-    const handleSend = async (data: ChatMessageFormValues) => {
-        if (!data.message.trim()) return;
-        await sendMessage(data.message);
-    };
+    const isPanelOpen = panelState !== null;
+    const activePanel = panelState?.panel ?? null;
 
     return (
         <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-full">
@@ -75,33 +73,30 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
                 id="chat-panel"
                 order={1}
                 defaultSize={60}
-                minSize={40}
+                minSize={60}
                 maxSize={80}
-                className={cn(isArtifactsPanelVisible && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
+                className={cn(isPanelOpen && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
             >
-                <ChatPanel
-                    messages={messages}
-                    isGenerating={isGenerating}
-                    isLoading={isLoading}
-                    onSend={handleSend}
-                    onLoadMore={loadMoreMessages}
-                    pagination={pagination}
-                    conversationRef={chatConversationRef}
-                    formRef={chatMessageFormRef}
-                />
+                <ChatPanel conversationRef={chatConversationRef} formRef={chatMessageFormRef} />
             </ResizablePanel>
 
-            <ResizableHandle className="w-1 bg-border hover:bg-primary/50 transition-colors" />
-
-            {isArtifactsPanelVisible && (
-                <>
+            {isPanelOpen && (
+                <Fragment key={activePanel}>
                     <ResizableHandle />
 
-                    {/* Artifacts Panel */}
-                    <ResizablePanel id="artifacts-panel" order={2} defaultSize={40} minSize={20}>
-                        <ArtifactsPanel />
+                    <ResizablePanel
+                        id="right-panel"
+                        order={2}
+                        defaultSize={activePanel === 'artifact-preview' ? 35 : 20}
+                        minSize={20}
+                    >
+                        {panelState.panel === 'artifact-preview' && (
+                            <ArtifactPreviewPanel version={panelState.version} artifactId={panelState.artifactId} />
+                        )}
+                        {activePanel === 'artifacts' && <ArtifactsPanel onClose={closePanel} />}
+                        {activePanel === 'resources' && <ResourcesPanel onClose={closePanel} />}
                     </ResizablePanel>
-                </>
+                </Fragment>
             )}
         </ResizablePanelGroup>
     );

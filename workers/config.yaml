@@ -20,7 +20,9 @@ secrets:
   DATABASE_URL:
     production: HI_DATABASE_URL # TODO ...
     dev: DEV_HI_DATABASE_URL
-  CLERK_SECRET_KEY: CLERK_SECRET_KEY
+  CLERK_SECRET_KEY:
+    production: CLERK_SECRET_KEY
+    dev: DEV_CLERK_SECRET_KEY
   ANTHROPIC_API_KEY: ANTHROPIC_API_KEY
   OPENAI_KEY: OPENAI_KEY
   OPENROUTER_API_KEY: DEV_OPENROUTER_API_KEY  # TODO: using dev key for now
@@ -38,18 +40,21 @@ default_secrets: []
 # Object = per-env value (missing env = not included for that env)
 vars:
   CORS_ALLOWED_ORIGIN:
-    dev: "https://dev-hyperintel.vercel.app"
-  CLERK_PUBLISHABLE_KEY: "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA"
+    production: "https://app.hprntl.ai"
+    dev: "https://dev-app.hprntl.ai"
+  CLERK_PUBLISHABLE_KEY:
+    production: "pk_live_Y2xlcmsuaHBybnRsLmFpJA"
+    dev: "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA"
   LANGFUSE_HOST: "https://us.cloud.langfuse.com"
   LANGFUSE_PUBLIC_KEY: "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780"
   LANGFUSE_ENVIRONMENT:
-    production: "Production"
-    dev: "Development"
+    production: "production"
+    dev: "development"
   ENV:
     dev: "dev"  # prod is unset - code defaults to 'prod'
   APP_BASE:
-    production: "https://app.hyperfund.ai/"
-    dev: "https://dev-hyperintel-orpin.vercel.app/"
+    production: "https://app.hprntl.ai/"
+    dev: "https://dev-app.hprntl.ai/"
 
 
 # Default vars included in EVERY worker

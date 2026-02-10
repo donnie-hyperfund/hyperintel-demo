@@ -23,17 +23,32 @@ export interface EditOperation {
 }
 
 export type DocumentEvent =
-    | { type: 'document_start'; name: string; title: string; pendingVersion: number }
-    | { type: 'document_delta'; name: string; pendingVersion: number; content: string }
+    | {
+          type: 'document_start';
+          name: string;
+          title: string;
+          mode: 'create' | 'edit';
+          loadedFrom?: 'proposed' | 'rejected' | 'approved';
+          loadedVersion?: number;
+          rejectionReason?: string;
+      }
+    | { type: 'document_delta'; name: string; content: string }
     | {
           type: 'document_edit';
           name: string;
-          pendingVersion: number;
           edits: EditOperation[];
           editsApplied: number;
           linesNow: number;
       }
-    | { type: 'document_complete'; name: string; version: number; lines: number; action: string };
+    | {
+          type: 'document_complete';
+          name: string;
+          version: number;
+          lines: number;
+          action: string;
+          status: 'proposed';
+          supersededVersion?: number;
+      };
 
 export interface DocumentContext {
     em: EntityManager;
@@ -53,7 +68,7 @@ export interface DocumentContext {
  */
 export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentEventEmitter) {
     // Current document being written (set by begin_document, cleared by finalize_document)
-    let activeDoc: { name: string; title: string; pendingVersion: number } | null = null;
+    let activeDoc: { name: string; title: string } | null = null;
 
     // Parser for write_document content streaming
     let writeParser: ReturnType<typeof createStreamFieldParser> | null = null;
@@ -85,18 +100,31 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                 }
 
                 // begin_document: set active doc and emit document_start
-                if (result.status === 'draft' && result.name && result.pendingVersion) {
+                if (result.status === 'editing' && result.name) {
                     activeDoc = {
                         name: result.name,
                         title: result.title || result.name,
-                        pendingVersion: result.pendingVersion,
                     };
-                    emit({
+
+                    const startEvent: DocumentEvent = {
                         type: 'document_start',
                         name: activeDoc.name,
                         title: activeDoc.title,
-                        pendingVersion: activeDoc.pendingVersion,
-                    });
+                        mode: result.mode || 'create',
+                    };
+
+                    // Add edit-mode specific fields
+                    if (result.loadedFrom) {
+                        startEvent.loadedFrom = result.loadedFrom;
+                    }
+                    if (result.loadedVersion !== undefined) {
+                        startEvent.loadedVersion = result.loadedVersion;
+                    }
+                    if (result.rejectionReason) {
+                        startEvent.rejectionReason = result.rejectionReason;
+                    }
+
+                    emit(startEvent);
                 }
 
                 // patch_document: emit document_edit with the captured edits
@@ -115,7 +143,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     emit({
                         type: 'document_edit',
                         name: activeDoc.name,
-                        pendingVersion: activeDoc.pendingVersion,
                         edits,
                         editsApplied: result.editsApplied ?? edits.length,
                         linesNow: result.linesNow ?? 0,
@@ -124,16 +151,23 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                 }
 
                 // finalize_document: emit document_complete and clear state
-                if (result.result?.version !== undefined && result.result?.lines !== undefined) {
-                    const name = result.result.name || activeDoc?.name;
+                if (result.version !== undefined && result.lines !== undefined) {
+                    const name = result.name || activeDoc?.name;
                     if (name) {
-                        emit({
+                        const completeEvent: DocumentEvent = {
                             type: 'document_complete',
                             name,
-                            version: result.result.version,
-                            lines: result.result.lines,
-                            action: result.result.action || 'created',
-                        });
+                            version: result.version,
+                            lines: result.lines,
+                            action: result.action || 'created',
+                            status: 'proposed',
+                        };
+
+                        if (result.supersededVersion !== undefined) {
+                            completeEvent.supersededVersion = result.supersededVersion;
+                        }
+
+                        emit(completeEvent);
                     }
                     activeDoc = null;
                     writeParser = null;
@@ -154,7 +188,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                                     emit({
                                         type: 'document_delta',
                                         name: activeDoc.name,
-                                        pendingVersion: activeDoc.pendingVersion,
                                         content: delta,
                                     });
                                 }

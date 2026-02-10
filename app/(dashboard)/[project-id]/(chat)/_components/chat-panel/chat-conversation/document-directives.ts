@@ -6,6 +6,7 @@ export type DocumentDirective = {
     version?: number;
     action?: string;
     lines?: number;
+    status?: 'proposed' | 'approved' | 'rejected' | 'superseded';
 };
 
 export type ContentSegment = { type: 'text'; content: string } | { type: 'document'; directive: DocumentDirective };

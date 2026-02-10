@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { Message } from '../types';
+import { ActivePanelProvider } from './active-panel-provider';
 import { ArtifactProvider } from './artifact-provider';
 import { ChatProvider } from './chat-provider';
 
@@ -17,10 +18,12 @@ type ChatModuleProps = {
 
 export function ChatModule({ children, projectId, initialChatId, initialMessages = [] }: ChatModuleProps) {
     return (
-        <ArtifactProvider>
-            <ChatProvider projectId={projectId} initialChatId={initialChatId} initialMessages={initialMessages}>
-                {children}
-            </ChatProvider>
-        </ArtifactProvider>
+        <ActivePanelProvider>
+            <ArtifactProvider>
+                <ChatProvider projectId={projectId} initialChatId={initialChatId} initialMessages={initialMessages}>
+                    {children}
+                </ChatProvider>
+            </ArtifactProvider>
+        </ActivePanelProvider>
     );
 }

@@ -22,7 +22,7 @@ export const ChatItem = ({ chat, projectId, phaseNumber }: ChatItemProps) => {
 
     const handleChatClick = () => {
         if (!projectId) return;
-        router.push(`/${projectId}/chats/${chat.id}`);
+        router.push(`/${projectId}/${chat.id}`);
     };
 
     return (

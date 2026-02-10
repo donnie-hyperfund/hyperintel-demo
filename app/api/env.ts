@@ -15,10 +15,13 @@ const envBackendSchema = z.object({
     LANGFUSE_SECRET_KEY: z.string().min(1).optional(),
     LANGFUSE_PUBLIC_KEY: z.string().min(1).optional(),
     LANGFUSE_HOST: z.string().min(1).optional(),
-    LANGFUSE_ENVIRONMENT: z.enum(['Development', 'Production']).optional(),
+    LANGFUSE_ENVIRONMENT: z.enum(['development', 'production']).optional(),
 
     //LANGSMITH_API_KEY: z.string().min(1).optional(),
     //LANGSMITH_HOST: z.string().min(1).optional(),
+
+    // Misc
+    DATABASE_USE_SSL: z.coerce.boolean().optional().default(true),
 });
 
 const parsedBackendEnv = envBackendSchema.safeParse(process.env);

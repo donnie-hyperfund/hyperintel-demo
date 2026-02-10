@@ -1,33 +1,27 @@
-'use client';
-
-import { useUser } from '@clerk/nextjs';
 import { format } from 'date-fns';
-import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 import { cn } from '@/lib/utils';
 
 type ProjectItemProps = {
     project: ProjectDto;
+    isSelected?: boolean;
+    onClick: () => void;
 };
 
-export const ProjectItem = ({ project }: ProjectItemProps) => {
-    const router = useRouter();
-    const { user } = useUser();
-
+export const ProjectItem = ({ project, isSelected, onClick }: ProjectItemProps) => {
     const createdDate = project.created_at ? new Date(project.created_at) : null;
     const formattedDate = createdDate ? format(createdDate, 'MMM d, yyyy') : null;
 
-    const handleClick = () => {
-        if (!user?.id) return;
-        setCurrentProjectCookie(user.id, project.id);
-        router.push(`/${project.id}`);
-    };
-
     return (
-        <Card className={cn('cursor-pointer transition-colors hover:bg-accent/50')} onClick={handleClick}>
+        <Card
+            className={cn(
+                'cursor-pointer transition-colors hover:bg-neutral-400/8',
+                isSelected ? 'bg-neutral-900 border-neutral-500/30' : 'border-border',
+            )}
+            onClick={onClick}
+        >
             <CardHeader className="mb-1 gap-2">
                 <div className="line-clamp-1 text-base font-semibold leading-none">{project.name}</div>
                 <div className="line-clamp-2 text-sm text-neutral-500">

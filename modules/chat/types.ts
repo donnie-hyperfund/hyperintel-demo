@@ -2,6 +2,7 @@
 export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { StreamBlock } from '@/common/ai/agent/types';
+import type { ArtifactDto, ArtifactVersionDto } from '@/lib/schema/artifact';
 
 // =============================================================================
 // Chat Types
@@ -33,9 +34,12 @@ export type Conversation = {
 export type ChatState = {
     messages: Message[];
     isGenerating: boolean;
+    isSummarizing: boolean;
     isLoading: boolean;
     error: Error | null;
     streamingMessageId: string | null;
+    tokenUsage: TokenUsage | null;
+    hasPendingChanges: boolean;
 };
 
 export type PaginationState = {
@@ -49,22 +53,29 @@ export type PaginationState = {
 // Artifact Types
 // =============================================================================
 
-export type ArtifactType = 'text/markdown';
-
-export type Artifact = {
+export type Artifact = Partial<ArtifactDto> & {
     id: string;
-    identifier: string;
+    key: string;
     title: string;
-    type: ArtifactType;
-    content: string;
-    messageId: string;
+    isLoading?: boolean;
+    isStreaming?: boolean;
+    isUpdating?: boolean;
 };
 
-export type ArtifactMetadata = {
-    identifier: string;
-    title: string;
-    type: ArtifactType;
-    language?: string;
+// =============================================================================
+// Token Usage Types
+// =============================================================================
+
+export type TokenBreakdown = {
+    context: number;
+    prompt: number;
+    promptTool: number;
+    toolDef: number;
+};
+
+export type TokenUsage = {
+    usedTokens: number;
+    tokenBreakdown: TokenBreakdown;
 };
 
 // =============================================================================
@@ -79,8 +90,12 @@ export type StreamEventType =
     | 'reasoning_done'
     | 'tool_start'
     | 'tool_result'
+    | 'search_start'
+    | 'search_results'
+    | 'citation'
     | 'document_start'
     | 'document_delta'
+    | 'document_patch'
     | 'document_edit'
     | 'document_complete'
     | 'status_update'
@@ -106,6 +121,19 @@ export type StreamEvent =
     // Tool calls
     | { type: 'tool_start'; id: string; tool: string }
     | { type: 'tool_result'; id: string; result: unknown; success: boolean }
+    // Search & citations
+    | { type: 'search_start'; query: string; blockId: string }
+    | { type: 'search_results'; blockId: string; resultCount: number }
+    | {
+        type: 'citation';
+        url: string;
+        citedText: string;
+        title?: string;
+        blockId: string;
+        parentTextBlockId: string;
+        startIndex: number;
+        endIndex: number;
+    }
     // Documents/artifacts
     | { type: 'document_start'; name: string; title?: string; pendingVersion: number }
     | { type: 'document_delta'; name: string; pendingVersion: number; content: string }
@@ -114,7 +142,7 @@ export type StreamEvent =
     // Status & control
     | { type: 'status_update'; status: string }
     | { type: 'error'; error: string }
-    | { type: 'done' }
+    | { type: 'done'; tokenUsage?: TokenUsage }
     | { type: 'done_ext' };
 
 export type StreamState = {
