@@ -1,4 +1,4 @@
-import { getWorkerUrl } from '@/lib/api/requests/worker/common';
+import { getWorkerUrl, toFormData } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
 import { frontendEnv } from '@/lib/env';
 import { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
@@ -92,5 +92,25 @@ export const rejectArtifact = async (data: RejectArtifactActionDto, accessToken:
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
+    });
+};
+
+export const uploadArtifact = async (
+    data: { file: File; projectId: string; chatId: string; title?: string },
+    accessToken: string,
+) => {
+    const body = toFormData(data);
+
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.UploadAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}` },
+            body,
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.UploadAction, {
+        method: 'POST',
+        body,
     });
 };
