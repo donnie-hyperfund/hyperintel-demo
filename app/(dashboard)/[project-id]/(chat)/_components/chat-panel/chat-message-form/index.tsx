@@ -20,7 +20,7 @@ type ChatMessageFormProps = {
 const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
     const {
         sendMessage,
-        state: { isGenerating, isSummarizing, isLoading, tokenUsage, hasPendingChanges },
+        state: { isGenerating, isSummarizing, isLoading, tokenUsage },
     } = useChatContext();
 
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
@@ -40,7 +40,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
 
     const message = watch('message');
     const hasContent = message && message.trim().length > 0;
-    const isDisabled = !hasContent || isGenerating || isSummarizing || isLoading || hasPendingChanges;
+    const isDisabled = !hasContent || isGenerating || isSummarizing || isLoading;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
         if (!data.message.trim()) return;
@@ -128,11 +128,6 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                         </motion.div>
 
                         <div className="flex items-center h-9 px-1 justify-between">
-                            {hasPendingChanges && (
-                                <p className="text-xs text-yellow-400">
-                                    Approve or reject the pending document to continue
-                                </p>
-                            )}
                             {errors.message && (
                                 <motion.p
                                     initial={{ opacity: 0, y: -10 }}

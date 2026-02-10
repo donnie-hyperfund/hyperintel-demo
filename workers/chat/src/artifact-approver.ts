@@ -2,12 +2,12 @@ import { runInferenceNoStream, AIParamsType } from '@common/ai/inference/run-inf
 import { ANTHROPIC_MODELS } from '@common/ai/types/models';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
+import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
@@ -17,11 +17,11 @@ async function generateYAMLForArtifact(
     messages: ChatMessageEntity[],
     ctx: Ctx,
 ): Promise<string> {
-    if (!ctx.langfuse) {
-        throw new Error('Langfuse client not available');
+    const localPath = resolveLocalPromptPath();
+    const systemPrompt = await getPromptContent(ctx, YAML_PROMPT_SLUG, localPath);
+    if (!systemPrompt) {
+        throw new Error(`Failed to load prompt: ${YAML_PROMPT_SLUG}`);
     }
-
-    const systemPrompt = await getLangfusePromptRaw(ctx.langfuse, YAML_PROMPT_SLUG, ctx.env);
 
     const conversationContext = messages.map((m) => ({
         role: m.role as 'user' | 'assistant',

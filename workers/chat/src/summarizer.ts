@@ -2,42 +2,18 @@ import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { serializeException } from '@common/ai/utils';
-import { getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
+import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import { Ctx } from './context';
+import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
+import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
 }
-
-const FALLBACK_SUMMARIZER_PROMPT = `You are a conversation summarizer. Your task is to create a comprehensive summary of the chat conversation that has taken place.
-
-## Instructions
-
-1. **Synthesize the conversation** - Capture the key discussion points, decisions made, and conclusions reached.
-
-2. **Preserve important details** - Include any specific requirements, constraints, or important context that was established.
-
-3. **Note any documents created** - If any documents, plans, or artifacts were generated during the conversation, explicitly mention them with their titles and key contents. This is critical for continuity.
-
-4. **Capture action items** - If there are any pending tasks or next steps discussed, include them.
-
-5. **Maintain context** - The summary should allow someone to pick up the conversation and understand:
-   - What was discussed
-   - What was decided
-   - What was created/accomplished
-   - What remains to be done
-
-## Format
-
-Write the summary as a clear, well-organized narrative. Use markdown formatting for readability:
-- Use headers for major sections if the conversation covered multiple topics
-- Use bullet points for lists of items, action items, or documents
-- Bold important terms, decisions, or document names
-
-Keep the summary concise but comprehensive - capture everything needed for continuity without unnecessary verbosity.`;
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
 
@@ -67,15 +43,41 @@ function extractDocuments(messages: ChatMessageEntity[]): DocumentInfo[] {
     return docs;
 }
 
+/**
+ * Load summarizer prompt: pma/summarizer + pma/completion-brief, concatenated.
+ * Uses the same local-file / Langfuse mechanism as the chat handler.
+ */
 async function getSummarizerPrompt(ctx: Ctx): Promise<string> {
-    // biome-ignore lint/correctness/noConstantCondition: omg
-    if (true) return FALLBACK_SUMMARIZER_PROMPT;
-    try {
-        const prompt = await getLangfusePromptRaw(ctx.langfuse, 'pma/summarizer', ctx.env);
-        return prompt || FALLBACK_SUMMARIZER_PROMPT;
-    } catch {
-        return FALLBACK_SUMMARIZER_PROMPT;
+    const localPath = resolveLocalPromptPath();
+
+    const [summarizerPrompt, completionBriefPrompt] = await Promise.all([
+        getPromptContent(ctx, 'pma/summarizer', localPath),
+        getPromptContent(ctx, 'pma/completion-brief', localPath),
+    ]);
+
+    if (!summarizerPrompt) {
+        throw new Error('Failed to load summarizer prompt (pma/summarizer)');
     }
+    if (!completionBriefPrompt) {
+        throw new Error('Failed to load completion brief prompt (pma/completion-brief)');
+    }
+
+    return `${summarizerPrompt}\n\n---\n\n${completionBriefPrompt}`;
+}
+
+/**
+ * Resolve phase number for the Completion Brief.
+ * Priority: chat.phase (if numeric) → count of existing completion briefs + 1
+ */
+async function resolvePhaseNumber(em: NonNullable<Ctx['em']>, projectId: string, chatPhase: string): Promise<number> {
+    const parsed = Number.parseInt(chatPhase, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+
+    const count = await em.count(ArtifactEntity, {
+        project: projectId,
+        key: { $like: 'completion-brief-phase-%' },
+    });
+    return count + 1;
 }
 
 function sleep(ms: number) {
@@ -112,10 +114,18 @@ async function streamInternal(
             throw new Error('Cannot summarize empty chat');
         }
 
+        // Resolve phase number for the Completion Brief
+        const phaseNumber = await resolvePhaseNumber(em!, chat.project.id, chat.phase);
+        const briefName = `completion-brief-phase-${phaseNumber}.md`;
+        const today = new Date().toISOString().split('T')[0];
+
         const documents = extractDocuments(messages);
         const basePrompt = await getSummarizerPrompt(ctx);
 
-        let instructions = basePrompt;
+        // Append concrete values as context — don't replace {N} in the prompt since
+        // the completion-brief structure uses {N} as AI-fill-in placeholders
+        let instructions = `${basePrompt}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Brief Name:** \`${briefName}\`\n- **Date:** ${today}`;
+
         if (documents.length > 0) {
             instructions += `\n\n## Documents Created During This Conversation\n\n`;
             for (const doc of documents) {
@@ -134,10 +144,10 @@ async function streamInternal(
         }));
 
         // Anthropic requires conversation to end with user message for model to respond.
-        // Without this, if chat ends with assistant message, model may return empty/minimal content.
         historyMessages.push({
             role: 'user' as const,
-            content: 'Please provide a comprehensive summary of this conversation.',
+            content:
+                'Please provide a comprehensive summary of this conversation and create the Completion Brief artifact.',
         });
 
         const inferenceParams = options.overrideInference ?? {
@@ -145,8 +155,34 @@ async function streamInternal(
             params: { model: ANTHROPIC_MODELS.SONNET },
         };
 
+        // Create embedding queue adapter
+        const embeddingQueue = createEmbeddingQueueAdapter({
+            queue: ctx.env.EMBEDDING_QUEUE,
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL
+                ? `${process.env.EMBEDDING_WORKER_URL}/enqueue`
+                : undefined,
+            authSecret: process.env.AUTH_SECRET,
+        });
+
+        // Create document tools context
+        const createdVersionIds: string[] = [];
+        const agentCtx: DocumentToolsContext = {
+            em: em!,
+            projectId: chat.project.id,
+            chatId: chat.id,
+            draftManager: new DraftManager(),
+            embeddingQueue,
+            createdVersionIds,
+        };
+
+        // Only include the tools needed for creating the Completion Brief
+        const documentTools = createDocumentTools();
+        const tools = documentTools.filter((t) =>
+            ['begin_document', 'write_document', 'finalize_document'].includes(t.name),
+        );
+
         const { stream, historyPromise } = runAgentStream(
-            {},
+            agentCtx,
             ctx,
             {
                 ...inferenceParams,
@@ -155,7 +191,10 @@ async function streamInternal(
                 countReasoningAsContent: true,
                 contentThreshold: 5,
             },
-            [],
+            tools,
+            {
+                toolGroups: [DocumentToolGroup],
+            },
         );
 
         let summaryContent = '';

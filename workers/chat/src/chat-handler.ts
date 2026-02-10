@@ -1,10 +1,8 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { getLangfusePrompt, getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
+import { getLangfusePrompt } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
@@ -17,6 +15,7 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
 import { createDocumentEventHandler } from './utils/document-events';
+import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv, slugToLocalFile } from './utils/prompt-loader';
 
 // ============================================================================
 // CONTEXT PREPROCESSING
@@ -133,48 +132,6 @@ async function compileTemplate(template: string, params?: Record<string, unknown
 }
 
 const USE_SHORT_PROMPTS = false;
-const DEFAULT_LOCAL_PROMPTS_PATH = 'zlocal/prompts';
-
-/**
- * Parse LOCAL_PROMPT_LOCATION env var.
- * - undefined/empty → null (use Langfuse)
- * - "true" → true (use default local path)
- * - other string → that string (use as custom path)
- */
-function parseLocalPromptEnv(): true | string | null {
-    const envValue = process?.env?.LOCAL_PROMPT_LOCATION;
-    if (!envValue) return null;
-    if (envValue === 'true') return true;
-    return envValue;
-}
-
-/** Convert Langfuse slug to local filename (strips folder prefix, adds .md) */
-function slugToLocalFile(slug: string): string {
-    const basename = slug.includes('/') ? slug.split('/').pop()! : slug;
-    return `${basename}.md`;
-}
-
-/**
- * Get prompt content - from local file if localPath provided, otherwise from Langfuse.
- */
-async function getPromptContent(ctx: Ctx, slug: string, localPath: string | null): Promise<string | null> {
-    if (localPath) {
-        const filename = slugToLocalFile(slug);
-        try {
-            const filePath = path.join(process.cwd(), localPath, filename);
-            return await fs.readFile(filePath, 'utf-8');
-        } catch (err) {
-            console.warn(`[getPromptContent] Failed to read local prompt: ${slug}`, err);
-            return null;
-        }
-    }
-    // Fallback to Langfuse
-    try {
-        return await getLangfusePromptRaw(ctx.langfuse!, slug, ctx.env);
-    } catch {
-        return null;
-    }
-}
 
 /**
  * Build the system prompt, fetching content for all loaded slugs.
