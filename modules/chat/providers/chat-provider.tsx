@@ -178,6 +178,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             role: m.role as 'user' | 'assistant',
             blocks,
             isStreaming: false,
+            ...(m.is_error && { isError: true }),
         };
     }, []);
 

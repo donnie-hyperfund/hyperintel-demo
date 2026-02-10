@@ -20,6 +20,7 @@ export type Message = {
     role: 'user' | 'assistant';
     blocks: StreamBlock[];
     isStreaming?: boolean;
+    isError?: boolean;
     status?: string;
     createdAt?: Date;
 };
@@ -141,8 +142,8 @@ export type StreamEvent =
     | { type: 'document_complete'; name: string; version: number }
     // Status & control
     | { type: 'status_update'; status: string }
-    | { type: 'error'; error: string }
-    | { type: 'done'; tokenUsage?: TokenUsage }
+    | { type: 'error'; error: string; soft?: boolean }
+    | { type: 'done'; tokenUsage?: TokenUsage; error?: string }
     | { type: 'done_ext' };
 
 export type StreamState = {

@@ -285,10 +285,11 @@ export function useStreamReader({
                         try {
                             const event = JSON.parse(jsonString);
 
-                            if (event.error) {
-                                console.error('Stream error:', event.error);
-                                break;
-                            }
+                            // TODO: handled on done event for now
+                            // if (event.error) {
+                            //     console.error('Stream error:', event.error);
+                            //     break;
+                            // }
 
                             switch (event.type) {
                                 case 'reasoning_start': {
@@ -484,6 +485,7 @@ export function useStreamReader({
                                                       blocks: [...streaming.blocks],
                                                       isStreaming: false,
                                                       status: undefined,
+                                                      ...(event.error && { isError: true }),
                                                   }
                                                 : msg,
                                         ),
