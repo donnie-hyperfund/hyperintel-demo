@@ -18,7 +18,7 @@ async function handleGetMessage(
 
     const message = await em
         .createQueryBuilder(ChatMessageEntity, 'm')
-        .select('m')
+        .select('m.*')
         .leftJoinAndSelect('m.chat', 'c')
         .leftJoin('c.project', 'p')
         .where({

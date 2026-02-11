@@ -32,15 +32,14 @@ export class ChatMessageEntity extends IdCreatedColumns {
     debug_data?: Nullable<Record<string, unknown>>;
 
     /**
-     * Custom JSON serialization with optional block redaction.
+     * Custom JSON serialization with document tool block redaction.
      * Pass serialization groups to control what gets included.
      */
     toJSON(groups?: string[]): Record<string, unknown> {
         const base = wrap(this).toObject() as Record<string, unknown>;
         delete base.debug_data;
 
-        // Apply block redaction based on groups (future use)
-        if (this.blocks && groups) {
+        if (this.blocks) {
             base.blocks = this.redactBlocks(this.blocks, groups);
         }
 
