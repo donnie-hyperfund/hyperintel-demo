@@ -32,3 +32,5 @@ export class ApiClientError extends Error {
         this.details = details;
     }
 }
+
+export type UploadStatus = 'idle' | 'uploading' | 'success';

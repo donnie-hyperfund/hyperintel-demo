@@ -17,6 +17,8 @@ export type ChatContextValue = {
     state: ChatState;
     /** API client for chat operations */
     api: ApiClient;
+    /** Project ID */
+    projectId: string;
     /** Current chat ID */
     chatId: string | null;
     /** Pagination state for infinite scroll */
@@ -402,6 +404,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             value={{
                 state,
                 api,
+                projectId,
                 chatId,
                 pagination,
                 loadMessages,
