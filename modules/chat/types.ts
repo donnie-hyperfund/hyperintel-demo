@@ -2,7 +2,7 @@
 export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { StreamBlock } from '@/common/ai/agent/types';
-import type { ArtifactDto, ArtifactVersionDto } from '@/lib/schema/artifact';
+import type { ArtifactDto } from '@/lib/schema/artifact';
 
 // =============================================================================
 // Chat Types
@@ -126,15 +126,15 @@ export type StreamEvent =
     | { type: 'search_start'; query: string; blockId: string }
     | { type: 'search_results'; blockId: string; resultCount: number }
     | {
-        type: 'citation';
-        url: string;
-        citedText: string;
-        title?: string;
-        blockId: string;
-        parentTextBlockId: string;
-        startIndex: number;
-        endIndex: number;
-    }
+          type: 'citation';
+          url: string;
+          citedText: string;
+          title?: string;
+          blockId: string;
+          parentTextBlockId: string;
+          startIndex: number;
+          endIndex: number;
+      }
     // Documents/artifacts
     | { type: 'document_start'; name: string; title?: string; pendingVersion: number }
     | { type: 'document_delta'; name: string; pendingVersion: number; content: string }
