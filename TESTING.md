@@ -326,6 +326,24 @@ Required env vars: `E2E_CLERK_EMAIL`, `E2E_CLERK_PASSWORD`.
 
 If Clerk uses CAPTCHA/bot protection, see fallback instructions in `auth.setup.ts` for manually saving a cookie fixture.
 
+## SSE Stream Testing
+
+`tests/helpers/streams.ts` — utilities for consuming real SSE responses and asserting on their contents. Reuses the app's own `parseSSEChunk`/`parseStreamEventData`.
+
+```ts
+import { collectStreamEvents, expectNoEvents, expectStreamDone, eventsOfType } from "@/tests/helpers/streams";
+
+it("redacts tool calls from the stream", async () => {
+  const res = await fetch(`${BASE_URL}/api/chat`, { method: "POST", body });
+  const events = await collectStreamEvents(res);
+
+  expectStreamDone(events);
+  expectNoEvents(events, "tool_start", "tool_result");
+});
+```
+
+Key exports: `collectStreamEvents`, `consumeStream` (with per-event callback), `eventsOfType`, `collectText`, `collectDocuments`, `expectNoEvents`, `expectStreamDone`, `expectStreamError`.
+
 ## Adding a New Worker
 
 1. Create `workers/<name>/vitest.config.ts` — copy from `workers/chat/vitest.config.ts`
