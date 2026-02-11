@@ -10,7 +10,7 @@ export default defineConfig({
 		},
 	},
 	test: {
-		name: "workers",
+		name: "workers-chat",
 		globals: true,
 		root: import.meta.dirname,
 		include: ["**/*.test.ts"],

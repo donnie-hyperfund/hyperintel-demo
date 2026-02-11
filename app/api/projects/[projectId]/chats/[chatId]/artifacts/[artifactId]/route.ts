@@ -18,8 +18,8 @@ async function handleGetArtifact(
 
     const artifact = await em
         .createQueryBuilder(ArtifactEntity, 'a')
-        .select('a')
-        .leftJoinAndSelect('a.currentVersion', 'cv')
+        .select('a.*')
+        .leftJoinAndSelect('a.current_version', 'cv')
         .leftJoin('a.chat', 'c')
         .leftJoin('a.project', 'p')
         .where({

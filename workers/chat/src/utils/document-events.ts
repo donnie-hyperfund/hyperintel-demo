@@ -140,13 +140,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         // Fallback: empty edits if parsing failed
                     }
 
-                    emit({
-                        type: 'document_edit',
-                        name: activeDoc.name,
-                        edits,
-                        editsApplied: result.editsApplied ?? edits.length,
-                        linesNow: result.linesNow ?? 0,
-                    });
+                    // TODO temporarily disabled
+                    // emit({
+                    //     type: 'document_edit',
+                    //     name: activeDoc.name,
+                    //     edits,
+                    //     editsApplied: result.editsApplied ?? edits.length,
+                    //     linesNow: result.linesNow ?? 0,
+                    // });
                     editBuffer = '';
                 }
 
@@ -184,13 +185,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             toolName: 'write_document',
                             field: 'content',
                             onDelta: (delta) => {
-                                if (activeDoc) {
-                                    emit({
-                                        type: 'document_delta',
-                                        name: activeDoc.name,
-                                        content: delta,
-                                    });
-                                }
+                                // TODO temporarily disabled
+                                // if (activeDoc) {
+                                //     emit({
+                                //         type: 'document_delta',
+                                //         name: activeDoc.name,
+                                //         content: delta,
+                                //     });
+                                // }
                             },
                         });
                     }

@@ -1,5 +1,8 @@
+import dotenv from "dotenv";
 import path from "node:path";
 import { defineConfig, mergeConfig, type UserConfig } from "vitest/config";
+
+dotenv.config({ path: ".env.test" });
 
 const root = import.meta.dirname;
 

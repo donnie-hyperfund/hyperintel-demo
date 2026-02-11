@@ -1,5 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { CURRENT_PROJECT_COOKIE_NAME, parseProjectCookie } from '@/lib/cookies/project';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
@@ -8,12 +8,26 @@ import { getOrm } from '@/lib/orm/orm';
 const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/api/webhooks(.*)']);
 const isOnboardingRoute = createRouteMatcher(['/new-project(.*)', '/select-project(.*)']);
 
+/**
+ * Test-only auth bypass for Playwright.
+ * Only active when E2E_AUTH_BYPASS=true (set in .env.test, NEVER in .env/.env.dev/.env.prd).
+ * Returns the clerk user ID from the x-test-clerk-id header, or null if bypass is not active.
+ */
+function getTestAuthBypass(req: NextRequest): string | null {
+    if (process.env.NODE_ENV === 'production' || process.env.E2E_AUTH_BYPASS !== 'true') {
+        return null;
+    }
+    return req.headers.get('x-test-clerk-id');
+}
+
 export default clerkMiddleware(async (auth, req) => {
-    if (!isPublicRoute(req)) {
+    const testClerkId = getTestAuthBypass(req);
+
+    if (!testClerkId && !isPublicRoute(req)) {
         await auth.protect();
     }
 
-    const { userId: clerkUserId } = await auth();
+    const clerkUserId = testClerkId ?? (await auth()).userId;
     const pathname = req.nextUrl.pathname;
 
     if (clerkUserId && !isPublicRoute(req) && !pathname.startsWith('/api/')) {

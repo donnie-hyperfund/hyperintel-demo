@@ -54,13 +54,7 @@ export async function GET() {
         return NextResponse.json({
             chatId,
             projectId,
-            messages: messages.map((m) => ({
-                id: m.id,
-                role: m.role,
-                content: m.content,
-                reasoning: m.reasoning ?? null,
-                blocks: m.blocks ?? null,
-            })),
+            messages: messages.map((m) => m.toJSON()),
         });
     } catch (error) {
         console.error('Error fetching chat:', error);
