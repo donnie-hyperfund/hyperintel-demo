@@ -1,4 +1,4 @@
-import { Check, Loader2, Upload, X } from 'lucide-react';
+import { Check, Loader2, Upload } from 'lucide-react';
 import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
