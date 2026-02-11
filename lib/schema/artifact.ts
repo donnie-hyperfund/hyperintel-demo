@@ -76,3 +76,14 @@ export const UploadArtifactSchema = zfd.formData({
     title: zfd.text(z4.string().min(1).optional()),
 });
 export type UploadArtifactDto = z4.infer<typeof UploadArtifactSchema>;
+
+export const UploadArtifactResponseSchema = z.object({
+    success: z.boolean(),
+    action: z.enum(['created', 'new_version']),
+    artifactId: z.string().uuid(),
+    versionId: z.string().uuid(),
+    version: z.number().int().positive(),
+    key: z.string(),
+    supersededVersion: z.number().int().positive().optional(),
+});
+export type UploadArtifactResponseDto = z.infer<typeof UploadArtifactResponseSchema>;

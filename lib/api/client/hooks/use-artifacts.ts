@@ -1,10 +1,15 @@
 import { useAuth } from '@clerk/nextjs';
+import { useRef, useState } from 'react';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRMutation from 'swr/mutation';
-import { approveArtifact, rejectArtifact } from '@/lib/api/requests/worker/chat';
-import type { ArtifactDto } from '@/lib/schema/artifact';
-import { artifactKeys, createArtifactApi } from '../fetchers/artifacts';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import { ZodError } from 'zod';
+import { useToast } from '@/hooks/use-toast';
+import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
+import type { PaginatedResponse, PaginationParams, UploadStatus } from '@/lib/api/client/types';
+import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
+import { validateArtifactFile } from '@/lib/artifacts/utils';
+import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
+import { ALLOWED_ARTIFACT_EXTENSIONS, UploadArtifactResponseSchema } from '@/lib/schema/artifact';
 
 export function useFetchArtifacts(
     projectId: string | undefined,
@@ -107,4 +112,80 @@ export function useRejectArtifactVersion(projectId: string, artifactKey: string,
             return api.getByKey(projectId, artifactKey, artifactVersion);
         },
     );
+}
+
+export function useUploadArtifact(projectId: string, chatId: string | null) {
+    const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [status, setStatus] = useState<UploadStatus>('idle');
+    const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const { toast } = useToast();
+
+    const mutation = useSWRMutation<UploadArtifactResponseDto, Error, string[] | null, File>(
+        projectId && chatId ? [...artifactKeys.all, 'upload', projectId, chatId] : null,
+        async (_, { arg: file }) => {
+            const validationError = validateArtifactFile(file);
+            if (validationError) throw new Error(validationError);
+
+            const token = await getToken();
+            if (!token) throw new Error('Not authenticated');
+            if (!chatId) throw new Error('No active chat');
+
+            const response = await uploadArtifact({ file, projectId: projectId!, chatId }, token);
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.message || 'Upload failed');
+            }
+
+            globalMutate(artifactKeys.list(projectId));
+            const data = await response.json();
+            return UploadArtifactResponseSchema.parse(data);
+        },
+    );
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        try {
+            setStatus('uploading');
+            const result = await mutation.trigger(file);
+
+            if (result) {
+                setStatus('success');
+                successTimeoutRef.current = setTimeout(() => setStatus('idle'), 1000);
+                toast({
+                    title:
+                        result.action === 'new_version'
+                            ? `Uploaded as v${result.version} of "${result.key}"`
+                            : `Uploaded "${result.key}"`,
+                });
+            }
+        } catch (err) {
+            console.error('Upload failed:', err);
+
+            let title = 'Upload failed';
+
+            if (err instanceof ZodError) {
+                title = 'Unexpected server response. Please try again.';
+            } else if (err instanceof Error) {
+                title = err.message;
+            }
+
+            toast({
+                title,
+                variant: 'destructive',
+            });
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    return {
+        fileInputRef,
+        handleFileChange,
+        status,
+        accept: ALLOWED_ARTIFACT_EXTENSIONS.join(','),
+    };
 }
