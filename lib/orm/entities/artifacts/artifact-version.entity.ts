@@ -26,7 +26,8 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'int' })
     version!: number;
 
-    @Property({ type: 'text' })
+    // TODO temporarily censored
+    @Property({ type: 'text', serializer: () => undefined })
     content!: string;
 
     // TODO: When user roles are implemented, update serializer to show ai_content for admin users

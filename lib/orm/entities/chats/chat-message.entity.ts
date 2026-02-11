@@ -54,6 +54,17 @@ export class ChatMessageEntity extends IdCreatedColumns {
     private redactBlocks(blocks: StreamBlock[], groups: string[]): StreamBlock[] {
         // For now, pass through unchanged
         // Future: filter reasoning blocks, tool outputs, etc. based on groups
-        return blocks;
+        return blocks.map((b) => {
+            // TODO temporarily censored
+            if (b.type === 'tool_call' && ['write_document', 'edit_document'].includes(b.toolName)) {
+                return {
+                    ...b,
+                    content: 'REDACTED',
+                    toolInput: 'REDACTED',
+                    toolOutput: 'REDACTED',
+                };
+            }
+            return b;
+        });
     }
 }
