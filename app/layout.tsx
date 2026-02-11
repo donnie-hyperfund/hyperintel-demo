@@ -5,6 +5,7 @@ import type React from 'react';
 import './globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
 import NextTopLoader from 'nextjs-toploader';
+import { Toaster } from '@/components/ui/toaster';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -43,6 +44,7 @@ export default function RootLayout({
                     <NextTopLoader color="oklch(0.69 0.19 145)" showSpinner={false} shadow={false} zIndex={100} />
                     {children}
                     <Analytics />
+                    <Toaster />
                 </body>
             </html>
         </ClerkProvider>

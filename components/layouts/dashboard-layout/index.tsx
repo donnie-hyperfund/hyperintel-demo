@@ -1,7 +1,6 @@
 'use client';
 
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
-import { Toaster } from '@/components/ui/toaster';
 import { DashboardSidebar } from './dashboard-sidebar';
 
 type DashboardLayoutProps = {
@@ -10,14 +9,11 @@ type DashboardLayoutProps = {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
     return (
-        <>
-            <Toaster />
-            <SidebarProvider>
-                <div className="flex h-dvh w-full">
-                    <DashboardSidebar />
-                    <SidebarInset className="flex flex-1 overflow-hidden bg-neutral-975">{children}</SidebarInset>
-                </div>
-            </SidebarProvider>
-        </>
+        <SidebarProvider>
+            <div className="flex h-dvh w-full">
+                <DashboardSidebar />
+                <SidebarInset className="flex flex-1 overflow-hidden bg-neutral-975">{children}</SidebarInset>
+            </div>
+        </SidebarProvider>
     );
 }

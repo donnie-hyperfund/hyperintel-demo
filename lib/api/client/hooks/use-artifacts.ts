@@ -2,14 +2,13 @@ import { useAuth } from '@clerk/nextjs';
 import { useRef, useState } from 'react';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRMutation from 'swr/mutation';
-import { ZodError } from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import type { PaginatedResponse, PaginationParams, UploadStatus } from '@/lib/api/client/types';
 import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
 import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
-import { ALLOWED_ARTIFACT_EXTENSIONS, UploadArtifactResponseSchema } from '@/lib/schema/artifact';
+import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
 
 export function useFetchArtifacts(
     projectId: string | undefined,
@@ -139,8 +138,7 @@ export function useUploadArtifact(projectId: string, chatId: string | null) {
             }
 
             globalMutate(artifactKeys.list(projectId));
-            const data = await response.json();
-            return UploadArtifactResponseSchema.parse(data);
+            return response.json();
         },
     );
 
@@ -163,18 +161,11 @@ export function useUploadArtifact(projectId: string, chatId: string | null) {
                 });
             }
         } catch (err) {
+            setStatus('idle');
             console.error('Upload failed:', err);
 
-            let title = 'Upload failed';
-
-            if (err instanceof ZodError) {
-                title = 'Unexpected server response. Please try again.';
-            } else if (err instanceof Error) {
-                title = err.message;
-            }
-
             toast({
-                title,
+                title: 'Upload failed. Please try again.',
                 variant: 'destructive',
             });
         } finally {
