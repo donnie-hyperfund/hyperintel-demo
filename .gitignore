@@ -15,3 +15,8 @@ package-lock.json
 yarn.lock
 *.tsbuildinfo
 zlocal
+# playwright
+tests/pw/.results/
+tests/pw/.auth/
+playwright-report/
+blob-report/
