@@ -10,7 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/hooks/use-toast';
 import { useCreateProject } from '@/lib/api/client/hooks/use-projects';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import { type CreateProjectBodyDto, CreateProjectBodySchema } from '@/lib/schema/project';
@@ -19,7 +19,6 @@ export default function NewProjectPage() {
     const router = useRouter();
     const { user } = useUser();
     const { trigger: createProject, isMutating } = useCreateProject();
-    const { toast } = useToast();
 
     const {
         register,

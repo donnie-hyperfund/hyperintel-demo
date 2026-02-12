@@ -3,6 +3,7 @@
 import { formatDistanceToNow } from 'date-fns';
 import { ArrowLeft, Check, Copy, Download, FileText, X } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -17,6 +18,8 @@ type ArtifactHeaderProps = {
     backHref?: string;
     updatedAt?: Date;
     onCloseAction?: () => void;
+    /** Slot for extra action buttons (e.g. delete) rendered before the close button */
+    actions?: ReactNode;
 };
 
 export function ArtifactHeader({
@@ -27,6 +30,7 @@ export function ArtifactHeader({
     backHref,
     updatedAt,
     onCloseAction,
+    actions,
 }: ArtifactHeaderProps) {
     const [copied, setCopied] = useState(false);
     const [downloaded, setDownloaded] = useState(false);
@@ -102,6 +106,8 @@ export function ArtifactHeader({
                     </TooltipTrigger>
                     <TooltipContent>{downloaded ? 'Downloaded!' : 'Download'}</TooltipContent>
                 </Tooltip>
+
+                {actions}
 
                 {!backHref && onCloseAction && (
                     <Tooltip>
