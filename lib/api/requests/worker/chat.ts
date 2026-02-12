@@ -4,7 +4,7 @@ import { frontendEnv } from '@/lib/env';
 import { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { SendChatActionDto, SummarizeActionDto } from '@/lib/schema/chat';
 
-export const sendAction = async (data: SendChatActionDto, accessToken: string) => {
+export const sendAction = (data: SendChatActionDto, accessToken: string) => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ChatAction);
         // if (
@@ -32,7 +32,7 @@ export const sendAction = async (data: SendChatActionDto, accessToken: string) =
     });
 };
 
-export const summarize = async (data: SummarizeActionDto, accessToken: string) => {
+export const summarize = (data: SummarizeActionDto, accessToken: string) => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.SummarizeAction);
         return fetch(workerUrl, {
@@ -53,7 +53,7 @@ export const summarize = async (data: SummarizeActionDto, accessToken: string) =
     });
 };
 
-export const approveArtifact = async (data: ApproveArtifactActionDto, accessToken: string) => {
+export const approveArtifact = (data: ApproveArtifactActionDto, accessToken: string) => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ApproveAction);
         return fetch(workerUrl, {
@@ -74,7 +74,7 @@ export const approveArtifact = async (data: ApproveArtifactActionDto, accessToke
     });
 };
 
-export const rejectArtifact = async (data: RejectArtifactActionDto, accessToken: string) => {
+export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: string) => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.RejectAction);
         return fetch(workerUrl, {
@@ -95,7 +95,7 @@ export const rejectArtifact = async (data: RejectArtifactActionDto, accessToken:
     });
 };
 
-export const uploadArtifact = async (
+export const uploadArtifact = (
     data: { file: File; projectId: string; chatId: string | null; title?: string },
     accessToken: string,
 ) => {
