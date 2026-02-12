@@ -21,6 +21,7 @@ export type GetArtifactQueryDto = z.infer<typeof GetArtifactQuerySchema>;
 
 export const ArtifactVersionDtoSchema = z.object({
     id: z.string().uuid(),
+    chat: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
     version: z.number().int(),
     content: z.string(),
     status: VersionStatusSchema,
@@ -37,7 +38,6 @@ export const ArtifactDtoSchema = z.object({
     key: z.string(),
     title: z.string(),
     version: z.number().int(),
-    chat: z.union([z.string().uuid(), z.object({}).passthrough()]),
     project: z.union([z.string().uuid(), z.object({}).passthrough()]),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
@@ -72,8 +72,7 @@ export const UploadArtifactSchema = zfd.formData({
         ),
     ),
     projectId: zfd.text(z4.string().uuid()),
-    // TODO: Make optional once we migrate chat_id to nullable on artifacts table
-    chatId: zfd.text(z4.string().uuid()),
+    chatId: zfd.text(z4.string().uuid().optional()),
     title: zfd.text(z4.string().min(1).optional()),
 });
 export type UploadArtifactDto = z4.infer<typeof UploadArtifactSchema>;

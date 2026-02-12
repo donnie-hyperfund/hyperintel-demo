@@ -31,11 +31,11 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         id: projectId,
         user: { clerkId: user.userId },
     });
-    // Check chat exists TODO optional
-    const chat = await em!.findOneOrFail(ChatEntity, {
-        id: chatId,
-        project: projectId,
-    });
+
+    if (chatId) {
+        // Validate chat belongs to project
+        await em!.findOneOrFail(ChatEntity, { id: chatId, project: projectId });
+    }
 
     const existing = await em.findOne(
         ArtifactEntity,
@@ -64,6 +64,9 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         newVersion.status = 'approved';
         newVersion.status_changed_at = new Date();
         newVersion.status_changed_by = project.id;
+        if (chatId) {
+            newVersion.chat = em.getReference('ChatEntity', chatId) as any;
+        }
 
         em.persist(newVersion);
 
@@ -93,7 +96,6 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         artifact.title = title;
         artifact.version = 1;
         artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
-        artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
 
         txEm.persist(artifact);
         await txEm.flush();
@@ -105,6 +107,9 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         version.status = 'approved';
         version.status_changed_at = new Date();
         version.status_changed_by = project.id;
+        if (chatId) {
+            version.chat = txEm.getReference('ChatEntity', chatId) as any;
+        }
 
         txEm.persist(version);
         await txEm.flush();

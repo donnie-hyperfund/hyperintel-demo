@@ -28,9 +28,9 @@ beforeAll(async () => {
 	const user = em.create(UserEntity, { email: "artifact-test@t.com", emailConfirmed: true, clerkId: CLERK_ID });
 	const project = em.create(ProjectEntity, { name: "P", user });
 	const chat = em.create(ChatEntity, { phase: "chat", project });
-	const artifact = em.create(ArtifactEntity, { key: "secret-doc.md", title: "Secret", version: 2, chat, project });
-	const v1 = em.create(ArtifactVersionEntity, { artifact, version: 1, content: SECRET, ai_content: AI_SECRET, status: "approved" });
-	const v2 = em.create(ArtifactVersionEntity, { artifact, version: 2, content: SECRET + "\nv2", ai_content: AI_SECRET + "\nv2", status: "proposed" });
+	const artifact = em.create(ArtifactEntity, { key: "secret-doc.md", title: "Secret", version: 2, project });
+	const v1 = em.create(ArtifactVersionEntity, { artifact, version: 1, content: SECRET, ai_content: AI_SECRET, status: "approved", chat });
+	const v2 = em.create(ArtifactVersionEntity, { artifact, version: 2, content: SECRET + "\nv2", ai_content: AI_SECRET + "\nv2", status: "proposed", chat });
 	artifact.current_version = v1;
 	await em.persistAndFlush([user, project, chat, artifact, v1, v2]);
 	projectId = project.id;

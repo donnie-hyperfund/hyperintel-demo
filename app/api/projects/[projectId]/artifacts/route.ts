@@ -29,7 +29,6 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         const artifact = await em
             .createQueryBuilder(ArtifactEntity, 'a')
             .select('a.*')
-            .leftJoin('a.chat', 'c')
             .leftJoin('a.project', 'p')
             .leftJoinAndSelect('a.current_version', 'cv')
             .where({
@@ -86,7 +85,6 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
     const query = em
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
-        .leftJoin('a.chat', 'c')
         .leftJoin('a.project', 'p')
         .leftJoinAndSelect('a.current_version', 'cv')
         .where({

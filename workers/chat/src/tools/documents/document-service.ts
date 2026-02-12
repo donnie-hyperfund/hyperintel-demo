@@ -374,6 +374,7 @@ export async function upsertDocument(
         newVersion.content = content;
         newVersion.status = 'proposed';
         newVersion.status_changed_at = new Date();
+        newVersion.chat = em.getReference('ChatEntity', chatId) as any;
 
         em.persist(newVersion);
 
@@ -403,7 +404,6 @@ export async function upsertDocument(
             artifact.title = title;
             artifact.version = 1;
             artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
-            artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
             // current_version stays null until first approval
 
             txEm.persist(artifact);
@@ -416,6 +416,7 @@ export async function upsertDocument(
             version.content = content;
             version.status = 'proposed';
             version.status_changed_at = new Date();
+            version.chat = txEm.getReference('ChatEntity', chatId) as any;
 
             txEm.persist(version);
             await txEm.flush();
