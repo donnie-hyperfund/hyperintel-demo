@@ -41,7 +41,7 @@ export function ArtifactUploadDocument() {
                         size="icon"
                         className="size-7"
                         onClick={handleClick}
-                        disabled={status !== 'idle' || !chatId}
+                        disabled={status !== 'idle'}
                     >
                         <UploadIcon status={status} />
                     </Button>

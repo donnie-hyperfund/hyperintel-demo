@@ -96,7 +96,7 @@ export const rejectArtifact = async (data: RejectArtifactActionDto, accessToken:
 };
 
 export const uploadArtifact = async (
-    data: { file: File; projectId: string; chatId: string; title?: string },
+    data: { file: File; projectId: string; chatId: string | null; title?: string },
     accessToken: string,
 ) => {
     const body = toFormData(data);

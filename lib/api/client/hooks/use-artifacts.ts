@@ -121,17 +121,18 @@ export function useUploadArtifact(projectId: string, chatId: string | null) {
     const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const { toast } = useToast();
 
+    const uploadKey = projectId ? [...artifactKeys.all, 'upload', projectId, chatId ?? 'project'] : null;
+
     const mutation = useSWRMutation<UploadArtifactResponseDto, Error, string[] | null, File>(
-        projectId && chatId ? [...artifactKeys.all, 'upload', projectId, chatId] : null,
+        uploadKey,
         async (_, { arg: file }) => {
             const validation = validateArtifactFile(file);
             if (validation) throw new UploadValidationError(validation.code, validation.message);
 
             const token = await getToken();
             if (!token) throw new Error('Not authenticated');
-            if (!chatId) throw new Error('No active chat');
 
-            const response = await uploadArtifact({ file, projectId: projectId!, chatId }, token);
+            const response = await uploadArtifact({ file, projectId, chatId }, token);
             if (!response.ok) {
                 const error = await response.json();
                 // Only trust messages with codes we control — everything else is opaque
