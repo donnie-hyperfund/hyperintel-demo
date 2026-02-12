@@ -21,7 +21,10 @@ export type GetArtifactQueryDto = z.infer<typeof GetArtifactQuerySchema>;
 
 export const ArtifactVersionDtoSchema = z.object({
     id: z.string().uuid(),
-    chat: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
+    chat: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
     version: z.number().int(),
     content: z.string(),
     status: VersionStatusSchema,

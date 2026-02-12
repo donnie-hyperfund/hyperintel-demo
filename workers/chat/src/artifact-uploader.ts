@@ -1,10 +1,10 @@
 import { PublicError } from '@common/common/error.helpers';
-import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { normalizeArtifactKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { ALLOWED_ARTIFACT_EXTENSIONS, type UploadArtifactDto } from '@/lib/schema/artifact';
+import { type UploadArtifactDto } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 
 // TODO: Add `overwrite_version` param to confirm overwriting a specific version
@@ -12,15 +12,18 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
     const { file, projectId, chatId, title: titleInput } = data;
     const { em, user } = ctx;
 
-    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-    if (!ALLOWED_ARTIFACT_EXTENSIONS.includes(ext)) {
-        throw new PublicError(400, { message: `Unsupported file type '${ext}'`, code: 'UNSUPPORTED_FILE_TYPE' });
+    const validation = validateArtifactFile(file);
+    if (validation) {
+        throw new PublicError(400, { message: validation.message, code: validation.code });
     }
 
     // TODO: .docx :/
     const content = await file.text();
     if (!content.trim()) {
-        throw new PublicError(400, { message: 'File is empty', code: 'EMPTY_FILE' });
+        throw new PublicError(400, {
+            message: 'The uploaded file has no content',
+            code: UPLOAD_ERROR_CODES.EMPTY_FILE,
+        });
     }
 
     const title = titleInput || file.name.replace(/\.[^.]+$/, '');

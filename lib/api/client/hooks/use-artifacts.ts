@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import type { PaginatedResponse, PaginationParams, UploadStatus } from '@/lib/api/client/types';
 import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
-import { validateArtifactFile } from '@/lib/artifacts/utils';
+import { isKnownUploadError, UploadValidationError, validateArtifactFile } from '@/lib/artifacts/utils';
 import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
 
@@ -124,8 +124,8 @@ export function useUploadArtifact(projectId: string, chatId: string | null) {
     const mutation = useSWRMutation<UploadArtifactResponseDto, Error, string[] | null, File>(
         projectId && chatId ? [...artifactKeys.all, 'upload', projectId, chatId] : null,
         async (_, { arg: file }) => {
-            const validationError = validateArtifactFile(file);
-            if (validationError) throw new Error(validationError);
+            const validation = validateArtifactFile(file);
+            if (validation) throw new UploadValidationError(validation.code, validation.message);
 
             const token = await getToken();
             if (!token) throw new Error('Not authenticated');
@@ -133,8 +133,12 @@ export function useUploadArtifact(projectId: string, chatId: string | null) {
 
             const response = await uploadArtifact({ file, projectId: projectId!, chatId }, token);
             if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.message || 'Upload failed');
+                const error = await response.json();
+                // Only trust messages with codes we control — everything else is opaque
+                if (isKnownUploadError(error.code)) {
+                    throw new UploadValidationError(error.code, error.message);
+                }
+                throw new Error(error.message || 'Upload failed');
             }
 
             globalMutate(artifactKeys.list(projectId));
@@ -165,7 +169,7 @@ export function useUploadArtifact(projectId: string, chatId: string | null) {
             console.error('Upload failed:', err);
 
             toast({
-                title: 'Upload failed. Please try again.',
+                title: err instanceof UploadValidationError ? err.message : 'Something went wrong. Please try again.',
                 variant: 'destructive',
             });
         } finally {
