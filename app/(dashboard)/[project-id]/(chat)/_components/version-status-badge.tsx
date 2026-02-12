@@ -1,5 +1,5 @@
-import { cva, VariantProps } from 'class-variance-authority';
-import type { VersionStatus } from '@/lib/schema/artifact';
+import { cva } from 'class-variance-authority';
+import type { DisplayVersionStatus, VersionStatus } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
 
 const badgeVariants = cva('px-1.5 py-0.25 text-[10px] font-medium rounded border', {
@@ -14,7 +14,7 @@ const badgeVariants = cva('px-1.5 py-0.25 text-[10px] font-medium rounded border
     },
 });
 
-const STATUS_LABELS: Record<VersionStatus, string> = {
+const STATUS_LABELS: Record<DisplayVersionStatus, string> = {
     proposed: 'Pending',
     approved: 'Approved',
     rejected: 'Rejected',
@@ -22,13 +22,13 @@ const STATUS_LABELS: Record<VersionStatus, string> = {
     deleted: 'Deleted',
 };
 
-type Status = NonNullable<VariantProps<typeof badgeVariants>['status']>;
-
 type VersionStatusBadgeProps = {
-    status: Status;
+    status?: VersionStatus;
     className?: string;
 };
 
 export function VersionStatusBadge({ status, className }: VersionStatusBadgeProps) {
+    if (!status || status === 'uploaded') return null;
+
     return <span className={cn(badgeVariants({ status }), className)}>{STATUS_LABELS[status]}</span>;
 }

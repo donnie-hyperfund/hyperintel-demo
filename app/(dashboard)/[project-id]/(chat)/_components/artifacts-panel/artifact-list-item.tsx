@@ -25,7 +25,7 @@ export function ArtifactListItem({ artifact, onClick }: ArtifactListItemProps) {
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
                         <span className="line-clamp-1 text-sm font-medium">{artifact.title}</span>
-                        {status && <VersionStatusBadge status={status} />}
+                        <VersionStatusBadge status={status} />
                     </div>
                     <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
                         <span>v{artifact.version}</span>
