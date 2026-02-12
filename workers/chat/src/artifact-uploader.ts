@@ -64,6 +64,9 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         newVersion.status = 'approved';
         newVersion.status_changed_at = new Date();
         newVersion.status_changed_by = project.id;
+        if (chatId) {
+            newVersion.chat = em.getReference('ChatEntity', chatId) as any;
+        }
 
         em.persist(newVersion);
 
@@ -93,9 +96,6 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         artifact.title = title;
         artifact.version = 1;
         artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
-        if (chatId) {
-            artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
-        }
 
         txEm.persist(artifact);
         await txEm.flush();
@@ -107,6 +107,9 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         version.status = 'approved';
         version.status_changed_at = new Date();
         version.status_changed_by = project.id;
+        if (chatId) {
+            version.chat = txEm.getReference('ChatEntity', chatId) as any;
+        }
 
         txEm.persist(version);
         await txEm.flush();

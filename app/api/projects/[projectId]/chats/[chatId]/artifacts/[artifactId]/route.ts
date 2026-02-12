@@ -20,11 +20,11 @@ async function handleGetArtifact(
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
         .leftJoinAndSelect('a.current_version', 'cv')
-        .leftJoin('a.chat', 'c')
+        .leftJoin('a.versions', 'v')
         .leftJoin('a.project', 'p')
         .where({
             'a.id': artifactId,
-            'c.id': chatId,
+            'v.chat': chatId,
             'p.id': projectId,
             'p.user': user.id,
         })

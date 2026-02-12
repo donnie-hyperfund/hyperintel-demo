@@ -1,5 +1,6 @@
 import { Entity, Index, ManyToOne, Opt, Property } from '@mikro-orm/core';
 import type { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 
@@ -12,10 +13,16 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @ManyToOne(() => 'ArtifactEntity', { fieldName: 'artifact_id', serializer: (artifact) => artifact.id })
     artifact!: ArtifactEntity;
 
+    @ManyToOne(() => 'ChatEntity', {
+        fieldName: 'chat_id',
+        nullable: true,
+        serializer: (chat) => chat?.id,
+    })
+    chat?: ChatEntity;
+
     /**
      * The assistant message that created this version.
      * Nullable for backwards compatibility with existing versions created before this field was added.
-     * TODO: Consider backfilling old versions if chat association can be inferred.
      */
     @ManyToOne(() => 'ChatMessageEntity', {
         fieldName: 'chat_message_id',

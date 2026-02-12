@@ -73,7 +73,7 @@ export async function approveArtifactHandler(
         .createQueryBuilder(ArtifactVersionEntity, 'v')
         .select('v.*')
         .leftJoinAndSelect('v.artifact', 'a')
-        .leftJoinAndSelect('a.chat', 'c')
+        .leftJoinAndSelect('v.chat', 'c')
         .leftJoinAndSelect('a.project', 'p')
         .leftJoinAndSelect('p.user', 'u')
         .where({
@@ -96,7 +96,7 @@ export async function approveArtifactHandler(
         });
     }
 
-    if (!version.artifact.chat) {
+    if (!version.chat) {
         throw new PublicError(400, {
             message: 'Cannot approve artifacts without a chat context',
             code: 'NO_CHAT_CONTEXT',
@@ -122,7 +122,7 @@ export async function approveArtifactHandler(
     if (isInternalDocument) {
         const messages = await em.find(
             ChatMessageEntity,
-            { chat: version.artifact.chat.id },
+            { chat: version.chat.id },
             { orderBy: { created_at: 'ASC' } },
         );
 
@@ -213,7 +213,7 @@ export async function rejectArtifactHandler(
         });
     }
 
-    if (!version.artifact.chat) {
+    if (!version.chat) {
         throw new PublicError(400, {
             message: 'Cannot reject artifacts without a chat context',
             code: 'NO_CHAT_CONTEXT',

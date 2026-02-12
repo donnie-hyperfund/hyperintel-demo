@@ -45,10 +45,10 @@ async function handleGetChat(
         chat.message_count = Number(chat.message_count);
     }
 
-    // Find all artifacts belonging to this chat
+    // Find all artifacts that have at least one version linked to this chat
     const artifacts = await em.find(
         ArtifactEntity,
-        { chat: chatId },
+        { versions: { chat: chatId } },
         { populate: ['current_version', 'versions'] },
     );
 
