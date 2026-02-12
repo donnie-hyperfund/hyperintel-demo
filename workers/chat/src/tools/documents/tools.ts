@@ -189,7 +189,9 @@ You MUST call finalize_document when done or content will be lost.`,
                 const existing = await findDocumentByName(em, projectId, normalizedName);
 
                 // Validate based on mode
-                if (mode === 'create' && existing) {
+                // Allow create on deleted artifacts (overwrites / restores them)
+                const isDeleted = existing?.currentStatus === 'deleted';
+                if (mode === 'create' && existing && !isDeleted) {
                     return {
                         error: `Document "${normalizedName}" already exists. Use mode="edit" to modify it.`,
                     };
@@ -211,7 +213,10 @@ You MUST call finalize_document when done or content will be lost.`,
                             name: normalizedName,
                             title: draft.title,
                             lines: 0,
-                            message: 'Draft started. Use write_document to add content, then finalize_document.',
+                            ...(isDeleted && { previouslyDeleted: true }),
+                            message: isDeleted
+                                ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
+                                : 'Draft started. Use write_document to add content, then finalize_document.',
                         };
                     } catch (err: any) {
                         return { error: err.message };
@@ -237,9 +242,9 @@ You MUST call finalize_document when done or content will be lost.`,
                     loadedVersion = existing!.rejectedVersion;
                     rejectionReason = existing!.rejectionReason;
                 } else if (existing!.currentContent !== null) {
-                    // Edit from approved version
+                    // TODO: add a param to specifically confirm restoring and editing a deleted document
                     contentToLoad = existing!.currentContent;
-                    loadedFrom = 'approved';
+                    loadedFrom = isDeleted ? 'deleted' : 'approved';
                     loadedVersion = existing!.currentVersion;
                 } else {
                     return { error: 'No version available to edit.' };
@@ -259,6 +264,7 @@ You MUST call finalize_document when done or content will be lost.`,
                         proposed: `Continuing proposed v${loadedVersion}. Make changes, then finalize_document.`,
                         rejected: `Revising rejected v${loadedVersion}. Address feedback, then finalize_document.`,
                         approved: `Editing from approved v${loadedVersion}. Make changes, then finalize_document.`,
+                        deleted: `Document was deleted (v${loadedVersion}). Loaded deleted content. Finalizing will restore it as a new proposed version.`,
                     };
 
                     return {
@@ -270,6 +276,7 @@ You MUST call finalize_document when done or content will be lost.`,
                         loadedVersion,
                         lines: countLines(draft.content),
                         message: messages[loadedFrom],
+                        ...(isDeleted && { previouslyDeleted: true }),
                         ...(rejectionReason && { rejectionReason }),
                     };
                 } catch (err: any) {

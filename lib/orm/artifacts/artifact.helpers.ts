@@ -81,6 +81,7 @@ export async function reindexProject(
         JOIN artifacts a ON av.artifact_id = a.id
         WHERE a.project_id = $1
           AND av.id = a.current_version_id
+          AND av.status = 'approved'
         `,
         [projectId],
     )) as Array<{ id: string; content: string; project_id: string }>;

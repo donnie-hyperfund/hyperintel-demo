@@ -9,6 +9,7 @@ const badgeVariants = cva('px-1.5 py-0.25 text-[10px] font-medium rounded border
             approved: 'bg-green-500/20 text-green-400 border-green-500/30',
             rejected: 'bg-red-500/20 text-red-400 border-red-500/30',
             superseded: 'bg-neutral-500/20 text-neutral-400 border-neutral-500/30',
+            deleted: 'bg-neutral-500/20 text-neutral-500 border-neutral-500/30 line-through',
         },
     },
 });
@@ -18,6 +19,7 @@ const STATUS_LABELS: Record<VersionStatus, string> = {
     approved: 'Approved',
     rejected: 'Rejected',
     superseded: 'Superseded',
+    deleted: 'Deleted',
 };
 
 type Status = NonNullable<VariantProps<typeof badgeVariants>['status']>;

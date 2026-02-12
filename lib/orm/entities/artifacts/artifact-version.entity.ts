@@ -3,7 +3,8 @@ import type { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entit
 import type { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 
-export type VersionStatus = 'proposed' | 'approved' | 'rejected' | 'superseded';
+export { VERSION_STATUSES } from '@/lib/schema/artifact';
+export type { VersionStatus } from '@/lib/schema/artifact';
 
 @Entity({ tableName: 'artifact_versions' })
 @Index({ properties: ['artifact', 'status'] })
