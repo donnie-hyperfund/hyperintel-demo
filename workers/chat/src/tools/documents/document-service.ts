@@ -159,11 +159,7 @@ export async function findVersionByStatus(
     artifactId: string,
     status: VersionStatus,
 ): Promise<ArtifactVersionEntity | null> {
-    return em.findOne(
-        ArtifactVersionEntity,
-        { artifact: artifactId, status },
-        { orderBy: { version: 'DESC' } },
-    );
+    return em.findOne(ArtifactVersionEntity, { artifact: artifactId, status }, { orderBy: { version: 'DESC' } });
 }
 
 /**
@@ -225,6 +221,7 @@ export interface DocumentInfo {
     title: string;
     currentVersion: number | null;
     currentContent: string | null;
+    currentStatus: VersionStatus | null;
     proposedVersion: number | null;
     proposedContent: string | null;
     rejectedVersion: number | null;
@@ -253,9 +250,7 @@ export async function findDocumentByName(
 
     const versions = artifact.versions.getItems();
     const proposed = versions.find((v) => v.status === 'proposed');
-    const rejected = versions
-        .filter((v) => v.status === 'rejected')
-        .sort((a, b) => b.version - a.version)[0];
+    const rejected = versions.filter((v) => v.status === 'rejected').sort((a, b) => b.version - a.version)[0];
 
     const currentContent = artifact.current_version?.content ?? null;
     const proposedContent = proposed?.content ?? null;
@@ -267,6 +262,7 @@ export async function findDocumentByName(
         title: artifact.title,
         currentVersion: artifact.current_version?.version ?? null,
         currentContent,
+        currentStatus: artifact.current_version?.status ?? null,
         proposedVersion: proposed?.version ?? null,
         proposedContent,
         rejectedVersion: rejected?.version ?? null,
@@ -282,7 +278,7 @@ export interface DocumentListItem {
     title: string;
     lines: number;
     currentVersion: number | null;
-    currentStatus: 'approved' | null;
+    currentStatus: VersionStatus | null;
     latestVersion: number;
     latestStatus: VersionStatus;
     hasProposed: boolean;
@@ -297,9 +293,13 @@ export async function listDocuments(
     filter?: { search?: string },
 ): Promise<DocumentListItem[]> {
     // TODO: Add search filter on name/title when needed
-    const where: Record<string, unknown> = { project: projectId };
 
-    const artifacts = await em.find(ArtifactEntity, where, { populate: ['current_version', 'versions'] });
+    const artifacts = await em.find(
+        ArtifactEntity,
+        // TODO allow including deleted artifacts
+        { project: projectId, current_version: { status: { $ne: 'deleted' } } },
+        { populate: ['current_version', 'versions'] },
+    );
 
     return artifacts.map((a) => {
         const versions = a.versions.getItems();
@@ -313,7 +313,7 @@ export async function listDocuments(
             title: a.title,
             lines: countLines(contentForLines),
             currentVersion: a.current_version?.version ?? null,
-            currentStatus: a.current_version ? ('approved' as const) : null,
+            currentStatus: a.current_version?.status ?? null,
             latestVersion: latest?.version ?? 0,
             latestStatus: latest?.status ?? 'approved',
             hasProposed: !!proposed,
