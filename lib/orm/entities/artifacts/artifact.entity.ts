@@ -17,8 +17,8 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'int', default: 1 })
     version!: number & Opt;
 
-    @ManyToOne(() => 'ChatEntity', { fieldName: 'chat_id', serializer: (chat) => chat.id })
-    chat!: ChatEntity;
+    @ManyToOne(() => 'ChatEntity', { fieldName: 'chat_id', nullable: true, serializer: (chat) => chat?.id })
+    chat?: ChatEntity;
 
     @ManyToOne(() => 'ProjectEntity', { fieldName: 'project_id', serializer: (project) => project.id })
     project!: ProjectEntity;

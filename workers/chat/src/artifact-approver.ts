@@ -96,6 +96,13 @@ export async function approveArtifactHandler(
         });
     }
 
+    if (!version.artifact.chat) {
+        throw new PublicError(400, {
+            message: 'Cannot approve artifacts without a chat context',
+            code: 'NO_CHAT_CONTEXT',
+        });
+    }
+
     // Classify document to determine if AI-readable YAML should be generated
     const isInternalDocument = await shouldGenerateAiContent(
         ctx,
@@ -203,6 +210,13 @@ export async function rejectArtifactHandler(
         throw new PublicError(400, {
             message: `Cannot reject version with status '${version.status}'`,
             code: 'INVALID_STATUS',
+        });
+    }
+
+    if (!version.artifact.chat) {
+        throw new PublicError(400, {
+            message: 'Cannot reject artifacts without a chat context',
+            code: 'NO_CHAT_CONTEXT',
         });
     }
 
