@@ -61,23 +61,24 @@ Factories, mock builders, common setup used across multiple test files.
 All commands default to **watch mode**. Append `--run` to exit after completion (CI).
 
 ```bash
-pnpm test                    # everything, watch mode
-pnpm test --run              # everything, exits (CI)
+pnpm test                    # everything except integration, watch mode
+pnpm test --run              # everything except integration, exits (CI)
 ```
 
 ### By type
 
 ```bash
 pnpm test:unit               # all unit tests across all projects
-pnpm test:integration        # all integration tests across all projects
 pnpm test:e2e                # Next.js endpoint tests
+pnpm test:integration        # all integration tests across all projects
 ```
 
 ### App (Next.js frontend + lib/)
 
 ```bash
-pnpm test:app                # unit + integration
+pnpm test:app                # unit + e2e (no integration)
 pnpm test:app:unit           # unit only
+pnpm test:app:e2e            # e2e only
 pnpm test:app:integration    # integration only
 ```
 
@@ -92,11 +93,18 @@ pnpm test:common:integration # integration only
 ### Workers
 
 ```bash
-pnpm test:workers            # all workers (chat, embedding, etc.) — NOT _common
+pnpm test:workers            # all workers including _common
 pnpm test:workers:common     # workers/_common only
 ```
 
 Workers don't have a unit/integration split. To test a specific worker, `cd` into its directory and run `pnpm test`.
+
+### Scenarios
+
+```bash
+pnpm test:scenario                    # all scenarios (unit + e2e + integration), exits
+pnpm test:scenario document-deletion  # specific scenario by folder name
+```
 
 ## CI
 
@@ -139,15 +147,15 @@ Integration tests need API keys — run on schedule or manually, not on every PR
 
 | Project name | Config file | Scope |
 |---|---|---|
-| `app` | `vitest.config.ts` | `*.test.ts` in app/, lib/, etc. |
+| `app-unit` | `vitest.unit.config.ts` | `*.test.ts` (excluding `*.integration.test.ts`, `*.e2e.test.ts`) in app/, lib/, etc. |
 | `app-integration` | `vitest.integration.config.ts` | `*.integration.test.ts` in app/, lib/ |
 | `app-e2e` | `vitest.e2e.config.ts` | `*.e2e.test.ts` in app/, lib/ |
 | `common` | `common/vitest.config.ts` | `*.test.ts` in common/ |
 | `common-integration` | `common/vitest.integration.config.ts` | `*.integration.test.ts` in common/ |
-| `workers-common` | `workers/_common/vitest.config.ts` | `*.test.ts` in workers/_common/ |
-| `workers` | `workers/*/vitest.config.ts` | `*.test.ts` in each worker (shared project name) |
+| `workers_common` | `workers/_common/vitest.config.ts` | `*.test.ts` in workers/_common/ |
+| `workers-*` | `workers/*/vitest.config.ts` | `*.test.ts` in each worker |
 
-All worker configs share the project name `"workers"`, so `--project workers` runs all of them.
+Each worker config has its own project name (e.g. `workers-chat`). `--project workers-*` matches all of them but not `workers_common`.
 
 ### Path aliases
 

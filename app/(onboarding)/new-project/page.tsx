@@ -5,12 +5,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { motion } from 'motion/react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
 import { useCreateProject } from '@/lib/api/client/hooks/use-projects';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import { type CreateProjectBodyDto, CreateProjectBodySchema } from '@/lib/schema/project';
@@ -19,6 +19,7 @@ export default function NewProjectPage() {
     const router = useRouter();
     const { user } = useUser();
     const { trigger: createProject, isMutating } = useCreateProject();
+    const { toast } = useToast();
 
     const {
         register,
@@ -35,21 +36,29 @@ export default function NewProjectPage() {
 
     const onSubmit = async (data: CreateProjectBodyDto) => {
         if (!user?.id) {
-            toast.error('You must be logged in to create a project.');
+            toast({
+                title: 'You must be logged in to create a project.',
+                variant: 'destructive',
+            });
             return;
         }
 
         try {
             const newProject = await createProject(data);
 
-            toast.success('Project created successfully!');
+            toast({
+                title: 'Project created successfully!',
+            });
 
             // Set the current project cookie and redirect to the new project
             setCurrentProjectCookie(user.id, newProject.id);
             router.push(`/${newProject.id}`);
         } catch (error) {
             console.error('Failed to create project:', error);
-            toast.error('Failed to create project. Please try again.');
+            toast({
+                title: 'Failed to create project. Please try again.',
+                variant: 'destructive',
+            });
         }
     };
 
