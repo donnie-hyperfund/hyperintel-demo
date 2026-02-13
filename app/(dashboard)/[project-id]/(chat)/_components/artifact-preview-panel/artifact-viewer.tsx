@@ -21,6 +21,8 @@ type ArtifactViewerProps = {
     version: number;
     /** Version status */
     status?: VersionStatus;
+    /** Whether the artifact is uploaded */
+    isUploaded?: boolean;
     /** Artifact identifier (key) for API lookups */
     artifactKey?: string;
     /** Artifact ID for store lookups */
@@ -57,6 +59,7 @@ export const ArtifactViewer = ({
     previousContent,
     version,
     status,
+    isUploaded,
     artifactKey,
     artifactId,
     updatedAt,
@@ -107,6 +110,7 @@ export const ArtifactViewer = ({
                 content={content}
                 version={version}
                 status={status}
+                isUploaded={isUploaded}
                 updatedAt={updatedAt}
                 backHref={backHref}
                 onCloseAction={onCloseAction}
