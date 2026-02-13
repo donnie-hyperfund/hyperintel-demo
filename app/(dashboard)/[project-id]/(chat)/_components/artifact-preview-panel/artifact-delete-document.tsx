@@ -16,7 +16,6 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import { useDeleteArtifact } from '@/lib/api/client/hooks/use-artifacts';
-import { ApiClientError } from '@/lib/api/client/types';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 type ArtifactDeleteDocumentProps = {
@@ -43,10 +42,7 @@ export function ArtifactDeleteDocument({
             onDeleted?.();
         } catch (err) {
             console.error('Failed to delete artifact:', err);
-            toast({
-                title: err instanceof ApiClientError ? err.message : 'Something went wrong. Please try again.',
-                variant: 'destructive',
-            });
+            toast({ title: 'Failed to delete artifact', variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);
         }
