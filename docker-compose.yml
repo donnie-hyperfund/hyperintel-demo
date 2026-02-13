@@ -1,0 +1,15 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: hyperintel
+      POSTGRES_PASSWORD: hyperintel
+      POSTGRES_DB: hyperintel
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  pgdata:

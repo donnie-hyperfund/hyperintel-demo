@@ -1,10 +1,14 @@
 import { useAuth } from '@clerk/nextjs';
+import { useRef, useState } from 'react';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRMutation from 'swr/mutation';
-import { approveArtifact, rejectArtifact } from '@/lib/api/requests/worker/chat';
-import type { ArtifactDto } from '@/lib/schema/artifact';
-import { artifactKeys, createArtifactApi } from '../fetchers/artifacts';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import { toast } from '@/hooks/use-toast';
+import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
+import type { PaginatedResponse, PaginationParams, UploadStatus } from '@/lib/api/client/types';
+import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
+import { isKnownUploadError, UploadValidationError, validateArtifactFile } from '@/lib/artifacts/utils';
+import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
+import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
 
 export function useFetchArtifacts(
     projectId: string | undefined,
@@ -107,4 +111,92 @@ export function useRejectArtifactVersion(projectId: string, artifactKey: string,
             return api.getByKey(projectId, artifactKey, artifactVersion);
         },
     );
+}
+
+export function useDeleteArtifact(projectId: string, artifactKey: string) {
+    const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
+
+    return useSWRMutation<{ success: true; message: string }, Error, readonly (string | undefined)[]>(
+        [...artifactKeys.byKey(projectId, artifactKey), 'delete'],
+        async () => {
+            const api = createArtifactApi(getToken);
+            const artifact = await api.getByKey(projectId, artifactKey);
+            const result = await api.delete(projectId, artifact.id);
+            globalMutate(artifactKeys.list(projectId));
+            return result;
+        },
+    );
+}
+
+export function useUploadArtifact(projectId: string, chatId: string | null) {
+    const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [status, setStatus] = useState<UploadStatus>('idle');
+    const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const uploadKey = projectId ? [...artifactKeys.all, 'upload', projectId, chatId ?? 'project'] : null;
+
+    const mutation = useSWRMutation<UploadArtifactResponseDto, Error, string[] | null, File>(
+        uploadKey,
+        async (_, { arg: file }) => {
+            const validation = validateArtifactFile(file);
+            if (validation) throw new UploadValidationError(validation.code, validation.message);
+
+            const token = await getToken();
+            if (!token) throw new Error('Not authenticated');
+
+            const response = await uploadArtifact({ file, projectId, chatId }, token);
+            if (!response.ok) {
+                const error = await response.json();
+                // Only trust messages with codes we control — everything else is opaque
+                if (isKnownUploadError(error.code)) {
+                    throw new UploadValidationError(error.code, error.message);
+                }
+                throw new Error(error.message || 'Upload failed');
+            }
+
+            globalMutate(artifactKeys.list(projectId));
+            return response.json();
+        },
+    );
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        try {
+            setStatus('uploading');
+            const result = await mutation.trigger(file);
+
+            if (result) {
+                setStatus('success');
+                successTimeoutRef.current = setTimeout(() => setStatus('idle'), 1000);
+                toast({
+                    title:
+                        result.action === 'new_version'
+                            ? `Uploaded as v${result.version} of "${result.key}"`
+                            : `Uploaded "${result.key}"`,
+                });
+            }
+        } catch (err) {
+            setStatus('idle');
+            console.error('Upload failed:', err);
+
+            toast({
+                title: err instanceof UploadValidationError ? err.message : 'Something went wrong. Please try again.',
+                variant: 'destructive',
+            });
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    return {
+        fileInputRef,
+        handleFileChange,
+        status,
+        accept: ALLOWED_ARTIFACT_EXTENSIONS.join(','),
+    };
 }

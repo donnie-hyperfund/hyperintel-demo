@@ -21,9 +21,14 @@ export type GetArtifactQueryDto = z.infer<typeof GetArtifactQuerySchema>;
 
 export const ArtifactVersionDtoSchema = z.object({
     id: z.string().uuid(),
+    chat: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
     version: z.number().int(),
     content: z.string(),
     status: VersionStatusSchema,
+    is_uploaded: z.boolean().optional(),
     rejection_reason: z.string().nullable().optional(),
     status_changed_at: z.union([z.string(), z.date()]).nullable().optional(),
     status_changed_by: z.string().uuid().nullable().optional(),
@@ -37,7 +42,6 @@ export const ArtifactDtoSchema = z.object({
     key: z.string(),
     title: z.string(),
     version: z.number().int(),
-    chat: z.union([z.string().uuid(), z.object({}).passthrough()]),
     project: z.union([z.string().uuid(), z.object({}).passthrough()]),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
@@ -72,8 +76,18 @@ export const UploadArtifactSchema = zfd.formData({
         ),
     ),
     projectId: zfd.text(z4.string().uuid()),
-    // TODO: Make optional once we migrate chat_id to nullable on artifacts table
-    chatId: zfd.text(z4.string().uuid()),
+    chatId: zfd.text(z4.string().uuid().optional()),
     title: zfd.text(z4.string().min(1).optional()),
 });
 export type UploadArtifactDto = z4.infer<typeof UploadArtifactSchema>;
+
+export const UploadArtifactResponseSchema = z.object({
+    success: z.boolean(),
+    action: z.enum(['created', 'new_version']),
+    artifactId: z.string().uuid(),
+    versionId: z.string().uuid(),
+    version: z.number().int().positive(),
+    key: z.string(),
+    supersededVersion: z.number().int().positive().optional(),
+});
+export type UploadArtifactResponseDto = z.infer<typeof UploadArtifactResponseSchema>;

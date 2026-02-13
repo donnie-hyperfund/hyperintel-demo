@@ -43,15 +43,15 @@ beforeAll(async () => {
 	const chat = em.create(ChatEntity, { phase: "chat", project });
 
 	// Internal artifact — content must be redacted
-	const internalArtifact = em.create(ArtifactEntity, { key: "secret-doc.md", title: "Secret", version: 2, chat, project });
-	const iv1 = em.create(ArtifactVersionEntity, { artifact: internalArtifact, version: 1, content: SECRET, ai_content: AI_SECRET, status: "approved" });
-	const iv2 = em.create(ArtifactVersionEntity, { artifact: internalArtifact, version: 2, content: SECRET + "\nv2", ai_content: AI_SECRET + "\nv2", status: "proposed" });
+	const internalArtifact = em.create(ArtifactEntity, { key: "secret-doc.md", title: "Secret", version: 2, project });
+	const iv1 = em.create(ArtifactVersionEntity, { artifact: internalArtifact, version: 1, content: SECRET, ai_content: AI_SECRET, status: "approved", chat });
+	const iv2 = em.create(ArtifactVersionEntity, { artifact: internalArtifact, version: 2, content: SECRET + "\nv2", ai_content: AI_SECRET + "\nv2", status: "proposed", chat });
 	internalArtifact.current_version = iv1;
 
 	// Non-internal artifact — content must be exposed
-	const publicArtifact = em.create(ArtifactEntity, { key: "deliverable.md", title: "Deliverable", version: 2, chat, project });
-	const pv1 = em.create(ArtifactVersionEntity, { artifact: publicArtifact, version: 1, content: PUBLIC_CONTENT, ai_content: PUBLIC_AI, status: "approved", is_internal: false });
-	const pv2 = em.create(ArtifactVersionEntity, { artifact: publicArtifact, version: 2, content: PUBLIC_CONTENT + "\nv2", ai_content: PUBLIC_AI + "\nv2", status: "proposed", is_internal: false });
+	const publicArtifact = em.create(ArtifactEntity, { key: "deliverable.md", title: "Deliverable", version: 2, project });
+	const pv1 = em.create(ArtifactVersionEntity, { artifact: publicArtifact, version: 1, content: PUBLIC_CONTENT, ai_content: PUBLIC_AI, status: "approved", is_internal: false, chat });
+	const pv2 = em.create(ArtifactVersionEntity, { artifact: publicArtifact, version: 2, content: PUBLIC_CONTENT + "\nv2", ai_content: PUBLIC_AI + "\nv2", status: "proposed", is_internal: false, chat });
 	publicArtifact.current_version = pv1;
 
 	await em.persistAndFlush([user, project, chat, internalArtifact, iv1, iv2, publicArtifact, pv1, pv2]);

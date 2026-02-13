@@ -17,6 +17,8 @@ export type ChatContextValue = {
     state: ChatState;
     /** API client for chat operations */
     api: ApiClient;
+    /** Project ID */
+    projectId: string;
     /** Current chat ID */
     chatId: string | null;
     /** Pagination state for infinite scroll */
@@ -117,6 +119,37 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         globalMutate(artifactKeys.list(projectId));
     }, [globalMutate, projectId]);
 
+    const revalidateArtifactByKey = useCallback(
+        async (keyId: string) => {
+            // While in list view, we revalidate the artifacts list to show the latest status
+            globalMutate(artifactKeys.list(projectId));
+
+            // Also update the in-memory artifact store so the preview panel reflects the new status
+            const allVersions = artifactContext.artifacts;
+            for (const [artifactId, versions] of Object.entries(allVersions)) {
+                for (const [versionKey, artifact] of Object.entries(versions)) {
+                    if (artifact.key === keyId) {
+                        try {
+                            const version = Number(versionKey) || artifact.proposed_version?.version;
+                            const updated = await api.artifacts.getByKey(projectId, keyId, version);
+                            if (updated) {
+                                artifactContext.updateArtifact(
+                                    artifactId,
+                                    updated,
+                                    versionKey === 'latest' ? 'latest' : Number(versionKey),
+                                    { merge: false },
+                                );
+                            }
+                        } catch {
+                            // SWR revalidation will still keep the list up to date
+                        }
+                    }
+                }
+            }
+        },
+        [globalMutate, projectId, artifactContext, api.artifacts],
+    );
+
     const onTokenUsage = useCallback((usage: TokenUsage) => {
         setState((prev) => ({ ...prev, tokenUsage: usage }));
     }, []);
@@ -159,6 +192,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setIsLoading,
         onArtifactOpen: handleArtifactOpen,
         onArtifactComplete: revalidateArtifacts,
+        onApproveDocument: revalidateArtifactByKey,
         onTokenUsage,
         fetchArtifact,
         onDocumentStart,
@@ -402,6 +436,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             value={{
                 state,
                 api,
+                projectId,
                 chatId,
                 pagination,
                 loadMessages,

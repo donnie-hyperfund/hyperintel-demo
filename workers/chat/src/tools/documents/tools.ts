@@ -84,7 +84,10 @@ export const DocumentToolGroup: AgentToolGroup = {
 ## Approval
 \`finalize_document\` saves as "proposed". User approves via UI to make it live ("approved").
 If you finalize again before approval, old proposed becomes "superseded".
-You can also approve or reject documents directly via \`approve_document\` and \`reject_document\` tools when asked by the user in chat.
+
+**CRITICAL: \`approve_document\` and \`reject_document\` are USER-INITIATED ONLY.**
+NEVER call these tools on your own initiative. Only use them when the user EXPLICITLY asks you to approve or reject a document in chat.
+After creating or finalizing a document, do NOT automatically approve it - wait for the user's decision.
 
 ## Important
 \`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.`,
@@ -619,6 +622,8 @@ Shows for each document:
             name: 'approve_document' as const,
             description: `Approve a proposed document version, making it the live (approved) version.
 
+**USER-INITIATED ONLY** - NEVER call this tool unless the user has EXPLICITLY asked you to approve a document. Do NOT call this automatically after creating or finalizing a document.
+
 Only works on documents that have a proposed version awaiting approval.
 This triggers AI content generation (YAML) for internal documents and queues embedding indexing.`,
             parameters: ApproveDocumentParams,
@@ -666,6 +671,8 @@ This triggers AI content generation (YAML) for internal documents and queues emb
         {
             name: 'reject_document' as const,
             description: `Reject a proposed document version with feedback.
+
+**USER-INITIATED ONLY** - NEVER call this tool unless the user has EXPLICITLY asked you to reject a document. Do NOT call this automatically.
 
 Only works on documents that have a proposed version awaiting approval.
 The rejection reason is stored and will be shown when the document is next edited.`,

@@ -13,6 +13,7 @@ export function ArtifactListItem({ artifact, onClick }: ArtifactListItemProps) {
     const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
     const status = (artifact.proposed_version ?? artifact.current_version)?.status;
+    const isUploaded = (artifact.proposed_version ?? artifact.current_version)?.is_uploaded;
 
     return (
         <button
@@ -25,7 +26,7 @@ export function ArtifactListItem({ artifact, onClick }: ArtifactListItemProps) {
                 <div className="min-w-0">
                     <div className="flex items-center gap-2">
                         <span className="line-clamp-1 text-sm font-medium">{artifact.title}</span>
-                        {status && <VersionStatusBadge status={status} />}
+                        {!isUploaded && <VersionStatusBadge status={status} />}
                     </div>
                     <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
                         <span>v{artifact.version}</span>

@@ -1,10 +1,10 @@
 import { PublicError } from '@common/common/error.helpers';
-import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { normalizeArtifactKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { ALLOWED_ARTIFACT_EXTENSIONS, type UploadArtifactDto } from '@/lib/schema/artifact';
+import { type UploadArtifactDto } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 
 // TODO: Add `overwrite_version` param to confirm overwriting a specific version
@@ -12,15 +12,18 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
     const { file, projectId, chatId, title: titleInput } = data;
     const { em, user } = ctx;
 
-    const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-    if (!ALLOWED_ARTIFACT_EXTENSIONS.includes(ext)) {
-        throw new PublicError(400, { message: `Unsupported file type '${ext}'`, code: 'UNSUPPORTED_FILE_TYPE' });
+    const validation = validateArtifactFile(file);
+    if (validation) {
+        throw new PublicError(400, { message: validation.message, code: validation.code });
     }
 
     // TODO: .docx :/
     const content = await file.text();
     if (!content.trim()) {
-        throw new PublicError(400, { message: 'File is empty', code: 'EMPTY_FILE' });
+        throw new PublicError(400, {
+            message: 'The uploaded file has no content',
+            code: UPLOAD_ERROR_CODES.EMPTY_FILE,
+        });
     }
 
     const title = titleInput || file.name.replace(/\.[^.]+$/, '');
@@ -31,11 +34,11 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         id: projectId,
         user: { clerkId: user.userId },
     });
-    // Check chat exists TODO optional
-    const chat = await em!.findOneOrFail(ChatEntity, {
-        id: chatId,
-        project: projectId,
-    });
+
+    if (chatId) {
+        // Validate chat belongs to project
+        await em!.findOneOrFail(ChatEntity, { id: chatId, project: projectId });
+    }
 
     const existing = await em.findOne(
         ArtifactEntity,
@@ -63,8 +66,12 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         newVersion.content = content;
         newVersion.status = 'approved';
         newVersion.is_internal = false; // User uploads are client deliverables
+        newVersion.is_uploaded = true;
         newVersion.status_changed_at = new Date();
         newVersion.status_changed_by = project.id;
+        if (chatId) {
+            newVersion.chat = em.getReference('ChatEntity', chatId) as any;
+        }
 
         em.persist(newVersion);
 
@@ -94,7 +101,6 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         artifact.title = title;
         artifact.version = 1;
         artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
-        artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
 
         txEm.persist(artifact);
         await txEm.flush();
@@ -105,8 +111,12 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         version.content = content;
         version.status = 'approved';
         version.is_internal = false; // User uploads are client deliverables
+        version.is_uploaded = true;
         version.status_changed_at = new Date();
         version.status_changed_by = project.id;
+        if (chatId) {
+            version.chat = txEm.getReference('ChatEntity', chatId) as any;
+        }
 
         txEm.persist(version);
         await txEm.flush();
