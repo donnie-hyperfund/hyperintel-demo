@@ -3,7 +3,7 @@
 import { ChevronRight, FileCode, MessageSquare, Plus } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useParams, usePathname } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
     Sidebar,
@@ -34,6 +34,7 @@ export function DashboardSidebar() {
     const isExpanded = !isCollapsed;
     const params = useParams();
     const pathname = usePathname();
+    const router = useRouter();
     const projectId = params?.['project-id'] as string | undefined;
 
     const { data: chatsData } = useFetchChats(projectId, { limit: 20 });
@@ -44,7 +45,8 @@ export function DashboardSidebar() {
     const handleNewPhase = (e: React.MouseEvent) => {
         e.preventDefault();
         if (projectId) {
-            window.location.href = `/${projectId}`;
+            window.dispatchEvent(new Event('new-phase'));
+            router.push(`/${projectId}`);
         }
     };
 

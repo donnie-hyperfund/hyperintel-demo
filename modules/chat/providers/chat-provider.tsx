@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
@@ -69,6 +70,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
+    const router = useRouter();
 
     // Create API client with auth
     const api = useMemo(() => createApiClient(getToken), [getToken]);
@@ -396,7 +398,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
                         if (event.type === 'done' && event.newChatId) {
                             setState((prev) => ({ ...prev, isSummarizing: false }));
-                            window.location.href = `/${projectId}/${event.newChatId}`;
+                            router.push(`/${projectId}/${event.newChatId}`);
                             return;
                         }
                     } catch {
@@ -413,7 +415,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }
-    }, [chatId, getToken, projectId, state.isSummarizing]);
+    }, [chatId, getToken, projectId, router, state.isSummarizing]);
 
     /** Stop the current generation */
     const stopGeneration = useCallback(() => {

@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown, Plus } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Popover, PopoverContent, PopoverScrollArea, PopoverTrigger } from '@/components/ui/popover';
 import type { ChatDto } from '@/lib/schema/message';
@@ -16,12 +17,14 @@ type PhasePickerProps = {
 
 export function PhasePicker({ projectId, chats, currentChatId, phaseName }: PhasePickerProps) {
     const [open, setOpen] = useState(false);
+    const router = useRouter();
     const isNewChat = !currentChatId;
 
     const handleNewPhase = (e: React.MouseEvent) => {
         e.preventDefault();
         setOpen(false);
-        window.location.href = `/${projectId}`;
+        window.dispatchEvent(new Event('new-phase'));
+        router.push(`/${projectId}`);
     };
 
     return (
@@ -30,17 +33,12 @@ export function PhasePicker({ projectId, chats, currentChatId, phaseName }: Phas
                 <button
                     type="button"
                     className={cn(
-                        'flex items-center gap-1 text-sm font-medium rounded-md px-2 py-1 -ml-2 transition-colors hover:bg-accent',
-                        isNewChat ? 'text-neutral-500' : 'text-foreground',
+                        'group flex items-center gap-1.5 text-sm rounded-md px-2 py-1 transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground',
+                        isNewChat && 'text-neutral-500',
                     )}
                 >
                     {phaseName ?? 'New phase'}
-                    <ChevronDown
-                        className={cn(
-                            'size-3.5 text-neutral-500 transition-transform duration-200',
-                            open && 'rotate-180',
-                        )}
-                    />
+                    <ChevronDown className="size-3.5 text-neutral-500 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                 </button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-56 p-0">
