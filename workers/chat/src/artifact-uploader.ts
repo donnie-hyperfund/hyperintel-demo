@@ -64,7 +64,8 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         newVersion.artifact = existing;
         newVersion.version = newVersionNum;
         newVersion.content = content;
-        newVersion.status = 'uploaded';
+        newVersion.status = 'approved';
+        newVersion.is_uploaded = true;
         newVersion.status_changed_at = new Date();
         newVersion.status_changed_by = project.id;
         if (chatId) {
@@ -107,7 +108,8 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         version.artifact = artifact;
         version.version = 1;
         version.content = content;
-        version.status = 'uploaded';
+        version.status = 'approved';
+        version.is_uploaded = true;
         version.status_changed_at = new Date();
         version.status_changed_by = project.id;
         if (chatId) {

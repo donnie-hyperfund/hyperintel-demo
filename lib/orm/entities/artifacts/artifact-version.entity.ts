@@ -4,8 +4,10 @@ import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 
-export { VERSION_STATUSES } from '@/lib/schema/artifact';
+import type { VersionStatus } from '@/lib/schema/artifact';
+
 export type { VersionStatus } from '@/lib/schema/artifact';
+export { VERSION_STATUSES } from '@/lib/schema/artifact';
 
 @Entity({ tableName: 'artifact_versions' })
 @Index({ properties: ['artifact', 'status'] })
@@ -45,6 +47,9 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
 
     @Property({ type: 'text', default: 'approved' })
     status!: VersionStatus & Opt;
+
+    @Property({ type: 'boolean', default: false })
+    is_uploaded!: boolean & Opt;
 
     @Property({ type: 'text', nullable: true })
     rejection_reason?: string;

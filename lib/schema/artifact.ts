@@ -2,10 +2,9 @@ import { z } from 'zod';
 import { z as z4 } from 'zod/v4';
 import { zfd } from 'zod-form-data';
 
-export const VERSION_STATUSES = ['proposed', 'approved', 'rejected', 'superseded', 'deleted', 'uploaded'] as const;
+export const VERSION_STATUSES = ['proposed', 'approved', 'rejected', 'superseded', 'deleted'] as const;
 export const VersionStatusSchema = z.enum(VERSION_STATUSES);
 export type VersionStatus = z.infer<typeof VersionStatusSchema>;
-export type DisplayVersionStatus = Exclude<VersionStatus, 'uploaded'>;
 
 export const ListArtifactsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
@@ -29,6 +28,7 @@ export const ArtifactVersionDtoSchema = z.object({
     version: z.number().int(),
     content: z.string(),
     status: VersionStatusSchema,
+    is_uploaded: z.boolean().optional(),
     rejection_reason: z.string().nullable().optional(),
     status_changed_at: z.union([z.string(), z.date()]).nullable().optional(),
     status_changed_by: z.string().uuid().nullable().optional(),
