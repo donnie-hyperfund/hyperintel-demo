@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { BadRequestError } from '@/common/common/error.helpers';
+import { BadRequestError, PublicError } from '@/common/common/error.helpers';
 import { assertAuth } from '@/lib/api/auth-guard';
 import { initNextjsWorkerContext } from '@/lib/local/context';
 import { UploadArtifactSchema } from '@/lib/schema/artifact';
@@ -17,7 +17,12 @@ export async function POST(req: NextRequest) {
         }).getNextResponse();
     }
 
-    const ctx = await initNextjsWorkerContext({ skipAI: false });
-    const result = await uploadArtifactHandler(parsed.data, ctx);
-    return NextResponse.json(result);
+    try {
+        const ctx = await initNextjsWorkerContext({ skipAI: false });
+        const result = await uploadArtifactHandler(parsed.data, ctx);
+        return NextResponse.json(result);
+    } catch (err) {
+        if (err instanceof PublicError) return err.getNextResponse();
+        throw err;
+    }
 }

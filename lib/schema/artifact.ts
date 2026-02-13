@@ -21,10 +21,14 @@ export type GetArtifactQueryDto = z.infer<typeof GetArtifactQuerySchema>;
 
 export const ArtifactVersionDtoSchema = z.object({
     id: z.string().uuid(),
-    chat: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
+    chat: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
     version: z.number().int(),
     content: z.string(),
     status: VersionStatusSchema,
+    is_uploaded: z.boolean().optional(),
     rejection_reason: z.string().nullable().optional(),
     status_changed_at: z.union([z.string(), z.date()]).nullable().optional(),
     status_changed_by: z.string().uuid().nullable().optional(),
