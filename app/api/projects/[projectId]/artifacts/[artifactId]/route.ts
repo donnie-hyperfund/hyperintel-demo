@@ -15,18 +15,16 @@ type ErrorCode = keyof typeof ERROR_TEXT;
 const ERROR_TEXT = {
     ARTIFACT_NOT_FOUND: 'Artifact not found',
     VERSION_NOT_FOUND: 'Version not found',
-    NO_CURRENT_VERSION: 'Artifact has no approved version to delete',
     ALREADY_DELETED: 'Artifact is already deleted',
 } as const;
 
 function jsonError(code: ErrorCode, status: number) {
-    return NextResponse.json({ error: ERROR_TEXT[code], code }, { status });
+    return NextResponse.json({ message: ERROR_TEXT[code], code }, { status });
 }
 
 const RESPONSES = {
     artifactNotFound: () => jsonError('ARTIFACT_NOT_FOUND', 404),
     versionNotFound: () => jsonError('VERSION_NOT_FOUND', 404),
-    noCurrentVersion: () => jsonError('NO_CURRENT_VERSION', 400),
     alreadyDeleted: () => jsonError('ALREADY_DELETED', 400),
 } as const;
 
@@ -113,13 +111,22 @@ async function deleteArtifact(
     });
     if (!artifact) return RESPONSES.artifactNotFound();
 
-    const currentVersion = artifact.current_version;
-    if (!currentVersion) return RESPONSES.noCurrentVersion();
-    if (currentVersion.status === 'deleted') return RESPONSES.alreadyDeleted();
+    // Use current_version if available, otherwise find the newest version (e.g. still proposed)
+    const targetVersion =
+        artifact.current_version ??
+        (await em.findOne(ArtifactVersionEntity, { artifact: artifact.id }, { orderBy: { version: 'DESC' } }));
 
-    currentVersion.status = 'deleted';
-    currentVersion.status_changed_at = new Date();
-    currentVersion.status_changed_by = user.id;
+    if (!targetVersion) return RESPONSES.artifactNotFound();
+    if (targetVersion.status === 'deleted') return RESPONSES.alreadyDeleted();
+
+    targetVersion.status = 'deleted';
+    targetVersion.status_changed_at = new Date();
+    targetVersion.status_changed_by = user.id;
+
+    // Point current_version at the deleted version to reflect the status
+    if (!artifact.current_version) {
+        artifact.current_version = targetVersion;
+    }
 
     await em.flush();
 
