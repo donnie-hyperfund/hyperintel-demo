@@ -69,7 +69,11 @@ export const DocumentToolGroup: AgentToolGroup = {
 2. \`write_document\` / \`patch_document\` - Make changes
 3. \`finalize_document\` - Save (MUST call or content is lost)
 
-Avoid read/patch loops - read once, make all pending edits, then finalize.
+## Editing Strategy
+- \`patch_document\` edits are **atomic and verified** — the tool confirms success. Do NOT re-read a document after patching to check your work.
+- Batch ALL pending edits into a single \`patch_document\` call. Multiple small patches waste tool calls.
+- If you need to rewrite most of a document (>50% changing), use \`write_document\` to replace the entire content instead of many patches.
+- The pattern \`read → patch → read → patch\` is a wasteful anti-pattern. Read once, patch once (with all edits), finalize.
 
 ## Document Statuses
 - \`proposed\`: Saved, awaiting user approval
@@ -85,7 +89,7 @@ You can also approve or reject documents directly via \`approve_document\` and \
 ## Important
 \`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.`,
     behavioralGuidance:
-        'Complete all pending edits before finalizing. Batch multiple edits into one patch_document call. Do NOT include meta-labels like "AI Readable Specification", "Machine Readable Format", or similar markers in documents - write clean, professional content that reads naturally.',
+        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content.',
     tools: [
         'begin_document',
         'write_document',
@@ -111,6 +115,12 @@ const BeginDocumentParams = z.object({
         ),
     name: z.string().min(1).describe('Document name (e.g., "analysis.md"). Extension auto-appended if missing.'),
     title: z.string().optional().nullable().describe('Display title for the document (required for create).'),
+    is_internal: z
+        .boolean()
+        .default(true)
+        .describe(
+            'Whether this is an internal document (content hidden from user). Set to false for client deliverables that the user should see. In edit mode, you should generally keep the same value as the existing version.',
+        ),
 });
 
 const WriteDocumentParams = z.object({
@@ -176,11 +186,16 @@ Modes:
   • If rejected version exists → loads it with rejection reason (revise it)
   • Otherwise → loads approved version (start new changes)
 
+Internal vs Client Deliverable:
+- is_internal=true (default): Internal working document. Content is NOT visible to the user.
+- is_internal=false: Client deliverable. Content IS visible to the user in the UI.
+- In edit mode, you should generally keep the same is_internal value as the existing version.
+
 After calling this, use write_document to add content or patch_document for precise edits.
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
-                const { mode, name, title } = input;
+                const { mode, name, title, is_internal } = input;
                 const { em, projectId, draftManager } = ctx;
 
                 const normalizedName = normalizeArtifactKey(name);
@@ -206,12 +221,13 @@ You MUST call finalize_document when done or content will be lost.`,
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
                     try {
-                        const draft = draftManager.begin(projectId, normalizedName, docTitle, mode, '', undefined);
+                        const draft = draftManager.begin(projectId, normalizedName, docTitle, mode, '', undefined, is_internal);
                         return {
                             status: 'editing',
                             mode: 'create',
                             name: normalizedName,
                             title: draft.title,
+                            is_internal: draft.is_internal,
                             lines: 0,
                             ...(isDeleted && { previouslyDeleted: true }),
                             message: isDeleted
@@ -258,6 +274,7 @@ You MUST call finalize_document when done or content will be lost.`,
                         mode,
                         contentToLoad,
                         loadedVersion ?? undefined,
+                        is_internal,
                     );
 
                     const messages: Record<string, string> = {
@@ -272,6 +289,7 @@ You MUST call finalize_document when done or content will be lost.`,
                         mode: 'edit',
                         name: normalizedName,
                         title: draft.title,
+                        is_internal: draft.is_internal,
                         loadedFrom,
                         loadedVersion,
                         lines: countLines(draft.content),
@@ -381,7 +399,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     const draft = draftManager.requireCurrent();
 
                     // Persist to database as proposed
-                    const result = await upsertDocument(em, projectId, chatId, draft.name, draft.title, draft.content);
+                    const result = await upsertDocument(em, projectId, chatId, draft.name, draft.title, draft.content, draft.is_internal);
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);

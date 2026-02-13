@@ -29,7 +29,7 @@ async function handleGetArtifacts(
         .select('a.*')
         .leftJoin('a.chat', 'c')
         .leftJoin('a.project', 'p')
-        .leftJoin('a.current_version', 'cv')
+        .leftJoinAndSelect('a.current_version', 'cv')
         .where({
             'c.id': chatId,
             'p.id': projectId,
