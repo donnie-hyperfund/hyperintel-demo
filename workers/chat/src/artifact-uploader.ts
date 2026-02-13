@@ -19,6 +19,7 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
 
     // TODO: .docx :/
     const content = await file.text();
+    // Additional validation to ensure the file is not empty
     if (!content.trim()) {
         throw new PublicError(400, {
             message: 'The uploaded file has no content',

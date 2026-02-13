@@ -63,7 +63,7 @@ export const RejectArtifactActionSchema = z.object({
 });
 export type RejectArtifactActionDto = z.infer<typeof RejectArtifactActionSchema>;
 
-export const MAX_ARTIFACT_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB
+export const MAX_ARTIFACT_UPLOAD_SIZE = 5 * 1024 * 1024; // 5MB
 // TODO: Add '.docx' once we have conversion (e.g. mammoth)
 export const ALLOWED_ARTIFACT_EXTENSIONS = ['.md'];
 

@@ -45,6 +45,13 @@ export type ArtifactFileValidation = { code: UploadErrorCode; message: string };
  * Returns `null` if valid, or `{ code, message }` with a human-readable message.
  */
 export function validateArtifactFile(file: File): ArtifactFileValidation | null {
+    if (file.size === 0) {
+        return {
+            code: UPLOAD_ERROR_CODES.EMPTY_FILE,
+            message: 'The uploaded file has no content',
+        };
+    }
+
     if (file.size > MAX_ARTIFACT_UPLOAD_SIZE) {
         return {
             code: UPLOAD_ERROR_CODES.FILE_TOO_LARGE,
