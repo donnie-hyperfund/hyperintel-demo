@@ -24,11 +24,12 @@ const STATUS_LABELS: Record<VersionStatus, string> = {
 
 type VersionStatusBadgeProps = {
     status?: VersionStatus;
+    isUploaded?: boolean;
     className?: string;
 };
 
-export function VersionStatusBadge({ status, className }: VersionStatusBadgeProps) {
-    if (!status) return null;
+export function VersionStatusBadge({ status, isUploaded, className }: VersionStatusBadgeProps) {
+    if (!status || (isUploaded && status !== 'deleted')) return null;
 
     return <span className={cn(badgeVariants({ status }), className)}>{STATUS_LABELS[status]}</span>;
 }
