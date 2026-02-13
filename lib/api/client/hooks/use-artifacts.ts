@@ -2,7 +2,7 @@ import { useAuth } from '@clerk/nextjs';
 import { useRef, useState } from 'react';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRMutation from 'swr/mutation';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from '@/hooks/use-toast';
 import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import type { PaginatedResponse, PaginationParams, UploadStatus } from '@/lib/api/client/types';
 import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
@@ -113,13 +113,28 @@ export function useRejectArtifactVersion(projectId: string, artifactKey: string,
     );
 }
 
+export function useDeleteArtifact(projectId: string, artifactKey: string) {
+    const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
+
+    return useSWRMutation<{ success: true; message: string }, Error, readonly (string | undefined)[]>(
+        [...artifactKeys.byKey(projectId, artifactKey), 'delete'],
+        async () => {
+            const api = createArtifactApi(getToken);
+            const artifact = await api.getByKey(projectId, artifactKey);
+            const result = await api.delete(projectId, artifact.id);
+            globalMutate(artifactKeys.list(projectId));
+            return result;
+        },
+    );
+}
+
 export function useUploadArtifact(projectId: string, chatId: string | null) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [status, setStatus] = useState<UploadStatus>('idle');
     const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const { toast } = useToast();
 
     const mutation = useSWRMutation<UploadArtifactResponseDto, Error, string[] | null, File>(
         projectId && chatId ? [...artifactKeys.all, 'upload', projectId, chatId] : null,

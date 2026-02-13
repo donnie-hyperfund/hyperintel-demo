@@ -9,6 +9,7 @@ import type { VersionStatus } from '@/lib/schema/artifact';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
+import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
 import { DiffControlBar } from './diff-control-bar';
 
@@ -68,6 +69,7 @@ export const ArtifactViewer = ({
     const prevTitleRef = useRef<string | null>(null);
     const [isDiffVisible, setIsDiffVisible] = useState(false);
     const [isProcessingApproval, setIsProcessingApproval] = useState(false);
+    const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
     const {
         state: { messages },
@@ -75,7 +77,9 @@ export const ArtifactViewer = ({
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
     const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
+    const canDelete = status === 'approved' && !!artifactKey && !isStreaming;
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
+    const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
 
     const diffData = useMemo(() => {
         if (!canShowDiff || !previousContent) return null;
@@ -100,6 +104,15 @@ export const ArtifactViewer = ({
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
+    const deleteAction = canDelete && (
+        <ArtifactDeleteDocument
+            artifactKey={artifactKey}
+            title={title}
+            onProcessingChange={setIsProcessingDelete}
+            onDeleted={onCloseAction}
+        />
+    );
+
     return (
         <div className="flex flex-col h-full bg-neutral-975">
             <ArtifactHeader
@@ -110,6 +123,7 @@ export const ArtifactViewer = ({
                 updatedAt={updatedAt}
                 backHref={backHref}
                 onCloseAction={onCloseAction}
+                actions={deleteAction}
             />
 
             {/* Preview */}
@@ -126,12 +140,16 @@ export const ArtifactViewer = ({
                     )}
                 </div>
 
-                {/* Updating overlay */}
-                {(isUpdating || isProcessingApproval) && (
+                {/* Busy overlay */}
+                {isBusy && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-xs">
                         <div className="flex items-center gap-2 text-md font-medium text-muted-foreground">
                             <Loader2 className="size-5 animate-spin" />
-                            {isProcessingApproval ? 'Processing...' : 'Making changes...'}
+                            {isProcessingDelete
+                                ? 'Deleting...'
+                                : isProcessingApproval
+                                  ? 'Processing...'
+                                  : 'Making changes...'}
                         </div>
                     </div>
                 )}
