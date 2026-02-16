@@ -36,7 +36,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
                 'a.key': normalizedKey,
                 'p.id': projectId,
                 'p.user': user.id,
-                'cv.status': { $ne: 'deleted' },
+                $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
             })
             .getSingleResult();
 
@@ -90,7 +90,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         .where({
             'p.id': projectId,
             'p.user': user.id,
-            'cv.status': { $ne: 'deleted' },
+            $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
         })
         .orderBy({ 'a.created_at': 'DESC' });
 
