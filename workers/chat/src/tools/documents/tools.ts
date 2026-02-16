@@ -81,18 +81,25 @@ export const DocumentToolGroup: AgentToolGroup = {
 - \`rejected\`: User rejected with feedback - revise it
 - \`superseded\`: You saved a newer version before previous was approved
 
-## Approval
-\`finalize_document\` saves as "proposed". User approves via UI to make it live ("approved").
+## Approval & Rejection
+\`finalize_document\` saves as "proposed". User approves via UI or chat to make it live ("approved").
 If you finalize again before approval, old proposed becomes "superseded".
 
 **CRITICAL: \`approve_document\` and \`reject_document\` are USER-INITIATED ONLY.**
-NEVER call these tools on your own initiative. Only use them when the user EXPLICITLY asks you to approve or reject a document in chat.
-After creating or finalizing a document, do NOT automatically approve it - wait for the user's decision.
+NEVER call these tools on your own initiative. Only use them when the user indicates approval or rejection in chat.
+After creating or finalizing a document, do NOT automatically approve it — wait for the user's decision.
+
+### Detecting approval/rejection intent
+When a user message contains approval or rejection signals, you MUST process them BEFORE acting on any other part of the message.
+- **Approval signals:** "approved", "looks good", "accept", "approve it", "LGTM", "ship it", "all good", "proceed" (when a proposed document is pending), or similar positive confirmation.
+- **Rejection signals:** "reject", "redo", "not good", "change X", "needs work", or explicit revision requests for a pending proposed document.
+- **Compound messages:** If the user says something like "approved, now do X" or "looks good, proceed with Y" — FIRST call \`approve_document\` for the pending document, THEN proceed with the rest of the request.
+- **Ambiguity:** If it's unclear whether the user is approving or just continuing, and there IS a pending proposed document, ask for clarification before proceeding.
 
 ## Important
 \`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.`,
     behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content.',
+        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When the user message contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message.',
     tools: [
         'begin_document',
         'write_document',
@@ -622,7 +629,8 @@ Shows for each document:
             name: 'approve_document' as const,
             description: `Approve a proposed document version, making it the live (approved) version.
 
-**USER-INITIATED ONLY** - NEVER call this tool unless the user has EXPLICITLY asked you to approve a document. Do NOT call this automatically after creating or finalizing a document.
+**USER-INITIATED ONLY** — NEVER call this automatically after creating or finalizing a document. Only call when the user signals approval (e.g., "approved", "looks good", "LGTM", "proceed", "accept").
+If the user's message combines approval with another request (e.g., "approved, now do X"), call this tool FIRST, then handle the rest.
 
 Only works on documents that have a proposed version awaiting approval.
 This triggers AI content generation (YAML) for internal documents and queues embedding indexing.`,
@@ -672,7 +680,8 @@ This triggers AI content generation (YAML) for internal documents and queues emb
             name: 'reject_document' as const,
             description: `Reject a proposed document version with feedback.
 
-**USER-INITIATED ONLY** - NEVER call this tool unless the user has EXPLICITLY asked you to reject a document. Do NOT call this automatically.
+**USER-INITIATED ONLY** — NEVER call this automatically. Only call when the user signals rejection (e.g., "reject", "redo this", "needs changes", or provides specific revision feedback for a pending document).
+If the user's message combines rejection with other instructions, call this tool FIRST, then handle the rest.
 
 Only works on documents that have a proposed version awaiting approval.
 The rejection reason is stored and will be shown when the document is next edited.`,
