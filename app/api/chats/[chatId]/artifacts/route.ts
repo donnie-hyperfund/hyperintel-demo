@@ -4,10 +4,10 @@ import { handleListChatArtifacts } from '@/lib/chats/handlers';
 
 export async function GET(
     req: NextRequest,
-    { params }: { params: Promise<{ projectId: string; chatId: string }> },
+    { params }: { params: Promise<{ chatId: string }> },
 ): Promise<NextResponse> {
     return withAuth(async (request, user) => {
-        const { projectId, chatId } = await params;
-        return handleListChatArtifacts(request, chatId, user, projectId);
+        const { chatId } = await params;
+        return handleListChatArtifacts(request, chatId, user);
     })(req);
 }

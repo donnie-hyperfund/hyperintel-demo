@@ -52,7 +52,7 @@ export type DocumentEvent =
 
 export interface DocumentContext {
     em: EntityManager;
-    projectId: string;
+    projectId?: string;
 }
 
 /**

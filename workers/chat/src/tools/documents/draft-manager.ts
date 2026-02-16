@@ -12,7 +12,8 @@ export interface DraftSession {
     /** Document name (with .md extension) */
     name: string;
     title: string;
-    projectId: string;
+    /** Scope identifier (projectId or userId depending on context) */
+    scopeId: string;
     content: string;
     /** Draft mode: create new, replace existing, or edit existing */
     mode: 'create' | 'replace' | 'edit';
@@ -40,7 +41,7 @@ export class DraftManager {
      * @throws Error if there's already an active draft (must finalize first)
      */
     begin(
-        projectId: string,
+        scopeId: string,
         name: string,
         title: string,
         mode: 'create' | 'replace' | 'edit',
@@ -57,7 +58,7 @@ export class DraftManager {
         this.currentDraft = {
             name,
             title,
-            projectId,
+            scopeId,
             content: initialContent,
             mode,
             previousVersion,

@@ -3,12 +3,13 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
+import { loadVersionsForArtifacts } from '@/lib/artifacts/queries';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { type ArtifactDto, ListArtifactsQuerySchema } from '@/lib/schema/artifact';
+import { ListArtifactsQuerySchema } from '@/lib/schema/artifact';
 
 async function handleGetArtifacts(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
@@ -61,12 +62,11 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
                       })
                     : null;
 
-            const dto: ArtifactDto = {
+            return NextResponse.json({
                 ...wrap(artifact).toJSON(),
                 current_version: previousVersion ? wrap(previousVersion).toJSON() : undefined,
                 proposed_version: wrap(requestedVersion).toJSON(),
-            };
-            return NextResponse.json(dto);
+            });
         }
 
         // Default: fetch actual current and proposed versions
@@ -75,11 +75,10 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
             status: 'proposed',
         });
 
-        const dto: ArtifactDto = {
+        return NextResponse.json({
             ...wrap(artifact).toJSON(),
             proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
-        };
-        return NextResponse.json(dto);
+        });
     }
 
     const query = em
@@ -100,15 +99,9 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
 
     // Batch load proposed versions for all artifacts
     const artifactIds = nodes.map((a: ArtifactEntity) => a.id);
-    const proposedVersions = artifactIds.length
-        ? await em.find(ArtifactVersionEntity, {
-              artifact: { $in: artifactIds },
-              status: 'proposed',
-          })
-        : [];
-    const proposedByArtifact = new Map(proposedVersions.map((v) => [v.artifact.id, v]));
+    const proposedByArtifact = await loadVersionsForArtifacts(em, artifactIds, 'proposed');
 
-    const mappedNodes = nodes.map((artifact: ArtifactEntity): ArtifactDto => {
+    const mappedNodes = nodes.map((artifact: ArtifactEntity) => {
         const proposed = proposedByArtifact.get(artifact.id);
         return {
             ...wrap(artifact).toJSON(),

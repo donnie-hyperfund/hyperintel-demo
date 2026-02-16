@@ -7,7 +7,7 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { type ArtifactDto, GetArtifactQuerySchema } from '@/lib/schema/artifact';
+import { GetArtifactQuerySchema } from '@/lib/schema/artifact';
 
 type RouteParams = { projectId: string; artifactId: string };
 type ErrorCode = keyof typeof ERROR_TEXT;
@@ -89,13 +89,11 @@ async function getArtifact(
 
     if (query.version !== undefined && !requestedVersion) return RESPONSES.versionNotFound();
 
-    const dto: ArtifactDto = {
+    return NextResponse.json({
         ...wrap(artifact).toJSON(),
         proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
         loaded_version: requestedVersion ? wrap(requestedVersion).toJSON() : undefined,
-    };
-
-    return NextResponse.json(dto);
+    });
 }
 
 async function deleteArtifact(
