@@ -267,7 +267,7 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
             await historyPromise;
             controller.close();
         } catch (error: any) {
-            await handleStreamError(error, em!, chatId, message, enqueue, controller);
+            await handleStreamError(error, em!, chatId, message, enqueue, controller, requestStartedAt);
         }
     }, ctx);
 }

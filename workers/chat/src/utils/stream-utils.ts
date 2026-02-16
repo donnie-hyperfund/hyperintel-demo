@@ -127,7 +127,7 @@ export function handleCommonStreamEvent(
             return true;
 
         default:
-            return true; // Ignore unknown events
+            return false; // Unknown events — let caller decide
     }
 }
 
@@ -165,6 +165,10 @@ export async function loadChatHistory(em: any, chatId: string) {
 
 /**
  * Persist error messages to DB and send error SSE event. Closes the controller.
+ *
+ * @param requestStartedAt - Timestamp of the original request. Used to set
+ *   `created_at` on the user message and ensure the error message gets a
+ *   later timestamp (avoids ordering collisions).
  */
 export async function handleStreamError(
     error: any,
@@ -173,12 +177,18 @@ export async function handleStreamError(
     message: string,
     enqueue: Enqueue,
     controller: ReadableStreamDefaultController<Uint8Array>,
+    requestStartedAt: Date = new Date(),
 ) {
     const serialized = serializeException(error);
     console.log('ERROR ', JSON.stringify(serialized, undefined, 2));
 
     try {
-        const userMsg = em.create(ChatMessageEntity, { chat: chatId, role: 'user', content: message });
+        const userMsg = em.create(ChatMessageEntity, {
+            chat: chatId,
+            role: 'user',
+            content: message,
+            created_at: requestStartedAt,
+        });
         em.persist(userMsg);
 
         const errorMsg = em.create(ChatMessageEntity, {
@@ -186,6 +196,7 @@ export async function handleStreamError(
             role: 'assistant',
             content: '',
             is_error: true,
+            created_at: new Date(Math.max(Date.now(), requestStartedAt.getTime() + 100)),
             metadata: { error: serialized.message || JSON.stringify(serialized) },
             debug_data: { error: serialized },
         });

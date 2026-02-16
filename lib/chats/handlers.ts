@@ -11,7 +11,7 @@
  */
 
 import { sql, wrap } from '@mikro-orm/core';
-import type { SqlEntityManager } from '@mikro-orm/knex';
+import type { EntityManager } from '@mikro-orm/postgresql';
 import { type NextRequest, NextResponse } from 'next/server';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
@@ -44,7 +44,7 @@ function applyOwnership(qb: { where: (...args: any[]) => any }, chatId: string, 
  * Verify user has access to a chat.
  */
 export async function verifyChatAccess(
-    em: SqlEntityManager,
+    em: EntityManager,
     chatId: string,
     userId: string,
     projectId?: string,
