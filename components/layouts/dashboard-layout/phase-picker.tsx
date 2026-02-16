@@ -1,24 +1,49 @@
 'use client';
 
-import { Check, ChevronDown, Plus } from 'lucide-react';
+import { Check, ChevronDown, Loader2, MessageSquare, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { Popover, PopoverContent, PopoverScrollArea, PopoverTrigger } from '@/components/ui/popover';
-import type { ChatDto } from '@/lib/schema/message';
+import { useMemo, useState } from 'react';
+import useInfiniteScroll from 'react-infinite-scroll-hook';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { cn } from '@/lib/utils';
 
+const PAGE_SIZE = 7;
+
 type PhasePickerProps = {
-    projectId: string | undefined;
-    chats: ChatDto[];
-    currentChatId: string | undefined;
-    phaseName: string | null;
+    projectId?: string;
+    currentChatId?: string;
 };
 
-export function PhasePicker({ projectId, chats, currentChatId, phaseName }: PhasePickerProps) {
+export const PhasePicker = ({ projectId, currentChatId }: PhasePickerProps) => {
     const [open, setOpen] = useState(false);
     const router = useRouter();
     const isNewChat = !currentChatId;
+
+    const { data, size, setSize, isLoading, hasNextPage } = useFetchChatsInfinite(projectId, { limit: PAGE_SIZE });
+
+    const chats = useMemo(() => {
+        if (!data) return [];
+        return data.flatMap((page) => page.data);
+    }, [data]);
+
+    const [sentryRef, { rootRef }] = useInfiniteScroll({
+        loading: isLoading,
+        hasNextPage,
+        onLoadMore: () => {
+            setSize(size + 1);
+            console.log('loading more');
+        },
+        rootMargin: '0px 0px 100px 0px',
+    });
+
+    const phaseName = useMemo(() => {
+        if (!currentChatId) return null;
+        const index = chats.findIndex((c) => c.id === currentChatId);
+        return index >= 0 ? `Phase ${index + 1}` : null;
+    }, [chats, currentChatId]);
 
     const handleNewPhase = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -26,6 +51,8 @@ export function PhasePicker({ projectId, chats, currentChatId, phaseName }: Phas
         window.dispatchEvent(new Event('new-phase'));
         router.push(`/${projectId}`);
     };
+
+    console.log('isLoading:', isLoading, 'hasNextPage:', hasNextPage, 'lastPage:', data?.[data.length - 1]?.pagination);
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
@@ -42,7 +69,7 @@ export function PhasePicker({ projectId, chats, currentChatId, phaseName }: Phas
                 </button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-56 p-0">
-                <PopoverScrollArea className="py-1">
+                <div ref={rootRef} className="max-h-64 overflow-y-auto py-1">
                     {chats.map((chat, index) => {
                         const isActive = chat.id === currentChatId;
                         return (
@@ -60,8 +87,21 @@ export function PhasePicker({ projectId, chats, currentChatId, phaseName }: Phas
                             </Link>
                         );
                     })}
-                    {chats.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground">No phases yet</div>}
-                </PopoverScrollArea>
+                    {(isLoading || hasNextPage) && (
+                        <div ref={sentryRef} className="flex items-center justify-center py-2">
+                            <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                        </div>
+                    )}
+                    {!isLoading && chats.length === 0 && (
+                        <EmptyState
+                            icon={MessageSquare}
+                            title="No phases yet"
+                            description="Create a new phase to get started"
+                            size="sm"
+                            className="px-6 h-48"
+                        />
+                    )}
+                </div>
                 <div className="border-t border-border sticky bottom-0 bg-popover">
                     <Link
                         href={`/${projectId}`}
@@ -75,4 +115,4 @@ export function PhasePicker({ projectId, chats, currentChatId, phaseName }: Phas
             </PopoverContent>
         </Popover>
     );
-}
+};

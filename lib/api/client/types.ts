@@ -13,6 +13,10 @@ export interface PaginationParams {
     limit?: number;
 }
 
+export interface InfinitePaginationParams {
+    limit?: number;
+}
+
 export interface ApiError {
     message: string;
     code?: string;
