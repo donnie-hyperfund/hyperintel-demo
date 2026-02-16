@@ -297,7 +297,7 @@ export async function listDocuments(
     const artifacts = await em.find(
         ArtifactEntity,
         // TODO allow including deleted artifacts
-        { project: projectId, current_version: { status: { $ne: 'deleted' } } },
+        { project: projectId, $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
         { populate: ['current_version', 'versions'] },
     );
 
