@@ -35,6 +35,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
                 'a.key': normalizedKey,
                 'p.id': projectId,
                 'p.user': user.id,
+                'cv.status': { $ne: 'deleted' },
             })
             .getSingleResult();
 
@@ -90,6 +91,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         .where({
             'p.id': projectId,
             'p.user': user.id,
+            'cv.status': { $ne: 'deleted' },
         })
         .orderBy({ 'a.created_at': 'DESC' });
 
@@ -121,10 +123,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
     );
 }
 
-export async function GET(
-    req: NextRequest,
-    { params }: { params: Promise<{ projectId: string }> },
-): Promise<NextResponse> {
+export function GET(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }): Promise<NextResponse> {
     return withAuth(async (request, user) => {
         const { projectId } = await params;
         return await handleGetArtifacts(request, projectId, user);

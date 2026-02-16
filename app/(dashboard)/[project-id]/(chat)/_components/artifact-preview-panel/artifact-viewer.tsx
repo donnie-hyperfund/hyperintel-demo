@@ -80,7 +80,7 @@ export const ArtifactViewer = ({
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
     const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
-    const canDelete = !!artifactKey && !isStreaming && status !== 'deleted';
+    const canDelete = !!artifactKey && !!isUploaded && !isStreaming && status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
     const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
 

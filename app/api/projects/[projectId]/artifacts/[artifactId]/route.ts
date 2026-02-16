@@ -16,6 +16,7 @@ const ERROR_TEXT = {
     ARTIFACT_NOT_FOUND: 'Artifact not found',
     VERSION_NOT_FOUND: 'Version not found',
     ALREADY_DELETED: 'Artifact is already deleted',
+    NOT_UPLOADED_ARTIFACT: 'Only uploaded artifacts can be deleted',
 } as const;
 
 function jsonError(code: ErrorCode, status: number) {
@@ -26,6 +27,7 @@ const RESPONSES = {
     artifactNotFound: () => jsonError('ARTIFACT_NOT_FOUND', 404),
     versionNotFound: () => jsonError('VERSION_NOT_FOUND', 404),
     alreadyDeleted: () => jsonError('ALREADY_DELETED', 400),
+    notUploadedArtifact: () => jsonError('NOT_UPLOADED_ARTIFACT', 403),
 } as const;
 
 function findArtifactForProjectOwner(
@@ -118,6 +120,7 @@ async function deleteArtifact(
 
     if (!targetVersion) return RESPONSES.artifactNotFound();
     if (targetVersion.status === 'deleted') return RESPONSES.alreadyDeleted();
+    if (!targetVersion.is_uploaded) return RESPONSES.notUploadedArtifact();
 
     targetVersion.status = 'deleted';
     targetVersion.status_changed_at = new Date();
