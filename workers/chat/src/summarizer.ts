@@ -9,6 +9,7 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
+import { approveVersion } from './tools/documents/document-service';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 export interface SummarizerOptions {
@@ -147,7 +148,7 @@ async function streamInternal(
         historyMessages.push({
             role: 'user' as const,
             content:
-                'Please provide a comprehensive summary of this conversation and create the Completion Brief artifact.',
+                'Please provide a comprehensive summary of this conversation and create the Completion Brief internal artifact.',
         });
 
         const inferenceParams = options.overrideInference ?? {
@@ -205,6 +206,18 @@ async function streamInternal(
                     summaryContent += event.content;
                     enqueue({ type: 'delta', text: event.content });
                     break;
+                case 'tool_start':
+                    if (event.tool === 'begin_document') {
+                        enqueue({ type: 'document_started' });
+                    }
+                    break;
+                case 'tool_result':
+                    // Force all summarizer documents to be internal
+                    if (event.tool === 'begin_document' && event.success) {
+                        const draft = agentCtx.draftManager.getCurrent();
+                        if (draft) draft.is_internal = true;
+                    }
+                    break;
                 case 'error':
                     enqueue({ type: 'error', error: String(event.error) });
                     break;
@@ -214,6 +227,11 @@ async function streamInternal(
         }
 
         await historyPromise;
+
+        // Auto-approve completion briefs (no user approval needed)
+        for (const versionId of createdVersionIds) {
+            await approveVersion(em!, versionId);
+        }
 
         const newChat = em!.create(ChatEntity, {
             project: chat.project.id,

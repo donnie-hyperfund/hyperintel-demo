@@ -583,6 +583,7 @@ async function streamInternal(
                 chat: chatId,
                 role: 'user',
                 content: message,
+                created_at: requestStartedAt,
             });
             em!.persist(userMsg);
 
@@ -591,6 +592,7 @@ async function streamInternal(
                 role: 'assistant',
                 content: '',
                 is_error: true,
+                created_at: new Date(Math.max(Date.now(), requestStartedAt.getTime() + 100)),
                 metadata: { error: serialized.message || JSON.stringify(serialized) },
                 debug_data: { error: serialized },
             });
