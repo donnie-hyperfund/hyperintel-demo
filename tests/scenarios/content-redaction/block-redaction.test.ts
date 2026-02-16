@@ -1,6 +1,10 @@
 /**
  * Tests that ChatMessageEntity.redactBlocks strips artifact content
  * from write_document / edit_document tool call blocks.
+ *
+ * Block redaction is UNCONDITIONAL — it applies regardless of is_internal.
+ * This is a secondary defense layer; the primary visibility mechanism
+ * is ArtifactVersionEntity.toJSON() which conditionally exposes content.
  */
 
 import { MikroORM } from "@mikro-orm/core";
@@ -155,5 +159,28 @@ describe("ChatMessageEntity block redaction", () => {
 		expect((blocks[1] as ToolCallStreamBlock).toolInput).toBe("REDACTED");
 		expect((blocks[1] as ToolCallStreamBlock).toolOutput).toBe("REDACTED");
 		expect((blocks[2] as ToolCallStreamBlock).content).toBe("some raw content");
+	});
+});
+
+/** Block redaction is always unconditional — real content lives on ArtifactVersionEntity. */
+describe("block redaction is unconditional (applies regardless of is_internal)", () => {
+	it("redacts write_document blocks even for non-internal content", () => {
+		const blocks = [toolBlock("write_document", { content: "public deliverable body" })];
+		const result = redactBlocks(blocks);
+
+		const b = result[0] as ToolCallStreamBlock;
+		expect(b.content).toBe("REDACTED");
+		expect(b.toolInput).toBe("REDACTED");
+		expect(b.toolOutput).toBe("REDACTED");
+	});
+
+	it("redacts edit_document blocks even for non-internal content", () => {
+		const blocks = [toolBlock("edit_document", { content: "public edit diff" })];
+		const result = redactBlocks(blocks);
+
+		const b = result[0] as ToolCallStreamBlock;
+		expect(b.content).toBe("REDACTED");
+		expect(b.toolInput).toBe("REDACTED");
+		expect(b.toolOutput).toBe("REDACTED");
 	});
 });

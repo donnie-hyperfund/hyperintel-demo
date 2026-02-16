@@ -1,17 +1,17 @@
 /**
- * Tests that ArtifactVersionEntity serialization strips content and ai_content.
+ * Tests that ArtifactVersionEntity serialization conditionally redacts content
+ * based on the is_internal flag.
  *
- * The entity uses MikroORM property serializers (`serializer: () => undefined`)
- * so content is never exposed through any endpoint that calls `wrap(entity).toJSON()`.
+ * - ai_content is ALWAYS stripped regardless of is_internal
+ * - is_internal=true (default): content is also stripped
+ * - is_internal=false: content is exposed
  *
- * This test initializes a minimal MikroORM instance (no DB connection) to verify
- * the serializer behavior through the actual ORM pipeline.
+ * Uses a minimal MikroORM instance (no DB) to verify toJSON() behavior.
  */
 
 import { MikroORM, wrap } from "@mikro-orm/core";
 import { defineConfig } from "@mikro-orm/postgresql";
 
-// Entity under test — and its dependencies (MikroORM needs the full graph)
 import { ArtifactVersionEntity } from "@/lib/orm/entities/artifacts/artifact-version.entity";
 import { ArtifactEntity } from "@/lib/orm/entities/artifacts/artifact.entity";
 import { ChatMessageEntity } from "@/lib/orm/entities/chats/chat-message.entity";
@@ -24,7 +24,6 @@ let orm: MikroORM;
 beforeAll(async () => {
 	orm = await MikroORM.init(
 		defineConfig({
-			// No actual DB — we only need metadata + serialization
 			clientUrl: "postgresql://fake:fake@localhost:5432/fake",
 			connect: false,
 			allowGlobalContext: true,
@@ -44,56 +43,88 @@ afterAll(async () => {
 	await orm?.close();
 });
 
+const now = new Date("2026-01-01T00:00:00Z");
+let idCounter = 0;
+
+function createVersion(overrides: Partial<{
+	id: string;
+	version: number;
+	content: string;
+	ai_content: string;
+	status: string;
+	rejection_reason: string;
+	is_internal: boolean;
+}> = {}) {
+	idCounter++;
+	return orm.em.create(ArtifactVersionEntity, {
+		id: `00000000-0000-0000-0000-${String(idCounter).padStart(12, "0")}`,
+		version: 1,
+		content: "document body",
+		ai_content: "AI-generated YAML",
+		status: "approved",
+		artifact: "00000000-0000-0000-0000-000000000099" as any,
+		created_at: now,
+		...overrides,
+	} as any);
+}
+
 describe("ArtifactVersionEntity serialization", () => {
-	const now = new Date("2026-01-01T00:00:00Z");
-
-	it("serializes content as undefined", () => {
-		const version = orm.em.create(ArtifactVersionEntity, {
-			id: "00000000-0000-0000-0000-000000000001",
-			version: 1,
-			content: "This is the full artifact body — should never be exposed",
-			status: "approved",
-			artifact: "00000000-0000-0000-0000-000000000099" as any,
-			created_at: now,
+	describe("internal documents (is_internal=true, default)", () => {
+		it("redacts content", () => {
+			const json = wrap(createVersion()).toJSON();
+			expect(json.content).toBeUndefined();
 		});
 
-		const json = wrap(version).toJSON();
-
-		expect(json.content).toBeUndefined();
-	});
-
-	it("serializes ai_content as undefined", () => {
-		const version = orm.em.create(ArtifactVersionEntity, {
-			id: "00000000-0000-0000-0000-000000000002",
-			version: 1,
-			content: "visible",
-			ai_content: "AI-generated content — also should never be exposed",
-			status: "proposed",
-			artifact: "00000000-0000-0000-0000-000000000099" as any,
-			created_at: now,
+		it("redacts ai_content", () => {
+			const json = wrap(createVersion()).toJSON();
+			expect(json.ai_content).toBeUndefined();
 		});
 
-		const json = wrap(version).toJSON();
-
-		expect(json.ai_content).toBeUndefined();
-	});
-
-	it("still exposes non-sensitive fields", () => {
-		const version = orm.em.create(ArtifactVersionEntity, {
-			id: "00000000-0000-0000-0000-000000000003",
-			version: 3,
-			content: "secret",
-			status: "rejected",
-			rejection_reason: "Does not meet requirements",
-			artifact: "00000000-0000-0000-0000-000000000099" as any,
-			created_at: now,
+		it("defaults to is_internal=true when not specified", () => {
+			const version = createVersion();
+			expect(version.is_internal).toBe(true);
 		});
 
-		const json = wrap(version).toJSON();
+		it("exposes non-sensitive fields", () => {
+			const json = wrap(
+				createVersion({
+					version: 3,
+					status: "rejected",
+					rejection_reason: "Does not meet requirements",
+				}),
+			).toJSON();
 
-		expect(json.version).toBe(3);
-		expect(json.status).toBe("rejected");
-		expect(json.rejection_reason).toBe("Does not meet requirements");
-		expect(json.id).toBe("00000000-0000-0000-0000-000000000003");
+			expect(json.version).toBe(3);
+			expect(json.status).toBe("rejected");
+			expect(json.rejection_reason).toBe("Does not meet requirements");
+			expect(json.is_internal).toBe(true);
+		});
 	});
+
+	describe("client deliverable documents (is_internal=false)", () => {
+		it("exposes content", () => {
+			const json = wrap(createVersion({ is_internal: false })).toJSON();
+			expect(json.content).toBe("document body");
+		});
+
+		it("still redacts ai_content", () => {
+			const json = wrap(createVersion({ is_internal: false })).toJSON();
+			expect(json.ai_content).toBeUndefined();
+		});
+
+		it("exposes non-sensitive fields", () => {
+			const json = wrap(
+				createVersion({
+					version: 2,
+					status: "proposed",
+					is_internal: false,
+				}),
+			).toJSON();
+
+			expect(json.version).toBe(2);
+			expect(json.status).toBe("proposed");
+			expect(json.is_internal).toBe(false);
+		});
+	});
+
 });

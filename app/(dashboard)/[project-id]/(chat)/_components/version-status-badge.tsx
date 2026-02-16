@@ -1,4 +1,4 @@
-import { cva, VariantProps } from 'class-variance-authority';
+import { cva } from 'class-variance-authority';
 import type { VersionStatus } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
 
@@ -22,13 +22,14 @@ const STATUS_LABELS: Record<VersionStatus, string> = {
     deleted: 'Deleted',
 };
 
-type Status = NonNullable<VariantProps<typeof badgeVariants>['status']>;
-
 type VersionStatusBadgeProps = {
-    status: Status;
+    status?: VersionStatus;
+    isUploaded?: boolean;
     className?: string;
 };
 
-export function VersionStatusBadge({ status, className }: VersionStatusBadgeProps) {
+export function VersionStatusBadge({ status, isUploaded, className }: VersionStatusBadgeProps) {
+    if (!status || (isUploaded && status !== 'deleted')) return null;
+
     return <span className={cn(badgeVariants({ status }), className)}>{STATUS_LABELS[status]}</span>;
 }

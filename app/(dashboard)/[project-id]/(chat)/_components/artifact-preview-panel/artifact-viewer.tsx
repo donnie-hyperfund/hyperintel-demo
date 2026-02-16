@@ -22,6 +22,8 @@ type ArtifactViewerProps = {
     version: number;
     /** Version status */
     status?: VersionStatus;
+    /** Whether the artifact is uploaded */
+    isUploaded?: boolean;
     /** Artifact identifier (key) for API lookups */
     artifactKey?: string;
     /** Artifact ID for store lookups */
@@ -58,6 +60,7 @@ export const ArtifactViewer = ({
     previousContent,
     version,
     status,
+    isUploaded,
     artifactKey,
     artifactId,
     updatedAt,
@@ -77,7 +80,7 @@ export const ArtifactViewer = ({
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
     const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
-    const canDelete = status === 'approved' && !!artifactKey && !isStreaming;
+    const canDelete = !!artifactKey && !!isUploaded && !isStreaming && status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
     const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
 
@@ -120,6 +123,7 @@ export const ArtifactViewer = ({
                 content={content}
                 version={version}
                 status={status}
+                isUploaded={isUploaded}
                 updatedAt={updatedAt}
                 backHref={backHref}
                 onCloseAction={onCloseAction}

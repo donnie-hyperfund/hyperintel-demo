@@ -28,6 +28,7 @@ export type DocumentEvent =
           name: string;
           title: string;
           mode: 'create' | 'edit';
+          isInternal: boolean;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           loadedVersion?: number;
           rejectionReason?: string;
@@ -68,7 +69,7 @@ export interface DocumentContext {
  */
 export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentEventEmitter) {
     // Current document being written (set by begin_document, cleared by finalize_document)
-    let activeDoc: { name: string; title: string } | null = null;
+    let activeDoc: { name: string; title: string; isInternal: boolean } | null = null;
 
     // Parser for write_document content streaming
     let writeParser: ReturnType<typeof createStreamFieldParser> | null = null;
@@ -104,6 +105,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     activeDoc = {
                         name: result.name,
                         title: result.title || result.name,
+                        isInternal: result.is_internal ?? true,
                     };
 
                     const startEvent: DocumentEvent = {
@@ -111,6 +113,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         name: activeDoc.name,
                         title: activeDoc.title,
                         mode: result.mode || 'create',
+                        isInternal: activeDoc.isInternal,
                     };
 
                     // Add edit-mode specific fields
@@ -140,14 +143,15 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         // Fallback: empty edits if parsing failed
                     }
 
-                    // TODO temporarily disabled
-                    // emit({
-                    //     type: 'document_edit',
-                    //     name: activeDoc.name,
-                    //     edits,
-                    //     editsApplied: result.editsApplied ?? edits.length,
-                    //     linesNow: result.linesNow ?? 0,
-                    // });
+                    if (!activeDoc.isInternal) {
+                        emit({
+                            type: 'document_edit',
+                            name: activeDoc.name,
+                            edits,
+                            editsApplied: result.editsApplied ?? edits.length,
+                            linesNow: result.linesNow ?? 0,
+                        });
+                    }
                     editBuffer = '';
                 }
 
@@ -185,14 +189,13 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             toolName: 'write_document',
                             field: 'content',
                             onDelta: (delta) => {
-                                // TODO temporarily disabled
-                                // if (activeDoc) {
-                                //     emit({
-                                //         type: 'document_delta',
-                                //         name: activeDoc.name,
-                                //         content: delta,
-                                //     });
-                                // }
+                                if (activeDoc && !activeDoc.isInternal) {
+                                    emit({
+                                        type: 'document_delta',
+                                        name: activeDoc.name,
+                                        content: delta,
+                                    });
+                                }
                             },
                         });
                     }
