@@ -18,6 +18,8 @@ export interface DraftSession {
     mode: 'create' | 'replace' | 'edit';
     /** Previous version number (for replace/edit modes) */
     previousVersion?: number;
+    /** Whether this is an internal document (content redacted from frontend) */
+    is_internal: boolean;
     createdAt: Date;
 }
 
@@ -46,6 +48,7 @@ export class DraftManager {
         mode: 'create' | 'replace' | 'edit',
         initialContent = '',
         previousVersion?: number,
+        is_internal = true,
     ): DraftSession {
         if (this.currentDraft) {
             throw new Error(
@@ -61,6 +64,7 @@ export class DraftManager {
             content: initialContent,
             mode,
             previousVersion,
+            is_internal,
             createdAt: new Date(),
         };
         return this.currentDraft;

@@ -29,13 +29,13 @@ async function handleGetArtifacts(
         .select('a.*')
         .leftJoin('a.versions', 'v')
         .leftJoin('a.project', 'p')
-        .leftJoin('a.current_version', 'cv')
+        .leftJoinAndSelect('a.current_version', 'cv')
         .where({
             'v.chat': chatId,
             'p.id': projectId,
             'p.user': user.id,
         })
-        .groupBy('a.id')
+        .groupBy(['a.id', 'cv.id'])
         .orderBy({ 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {

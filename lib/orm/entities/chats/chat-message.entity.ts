@@ -47,14 +47,12 @@ export class ChatMessageEntity extends IdCreatedColumns {
     }
 
     /**
-     * Redact sensitive block data based on serialization groups.
-     * TODO: Implement actual redaction logic when needed.
+     * Redact write_document/edit_document tool call blocks from chat messages.
+     * Always unconditional — the real content lives on ArtifactVersionEntity
+     * which handles is_internal visibility via its own toJSON().
      */
     private redactBlocks(blocks: StreamBlock[], groups: string[]): StreamBlock[] {
-        // For now, pass through unchanged
-        // Future: filter reasoning blocks, tool outputs, etc. based on groups
         return blocks.map((b) => {
-            // TODO temporarily censored
             if (b.type === 'tool_call' && ['write_document', 'edit_document'].includes(b.toolName)) {
                 return {
                     ...b,

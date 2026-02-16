@@ -333,6 +333,7 @@ export async function upsertDocument(
     name: string,
     title: string,
     content: string,
+    is_internal = true,
 ): Promise<{
     action: 'created' | 'proposed';
     name: string;
@@ -373,6 +374,7 @@ export async function upsertDocument(
         newVersion.version = newVersionNum;
         newVersion.content = content;
         newVersion.status = 'proposed';
+        newVersion.is_internal = is_internal;
         newVersion.status_changed_at = new Date();
         newVersion.chat = em.getReference('ChatEntity', chatId) as any;
 
@@ -415,6 +417,7 @@ export async function upsertDocument(
             version.version = 1;
             version.content = content;
             version.status = 'proposed';
+            version.is_internal = is_internal;
             version.status_changed_at = new Date();
             version.chat = txEm.getReference('ChatEntity', chatId) as any;
 

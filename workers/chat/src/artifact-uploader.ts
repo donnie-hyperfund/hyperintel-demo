@@ -66,6 +66,7 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         newVersion.version = newVersionNum;
         newVersion.content = content;
         newVersion.status = 'approved';
+        newVersion.is_internal = false; // User uploads are client deliverables
         newVersion.is_uploaded = true;
         newVersion.status_changed_at = new Date();
         newVersion.status_changed_by = project.id;
@@ -110,6 +111,7 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         version.version = 1;
         version.content = content;
         version.status = 'approved';
+        version.is_internal = false; // User uploads are client deliverables
         version.is_uploaded = true;
         version.status_changed_at = new Date();
         version.status_changed_by = project.id;
