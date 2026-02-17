@@ -10,8 +10,19 @@ try {
 } catch {}
 const isProd = !['development', 'preview'].includes(process.env.VERCEL_ENV);
 
+const workerAlias = (() => {
+  if (process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_GIT_COMMIT_REF) {
+    return process.env.VERCEL_GIT_COMMIT_REF
+      .replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+  }
+  return undefined;
+})();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    env: {
+        NEXT_PUBLIC_CLOUDFLARE_ALIAS: workerAlias,
+    },
     devIndicators: false,
     typescript: {
         ignoreBuildErrors: true,
