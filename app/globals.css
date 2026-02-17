@@ -458,3 +458,15 @@
   font-size: 0.875em;
   margin-top: 0.4em;
 }
+
+.artifact-scroll-highlight {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  animation: artifact-scroll-highlight 2.5s ease-in-out forwards;
+}
+
+@keyframes artifact-scroll-highlight {
+  0% { outline-color: transparent; }
+  10%, 80% { outline-color: var(--primary); }
+  100% { outline-color: transparent; }
+}
