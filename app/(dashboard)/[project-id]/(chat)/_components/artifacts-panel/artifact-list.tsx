@@ -1,10 +1,11 @@
 import { useAuth } from '@clerk/nextjs';
-import { FileText } from 'lucide-react';
+import { FileText, Loader2 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
-import { useFetchArtifacts } from '@/lib/api/client/hooks/use-artifacts';
+import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
@@ -22,6 +23,8 @@ type PhaseDialogData = {
     artifactVersion: number;
 };
 
+const PAGE_SIZE = 20;
+
 export function ArtifactList() {
     const params = useParams();
     const router = useRouter();
@@ -30,7 +33,9 @@ export function ArtifactList() {
     const currentChatId = params?.chatId as string | undefined;
 
     const { projectId } = useChatContext();
-    const { data, error, isLoading } = useFetchArtifacts(projectId);
+    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchArtifactsInfinite(projectId, {
+        limit: PAGE_SIZE,
+    });
     const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
     const { addArtifact, updateArtifact } = useArtifactContext();
     const { openPanel } = useActivePanelContext();
@@ -38,7 +43,17 @@ export function ArtifactList() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [dialogData, setDialogData] = useState<PhaseDialogData | null>(null);
 
-    const artifacts = data?.data ?? [];
+    const artifacts = useMemo(() => {
+        if (!data) return [];
+        return data.flatMap((page) => page.data);
+    }, [data]);
+
+    const [sentryRef] = useInfiniteScroll({
+        loading: isLoading,
+        hasNextPage,
+        onLoadMore: () => setSize(size + 1),
+        rootMargin: '0px 0px 100px 0px',
+    });
 
     const openArtifactPreview = useCallback(
         async (artifact: ArtifactDto) => {
@@ -136,6 +151,11 @@ export function ArtifactList() {
                         onClick={() => handleArtifactClick(artifact)}
                     />
                 ))}
+                {(isLoading || hasNextPage) && (
+                    <div ref={sentryRef} className="flex items-center justify-center py-3">
+                        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    </div>
+                )}
             </div>
 
             {dialogData && (
