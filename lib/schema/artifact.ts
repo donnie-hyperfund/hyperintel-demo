@@ -2,9 +2,29 @@ import { z } from 'zod';
 import { z as z4 } from 'zod/v4';
 import { zfd } from 'zod-form-data';
 
+// TODO use enum-util
 export const VERSION_STATUSES = ['proposed', 'approved', 'rejected', 'superseded', 'deleted'] as const;
 export const VersionStatusSchema = z.enum(VERSION_STATUSES);
 export type VersionStatus = z.infer<typeof VersionStatusSchema>;
+
+export const INTERNAL_DOCUMENTS = [
+    'Genesis DNA',
+    'Legacy DNA',
+    'Team Specification',
+    'MID',
+    'PSEB',
+    'Action Plan',
+    'Completion Brief',
+] as const;
+export const DOCUMENT_TYPES = [
+    ...INTERNAL_DOCUMENTS,
+    // 'Analysis',
+    'Research Report',
+    'Executive Summary',
+    'Other',
+] as const;
+export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
+export type DocumentType = z.infer<typeof DocumentTypeSchema>;
 
 export const ListArtifactsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
@@ -32,6 +52,8 @@ export const ArtifactVersionDtoSchema = z.object({
     rejection_reason: z.string().nullable().optional(),
     status_changed_at: z.union([z.string(), z.date()]).nullable().optional(),
     status_changed_by: z.string().uuid().nullable().optional(),
+    is_internal: z.boolean().optional(),
+    document_type: DocumentTypeSchema.optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]).nullable().optional(),
 });
