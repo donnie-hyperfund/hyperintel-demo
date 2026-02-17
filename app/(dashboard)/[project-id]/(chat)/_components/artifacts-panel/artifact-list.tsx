@@ -4,8 +4,8 @@ import { useParams } from 'next/navigation';
 import { useCallback } from 'react';
 import { EmptyState } from '@/components/ui/empty-state';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
-import type { ArtifactDto } from '@/lib/schema/artifact';
 import { useFetchArtifacts } from '@/lib/api/client/hooks/use-artifacts';
+import type { ArtifactDto } from '@/lib/schema/artifact';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { ArtifactListItem, ArtifactListItemSkeleton } from './artifact-list-item';
@@ -62,8 +62,8 @@ export function ArtifactList() {
         return (
             <EmptyState
                 icon={FileText}
-                title="Failed to load artifacts"
-                error={error instanceof Error ? error.message : 'An error occurred while loading artifacts.'}
+                title="Failed to load deliverables"
+                error={error instanceof Error ? error.message : 'An error occurred while loading deliverables.'}
             />
         );
     }
@@ -82,8 +82,8 @@ export function ArtifactList() {
         return (
             <EmptyState
                 icon={FileText}
-                title="No artifacts yet"
-                description="Artifacts created during your phases will appear here."
+                title="No deliverables yet"
+                description="Deliverables created during your phases will appear here."
             />
         );
     }

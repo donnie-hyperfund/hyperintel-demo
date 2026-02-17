@@ -1,7 +1,7 @@
 import { sql, wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
+import { createPaginatedResponse } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
@@ -20,15 +20,24 @@ async function handleGetChats(req: NextRequest, projectId: string, user: UserEnt
 
     if (queryData instanceof NextResponse) return queryData;
 
-    const query = em
+    const page = queryData.page ?? 1;
+    const limit = queryData.limit ?? 20;
+
+    const totalCount = await em
+        .createQueryBuilder(ChatEntity, 'c')
+        .leftJoin('c.project', 'p')
+        .where({ 'p.id': projectId, 'p.user': user.id })
+        .getCount();
+
+    const nodes = await em
         .createQueryBuilder(ChatEntity, 'c')
         .select('c.*')
         .addSelect(sql`COUNT(DISTINCT m.id) as message_count`)
         .addSelect(sql`(
-            SELECT m2.content 
-            FROM chat_messages m2 
-            WHERE m2.chat_id = c.id 
-            ORDER BY m2.created_at ASC 
+            SELECT m2.content
+            FROM chat_messages m2
+            WHERE m2.chat_id = c.id
+            ORDER BY m2.created_at ASC
             LIMIT 1
         ) as first_message_content`)
         .leftJoin('c.project', 'p')
@@ -38,12 +47,10 @@ async function handleGetChats(req: NextRequest, projectId: string, user: UserEnt
             'p.user': user.id,
         })
         .groupBy(['c.id'])
-        .orderBy({ 'c.created_at': 'DESC' });
-
-    const { nodes, totalCount } = await getPaginatedResult(query, {
-        page: queryData.page ?? 1,
-        perPage: queryData.limit ?? 20,
-    });
+        .orderBy({ 'c.phase_index': 'ASC' })
+        .limit(limit)
+        .offset((page - 1) * limit)
+        .getResultList();
 
     const mappedNodes = nodes.map((chat: any): ChatDto => {
         const chatEntity = chat as ChatEntity;
@@ -52,9 +59,7 @@ async function handleGetChats(req: NextRequest, projectId: string, user: UserEnt
         return wrap(chatEntity).toJSON();
     });
 
-    return NextResponse.json(
-        createPaginatedResponse(mappedNodes, totalCount, queryData.page ?? 1, queryData.limit ?? 20),
-    );
+    return NextResponse.json(createPaginatedResponse(mappedNodes, totalCount, page, limit));
 }
 
 export async function GET(
@@ -89,6 +94,7 @@ async function handleCreateChat(req: NextRequest, projectId: string, user: UserE
     const chat = em.create(ChatEntity, {
         project: projectId,
         phase: 'active',
+        phase_index: await em.count(ChatEntity, { project: projectId }),
     });
 
     await em.persistAndFlush(chat);

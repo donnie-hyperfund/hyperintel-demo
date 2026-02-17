@@ -1,16 +1,23 @@
+'use client';
+
+import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { ChatModule } from '@/modules/chat/providers/chat-module';
 import ChatInterface from './_components/chat-interface';
 
-type ChatPageProps = {
-    params: Promise<{ 'project-id': string }>;
-};
+export default function ChatPage() {
+    const params = useParams();
+    const projectId = params['project-id'] as string;
+    const [mountKey, setMountKey] = useState(0);
 
-export default async function ChatPage({ params }: ChatPageProps) {
-    const { 'project-id': projectId } = await params;
+    useEffect(() => {
+        const handleNewPhase = () => setMountKey((k) => k + 1);
+        window.addEventListener('new-phase', handleNewPhase);
+        return () => window.removeEventListener('new-phase', handleNewPhase);
+    }, []);
 
-    // Render ChatInterface without chatId - it will create one on first message
     return (
-        <ChatModule projectId={projectId}>
+        <ChatModule key={mountKey} projectId={projectId}>
             <ChatInterface />
         </ChatModule>
     );

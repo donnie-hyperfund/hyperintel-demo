@@ -1,11 +1,14 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { useSWRConfig } from 'swr';
+import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
+import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { artifactKeys } from '@/lib/api/client/fetchers/artifacts';
+import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
@@ -17,6 +20,8 @@ export type ChatContextValue = {
     state: ChatState;
     /** API client for chat operations */
     api: ApiClient;
+    /** Project ID */
+    projectId: string;
     /** Current chat ID */
     chatId: string | null;
     /** Pagination state for infinite scroll */
@@ -64,9 +69,12 @@ function createUserMessage(content: string): Message {
 
 export function ChatProvider({ children, projectId, initialChatId, initialMessages = [] }: ChatProviderProps) {
     const artifactContext = useArtifactContext();
+
     const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();
-    const { mutate: globalMutate } = useSWRConfig();
+
+    const { mutate: globalMutate, cache, fallback } = useSWRConfig();
+    const router = useRouter();
 
     // Create API client with auth
     const api = useMemo(() => createApiClient(getToken), [getToken]);
@@ -75,16 +83,23 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
     const skipNextLoad = useRef(false);
 
-    // Chat state
-    const [state, setState] = useState<ChatState>({
-        messages: initialMessages,
-        isGenerating: false,
-        isSummarizing: false,
-        isLoading: !!chatId,
-        error: null,
-        streamingMessageId: null,
-        tokenUsage: null,
-        hasPendingChanges: false,
+    // Chat state — seed from SWR cache if chat was prefetched server-side
+    const [state, setState] = useState<ChatState>(() => {
+        const cached = initialChatId
+            ? fallback?.[unstable_serialize(chatKeys.detail(projectId, initialChatId))]
+            : undefined;
+
+        return {
+            messages: initialMessages,
+            isGenerating: false,
+            isSummarizing: false,
+            isLoading: !!initialChatId,
+            error: null,
+            streamingMessageId: null,
+            tokenUsage: cached?.token_usage ?? null,
+            hasPendingChanges: cached?.has_pending_changes ?? false,
+            phaseIndex: cached?.phase_index ?? null,
+        };
     });
 
     // Pagination state for infinite scroll
@@ -116,6 +131,37 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const revalidateArtifacts = useCallback(() => {
         globalMutate(artifactKeys.list(projectId));
     }, [globalMutate, projectId]);
+
+    const revalidateArtifactByKey = useCallback(
+        async (keyId: string) => {
+            // While in list view, we revalidate the artifacts list to show the latest status
+            globalMutate(artifactKeys.list(projectId));
+
+            // Also update the in-memory artifact store so the preview panel reflects the new status
+            const allVersions = artifactContext.artifacts;
+            for (const [artifactId, versions] of Object.entries(allVersions)) {
+                for (const [versionKey, artifact] of Object.entries(versions)) {
+                    if (artifact.key === keyId) {
+                        try {
+                            const version = Number(versionKey) || artifact.proposed_version?.version;
+                            const updated = await api.artifacts.getByKey(projectId, keyId, version);
+                            if (updated) {
+                                artifactContext.updateArtifact(
+                                    artifactId,
+                                    updated,
+                                    versionKey === 'latest' ? 'latest' : Number(versionKey),
+                                    { merge: false },
+                                );
+                            }
+                        } catch {
+                            // SWR revalidation will still keep the list up to date
+                        }
+                    }
+                }
+            }
+        },
+        [globalMutate, projectId, artifactContext, api.artifacts],
+    );
 
     const onTokenUsage = useCallback((usage: TokenUsage) => {
         setState((prev) => ({ ...prev, tokenUsage: usage }));
@@ -159,6 +205,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setIsLoading,
         onArtifactOpen: handleArtifactOpen,
         onArtifactComplete: revalidateArtifacts,
+        onApproveDocument: revalidateArtifactByKey,
         onTokenUsage,
         fetchArtifact,
         onDocumentStart,
@@ -178,6 +225,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             role: m.role as 'user' | 'assistant',
             blocks,
             isStreaming: false,
+            ...(m.is_error && { isError: true }),
         };
     }, []);
 
@@ -208,6 +256,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 isLoading: false,
                 tokenUsage: chatData.token_usage ?? null,
                 hasPendingChanges: chatData.has_pending_changes ?? false,
+                phaseIndex: chatData.phase_index,
             }));
             setPagination({
                 page: messagesData.pagination.page,
@@ -278,12 +327,12 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                     // Skip the message reload effect
                     skipNextLoad.current = true;
                     setChatId(chatIdToUse);
+                    setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
 
                     // Update URL without navigation using history API
                     window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
 
-                    // Revalidate chats list so sidebar and header update
-                    globalMutate((key) => Array.isArray(key) && key[0] === 'chats' && key[1] === 'list');
+                    insertChatToCache(cache, globalMutate, newChat);
                 }
 
                 // Create abort controller for this request
@@ -316,7 +365,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 abortControllerRef.current = null;
             }
         },
-        [api, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
+        [api, cache, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
     );
 
     /** Summarize current chat and navigate to the new one */
@@ -361,7 +410,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
                         if (event.type === 'done' && event.newChatId) {
                             setState((prev) => ({ ...prev, isSummarizing: false }));
-                            window.location.href = `/${projectId}/${event.newChatId}`;
+                            router.push(`/${projectId}/${event.newChatId}`);
                             return;
                         }
                     } catch {
@@ -378,7 +427,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }
-    }, [chatId, getToken, projectId, state.isSummarizing]);
+    }, [chatId, getToken, projectId, router, state.isSummarizing]);
 
     /** Stop the current generation */
     const stopGeneration = useCallback(() => {
@@ -401,6 +450,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             value={{
                 state,
                 api,
+                projectId,
                 chatId,
                 pagination,
                 loadMessages,

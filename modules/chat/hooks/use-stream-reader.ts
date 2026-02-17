@@ -33,6 +33,8 @@ type UseStreamReaderOptions = {
     onArtifactOpen?: (artifactId: string, version: number) => void;
     /** Called when an artifact stream completes */
     onArtifactComplete?: () => void;
+    /** Called to revalidate artifacts list and artifact in preview panel (Artifact list display artifacts directly from API and preview panel from artifact store) @TODO improve integration between artifact store and artifact list */
+    onApproveDocument?: (keyId: string) => void;
     /** Called when token usage is received from the done event */
     onTokenUsage?: (usage: TokenUsage) => void;
     /** Fetch artifact from API when not available in store */
@@ -51,6 +53,7 @@ export function useStreamReader({
     setIsLoading,
     onArtifactOpen,
     onArtifactComplete,
+    onApproveDocument,
     onTokenUsage,
     fetchArtifact,
     onDocumentStart,
@@ -285,10 +288,11 @@ export function useStreamReader({
                         try {
                             const event = JSON.parse(jsonString);
 
-                            if (event.error) {
-                                console.error('Stream error:', event.error);
-                                break;
-                            }
+                            // TODO: handled on done event for now
+                            // if (event.error) {
+                            //     console.error('Stream error:', event.error);
+                            //     break;
+                            // }
 
                             switch (event.type) {
                                 case 'reasoning_start': {
@@ -364,6 +368,23 @@ export function useStreamReader({
                                             toolSuccess: event.success,
                                         } as StreamBlock;
                                         updateStreamingMessage();
+                                    }
+
+                                    /** Artifact approval is handled in the approve_document tool - updating UI accordingly */
+                                    if (event.success === true && event.tool === 'approve_document') {
+                                        try {
+                                            const parsed =
+                                                typeof event.result === 'string'
+                                                    ? JSON.parse(event.result)
+                                                    : event.result;
+
+                                            onApproveDocument?.(parsed.name);
+                                        } catch (err) {
+                                            console.warn(
+                                                '[stream-reader] approve_document: failed to parse tool_result',
+                                                err,
+                                            );
+                                        }
                                     }
                                     break;
                                 }
@@ -484,6 +505,7 @@ export function useStreamReader({
                                                       blocks: [...streaming.blocks],
                                                       isStreaming: false,
                                                       status: undefined,
+                                                      ...(event.error && { isError: true }),
                                                   }
                                                 : msg,
                                         ),

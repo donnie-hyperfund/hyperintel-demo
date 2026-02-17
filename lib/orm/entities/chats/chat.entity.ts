@@ -10,6 +10,9 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text' })
     phase!: string;
 
+    @Property({ type: 'number', default: 0 })
+    phase_index!: number;
+
     @Property({ type: 'text', nullable: true })
     summary?: Nullable<string>;
 

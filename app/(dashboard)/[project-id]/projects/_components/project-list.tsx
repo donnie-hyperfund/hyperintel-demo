@@ -49,7 +49,7 @@ export const ProjectList = ({ currentProjectId }: ProjectListProps) => {
                 <EmptyState
                     icon={FileCode}
                     title="No projects yet"
-                    description="Create your first project to start organizing your chats and artifacts."
+                    description="Create your first project to start organizing your chats and deliverables."
                 >
                     <Button asChild className="mt-2">
                         <Link href="/new-project">

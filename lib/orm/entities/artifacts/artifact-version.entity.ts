@@ -1,9 +1,15 @@
-import { Entity, Index, ManyToOne, Opt, Property } from '@mikro-orm/core';
+import { Entity, Index, ManyToOne, Opt, Property, wrap } from '@mikro-orm/core';
 import type { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 
-export type VersionStatus = 'proposed' | 'approved' | 'rejected' | 'superseded';
+import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
+
+export type { VersionStatus } from '@/lib/schema/artifact';
+export { VERSION_STATUSES } from '@/lib/schema/artifact';
+export type { DocumentType } from '@/lib/schema/artifact';
+export { DOCUMENT_TYPES } from '@/lib/schema/artifact';
 
 @Entity({ tableName: 'artifact_versions' })
 @Index({ properties: ['artifact', 'status'] })
@@ -11,10 +17,16 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @ManyToOne(() => 'ArtifactEntity', { fieldName: 'artifact_id', serializer: (artifact) => artifact.id })
     artifact!: ArtifactEntity;
 
+    @ManyToOne(() => 'ChatEntity', {
+        fieldName: 'chat_id',
+        nullable: true,
+        serializer: (chat) => chat?.id,
+    })
+    chat?: ChatEntity;
+
     /**
      * The assistant message that created this version.
      * Nullable for backwards compatibility with existing versions created before this field was added.
-     * TODO: Consider backfilling old versions if chat association can be inferred.
      */
     @ManyToOne(() => 'ChatMessageEntity', {
         fieldName: 'chat_message_id',
@@ -29,13 +41,14 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'text' })
     content!: string;
 
-    // TODO: When user roles are implemented, update serializer to show ai_content for admin users
-    // Example: serializer: (value, entity, context) => isAdmin(context.user) ? value : undefined
-    @Property({ type: 'text', nullable: true, serializer: () => undefined })
+    @Property({ type: 'text', nullable: true })
     ai_content?: string & Opt;
 
     @Property({ type: 'text', default: 'approved' })
     status!: VersionStatus & Opt;
+
+    @Property({ type: 'boolean', default: false })
+    is_uploaded!: boolean & Opt;
 
     @Property({ type: 'text', nullable: true })
     rejection_reason?: string;
@@ -46,6 +59,12 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'uuid', nullable: true })
     status_changed_by?: string;
 
+    @Property({ type: 'boolean', default: true })
+    is_internal: boolean & Opt = true;
+
+    @Property({ type: 'text', default: 'Other' })
+    document_type: DocumentType & Opt = 'Other';
+
     @Property({
         type: 'timestamptz',
         nullable: true,
@@ -54,4 +73,19 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
         serializer: (value) => value?.toISOString(),
     })
     updated_at?: Date & Opt;
+
+    /**
+     * Custom serialization: ai_content always redacted, content conditional on is_internal.
+     */
+    toJSON(): Record<string, unknown> {
+        const obj = wrap(this).toObject() as Record<string, unknown>;
+
+        delete obj.ai_content;
+
+        if (this.is_internal) {
+            delete obj.content;
+        }
+
+        return obj;
+    }
 }

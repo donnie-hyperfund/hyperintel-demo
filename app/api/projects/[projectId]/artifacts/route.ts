@@ -29,13 +29,13 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         const artifact = await em
             .createQueryBuilder(ArtifactEntity, 'a')
             .select('a.*')
-            .leftJoin('a.chat', 'c')
             .leftJoin('a.project', 'p')
             .leftJoinAndSelect('a.current_version', 'cv')
             .where({
                 'a.key': normalizedKey,
                 'p.id': projectId,
                 'p.user': user.id,
+                $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
             })
             .getSingleResult();
 
@@ -86,12 +86,12 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
     const query = em
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
-        .leftJoin('a.chat', 'c')
         .leftJoin('a.project', 'p')
         .leftJoinAndSelect('a.current_version', 'cv')
         .where({
             'p.id': projectId,
             'p.user': user.id,
+            $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
         })
         .orderBy({ 'a.created_at': 'DESC' });
 
@@ -123,10 +123,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
     );
 }
 
-export async function GET(
-    req: NextRequest,
-    { params }: { params: Promise<{ projectId: string }> },
-): Promise<NextResponse> {
+export function GET(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }): Promise<NextResponse> {
     return withAuth(async (request, user) => {
         const { projectId } = await params;
         return await handleGetArtifacts(request, projectId, user);

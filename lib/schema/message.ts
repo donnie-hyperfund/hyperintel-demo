@@ -145,6 +145,7 @@ export type CreateMessageBodyDto = z.infer<typeof CreateMessageBodySchema>;
 export const ChatDtoSchema = z.object({
     id: z.string().uuid(),
     phase: z.string(),
+    phase_index: z.number().int(),
     summary: z.string().nullable().optional(),
     project: z.union([z.string().uuid(), z.object({}).passthrough()]),
     message_count: z.number().optional(),
@@ -166,6 +167,7 @@ export const ChatMessageDtoSchema = z.object({
     content: z.string(),
     reasoning: z.string().nullable().optional(),
     blocks: z.array(StreamBlockSchema).nullable().optional(),
+    is_error: z.boolean().optional(),
     chat: z.union([z.string().uuid(), z.object({}).passthrough()]),
     metadata: z.record(z.unknown()).nullable().optional(),
     created_at: z.union([z.string(), z.date()]),

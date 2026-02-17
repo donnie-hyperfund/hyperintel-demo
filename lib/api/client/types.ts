@@ -13,6 +13,10 @@ export interface PaginationParams {
     limit?: number;
 }
 
+export interface InfinitePaginationParams {
+    limit?: number;
+}
+
 export interface ApiError {
     message: string;
     code?: string;
@@ -32,3 +36,5 @@ export class ApiClientError extends Error {
         this.details = details;
     }
 }
+
+export type UploadStatus = 'idle' | 'uploading' | 'success';

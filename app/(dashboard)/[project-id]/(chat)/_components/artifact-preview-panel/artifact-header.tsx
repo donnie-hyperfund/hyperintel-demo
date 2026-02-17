@@ -3,6 +3,7 @@
 import { formatDistanceToNow } from 'date-fns';
 import { ArrowLeft, Check, Copy, Download, FileText, X } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -14,9 +15,12 @@ type ArtifactHeaderProps = {
     content: string;
     version?: number;
     status?: VersionStatus;
+    isUploaded?: boolean;
     backHref?: string;
     updatedAt?: Date;
     onCloseAction?: () => void;
+    /** Slot for extra action buttons (e.g. delete) rendered before the close button */
+    actions?: ReactNode;
 };
 
 export function ArtifactHeader({
@@ -24,9 +28,11 @@ export function ArtifactHeader({
     content,
     version,
     status,
+    isUploaded,
     backHref,
     updatedAt,
     onCloseAction,
+    actions,
 }: ArtifactHeaderProps) {
     const [copied, setCopied] = useState(false);
     const [downloaded, setDownloaded] = useState(false);
@@ -69,7 +75,7 @@ export function ArtifactHeader({
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
                             <span className="line-clamp-1 text-sm font-medium">{title}</span>
-                            {status && <VersionStatusBadge status={status} />}
+                            <VersionStatusBadge status={status} isUploaded={isUploaded} />
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
                             <span>v{version}</span>
@@ -102,6 +108,8 @@ export function ArtifactHeader({
                     </TooltipTrigger>
                     <TooltipContent>{downloaded ? 'Downloaded!' : 'Download'}</TooltipContent>
                 </Tooltip>
+
+                {actions}
 
                 {!backHref && onCloseAction && (
                     <Tooltip>

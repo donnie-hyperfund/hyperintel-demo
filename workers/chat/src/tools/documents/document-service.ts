@@ -159,11 +159,7 @@ export async function findVersionByStatus(
     artifactId: string,
     status: VersionStatus,
 ): Promise<ArtifactVersionEntity | null> {
-    return em.findOne(
-        ArtifactVersionEntity,
-        { artifact: artifactId, status },
-        { orderBy: { version: 'DESC' } },
-    );
+    return em.findOne(ArtifactVersionEntity, { artifact: artifactId, status }, { orderBy: { version: 'DESC' } });
 }
 
 /**
@@ -225,10 +221,14 @@ export interface DocumentInfo {
     title: string;
     currentVersion: number | null;
     currentContent: string | null;
+    currentStatus: VersionStatus | null;
+    currentDocumentType: string | null;
     proposedVersion: number | null;
     proposedContent: string | null;
+    proposedDocumentType: string | null;
     rejectedVersion: number | null;
     rejectedContent: string | null;
+    rejectedDocumentType: string | null;
     rejectionReason: string | null;
     lineCount: number;
 }
@@ -253,9 +253,7 @@ export async function findDocumentByName(
 
     const versions = artifact.versions.getItems();
     const proposed = versions.find((v) => v.status === 'proposed');
-    const rejected = versions
-        .filter((v) => v.status === 'rejected')
-        .sort((a, b) => b.version - a.version)[0];
+    const rejected = versions.filter((v) => v.status === 'rejected').sort((a, b) => b.version - a.version)[0];
 
     const currentContent = artifact.current_version?.content ?? null;
     const proposedContent = proposed?.content ?? null;
@@ -267,10 +265,14 @@ export async function findDocumentByName(
         title: artifact.title,
         currentVersion: artifact.current_version?.version ?? null,
         currentContent,
+        currentStatus: artifact.current_version?.status ?? null,
+        currentDocumentType: artifact.current_version?.document_type ?? null,
         proposedVersion: proposed?.version ?? null,
         proposedContent,
+        proposedDocumentType: proposed?.document_type ?? null,
         rejectedVersion: rejected?.version ?? null,
         rejectedContent,
+        rejectedDocumentType: rejected?.document_type ?? null,
         rejectionReason: rejected?.rejection_reason ?? null,
         lineCount: countLines(proposedContent ?? currentContent ?? ''),
         // TODO: Use lineCount from entity once added
@@ -282,7 +284,7 @@ export interface DocumentListItem {
     title: string;
     lines: number;
     currentVersion: number | null;
-    currentStatus: 'approved' | null;
+    currentStatus: VersionStatus | null;
     latestVersion: number;
     latestStatus: VersionStatus;
     hasProposed: boolean;
@@ -297,9 +299,13 @@ export async function listDocuments(
     filter?: { search?: string },
 ): Promise<DocumentListItem[]> {
     // TODO: Add search filter on name/title when needed
-    const where: Record<string, unknown> = { project: projectId };
 
-    const artifacts = await em.find(ArtifactEntity, where, { populate: ['current_version', 'versions'] });
+    const artifacts = await em.find(
+        ArtifactEntity,
+        // TODO allow including deleted artifacts
+        { project: projectId, $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
+        { populate: ['current_version', 'versions'] },
+    );
 
     return artifacts.map((a) => {
         const versions = a.versions.getItems();
@@ -313,7 +319,7 @@ export async function listDocuments(
             title: a.title,
             lines: countLines(contentForLines),
             currentVersion: a.current_version?.version ?? null,
-            currentStatus: a.current_version ? ('approved' as const) : null,
+            currentStatus: a.current_version?.status ?? null,
             latestVersion: latest?.version ?? 0,
             latestStatus: latest?.status ?? 'approved',
             hasProposed: !!proposed,
@@ -333,6 +339,8 @@ export async function upsertDocument(
     name: string,
     title: string,
     content: string,
+    is_internal = true,
+    document_type = 'Other',
 ): Promise<{
     action: 'created' | 'proposed';
     name: string;
@@ -373,7 +381,10 @@ export async function upsertDocument(
         newVersion.version = newVersionNum;
         newVersion.content = content;
         newVersion.status = 'proposed';
+        newVersion.is_internal = is_internal;
+        newVersion.document_type = document_type as any;
         newVersion.status_changed_at = new Date();
+        newVersion.chat = em.getReference('ChatEntity', chatId) as any;
 
         em.persist(newVersion);
 
@@ -403,7 +414,6 @@ export async function upsertDocument(
             artifact.title = title;
             artifact.version = 1;
             artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
-            artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
             // current_version stays null until first approval
 
             txEm.persist(artifact);
@@ -415,7 +425,10 @@ export async function upsertDocument(
             version.version = 1;
             version.content = content;
             version.status = 'proposed';
+            version.is_internal = is_internal;
+            version.document_type = document_type as any;
             version.status_changed_at = new Date();
+            version.chat = txEm.getReference('ChatEntity', chatId) as any;
 
             txEm.persist(version);
             await txEm.flush();

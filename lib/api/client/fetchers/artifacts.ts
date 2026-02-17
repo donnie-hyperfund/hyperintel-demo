@@ -62,6 +62,13 @@ export function createArtifactApi(getToken: TokenGetter) {
             );
             return data;
         },
+
+        delete: async (projectId: string, artifactId: string) => {
+            const { data } = await axios.delete<{ success: true; message: string }>(
+                ENDPOINTS.byId(projectId, artifactId),
+            );
+            return data;
+        },
     };
 }
 

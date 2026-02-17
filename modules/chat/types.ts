@@ -2,7 +2,7 @@
 export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { StreamBlock } from '@/common/ai/agent/types';
-import type { ArtifactDto, ArtifactVersionDto } from '@/lib/schema/artifact';
+import type { ArtifactDto } from '@/lib/schema/artifact';
 
 // =============================================================================
 // Chat Types
@@ -20,6 +20,7 @@ export type Message = {
     role: 'user' | 'assistant';
     blocks: StreamBlock[];
     isStreaming?: boolean;
+    isError?: boolean;
     status?: string;
     createdAt?: Date;
 };
@@ -40,6 +41,7 @@ export type ChatState = {
     streamingMessageId: string | null;
     tokenUsage: TokenUsage | null;
     hasPendingChanges: boolean;
+    phaseIndex: number | null;
 };
 
 export type PaginationState = {
@@ -125,15 +127,15 @@ export type StreamEvent =
     | { type: 'search_start'; query: string; blockId: string }
     | { type: 'search_results'; blockId: string; resultCount: number }
     | {
-        type: 'citation';
-        url: string;
-        citedText: string;
-        title?: string;
-        blockId: string;
-        parentTextBlockId: string;
-        startIndex: number;
-        endIndex: number;
-    }
+          type: 'citation';
+          url: string;
+          citedText: string;
+          title?: string;
+          blockId: string;
+          parentTextBlockId: string;
+          startIndex: number;
+          endIndex: number;
+      }
     // Documents/artifacts
     | { type: 'document_start'; name: string; title?: string; pendingVersion: number }
     | { type: 'document_delta'; name: string; pendingVersion: number; content: string }
@@ -141,8 +143,8 @@ export type StreamEvent =
     | { type: 'document_complete'; name: string; version: number }
     // Status & control
     | { type: 'status_update'; status: string }
-    | { type: 'error'; error: string }
-    | { type: 'done'; tokenUsage?: TokenUsage }
+    | { type: 'error'; error: string; soft?: boolean }
+    | { type: 'done'; tokenUsage?: TokenUsage; error?: string }
     | { type: 'done_ext' };
 
 export type StreamState = {
