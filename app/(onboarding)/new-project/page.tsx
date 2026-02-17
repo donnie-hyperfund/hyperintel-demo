@@ -71,8 +71,8 @@ export default function NewProjectPage() {
             >
                 <h1 className="text-3xl font-semibold tracking-tight">Create a new project</h1>
                 <p className="text-muted-foreground text-sm leading-relaxed">
-                    Keep your chats and artifacts organized in one place, and make it easy to share context across your
-                    team.
+                    Keep your chats and deliverables organized in one place, and make it easy to share context across
+                    your team.
                 </p>
             </motion.div>
 
