@@ -14,6 +14,7 @@ import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, Draf
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
+import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createDocumentEventHandler } from './utils/document-events';
 import {
     DEFAULT_LOCAL_PROMPTS_PATH,
@@ -293,8 +294,9 @@ async function streamInternal(
             ...createDocumentTools(),
             ...createKnowledgeTools(),
             ...createWebScrapeTools(),
+            ...createPhaseTransitionTools(),
         ];
-        const toolGroups = [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup, WebScrapeToolGroup];
+        const toolGroups = [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup, WebScrapeToolGroup, PhaseTransitionToolGroup];
 
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
@@ -312,6 +314,7 @@ async function streamInternal(
             allTools,
             {
                 toolGroups,
+                terminalToolNames: ['generate_summary'],
                 config: {
                     maxToolCalls: 20,
                     getSystemPrompt: async () =>

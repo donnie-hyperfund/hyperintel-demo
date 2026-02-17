@@ -3,7 +3,6 @@ import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { serializeException } from '@common/ai/utils';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
@@ -66,21 +65,6 @@ async function getSummarizerPrompt(ctx: Ctx): Promise<string> {
     return `${summarizerPrompt}\n\n---\n\n${completionBriefPrompt}`;
 }
 
-/**
- * Resolve phase number for the Completion Brief.
- * Priority: chat.phase (if numeric) → count of existing completion briefs + 1
- */
-async function resolvePhaseNumber(em: NonNullable<Ctx['em']>, projectId: string, chatPhase: string): Promise<number> {
-    const parsed = Number.parseInt(chatPhase, 10);
-    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-
-    const count = await em.count(ArtifactEntity, {
-        project: projectId,
-        key: { $like: 'completion-brief-phase-%' },
-    });
-    return count + 1;
-}
-
 function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -115,8 +99,8 @@ async function streamInternal(
             throw new Error('Cannot summarize empty chat');
         }
 
-        // Resolve phase number for the Completion Brief
-        const phaseNumber = await resolvePhaseNumber(em!, chat.project.id, chat.phase);
+        // Phase number is 1-based from the 0-based phase_index
+        const phaseNumber = chat.phase_index + 1;
         const briefName = `completion-brief-phase-${phaseNumber}.md`;
         const today = new Date().toISOString().split('T')[0];
 
@@ -236,9 +220,12 @@ async function streamInternal(
             await approveVersion(em!, versionId);
         }
 
+        // TODO: Can't use chat.phase_index + 1 because historical chats can trigger summarization too.
+        // Once we block message sending on non-latest chats, switch to phase_index-based calculation.
         const newChat = em!.create(ChatEntity, {
             project: chat.project.id,
             phase: chat.phase,
+            phase_index: await em!.count(ChatEntity, { project: chat.project.id }),
             metadata: {
                 summarizedFrom: chatId,
                 summarizedAt: new Date().toISOString(),
