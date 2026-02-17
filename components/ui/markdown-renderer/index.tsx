@@ -13,11 +13,11 @@ import remarkFootnotesExtra from 'remark-footnotes-extra';
 import remarkGfm from 'remark-gfm';
 import remarkInlineLinks from 'remark-inline-links';
 import remarkMath from 'remark-math';
+import { useMarkdownComponents } from '@/components/ui/markdown-renderer/use-markdown-components';
+import { preprocessMarkdown } from '@/components/ui/markdown-renderer/utils';
 import type { GlobalCitation } from '@/components/ui/markdown-renderer/citations';
 import { remarkCitations } from '@/components/ui/markdown-renderer/remark-citations';
 import { remarkDirectivesHandler } from '@/components/ui/markdown-renderer/remark-directives-handler';
-import { useMarkdownComponents } from '@/components/ui/markdown-renderer/use-markdown-components';
-import { preprocessMarkdown } from '@/components/ui/markdown-renderer/utils';
 import { cn } from '@/lib/utils';
 
 const markdownVariants = cva('position-relative max-w-none', {
@@ -36,7 +36,7 @@ export type DirectiveHandler = (props: {
     type: 'text' | 'leaf' | 'container';
     name: string;
     label: string;
-    attributes: Record<string, string>;
+    attributes: Record<string, any>;
     children?: React.ReactNode;
 }) => React.ReactNode;
 
@@ -58,7 +58,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     variant,
     citations,
     directives,
-    customComponents,
+    customComponents
 }) => {
     const preprocessedMarkdown = useMemo(() => preprocessMarkdown(markdown), [markdown]);
     const builtInComponents = useMarkdownComponents({ id });
@@ -78,7 +78,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 const label = props['data-directive-label'] || '';
 
                 // Extract attributes from data-attr-* props
-                const attributes: Record<string, string> = {};
+                const attributes: Record<string, any> = {};
                 Object.keys(props).forEach((key) => {
                     if (key.startsWith('data-attr-')) {
                         const attrName = key.replace('data-attr-', '');
@@ -101,7 +101,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 const name = props['data-directive-name'] || directiveName;
                 const label = props['data-directive-label'] || '';
 
-                const attributes: Record<string, string> = {};
+                const attributes: Record<string, any> = {};
                 Object.keys(props).forEach((key) => {
                     if (key.startsWith('data-attr-')) {
                         const attrName = key.replace('data-attr-', '');
@@ -161,7 +161,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
     return (
         <div className={cn(markdownVariants({ variant }))}>
-            <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
+            <Markdown
+                remarkPlugins={remarkPlugins}
+                rehypePlugins={rehypePlugins}
+                components={components}
+            >
                 {preprocessedMarkdown}
             </Markdown>
         </div>
