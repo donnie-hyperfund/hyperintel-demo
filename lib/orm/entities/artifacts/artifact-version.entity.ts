@@ -4,10 +4,12 @@ import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 
-import type { VersionStatus } from '@/lib/schema/artifact';
+import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
 
 export type { VersionStatus } from '@/lib/schema/artifact';
 export { VERSION_STATUSES } from '@/lib/schema/artifact';
+export type { DocumentType } from '@/lib/schema/artifact';
+export { DOCUMENT_TYPES } from '@/lib/schema/artifact';
 
 @Entity({ tableName: 'artifact_versions' })
 @Index({ properties: ['artifact', 'status'] })
@@ -59,6 +61,9 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
 
     @Property({ type: 'boolean', default: true })
     is_internal: boolean & Opt = true;
+
+    @Property({ type: 'text', default: 'Other' })
+    document_type: DocumentType & Opt = 'Other';
 
     @Property({
         type: 'timestamptz',

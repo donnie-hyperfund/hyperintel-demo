@@ -212,10 +212,13 @@ async function streamInternal(
                     }
                     break;
                 case 'tool_result':
-                    // Force all summarizer documents to be internal
+                    // Force all summarizer documents to be internal Completion Briefs
                     if (event.tool === 'begin_document' && event.success) {
                         const draft = agentCtx.draftManager.getCurrent();
-                        if (draft) draft.is_internal = true;
+                        if (draft) {
+                            draft.is_internal = true;
+                            draft.document_type = 'Completion Brief';
+                        }
                     }
                     break;
                 case 'error':

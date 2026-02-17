@@ -222,10 +222,13 @@ export interface DocumentInfo {
     currentVersion: number | null;
     currentContent: string | null;
     currentStatus: VersionStatus | null;
+    currentDocumentType: string | null;
     proposedVersion: number | null;
     proposedContent: string | null;
+    proposedDocumentType: string | null;
     rejectedVersion: number | null;
     rejectedContent: string | null;
+    rejectedDocumentType: string | null;
     rejectionReason: string | null;
     lineCount: number;
 }
@@ -263,10 +266,13 @@ export async function findDocumentByName(
         currentVersion: artifact.current_version?.version ?? null,
         currentContent,
         currentStatus: artifact.current_version?.status ?? null,
+        currentDocumentType: artifact.current_version?.document_type ?? null,
         proposedVersion: proposed?.version ?? null,
         proposedContent,
+        proposedDocumentType: proposed?.document_type ?? null,
         rejectedVersion: rejected?.version ?? null,
         rejectedContent,
+        rejectedDocumentType: rejected?.document_type ?? null,
         rejectionReason: rejected?.rejection_reason ?? null,
         lineCount: countLines(proposedContent ?? currentContent ?? ''),
         // TODO: Use lineCount from entity once added
@@ -334,6 +340,7 @@ export async function upsertDocument(
     title: string,
     content: string,
     is_internal = true,
+    document_type = 'Other',
 ): Promise<{
     action: 'created' | 'proposed';
     name: string;
@@ -375,6 +382,7 @@ export async function upsertDocument(
         newVersion.content = content;
         newVersion.status = 'proposed';
         newVersion.is_internal = is_internal;
+        newVersion.document_type = document_type as any;
         newVersion.status_changed_at = new Date();
         newVersion.chat = em.getReference('ChatEntity', chatId) as any;
 
@@ -418,6 +426,7 @@ export async function upsertDocument(
             version.content = content;
             version.status = 'proposed';
             version.is_internal = is_internal;
+            version.document_type = document_type as any;
             version.status_changed_at = new Date();
             version.chat = txEm.getReference('ChatEntity', chatId) as any;
 

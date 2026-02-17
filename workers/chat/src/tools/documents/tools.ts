@@ -19,6 +19,7 @@ import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
+import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import type { Ctx } from '../../context';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
@@ -131,6 +132,9 @@ const BeginDocumentParams = z.object({
         .describe(
             'Whether this is an internal document (content hidden from user). Set to false for client deliverables that the user should see. In edit mode, you should generally keep the same value as the existing version.',
         ),
+    document_type: DocumentTypeSchema.describe(
+        'Classification of the document type. Must be one of the allowed types. In edit mode, you should generally keep the same value as the existing version.',
+    ),
 });
 
 const WriteDocumentParams = z.object({
@@ -201,12 +205,24 @@ Internal vs Client Deliverable:
 - is_internal=false: Client deliverable. Content IS visible to the user in the UI.
 - In edit mode, you should generally keep the same is_internal value as the existing version.
 
+Document Type:
+- Classify the document with the appropriate document_type.
+- In edit mode, you should generally keep the same document_type as the existing version.
+
 After calling this, use write_document to add content or patch_document for precise edits.
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
-                const { mode, name, title, is_internal } = input;
+                const { mode, name, title, document_type } = input;
+                let { is_internal } = input;
                 const { em, projectId, draftManager } = ctx;
+
+                // Enforce is_internal for internal document types
+                const isInternalType = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
+                const internalEnforced = isInternalType && !is_internal;
+                if (isInternalType) {
+                    is_internal = true;
+                }
 
                 const normalizedName = normalizeArtifactKey(name);
 
@@ -231,18 +247,22 @@ You MUST call finalize_document when done or content will be lost.`,
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
                     try {
-                        const draft = draftManager.begin(projectId, normalizedName, docTitle, mode, '', undefined, is_internal);
+                        const draft = draftManager.begin(projectId, normalizedName, docTitle, mode, '', undefined, is_internal, document_type);
                         return {
                             status: 'editing',
                             mode: 'create',
                             name: normalizedName,
                             title: draft.title,
                             is_internal: draft.is_internal,
+                            document_type: draft.document_type,
                             lines: 0,
                             ...(isDeleted && { previouslyDeleted: true }),
+                            ...(internalEnforced && { internalEnforced: true }),
                             message: isDeleted
                                 ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
-                                : 'Draft started. Use write_document to add content, then finalize_document.',
+                                : internalEnforced
+                                  ? `Draft started. Use write_document to add content, then finalize_document. Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
+                                  : 'Draft started. Use write_document to add content, then finalize_document.',
                         };
                     } catch (err: any) {
                         return { error: err.message };
@@ -254,6 +274,7 @@ You MUST call finalize_document when done or content will be lost.`,
                 let contentToLoad: string;
                 let loadedFrom: string;
                 let loadedVersion: number | null;
+                let existingDocumentType: string | null = null;
                 let rejectionReason: string | null = null;
 
                 if (existing!.proposedVersion !== null && existing!.proposedContent !== null) {
@@ -261,17 +282,20 @@ You MUST call finalize_document when done or content will be lost.`,
                     contentToLoad = existing!.proposedContent;
                     loadedFrom = 'proposed';
                     loadedVersion = existing!.proposedVersion;
+                    existingDocumentType = existing!.proposedDocumentType;
                 } else if (existing!.rejectedVersion !== null && existing!.rejectedContent !== null) {
                     // Revise rejected version - load its content so agent can fix it
                     contentToLoad = existing!.rejectedContent;
                     loadedFrom = 'rejected';
                     loadedVersion = existing!.rejectedVersion;
+                    existingDocumentType = existing!.rejectedDocumentType;
                     rejectionReason = existing!.rejectionReason;
                 } else if (existing!.currentContent !== null) {
                     // TODO: add a param to specifically confirm restoring and editing a deleted document
                     contentToLoad = existing!.currentContent;
                     loadedFrom = isDeleted ? 'deleted' : 'approved';
                     loadedVersion = existing!.currentVersion;
+                    existingDocumentType = existing!.currentDocumentType;
                 } else {
                     return { error: 'No version available to edit.' };
                 }
@@ -285,6 +309,7 @@ You MUST call finalize_document when done or content will be lost.`,
                         contentToLoad,
                         loadedVersion ?? undefined,
                         is_internal,
+                        document_type,
                     );
 
                     const messages: Record<string, string> = {
@@ -294,17 +319,24 @@ You MUST call finalize_document when done or content will be lost.`,
                         deleted: `Document was deleted (v${loadedVersion}). Loaded deleted content. Finalizing will restore it as a new proposed version.`,
                     };
 
+                    const message = internalEnforced
+                        ? `${messages[loadedFrom]} Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
+                        : messages[loadedFrom];
+
                     return {
                         status: 'editing',
                         mode: 'edit',
                         name: normalizedName,
                         title: draft.title,
                         is_internal: draft.is_internal,
+                        document_type: draft.document_type,
+                        ...(existingDocumentType && existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
                         loadedFrom,
                         loadedVersion,
                         lines: countLines(draft.content),
-                        message: messages[loadedFrom],
+                        message,
                         ...(isDeleted && { previouslyDeleted: true }),
+                        ...(internalEnforced && { internalEnforced: true }),
                         ...(rejectionReason && { rejectionReason }),
                     };
                 } catch (err: any) {
@@ -409,7 +441,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     const draft = draftManager.requireCurrent();
 
                     // Persist to database as proposed
-                    const result = await upsertDocument(em, projectId, chatId, draft.name, draft.title, draft.content, draft.is_internal);
+                    const result = await upsertDocument(em, projectId, chatId, draft.name, draft.title, draft.content, draft.is_internal, draft.document_type);
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
