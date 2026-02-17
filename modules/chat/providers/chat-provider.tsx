@@ -6,6 +6,7 @@ import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef
 import { useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
+import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { artifactKeys } from '@/lib/api/client/fetchers/artifacts';
 import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
@@ -69,7 +70,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const artifactContext = useArtifactContext();
     const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();
-    const { mutate: globalMutate } = useSWRConfig();
+    const { mutate: globalMutate, cache } = useSWRConfig();
     const router = useRouter();
 
     // Create API client with auth
@@ -319,8 +320,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                     // Update URL without navigation using history API
                     window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
 
-                    // Revalidate chats list so sidebar and header update
-                    globalMutate((key) => Array.isArray(key) && key[0] === 'chats' && key[1] === 'list');
+                    insertChatToCache(cache, globalMutate, newChat);
                 }
 
                 // Create abort controller for this request
@@ -353,7 +353,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 abortControllerRef.current = null;
             }
         },
-        [api, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
+        [api, cache, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
     );
 
     /** Summarize current chat and navigate to the new one */

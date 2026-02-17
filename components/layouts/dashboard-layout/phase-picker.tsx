@@ -34,7 +34,6 @@ export const PhasePicker = ({ projectId, currentChatId }: PhasePickerProps) => {
         hasNextPage,
         onLoadMore: () => {
             setSize(size + 1);
-            console.log('loading more');
         },
         rootMargin: '0px 0px 100px 0px',
     });
@@ -51,8 +50,6 @@ export const PhasePicker = ({ projectId, currentChatId }: PhasePickerProps) => {
         window.dispatchEvent(new Event('new-phase'));
         router.push(`/${projectId}`);
     };
-
-    console.log('isLoading:', isLoading, 'hasNextPage:', hasNextPage, 'lastPage:', data?.[data.length - 1]?.pagination);
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
