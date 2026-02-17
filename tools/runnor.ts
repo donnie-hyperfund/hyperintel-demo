@@ -122,6 +122,7 @@ async function setup() {
             phase: 'discovery',
             project,
             metadata: { loadedPrompts: [] },
+            phase_index: 0,
         });
         await em.persistAndFlush(chat);
     }
@@ -151,6 +152,7 @@ async function createNewChat(): Promise<void> {
         phase: 'discovery',
         project,
         metadata: { loadedPrompts: [] },
+        phase_index: await em.count(ChatEntity, { project: currentProjectId }),
     });
     await em.persistAndFlush(chat);
     currentChatId = chat.id;

@@ -38,7 +38,7 @@ async function handleGetChats(req: NextRequest, projectId: string, user: UserEnt
             'p.user': user.id,
         })
         .groupBy(['c.id'])
-        .orderBy({ 'c.created_at': 'DESC' });
+        .orderBy({ 'c.phase_index': 'ASC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
@@ -89,6 +89,7 @@ async function handleCreateChat(req: NextRequest, projectId: string, user: UserE
     const chat = em.create(ChatEntity, {
         project: projectId,
         phase: 'active',
+        phase_index: await em.count(ChatEntity, { project: projectId }),
     });
 
     await em.persistAndFlush(chat);

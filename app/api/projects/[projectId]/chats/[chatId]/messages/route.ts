@@ -99,6 +99,7 @@ async function handleCreateMessage(
                 id: chatId,
                 project,
                 phase: 'chat',
+                phase_index: await em.count(ChatEntity, { project: projectId }),
             });
             await em.persistAndFlush(chat);
         }
