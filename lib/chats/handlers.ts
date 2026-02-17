@@ -203,7 +203,7 @@ export async function handleListChats(
         qb.andWhere({ 'c.project': queryData.projectId });
     }
 
-    qb.groupBy(['c.id']).orderBy({ 'c.created_at': 'DESC' });
+    qb.groupBy(['c.id']).orderBy(projectId ? { 'c.phase_index': 'ASC' } : { 'c.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(qb, {
         page: queryData.page ?? 1,

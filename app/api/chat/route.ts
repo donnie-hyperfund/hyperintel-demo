@@ -42,6 +42,7 @@ export async function GET() {
             chat = em.create(ChatEntity, {
                 phase: 'discovery',
                 project,
+                phase_index: await em.count(ChatEntity, { project: projectId }),
             });
             await em.persistAndFlush(chat);
         }

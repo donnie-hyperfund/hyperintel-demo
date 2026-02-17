@@ -41,6 +41,7 @@ export type ChatState = {
     streamingMessageId: string | null;
     tokenUsage: TokenUsage | null;
     hasPendingChanges: boolean;
+    phaseIndex: number | null;
 };
 
 export type PaginationState = {

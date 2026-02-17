@@ -148,6 +148,7 @@ export const ChatDtoSchema = z.object({
     id: z.string().uuid(),
     type: z.string().optional(),
     phase: z.string(),
+    phase_index: z.number().int(),
     summary: z.string().nullable().optional(),
     project: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
     user: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),

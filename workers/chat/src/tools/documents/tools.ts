@@ -19,6 +19,7 @@ import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
+import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import type { Ctx } from '../../context';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
@@ -91,18 +92,25 @@ export const DocumentToolGroup: AgentToolGroup = {
 - \`rejected\`: User rejected with feedback - revise it
 - \`superseded\`: You saved a newer version before previous was approved
 
-## Approval
-\`finalize_document\` saves as "proposed". User approves via UI to make it live ("approved").
+## Approval & Rejection
+\`finalize_document\` saves as "proposed". User approves via UI or chat to make it live ("approved").
 If you finalize again before approval, old proposed becomes "superseded".
 
 **CRITICAL: \`approve_document\` and \`reject_document\` are USER-INITIATED ONLY.**
-NEVER call these tools on your own initiative. Only use them when the user EXPLICITLY asks you to approve or reject a document in chat.
-After creating or finalizing a document, do NOT automatically approve it - wait for the user's decision.
+NEVER call these tools on your own initiative. Only use them when the user indicates approval or rejection in chat.
+After creating or finalizing a document, do NOT automatically approve it — wait for the user's decision.
+
+### Detecting approval/rejection intent
+When a user message contains approval or rejection signals, you MUST process them BEFORE acting on any other part of the message.
+- **Approval signals:** "approved", "looks good", "accept", "approve it", "LGTM", "ship it", "all good", "proceed" (when a proposed document is pending), or similar positive confirmation.
+- **Rejection signals:** "reject", "redo", "not good", "change X", "needs work", or explicit revision requests for a pending proposed document.
+- **Compound messages:** If the user says something like "approved, now do X" or "looks good, proceed with Y" — FIRST call \`approve_document\` for the pending document, THEN proceed with the rest of the request.
+- **Ambiguity:** If it's unclear whether the user is approving or just continuing, and there IS a pending proposed document, ask for clarification before proceeding.
 
 ## Important
 \`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.`,
     behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content.',
+        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When the user message contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message.',
     tools: [
         'begin_document',
         'write_document',
@@ -134,6 +142,9 @@ const BeginDocumentParams = z.object({
         .describe(
             'Whether this is an internal document (content hidden from user). Set to false for client deliverables that the user should see. In edit mode, you should generally keep the same value as the existing version.',
         ),
+    document_type: DocumentTypeSchema.describe(
+        'Classification of the document type. Must be one of the allowed types. In edit mode, you should generally keep the same value as the existing version.',
+    ),
 });
 
 const WriteDocumentParams = z.object({
@@ -204,14 +215,26 @@ Internal vs Client Deliverable:
 - is_internal=false: Client deliverable. Content IS visible to the user in the UI.
 - In edit mode, you should generally keep the same is_internal value as the existing version.
 
+Document Type:
+- Classify the document with the appropriate document_type.
+- In edit mode, you should generally keep the same document_type as the existing version.
+
 After calling this, use write_document to add content or patch_document for precise edits.
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
-                const { mode, name, title, is_internal} = input;
+                const { mode, name, title, document_type} = input;
+                let { is_internal } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
                 const scopeId = ctx.projectId ?? ctx.userId!;
+
+                // Enforce is_internal for internal document types
+                const isInternalType = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
+                const internalEnforced = isInternalType && !is_internal;
+                if (isInternalType) {
+                    is_internal = true;
+                }
 
                 const normalizedName = normalizeArtifactKey(name);
 
@@ -236,18 +259,22 @@ You MUST call finalize_document when done or content will be lost.`,
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
                     try {
-                        const draft = draftManager.begin(scopeId, normalizedName, docTitle, mode, '', undefined, is_internal);
+                        const draft = draftManager.begin(scopeId, normalizedName, docTitle, mode, '', undefined, is_internal, document_type);
                         return {
                             status: 'editing',
                             mode: 'create',
                             name: normalizedName,
                             title: draft.title,
                             is_internal: draft.is_internal,
+                            document_type: draft.document_type,
                             lines: 0,
                             ...(isDeleted && { previouslyDeleted: true }),
+                            ...(internalEnforced && { internalEnforced: true }),
                             message: isDeleted
                                 ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
-                                : 'Draft started. Use write_document to add content, then finalize_document.',
+                                : internalEnforced
+                                  ? `Draft started. Use write_document to add content, then finalize_document. Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
+                                  : 'Draft started. Use write_document to add content, then finalize_document.',
                         };
                     } catch (err: any) {
                         return { error: err.message };
@@ -259,6 +286,7 @@ You MUST call finalize_document when done or content will be lost.`,
                 let contentToLoad: string;
                 let loadedFrom: string;
                 let loadedVersion: number | null;
+                let existingDocumentType: string | null = null;
                 let rejectionReason: string | null = null;
 
                 if (existing!.proposedVersion !== null && existing!.proposedContent !== null) {
@@ -266,17 +294,20 @@ You MUST call finalize_document when done or content will be lost.`,
                     contentToLoad = existing!.proposedContent;
                     loadedFrom = 'proposed';
                     loadedVersion = existing!.proposedVersion;
+                    existingDocumentType = existing!.proposedDocumentType;
                 } else if (existing!.rejectedVersion !== null && existing!.rejectedContent !== null) {
                     // Revise rejected version - load its content so agent can fix it
                     contentToLoad = existing!.rejectedContent;
                     loadedFrom = 'rejected';
                     loadedVersion = existing!.rejectedVersion;
+                    existingDocumentType = existing!.rejectedDocumentType;
                     rejectionReason = existing!.rejectionReason;
                 } else if (existing!.currentContent !== null) {
                     // TODO: add a param to specifically confirm restoring and editing a deleted document
                     contentToLoad = existing!.currentContent;
                     loadedFrom = isDeleted ? 'deleted' : 'approved';
                     loadedVersion = existing!.currentVersion;
+                    existingDocumentType = existing!.currentDocumentType;
                 } else {
                     return { error: 'No version available to edit.' };
                 }
@@ -290,6 +321,7 @@ You MUST call finalize_document when done or content will be lost.`,
                         contentToLoad,
                         loadedVersion ?? undefined,
                         is_internal,
+                        document_type,
                     );
 
                     const messages: Record<string, string> = {
@@ -299,17 +331,24 @@ You MUST call finalize_document when done or content will be lost.`,
                         deleted: `Document was deleted (v${loadedVersion}). Loaded deleted content. Finalizing will restore it as a new proposed version.`,
                     };
 
+                    const message = internalEnforced
+                        ? `${messages[loadedFrom]} Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
+                        : messages[loadedFrom];
+
                     return {
                         status: 'editing',
                         mode: 'edit',
                         name: normalizedName,
                         title: draft.title,
                         is_internal: draft.is_internal,
+                        document_type: draft.document_type,
+                        ...(existingDocumentType && existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
                         loadedFrom,
                         loadedVersion,
                         lines: countLines(draft.content),
-                        message: messages[loadedFrom],
+                        message,
                         ...(isDeleted && { previouslyDeleted: true }),
+                        ...(internalEnforced && { internalEnforced: true }),
                         ...(rejectionReason && { rejectionReason }),
                     };
                 } catch (err: any) {
@@ -415,7 +454,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     const draft = draftManager.requireCurrent();
 
                     // Persist to database as proposed
-                    const result = await upsertDocument(em, scope, chatId, draft.name, draft.title, draft.content, draft.is_internal);
+                    const result = await upsertDocument(em, scope, chatId, draft.name, draft.title, draft.content, draft.is_internal, draft.document_type);
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
@@ -637,7 +676,8 @@ Shows for each document:
             name: 'approve_document' as const,
             description: `Approve a proposed document version, making it the live (approved) version.
 
-**USER-INITIATED ONLY** - NEVER call this tool unless the user has EXPLICITLY asked you to approve a document. Do NOT call this automatically after creating or finalizing a document.
+**USER-INITIATED ONLY** — NEVER call this automatically after creating or finalizing a document. Only call when the user signals approval (e.g., "approved", "looks good", "LGTM", "proceed", "accept").
+If the user's message combines approval with another request (e.g., "approved, now do X"), call this tool FIRST, then handle the rest.
 
 Only works on documents that have a proposed version awaiting approval.
 This triggers AI content generation (YAML) for internal documents and queues embedding indexing.`,
@@ -688,7 +728,8 @@ This triggers AI content generation (YAML) for internal documents and queues emb
             name: 'reject_document' as const,
             description: `Reject a proposed document version with feedback.
 
-**USER-INITIATED ONLY** - NEVER call this tool unless the user has EXPLICITLY asked you to reject a document. Do NOT call this automatically.
+**USER-INITIATED ONLY** — NEVER call this automatically. Only call when the user signals rejection (e.g., "reject", "redo this", "needs changes", or provides specific revision feedback for a pending document).
+If the user's message combines rejection with other instructions, call this tool FIRST, then handle the rest.
 
 Only works on documents that have a proposed version awaiting approval.
 The rejection reason is stored and will be shown when the document is next edited.`,

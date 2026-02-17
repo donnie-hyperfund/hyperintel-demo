@@ -20,8 +20,8 @@ export default function ArtifactDetailPage() {
             <div className="flex flex-1 items-center justify-center">
                 <EmptyState
                     icon={FileText}
-                    title="Failed to load artifact"
-                    error={error instanceof Error ? error.message : 'An error occurred while loading the artifact.'}
+                    title="Failed to load deliverable"
+                    error={error instanceof Error ? error.message : 'An error occurred while loading the deliverable.'}
                 />
             </div>
         );

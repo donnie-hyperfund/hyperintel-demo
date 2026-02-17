@@ -62,8 +62,8 @@ export function ArtifactList() {
         return (
             <EmptyState
                 icon={FileText}
-                title="Failed to load artifacts"
-                error={error instanceof Error ? error.message : 'An error occurred while loading artifacts.'}
+                title="Failed to load deliverables"
+                error={error instanceof Error ? error.message : 'An error occurred while loading deliverables.'}
             />
         );
     }
@@ -82,8 +82,8 @@ export function ArtifactList() {
         return (
             <EmptyState
                 icon={FileText}
-                title="No artifacts yet"
-                description="Artifacts created during your phases will appear here."
+                title="No deliverables yet"
+                description="Deliverables created during your phases will appear here."
             />
         );
     }

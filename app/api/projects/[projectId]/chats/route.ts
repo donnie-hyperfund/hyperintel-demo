@@ -31,6 +31,7 @@ async function handleCreateChat(req: NextRequest, projectId: string, user: UserE
     const chat = em.create(ChatEntity, {
         project: projectId,
         phase: 'active',
+        phase_index: await em.count(ChatEntity, { project: projectId }),
     });
 
     await em.persistAndFlush(chat);

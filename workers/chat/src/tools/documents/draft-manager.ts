@@ -21,6 +21,8 @@ export interface DraftSession {
     previousVersion?: number;
     /** Whether this is an internal document (content redacted from frontend) */
     is_internal: boolean;
+    /** Document type classification */
+    document_type: string;
     createdAt: Date;
 }
 
@@ -50,6 +52,7 @@ export class DraftManager {
         initialContent = '',
         previousVersion?: number,
         is_internal = true,
+        document_type = 'Other',
     ): DraftSession {
         if (this.currentDraft) {
             throw new Error(
@@ -66,6 +69,7 @@ export class DraftManager {
             mode,
             previousVersion,
             is_internal,
+            document_type,
             createdAt: new Date(),
         };
         return this.currentDraft;

@@ -1,9 +1,11 @@
 import { useAuth } from '@clerk/nextjs';
+import { useMemo } from 'react';
 import useSWR, { type SWRConfiguration } from 'swr';
+import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import type { ChatDto } from '@/lib/schema/message';
 import { chatKeys, createChatApi } from '../fetchers/chats';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import type { InfinitePaginationParams, PaginatedResponse, PaginationParams } from '../types';
 
 export function useFetchChats(
     projectId: string | undefined,
@@ -20,6 +22,33 @@ export function useFetchChats(
         },
         { revalidateOnFocus: false, ...config },
     );
+}
+
+export function useFetchChatsInfinite(
+    projectId: string | undefined,
+    params: InfinitePaginationParams = { limit: 20 },
+    config?: SWRInfiniteConfiguration<PaginatedResponse<ChatDto>>,
+) {
+    const { getToken } = useAuth();
+
+    const result = useSWRInfinite<PaginatedResponse<ChatDto>>(
+        (pageIndex, previousPageData) => {
+            if (!projectId) return null;
+            if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
+            return chatKeys.list(projectId, { page: pageIndex + 1, limit: params.limit });
+        },
+        (key) => {
+            if (!projectId) throw new Error('Project ID is required');
+            const params = key[key.length - 1] as PaginationParams;
+            return createChatApi(getToken).list(projectId, params);
+        },
+        { revalidateOnFocus: false, revalidateFirstPage: false, ...config },
+    );
+
+    const lastPage = result.data?.[result.data.length - 1];
+    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
+
+    return { ...result, hasNextPage };
 }
 
 export function useFetchChat(
