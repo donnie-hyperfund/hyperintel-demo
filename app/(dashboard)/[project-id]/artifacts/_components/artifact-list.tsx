@@ -19,8 +19,10 @@ export const ArtifactList = () => {
             <div className="flex flex-1 items-center justify-center">
                 <EmptyState
                     icon={FileText}
-                    title="Failed to load artifacts"
-                    error={error instanceof Error ? error.message : 'An error occurred while loading your artifacts.'}
+                    title="Failed to load deliverables"
+                    error={
+                        error instanceof Error ? error.message : 'An error occurred while loading your deliverables.'
+                    }
                 />
             </div>
         );
@@ -41,8 +43,8 @@ export const ArtifactList = () => {
             <div className="flex flex-1 items-center justify-center">
                 <EmptyState
                     icon={FileText}
-                    title="No artifacts yet"
-                    description="Artifacts created during your chats will appear here."
+                    title="No deliverables yet"
+                    description="Deliverables created during your chats will appear here."
                 />
             </div>
         );
@@ -51,7 +53,7 @@ export const ArtifactList = () => {
     return (
         <>
             <p className="mb-4 text-sm text-neutral-500">
-                {artifacts.length} artifact{artifacts.length !== 1 ? 's' : ''}
+                {artifacts.length} deliverable{artifacts.length !== 1 ? 's' : ''}
             </p>
             <div className="space-y-3">
                 {artifacts.map((artifact) => (
