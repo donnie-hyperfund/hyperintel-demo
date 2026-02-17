@@ -13,22 +13,24 @@ type ChatMessageProps = {
 };
 
 const documentDirective: DirectiveHandler = ({ type, label, attributes, children }) => {
-    const version = Number(attributes.version);
-
     if (type === 'container') {
         return (
             <div>
-                <ArtifactIndicator documentName={label} documentVersion={version} />
+                <ArtifactIndicator
+                    documentName={label}
+                    documentVersion={attributes.version}
+                />
                 {children}
             </div>
         );
     }
 
-    return <ArtifactIndicator documentName={label} documentVersion={version} />;
-};
-
-const chatDirectives = {
-    document: documentDirective,
+    return (
+        <ArtifactIndicator
+            documentName={label}
+            documentVersion={attributes.version}
+        />
+    );
 };
 
 export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps) {
@@ -73,7 +75,9 @@ export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps
                             markdown={textContent}
                             variant="message"
                             citations={citations.length > 0 ? citations : undefined}
-                            directives={chatDirectives}
+                            directives={{
+                                document: documentDirective,
+                            }}
                         />
                     ) : (
                         <p className="text-sm whitespace-pre-wrap">{textContent}</p>

@@ -5,7 +5,6 @@ import type { Message } from '../types';
 import { ActivePanelProvider } from './active-panel-provider';
 import { ArtifactProvider } from './artifact-provider';
 import { ChatProvider } from './chat-provider';
-import { ScrollTargetProvider } from './scroll-target-provider';
 
 type ChatModuleProps = {
     children: ReactNode;
@@ -22,7 +21,7 @@ export function ChatModule({ children, projectId, initialChatId, initialMessages
         <ActivePanelProvider>
             <ArtifactProvider>
                 <ChatProvider projectId={projectId} initialChatId={initialChatId} initialMessages={initialMessages}>
-                    <ScrollTargetProvider>{children}</ScrollTargetProvider>
+                    {children}
                 </ChatProvider>
             </ArtifactProvider>
         </ActivePanelProvider>

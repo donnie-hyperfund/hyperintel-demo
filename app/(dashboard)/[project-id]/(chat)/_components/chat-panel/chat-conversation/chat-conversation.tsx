@@ -7,7 +7,6 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 
 import { TypingIndicator } from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel/chat-conversation/typing-indicator';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
 import { ChatMessage } from '../chat-message/chat-message';
 import { ChatEmptyState, type ChatEmptyStateProps } from './chat-empty-state';
 
@@ -27,7 +26,6 @@ const messageContainerVariants = cva('w-full min-w-0 last:mb-0', {
 const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ emptyState }, ref) => {
     const { state, pagination, loadMoreMessages } = useChatContext();
     const { messages, isGenerating, isLoading } = state;
-    const { target: scrollTarget, foundRef: scrollTargetFoundRef } = useScrollTargetContext();
 
     const { containerRef } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
         threshold: 100,
@@ -41,8 +39,6 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
 
     // Detect scroll to top and trigger loading more messages
     const handleScroll = useCallback(() => {
-        if (scrollTarget) return;
-
         const container = containerRef.current;
         if (!container) return;
 
@@ -53,7 +49,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
             isRestoringScrollRef.current = true;
             loadMoreMessages();
         }
-    }, [containerRef, pagination, loadMoreMessages, scrollTarget]);
+    }, [containerRef, pagination, loadMoreMessages]);
 
     // Restore scroll position after loading more messages
     useEffect(() => {
@@ -79,14 +75,6 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
         container.addEventListener('scroll', handleScroll);
         return () => container.removeEventListener('scroll', handleScroll);
     }, [containerRef, handleScroll]);
-
-    // Auto-load older messages until the scroll-target artifact is found.
-    useEffect(() => {
-        if (!scrollTarget || scrollTargetFoundRef.current) return;
-        if (!pagination.hasMore || pagination.isLoadingMore || isLoading) return;
-
-        loadMoreMessages();
-    }, [scrollTarget, scrollTargetFoundRef, pagination.hasMore, pagination.isLoadingMore, isLoading, loadMoreMessages]);
 
     return (
         <div ref={containerRef} className="relative flex-1 overflow-y-auto p-6">
