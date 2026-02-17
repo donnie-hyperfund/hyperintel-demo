@@ -4,7 +4,7 @@ import { useAuth } from '@clerk/nextjs';
 import { cva } from 'class-variance-authority';
 import { FileText } from 'lucide-react';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import { cn } from '@/lib/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
@@ -54,7 +54,7 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
         panelState.artifactId === documentName &&
         panelState.version === documentVersion;
 
-    const openArtifactPreview = async () => {
+    const openArtifactPreview = useCallback(async () => {
         if (artifact) {
             openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
             return;
@@ -89,7 +89,7 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
             console.error('Failed to fetch artifact:', error);
             updateArtifact(documentName, { isLoading: false }, documentVersion);
         }
-    };
+    }, [documentName, documentVersion, artifact, projectId, getToken, addArtifact, updateArtifact, openPanel]);
 
     const handleClick = () => {
         if (isSelected) {
@@ -98,9 +98,6 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
         }
         openArtifactPreview();
     };
-
-    const openArtifactPreviewRef = useRef(openArtifactPreview);
-    openArtifactPreviewRef.current = openArtifactPreview;
 
     useEffect(() => {
         if (!isScrollTarget || !buttonRef.current) return;
@@ -112,7 +109,7 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
         let raf1: number | undefined;
         let raf2: number | undefined;
 
-        openArtifactPreviewRef.current();
+        openArtifactPreview();
 
         // Double-rAF waits for React commit + browser paint,
         //    so the ResizablePanelGroup layout has settled before we scroll
@@ -138,7 +135,7 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
             if (raf2 !== undefined) cancelAnimationFrame(raf2);
             button.removeEventListener('animationend', handleAnimationEnd);
         };
-    }, [isScrollTarget, markFound, clearScrollTarget]);
+    }, [isScrollTarget, markFound, clearScrollTarget, openArtifactPreview]);
 
     return (
         <button
