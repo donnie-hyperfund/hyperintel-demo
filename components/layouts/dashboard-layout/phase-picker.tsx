@@ -10,17 +10,20 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { cn } from '@/lib/utils';
 
-const PAGE_SIZE = 7;
+const PAGE_SIZE = 20;
 
 type PhasePickerProps = {
     projectId?: string;
     currentChatId?: string;
+    currentPhaseIndex?: number | null;
 };
 
-export const PhasePicker = ({ projectId, currentChatId }: PhasePickerProps) => {
+export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: PhasePickerProps) => {
     const [open, setOpen] = useState(false);
     const router = useRouter();
-    const isNewChat = !currentChatId;
+
+    const isNewChat = !currentPhaseIndex;
+    const phaseName = typeof currentPhaseIndex === 'number' ? `Phase ${currentPhaseIndex + 1}` : null;
 
     const { data, size, setSize, isLoading, hasNextPage } = useFetchChatsInfinite(projectId, { limit: PAGE_SIZE });
 
@@ -37,12 +40,6 @@ export const PhasePicker = ({ projectId, currentChatId }: PhasePickerProps) => {
         },
         rootMargin: '0px 0px 100px 0px',
     });
-
-    const phaseName = useMemo(() => {
-        if (!currentChatId) return null;
-        const index = chats.findIndex((c) => c.id === currentChatId);
-        return index >= 0 ? `Phase ${index + 1}` : null;
-    }, [chats, currentChatId]);
 
     const handleNewPhase = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -67,7 +64,7 @@ export const PhasePicker = ({ projectId, currentChatId }: PhasePickerProps) => {
             </PopoverTrigger>
             <PopoverContent align="start" className="w-56 p-0">
                 <div ref={rootRef} className="max-h-64 overflow-y-auto py-1">
-                    {chats.map((chat, index) => {
+                    {chats.map((chat) => {
                         const isActive = chat.id === currentChatId;
                         return (
                             <Link
@@ -79,7 +76,7 @@ export const PhasePicker = ({ projectId, currentChatId }: PhasePickerProps) => {
                                     isActive && 'bg-accent/50',
                                 )}
                             >
-                                <span className="flex-1 truncate">Phase {index + 1}</span>
+                                <span className="flex-1 truncate">Phase {chat.phase_index + 1}</span>
                                 {isActive && <Check className="size-3.5 text-primary shrink-0" />}
                             </Link>
                         );

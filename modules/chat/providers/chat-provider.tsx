@@ -3,11 +3,12 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { useSWRConfig } from 'swr';
+import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { artifactKeys } from '@/lib/api/client/fetchers/artifacts';
+import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
@@ -68,9 +69,11 @@ function createUserMessage(content: string): Message {
 
 export function ChatProvider({ children, projectId, initialChatId, initialMessages = [] }: ChatProviderProps) {
     const artifactContext = useArtifactContext();
+
     const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();
-    const { mutate: globalMutate, cache } = useSWRConfig();
+
+    const { mutate: globalMutate, cache, fallback } = useSWRConfig();
     const router = useRouter();
 
     // Create API client with auth
@@ -80,16 +83,23 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
     const skipNextLoad = useRef(false);
 
-    // Chat state
-    const [state, setState] = useState<ChatState>({
-        messages: initialMessages,
-        isGenerating: false,
-        isSummarizing: false,
-        isLoading: !!chatId,
-        error: null,
-        streamingMessageId: null,
-        tokenUsage: null,
-        hasPendingChanges: false,
+    // Chat state — seed from SWR cache if chat was prefetched server-side
+    const [state, setState] = useState<ChatState>(() => {
+        const cached = initialChatId
+            ? fallback?.[unstable_serialize(chatKeys.detail(projectId, initialChatId))]
+            : undefined;
+
+        return {
+            messages: initialMessages,
+            isGenerating: false,
+            isSummarizing: false,
+            isLoading: !!initialChatId,
+            error: null,
+            streamingMessageId: null,
+            tokenUsage: cached?.token_usage ?? null,
+            hasPendingChanges: cached?.has_pending_changes ?? false,
+            phaseIndex: cached?.phase_index ?? null,
+        };
     });
 
     // Pagination state for infinite scroll
@@ -246,6 +256,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 isLoading: false,
                 tokenUsage: chatData.token_usage ?? null,
                 hasPendingChanges: chatData.has_pending_changes ?? false,
+                phaseIndex: chatData.phase_index,
             }));
             setPagination({
                 page: messagesData.pagination.page,
@@ -316,6 +327,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                     // Skip the message reload effect
                     skipNextLoad.current = true;
                     setChatId(chatIdToUse);
+                    setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
 
                     // Update URL without navigation using history API
                     window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);

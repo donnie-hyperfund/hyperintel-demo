@@ -21,7 +21,7 @@ export const DashboardHeader = () => {
     const params = useParams();
 
     const projectId = params?.['project-id'] as string | undefined;
-    const { chatId } = useChatContext();
+    const { chatId, state } = useChatContext();
 
     const { data: project } = useFetchProject(projectId);
 
@@ -42,7 +42,11 @@ export const DashboardHeader = () => {
                         </>
                     )}
                     <BreadcrumbItem>
-                        <PhasePicker projectId={projectId} currentChatId={chatId ?? undefined} />
+                        <PhasePicker
+                            projectId={projectId}
+                            currentChatId={chatId ?? undefined}
+                            currentPhaseIndex={state.phaseIndex}
+                        />
                     </BreadcrumbItem>
                 </BreadcrumbList>
             </Breadcrumb>
