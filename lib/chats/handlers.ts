@@ -303,8 +303,11 @@ export async function handleListChatArtifacts(
         .select('a.*')
         .leftJoin('a.versions', 'v')
         .leftJoinAndSelect('a.current_version', 'cv')
-        .where({ 'v.chat': chatId })
-        .groupBy('a.id')
+        .where({
+            'v.chat': chatId,
+            $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+        })
+        .groupBy(['a.id', 'cv.id'])
         .orderBy({ 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
