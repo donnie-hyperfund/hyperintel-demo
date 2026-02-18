@@ -1,6 +1,6 @@
 import { useAuth } from '@clerk/nextjs';
 import { FileText, Loader2 } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -9,6 +9,7 @@ import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts'
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
+import { useChatIdFromUrl } from '@/modules/chat/hooks/use-chat-id-from-url';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { getArtifactChatId } from '@/modules/chat/providers/artifact-provider/utils';
@@ -26,11 +27,10 @@ type PhaseDialogData = {
 const PAGE_SIZE = 20;
 
 export function ArtifactList() {
-    const params = useParams();
     const router = useRouter();
     const { getToken } = useAuth();
 
-    const currentChatId = params?.chatId as string | undefined;
+    const currentChatId = useChatIdFromUrl();
 
     const { projectId } = useChatContext();
     const { data, error, isLoading, size, setSize, hasNextPage } = useFetchArtifactsInfinite(projectId, {
