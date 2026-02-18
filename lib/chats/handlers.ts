@@ -258,17 +258,17 @@ export async function handleGetMessages(
         .createQueryBuilder(ChatMessageEntity, 'm')
         .select('m.*')
         .where(where)
-        .orderBy({ 'm.created_at': 'ASC' });
+        .orderBy({ 'm.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
-        perPage: queryData.limit ?? 50,
+        perPage: queryData.limit ?? 20,
     });
 
     const mappedNodes = nodes.map((message: ChatMessageEntity): ChatMessageDto => wrap(message).toJSON());
 
     return NextResponse.json(
-        createPaginatedResponse(mappedNodes, totalCount, queryData.page ?? 1, queryData.limit ?? 50),
+        createPaginatedResponse(mappedNodes, totalCount, queryData.page ?? 1, queryData.limit ?? 20),
     );
 }
 
@@ -298,17 +298,28 @@ export async function handleListChatArtifacts(
 
     if (queryData instanceof NextResponse) return queryData;
 
-    const query = em
+    const qb = em
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
         .leftJoin('a.versions', 'v')
-        .leftJoinAndSelect('a.current_version', 'cv')
-        .where({
+        .leftJoinAndSelect('a.current_version', 'cv');
+
+    if (projectId) {
+        qb.leftJoin('a.project', 'p')
+            .where({
+                'v.chat': chatId,
+                'p.id': projectId,
+                'p.user': user.id,
+                $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+            });
+    } else {
+        qb.where({
             'v.chat': chatId,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
-        })
-        .groupBy(['a.id', 'cv.id'])
-        .orderBy({ 'a.created_at': 'DESC' });
+        });
+    }
+
+    const query = qb.groupBy(['a.id', 'cv.id']).orderBy({ 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
@@ -336,13 +347,20 @@ export async function handleGetChatArtifact(
     const chat = await verifyChatAccess(em, chatId, user.id, projectId);
     if (!chat) return chatNotFound();
 
-    const artifact = await em
+    const qb = em
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
         .leftJoinAndSelect('a.current_version', 'cv')
-        .leftJoin('a.versions', 'v')
-        .where({ 'a.id': artifactId, 'v.chat': chatId })
-        .getSingleResult();
+        .leftJoin('a.versions', 'v');
+
+    if (projectId) {
+        qb.leftJoin('a.project', 'p')
+            .where({ 'a.id': artifactId, 'v.chat': chatId, 'p.id': projectId, 'p.user': user.id });
+    } else {
+        qb.where({ 'a.id': artifactId, 'v.chat': chatId });
+    }
+
+    const artifact = await qb.getSingleResult();
 
     if (!artifact) {
         return NextResponse.json({ error: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 });
