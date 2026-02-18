@@ -1,10 +1,16 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRef, useState } from 'react';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
+import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { toast } from '@/hooks/use-toast';
 import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
-import type { PaginatedResponse, PaginationParams, UploadStatus } from '@/lib/api/client/types';
+import type {
+    InfinitePaginationParams,
+    PaginatedResponse,
+    PaginationParams,
+    UploadStatus,
+} from '@/lib/api/client/types';
 import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { isKnownUploadError, UploadValidationError, validateArtifactFile } from '@/lib/artifacts/utils';
 import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
@@ -25,6 +31,33 @@ export function useFetchArtifacts(
         },
         { revalidateOnFocus: false, ...config },
     );
+}
+
+export function useFetchArtifactsInfinite(
+    projectId: string | undefined,
+    params: InfinitePaginationParams = { limit: 20 },
+    config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
+) {
+    const { getToken } = useAuth();
+
+    const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
+        (pageIndex, previousPageData) => {
+            if (!projectId) return null;
+            if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
+            return artifactKeys.list(projectId, { page: pageIndex + 1, limit: params.limit });
+        },
+        (key) => {
+            if (!projectId) throw new Error('Project ID is required');
+            const params = key[key.length - 1] as PaginationParams;
+            return createArtifactApi(getToken).list(projectId, params);
+        },
+        { revalidateOnFocus: false, revalidateFirstPage: false, ...config },
+    );
+
+    const lastPage = result.data?.[result.data.length - 1];
+    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
+
+    return { ...result, hasNextPage };
 }
 
 export function useFetchArtifact(
