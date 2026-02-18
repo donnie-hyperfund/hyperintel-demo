@@ -34,6 +34,7 @@ async function handleGetArtifacts(
             'v.chat': chatId,
             'p.id': projectId,
             'p.user': user.id,
+            $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
         })
         .groupBy(['a.id', 'cv.id'])
         .orderBy({ 'a.created_at': 'DESC' });
@@ -52,7 +53,7 @@ async function handleGetArtifacts(
     );
 }
 
-export async function GET(
+export function GET(
     req: NextRequest,
     { params }: { params: Promise<{ projectId: string; chatId: string }> },
 ): Promise<NextResponse> {

@@ -7,12 +7,13 @@ import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
-import { artifactKeys } from '@/lib/api/client/fetchers/artifacts';
+import { serializeArtifactListKey } from '@/lib/api/client/fetchers/artifacts';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { notifyChatIdChange } from '../hooks/use-chat-id-from-url';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
@@ -129,13 +130,13 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     }, []);
 
     const revalidateArtifacts = useCallback(() => {
-        globalMutate(artifactKeys.list(projectId));
+        globalMutate(serializeArtifactListKey(projectId));
     }, [globalMutate, projectId]);
 
     const revalidateArtifactByKey = useCallback(
         async (keyId: string) => {
             // While in list view, we revalidate the artifacts list to show the latest status
-            globalMutate(artifactKeys.list(projectId));
+            globalMutate(serializeArtifactListKey(projectId));
 
             // Also update the in-memory artifact store so the preview panel reflects the new status
             const allVersions = artifactContext.artifacts;
@@ -331,6 +332,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
                     // Update URL without navigation using history API
                     window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
+                    notifyChatIdChange();
 
                     insertChatToCache(cache, globalMutate, newChat);
                 }
