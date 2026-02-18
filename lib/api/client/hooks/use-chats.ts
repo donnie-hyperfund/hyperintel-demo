@@ -1,5 +1,4 @@
 import { useAuth } from '@clerk/nextjs';
-import { useMemo } from 'react';
 import useSWR, { type SWRConfiguration } from 'swr';
 import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
