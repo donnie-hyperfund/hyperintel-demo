@@ -1,7 +1,7 @@
 import { getWorkerUrl, toFormData } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
 import { frontendEnv } from '@/lib/env';
-import { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
+import { ApproveArtifactActionDto, type ExportFormat, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { SendChatActionDto, SummarizeActionDto } from '@/lib/schema/chat';
 
 export const sendAction = (data: SendChatActionDto, accessToken: string) => {
@@ -113,4 +113,16 @@ export const uploadArtifact = (
         method: 'POST',
         body,
     });
+};
+
+export const exportArtifact = (artifactVersionId: string, accessToken: string, format: ExportFormat = 'docx') => {
+    const params = new URLSearchParams({ artifactVersionId, format });
+
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const base = getWorkerUrl(WORKERS.Chat, CHAT_EP.ExportAction);
+        return fetch(`${base}?${params}`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+    }
+    return fetch(`${WORKERS_LOCAL_ENDPOINTS.ExportAction}?${params}`);
 };
