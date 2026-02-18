@@ -40,6 +40,8 @@ export default function ArtifactDetailPage() {
             title={artifact.title}
             content={content}
             version={artifact.version}
+            isInternal={artifact.current_version?.is_internal}
+            artifactVersionId={artifact.current_version?.id}
             updatedAt={updatedAt || createdAt}
             backHref={`/${projectId}/artifacts`}
         />
