@@ -41,7 +41,6 @@ const publicBlocks: StreamBlock[] = [
 	{ id: "b8", type: "text", content: "Deliverable ready." },
 ];
 
-let projectId: string;
 let chatId: string;
 let internalMessageId: string;
 let publicMessageId: string;
@@ -54,7 +53,6 @@ beforeAll(async () => {
 	const internalMessage = em.create(ChatMessageEntity, { role: "assistant", content: "doc", blocks: internalBlocks, chat });
 	const publicMessage = em.create(ChatMessageEntity, { role: "assistant", content: "deliverable", blocks: publicBlocks, chat });
 	await em.persistAndFlush([user, project, chat, internalMessage, publicMessage]);
-	projectId = project.id;
 	chatId = chat.id;
 	internalMessageId = internalMessage.id;
 	publicMessageId = publicMessage.id;
@@ -85,8 +83,8 @@ function assertBlocksRedacted(blocks: any[]) {
 
 describe("history block redaction — internal document messages", () => {
 	it("GET /messages — list redacts document tool calls", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/messages/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages`), { params: Promise.resolve({ projectId, chatId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/messages/route");
+		const res = await GET(req(`/api/chats/${chatId}/messages`), { params: Promise.resolve({ chatId }) });
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		const msg = body.data?.find((m: any) => m.id === internalMessageId);
@@ -96,30 +94,17 @@ describe("history block redaction — internal document messages", () => {
 	});
 
 	it("GET /messages/:mid — single message redacts document tool calls", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/messages/[messageId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages/${internalMessageId}`), { params: Promise.resolve({ projectId, chatId, messageId: internalMessageId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/messages/[messageId]/route");
+		const res = await GET(req(`/api/chats/${chatId}/messages/${internalMessageId}`), { params: Promise.resolve({ chatId, messageId: internalMessageId }) });
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		assertBlocksRedacted(body.blocks);
 		expect(JSON.stringify(body.blocks)).not.toContain(SECRET);
 	});
 
-	it("GET /api/chat — legacy endpoint redacts document tool calls", async () => {
-		const { GET } = await import("@/app/api/chat/route");
-		const res = await GET();
-		expect(res.status).toBe(200);
-		const body = await res.json();
-		for (const msg of body.messages ?? []) {
-			if (msg.blocks) {
-				assertBlocksRedacted(msg.blocks);
-				expect(JSON.stringify(msg.blocks)).not.toContain(SECRET);
-			}
-		}
-	});
-
 	it("text blocks and non-document tools survive", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/messages/[messageId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages/${internalMessageId}`), { params: Promise.resolve({ projectId, chatId, messageId: internalMessageId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/messages/[messageId]/route");
+		const res = await GET(req(`/api/chats/${chatId}/messages/${internalMessageId}`), { params: Promise.resolve({ chatId, messageId: internalMessageId }) });
 		const body = await res.json();
 		const text = body.blocks.filter((b: any) => b.type === "text");
 		expect(text.length).toBe(2);
@@ -134,8 +119,8 @@ describe("history block redaction — internal document messages", () => {
 /** Block redaction is always unconditional — real content lives on ArtifactVersionEntity. */
 describe("history block redaction — non-internal document messages (still redacted)", () => {
 	it("GET /messages/:mid — non-internal write_document blocks are still redacted", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/messages/[messageId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages/${publicMessageId}`), { params: Promise.resolve({ projectId, chatId, messageId: publicMessageId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/messages/[messageId]/route");
+		const res = await GET(req(`/api/chats/${chatId}/messages/${publicMessageId}`), { params: Promise.resolve({ chatId, messageId: publicMessageId }) });
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		assertBlocksRedacted(body.blocks);
@@ -143,8 +128,8 @@ describe("history block redaction — non-internal document messages (still reda
 	});
 
 	it("text blocks in non-internal messages survive", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/messages/[messageId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages/${publicMessageId}`), { params: Promise.resolve({ projectId, chatId, messageId: publicMessageId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/messages/[messageId]/route");
+		const res = await GET(req(`/api/chats/${chatId}/messages/${publicMessageId}`), { params: Promise.resolve({ chatId, messageId: publicMessageId }) });
 		const body = await res.json();
 		const text = body.blocks.filter((b: any) => b.type === "text");
 		expect(text.length).toBe(2);

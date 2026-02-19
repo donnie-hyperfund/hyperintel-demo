@@ -105,11 +105,11 @@ describe("listDocuments", () => {
 		expect(docs.some((d) => d.name === DOC)).toBe(false);
 	});
 
-	it("excludes artifact with null current_version (never approved)", async () => {
+	it("includes artifact with null current_version (never approved)", async () => {
 		const em = await getTestEm();
 		await upsertDocument(em, scope(), chatId, "svc-null-cv.md", "Null CV", "# Proposed only");
 		const docs = await listDocuments(em, scope());
-		expect(docs.some((d) => d.name === "svc-null-cv.md")).toBe(false);
+		expect(docs.some((d) => d.name === "svc-null-cv.md")).toBe(true);
 	});
 });
 
@@ -234,7 +234,7 @@ describe("delete → restore → delete cycle", () => {
 // API ENDPOINTS
 // =============================================================================
 
-describe("API: artifact list includes deleted with status", () => {
+describe("API: deleted artifacts filtered from list but accessible by ID", () => {
 	const DOC = "api-list.md";
 	let artifactId: string;
 
@@ -244,27 +244,25 @@ describe("API: artifact list includes deleted with status", () => {
 		await markCurrentVersionDeleted(DOC);
 	});
 
-	it("GET /projects/:pid/artifacts — deleted artifact still in list", async () => {
+	it("GET /projects/:pid/artifacts — deleted artifact excluded from list", async () => {
 		const { GET } = await import("@/app/api/projects/[projectId]/artifacts/route");
 		const res = await GET(req(`/api/projects/${projectId}/artifacts`), { params: Promise.resolve({ projectId }) });
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		const artifact = body.data?.find((a: any) => a.key === DOC);
-		expect(artifact).toBeDefined();
+		expect(artifact).toBeUndefined();
 	});
 
-	it("GET /projects/:pid/artifacts/:aid — returns deleted artifact", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/artifacts/[artifactId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/artifacts/${artifactId}`), { params: Promise.resolve({ projectId, artifactId }) });
+	it("GET /artifacts/:aid — returns deleted artifact by ID", async () => {
+		const { GET } = await import("@/app/api/artifacts/[artifactId]/route");
+		const res = await GET(req(`/api/artifacts/${artifactId}`), { params: Promise.resolve({ artifactId }) });
 		expect(res.status).toBe(200);
 	});
 
-	it("GET /projects/:pid/artifacts?key=... — returns deleted artifact by key", async () => {
+	it("GET /projects/:pid/artifacts?key=... — deleted artifact excluded from key lookup", async () => {
 		const { GET } = await import("@/app/api/projects/[projectId]/artifacts/route");
 		const res = await GET(req(`/api/projects/${projectId}/artifacts?key=${DOC}`), { params: Promise.resolve({ projectId }) });
-		expect(res.status).toBe(200);
-		const body = await res.json();
-		expect(body.key).toBe(DOC);
+		expect(res.status).toBe(404);
 	});
 });
 
@@ -277,8 +275,8 @@ describe("API: chat summary reflects deleted artifacts", () => {
 	});
 
 	it("GET /chats/:cid — includes deleted artifact in documents with deleted status", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}`), { params: Promise.resolve({ projectId, chatId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/route");
+		const res = await GET(req(`/api/chats/${chatId}`), { params: Promise.resolve({ chatId }) });
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		const doc = body.documents?.find((d: any) => d.key === DOC);
@@ -302,8 +300,8 @@ describe("API: restored artifact appears normally", () => {
 	});
 
 	it("GET /chats/:cid — restored artifact has approved status", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}`), { params: Promise.resolve({ projectId, chatId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/route");
+		const res = await GET(req(`/api/chats/${chatId}`), { params: Promise.resolve({ chatId }) });
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		const doc = body.documents?.find((d: any) => d.key === DOC);

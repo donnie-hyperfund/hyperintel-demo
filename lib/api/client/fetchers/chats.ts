@@ -3,8 +3,8 @@ import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
-    root: (projectId: string) => `/api/projects/${projectId}/chats`,
-    byId: (projectId: string, chatId: string) => `/api/projects/${projectId}/chats/${chatId}`,
+    root: '/api/chats',
+    byId: (chatId: string) => `/api/chats/${chatId}`,
 } as const;
 
 export const chatKeys = {
@@ -21,23 +21,26 @@ export function createChatApi(getToken: TokenGetter) {
     return {
         list: async (projectId: string, params?: PaginationParams) => {
             const { data } = await axios.get<PaginatedResponse<ChatDto>>(
-                buildUrl(ENDPOINTS.root(projectId), params as Record<string, string | number | undefined>),
+                buildUrl(ENDPOINTS.root, {
+                    projectId,
+                    ...params,
+                } as Record<string, string | number | undefined>),
             );
             return data;
         },
 
-        get: async (projectId: string, chatId: string) => {
-            const { data } = await axios.get<ChatDto>(ENDPOINTS.byId(projectId, chatId));
+        get: async (_projectId: string, chatId: string) => {
+            const { data } = await axios.get<ChatDto>(ENDPOINTS.byId(chatId));
             return data;
         },
 
         create: async (projectId: string, body?: { title?: string }) => {
-            const { data } = await axios.post<ChatDto>(ENDPOINTS.root(projectId), body || {});
+            const { data } = await axios.post<ChatDto>(ENDPOINTS.root, { projectId, ...body });
             return data;
         },
 
-        delete: async (projectId: string, chatId: string) => {
-            const { data } = await axios.delete<{ message: string }>(ENDPOINTS.byId(projectId, chatId));
+        delete: async (_projectId: string, chatId: string) => {
+            const { data } = await axios.delete<{ message: string }>(ENDPOINTS.byId(chatId));
             return data;
         },
     };

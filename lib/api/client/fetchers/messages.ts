@@ -3,9 +3,8 @@ import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
-    root: (projectId: string, chatId: string) => `/api/projects/${projectId}/chats/${chatId}/messages`,
-    byId: (projectId: string, chatId: string, messageId: string) =>
-        `/api/projects/${projectId}/chats/${chatId}/messages/${messageId}`,
+    root: (chatId: string) => `/api/chats/${chatId}/messages`,
+    byId: (chatId: string, messageId: string) => `/api/chats/${chatId}/messages/${messageId}`,
 } as const;
 
 export const messageKeys = {
@@ -22,15 +21,15 @@ export function createMessageApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 
     return {
-        list: async (projectId: string, chatId: string, params?: PaginationParams) => {
+        list: async (_projectId: string, chatId: string, params?: PaginationParams) => {
             const { data } = await axios.get<PaginatedResponse<ChatMessageDto>>(
-                buildUrl(ENDPOINTS.root(projectId, chatId), params as Record<string, string | number | undefined>),
+                buildUrl(ENDPOINTS.root(chatId), params as Record<string, string | number | undefined>),
             );
             return data;
         },
 
-        get: async (projectId: string, chatId: string, messageId: string) => {
-            const { data } = await axios.get<ChatMessageDto>(ENDPOINTS.byId(projectId, chatId, messageId));
+        get: async (_projectId: string, chatId: string, messageId: string) => {
+            const { data } = await axios.get<ChatMessageDto>(ENDPOINTS.byId(chatId, messageId));
             return data;
         },
     };

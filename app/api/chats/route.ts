@@ -1,84 +1,11 @@
-import { wrap } from '@mikro-orm/core';
-import { type NextRequest, NextResponse } from 'next/server';
+import type { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { validatePayload } from '@/lib/api/validation';
-import { handleListChats } from '@/lib/chats/handlers';
-import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { getOrm } from '@/lib/orm/orm';
-import { CreateUnifiedChatBodySchema } from '@/lib/schema/chat';
-import type { ChatDto } from '@/lib/schema/message';
+import { handleCreateChat, handleListChats } from '@/lib/chats/handlers';
 
-async function handleCreateChat(req: NextRequest, user: UserEntity): Promise<NextResponse> {
-    const { em } = await getOrm();
-
-    const json = await req.json();
-    const bodyData = validatePayload(CreateUnifiedChatBodySchema, json);
-
-    if (bodyData instanceof NextResponse) return bodyData;
-
-    const { projectId, framework, category, title } = bodyData;
-
-    // Must specify either projectId (phase chat) or framework (intake chat)
-    if (!projectId && !framework) {
-        return NextResponse.json(
-            { error: 'Either projectId or framework is required', code: 'BAD_REQUEST' },
-            { status: 400 },
-        );
-    }
-
-    // Validate: category required for hpf
-    if (framework === 'hpf' && !category) {
-        return NextResponse.json(
-            { error: 'Category is required for Human Persona Framework', code: 'BAD_REQUEST' },
-            { status: 400 },
-        );
-    }
-
-    if (projectId) {
-        // Project chat
-        const project = await em.findOne(ProjectEntity, { id: projectId, user: user.id });
-        if (!project) {
-            return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
-        }
-
-        const chat = em.create(ChatEntity, {
-            project: projectId,
-            user,
-            phase: 'active',
-            ...(title && { summary: title }),
-        });
-        await em.persistAndFlush(chat);
-
-        const chatDto: ChatDto = wrap(chat).toJSON();
-        return NextResponse.json(chatDto, { status: 201 });
-    }
-
-    // Intake chat
-    const chat = em.create(ChatEntity, {
-        type: 'intake',
-        phase: 'active',
-        user,
-        metadata: {
-            framework,
-            ...(category && { category }),
-        },
-    });
-    await em.persistAndFlush(chat);
-
-    const chatDto: ChatDto = wrap(chat).toJSON();
-    return NextResponse.json(chatDto, { status: 201 });
+export function GET(req: NextRequest): Promise<NextResponse> {
+    return withAuth((request, user) => handleListChats(request, user))(req);
 }
 
-export async function GET(req: NextRequest): Promise<NextResponse> {
-    return withAuth(async (request, user) => {
-        return handleListChats(request, user);
-    })(req);
-}
-
-export async function POST(req: NextRequest): Promise<NextResponse> {
-    return withAuth(async (request, user) => {
-        return handleCreateChat(request, user);
-    })(req);
+export function POST(req: NextRequest): Promise<NextResponse> {
+    return withAuth((request, user) => handleCreateChat(request, user))(req);
 }
