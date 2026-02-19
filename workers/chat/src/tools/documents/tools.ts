@@ -483,7 +483,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             status: 'proposed',
                             lines: result.lines,
                         },
-                        appendedOutput: `::document[${draft.name}]{version=${result.version} status=proposed lines=${result.lines}}`,
+                        appendedOutput: `::document[${draft.name}]{version=${result.version} lines=${result.lines}}`,
                         message: `Saved as proposed v${result.version}. Awaiting user approval to become live.`,
                     };
 

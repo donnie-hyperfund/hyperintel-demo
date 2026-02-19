@@ -3,12 +3,13 @@ import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { serializeException } from '@common/ai/utils';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
-import { approveVersion } from './tools/documents/document-service';
+import { approveVersion, listDocuments } from './tools/documents/document-service';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 export interface SummarizerOptions {
@@ -122,6 +123,20 @@ async function streamInternal(
             }
         }
 
+        // Fetch live document statuses for documents touched in this phase
+        const phaseDocNames = new Set(documents.map((d) => d.path));
+        if (phaseDocNames.size > 0) {
+            const allDocuments = await listDocuments(em!, chat.project.id);
+            const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
+            if (phaseDocuments.length > 0) {
+                instructions += `\n\n## Current Document Statuses (this phase)\n\n`;
+                for (const doc of phaseDocuments) {
+                    const status = doc.hasProposed ? 'proposed' : (doc.currentStatus ?? doc.latestStatus);
+                    instructions += `- \`${doc.name}\` (${doc.title}): v${doc.latestVersion} — **${status}**\n`;
+                }
+            }
+        }
+
         const historyMessages = messages.map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
@@ -143,9 +158,7 @@ async function streamInternal(
         // Create embedding queue adapter
         const embeddingQueue = createEmbeddingQueueAdapter({
             queue: ctx.env.EMBEDDING_QUEUE,
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL
-                ? `${process.env.EMBEDDING_WORKER_URL}/enqueue`
-                : undefined,
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
             authSecret: process.env.AUTH_SECRET,
         });
 
@@ -187,7 +200,6 @@ async function streamInternal(
         for await (const event of stream) {
             switch (event.type) {
                 case 'delta':
-                    summaryContent += event.content;
                     enqueue({ type: 'delta', text: event.content });
                     break;
                 case 'tool_start':
@@ -204,6 +216,9 @@ async function streamInternal(
                             draft.document_type = 'Completion Brief';
                         }
                     }
+                    break;
+                case 'done_ext':
+                    summaryContent = event.streamLog.fullContent ?? '';
                     break;
                 case 'error':
                     enqueue({ type: 'error', error: String(event.error) });
@@ -242,6 +257,15 @@ async function streamInternal(
         em!.persist(summaryMessage);
 
         await em!.flush();
+
+        // Link created document versions to the summary message (must be after flush so summaryMessage has an id)
+        if (createdVersionIds.length > 0) {
+            await em!
+                .createQueryBuilder(ArtifactVersionEntity)
+                .update({ chat_message: summaryMessage.id })
+                .where({ id: { $in: createdVersionIds } })
+                .execute();
+        }
 
         enqueue({
             type: 'done',
