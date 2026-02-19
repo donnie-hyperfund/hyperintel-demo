@@ -14,7 +14,6 @@ import type { ChatMessageDto } from '@/lib/schema/message';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
-import { notifyChatIdChange } from '../hooks/use-chat-id-from-url';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
@@ -326,7 +325,6 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
                     // Update URL without navigation using history API
                     window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
-                    notifyChatIdChange();
 
                     insertChatToCache(cache, globalMutate, newChat);
                 }
