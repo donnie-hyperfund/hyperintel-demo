@@ -33,8 +33,8 @@ type UseStreamReaderOptions = {
     onArtifactOpen?: (artifactId: string, version: number) => void;
     /** Called when an artifact stream completes */
     onArtifactComplete?: () => void;
-    /** Called to revalidate artifacts list and artifact in preview panel (Artifact list display artifacts directly from API and preview panel from artifact store) @TODO improve integration between artifact store and artifact list */
-    onApproveDocument?: (keyId: string) => void;
+    /** Called when a document is approved via chat — revalidates artifacts list and updates preview panel */
+    onApproveDocument?: (keyId: string, version: number) => void;
     /** Called when token usage is received from the done event */
     onTokenUsage?: (usage: TokenUsage) => void;
     /** Fetch artifact from API when not available in store */
@@ -370,7 +370,6 @@ export function useStreamReader({
                                         updateStreamingMessage();
                                     }
 
-                                    /** Artifact approval is handled in the approve_document tool - updating UI accordingly */
                                     if (event.success === true && event.tool === 'approve_document') {
                                         try {
                                             const parsed =
@@ -378,7 +377,9 @@ export function useStreamReader({
                                                     ? JSON.parse(event.result)
                                                     : event.result;
 
-                                            onApproveDocument?.(parsed.name);
+                                            if (parsed.name && parsed.version) {
+                                                onApproveDocument?.(parsed.name, parsed.version);
+                                            }
                                         } catch (err) {
                                             console.warn(
                                                 '[stream-reader] approve_document: failed to parse tool_result',

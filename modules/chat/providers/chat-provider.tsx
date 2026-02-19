@@ -13,6 +13,7 @@ import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { notifyChatIdChange } from '../hooks/use-chat-id-from-url';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
@@ -134,31 +135,24 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     }, [globalMutate, projectId]);
 
     const revalidateArtifactByKey = useCallback(
-        async (keyId: string) => {
-            // While in list view, we revalidate the artifacts list to show the latest status
+        async (keyId: string, version: number) => {
             globalMutate(serializeArtifactListKey(projectId));
 
-            // Also update the in-memory artifact store so the preview panel reflects the new status
-            const allVersions = artifactContext.artifacts;
-            for (const [artifactId, versions] of Object.entries(allVersions)) {
-                for (const [versionKey, artifact] of Object.entries(versions)) {
-                    if (artifact.key === keyId) {
-                        try {
-                            const version = Number(versionKey) || artifact.proposed_version?.version;
-                            const updated = await api.artifacts.getByKey(projectId, keyId, version);
-                            if (updated) {
-                                artifactContext.updateArtifact(
-                                    artifactId,
-                                    updated,
-                                    versionKey === 'latest' ? 'latest' : Number(versionKey),
-                                    { merge: false },
-                                );
-                            }
-                        } catch {
-                            // SWR revalidation will still keep the list up to date
-                        }
+            try {
+                const allVersions = Array.from({ length: version }, (_, i) => version - i);
+                const results = await Promise.all(
+                    allVersions.map((v) => api.artifacts.getByKey(projectId, keyId, v).catch(() => null)),
+                );
+
+                for (const data of results) {
+                    if (data) {
+                        artifactContext.updateArtifact(keyId, data, getArtifactVersion(data)?.version, {
+                            merge: false,
+                        });
                     }
                 }
+            } catch {
+                // SWR revalidation will still keep the list up to date
             }
         },
         [globalMutate, projectId, artifactContext, api.artifacts],
