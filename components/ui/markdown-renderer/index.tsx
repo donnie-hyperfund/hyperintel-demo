@@ -13,21 +13,17 @@ import remarkFootnotesExtra from 'remark-footnotes-extra';
 import remarkGfm from 'remark-gfm';
 import remarkInlineLinks from 'remark-inline-links';
 import remarkMath from 'remark-math';
+import { chunkMarkdown } from '@/components/ui/markdown-renderer/chunk-markdown';
 import type { GlobalCitation } from '@/components/ui/markdown-renderer/citations';
-import { LazyMarkdownChunk } from '@/components/ui/markdown-renderer/lazy-markdown-chunk';
 import { remarkCitations } from '@/components/ui/markdown-renderer/remark-citations';
 import { remarkDirectivesHandler } from '@/components/ui/markdown-renderer/remark-directives-handler';
-import { splitMarkdownIntoChunks } from '@/components/ui/markdown-renderer/split-markdown-chunks';
 import { useMarkdownComponents } from '@/components/ui/markdown-renderer/use-markdown-components';
 import { preprocessMarkdown } from '@/components/ui/markdown-renderer/utils';
+import { VirtualMarkdownRenderer } from '@/components/ui/markdown-renderer/virtual-markdown-renderer';
 import { cn } from '@/lib/utils';
 
 /** Content above this size (bytes) triggers chunked lazy rendering */
 const CHUNK_THRESHOLD = 100_000;
-const CHUNK_TARGET_SIZE = 8_000;
-/** Only the very first chunk renders synchronously — the rest go through
- *  IntersectionObserver + startTransition so the browser never freezes. */
-const IMMEDIATE_CHUNKS = 1;
 
 const markdownVariants = cva('position-relative max-w-none', {
     variants: {
@@ -168,25 +164,23 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return plugins;
     }, []);
 
-    const chunks = useMemo(() => {
-        if (preprocessedMarkdown.length <= CHUNK_THRESHOLD) return null;
-        return splitMarkdownIntoChunks(preprocessedMarkdown, CHUNK_TARGET_SIZE);
+    const shouldVirtualMarkdownRenderer = useMemo(() => {
+        return preprocessedMarkdown.length > CHUNK_THRESHOLD;
     }, [preprocessedMarkdown]);
 
-    if (chunks) {
+    if (shouldVirtualMarkdownRenderer) {
         return (
-            <div className={cn(markdownVariants({ variant }))}>
-                {chunks.map((chunk, index) => (
-                    <LazyMarkdownChunk
-                        key={index}
-                        chunk={chunk}
-                        remarkPlugins={remarkPlugins}
-                        rehypePlugins={rehypePlugins}
-                        components={components}
-                        immediate={index < IMMEDIATE_CHUNKS}
-                    />
-                ))}
-            </div>
+            <VirtualMarkdownRenderer
+                markdown={preprocessedMarkdown}
+                height="100%"
+                overscan={5}
+                citations={citations}
+                id={id}
+                variant={variant as 'message' | 'document' | null}
+                directives={directives}
+                customComponents={customComponents}
+                className={cn(markdownVariants({ variant }))}
+            />
         );
     }
 
