@@ -7,6 +7,7 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
+import { preprocessContext } from './chat-handler';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { approveVersion, listDocuments } from './tools/documents/document-service';
@@ -192,6 +193,7 @@ async function streamInternal(
             tools,
             {
                 toolGroups: [DocumentToolGroup],
+                config: { preprocessContext },
             },
         );
 
