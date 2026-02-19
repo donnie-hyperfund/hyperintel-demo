@@ -17,7 +17,7 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 export function NextPhaseButton() {
     const { projectId, hasAnyApprovedArtifacts, summarizeChat, navigateToNewPhase, state } = useChatContext();
 
-    const { data: chatPages } = useFetchChatsInfinite(projectId);
+    const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
 
     const totalPhases = chatPages?.[0]?.pagination.total ?? 0;
     const isLatestPhase =
@@ -35,8 +35,9 @@ export function NextPhaseButton() {
 
     const handleGoToNextPhase = useCallback(() => {
         setDialogOpen(false);
+        revalidateChats();
         navigateToNewPhase();
-    }, [navigateToNewPhase]);
+    }, [navigateToNewPhase, revalidateChats]);
 
     if (!visible) return null;
 
@@ -79,7 +80,7 @@ export function NextPhaseButton() {
                     </DialogHeader>
 
                     {state.isSummarizing && (
-                        <div className="flex items-center justify-center py-4">
+                        <div className="flex items-center justify-center pt-4">
                             <Loader2 className="size-6 animate-spin text-muted-foreground" />
                         </div>
                     )}

@@ -406,11 +406,10 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                     try {
                         const event = JSON.parse(jsonStr);
 
-                        // TODO: Uncomment this when backend is fixed
-                        // if (event.type === 'error') {
-                        //     setState((prev) => ({ ...prev, isSummarizing: false, error: new Error(event.error) }));
-                        //     return;
-                        // }
+                        if (event.type === 'error') {
+                            setState((prev) => ({ ...prev, isSummarizing: false, error: new Error(event.error) }));
+                            return;
+                        }
 
                         if (event.type === 'done' && event.newChatId) {
                             setState((prev) => ({
@@ -480,7 +479,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                         (artifact) =>
                             getArtifactChatId(artifact) === chatId &&
                             getArtifactVersion(artifact)?.status === 'approved' &&
-                            getArtifactVersion(artifact)?.document_type === 'Completion Brief',
+                            getArtifactVersion(artifact)?.document_type !== 'Completion Brief',
                     ),
                 ),
             }}
