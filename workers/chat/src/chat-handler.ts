@@ -28,13 +28,13 @@ import {
 // ============================================================================
 
 /** Regex for document directives injected by finalize_document */
-const DOCUMENT_DIRECTIVE_REGEX = /::document\[[^\]]+\]\{[^}]+\}/g;
+export const DOCUMENT_DIRECTIVE_REGEX = /::document\[[^\]]+\]\{[^}]+\}/g;
 
 /**
  * Preprocess context messages before sending to inference.
  * Strips injected content (like document directives) that the model shouldn't see.
  */
-function preprocessContext(messages: any[]): any[] {
+export function preprocessContext(messages: any[]): any[] {
     return messages.map((msg) => {
         // Only process assistant messages with blocks
         if (msg.role !== 'assistant' || !msg.blocks) return msg;
