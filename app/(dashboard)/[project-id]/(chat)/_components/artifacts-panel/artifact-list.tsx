@@ -66,7 +66,7 @@ export function ArtifactList() {
 
             try {
                 const api = createArtifactApi(getToken);
-                const data = await api.getByKey(projectId, artifact.key);
+                const data = await api.getByKey(projectId, artifact.key, version);
                 updateArtifact(localId, { ...data, id: localId, key: data.key, isLoading: false }, version);
             } catch {
                 updateArtifact(localId, { isLoading: false }, version);
