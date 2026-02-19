@@ -29,3 +29,24 @@ export const ProjectDtoSchema = z.object({
     updated_at: z.union([z.string(), z.date()]),
 });
 export type ProjectDto = z.infer<typeof ProjectDtoSchema>;
+
+export const ImportArtifactsBodySchema = z.object({
+    artifactIds: z.array(z.string().uuid()).min(1, 'At least one artifact is required').max(50),
+});
+export type ImportArtifactsBodyDto = z.infer<typeof ImportArtifactsBodySchema>;
+
+export const ImportDetailSchema = z.object({
+    sourceArtifactId: z.string().uuid(),
+    newArtifactId: z.string().uuid().optional(),
+    newVersionId: z.string().uuid().optional(),
+    key: z.string(),
+    status: z.enum(['imported', 'skipped_duplicate', 'error']),
+    error: z.string().optional(),
+});
+
+export const ImportResultSchema = z.object({
+    imported: z.number(),
+    skipped: z.number(),
+    details: z.array(ImportDetailSchema),
+});
+export type ImportResultDto = z.infer<typeof ImportResultSchema>;

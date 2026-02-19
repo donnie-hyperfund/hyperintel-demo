@@ -56,9 +56,11 @@ function req(url: string) {
 	return new NextRequest(new URL(url, "http://localhost:3000"));
 }
 
+const scope = () => ({ projectId });
+
 async function createApprovedArtifact(name: string, content: string, title?: string) {
 	const em = await getTestEm();
-	const result = await upsertDocument(em, projectId, chatId, name, title ?? name, content);
+	const result = await upsertDocument(em, scope(), chatId, name, title ?? name, content);
 	const approveResult = await approveVersion(em, result.versionId);
 	if (!approveResult.success) throw new Error("Failed to approve: " + (approveResult as any).error);
 	return result;
@@ -92,21 +94,21 @@ describe("listDocuments", () => {
 
 	it("includes approved artifact", async () => {
 		const em = await getTestEm();
-		const docs = await listDocuments(em, projectId);
+		const docs = await listDocuments(em, scope());
 		expect(docs.some((d) => d.name === DOC)).toBe(true);
 	});
 
 	it("excludes deleted artifact", async () => {
 		await markCurrentVersionDeleted(DOC);
 		const em = await getTestEm();
-		const docs = await listDocuments(em, projectId);
+		const docs = await listDocuments(em, scope());
 		expect(docs.some((d) => d.name === DOC)).toBe(false);
 	});
 
 	it("excludes artifact with null current_version (never approved)", async () => {
 		const em = await getTestEm();
-		await upsertDocument(em, projectId, chatId, "svc-null-cv.md", "Null CV", "# Proposed only");
-		const docs = await listDocuments(em, projectId);
+		await upsertDocument(em, scope(), chatId, "svc-null-cv.md", "Null CV", "# Proposed only");
+		const docs = await listDocuments(em, scope());
 		expect(docs.some((d) => d.name === "svc-null-cv.md")).toBe(false);
 	});
 });
@@ -122,7 +124,7 @@ describe("findDocumentByName on deleted artifact", () => {
 
 	it("returns document with deleted status and full content", async () => {
 		const em = await getTestEm();
-		const doc = await findDocumentByName(em, projectId, DOC);
+		const doc = await findDocumentByName(em, scope(), DOC);
 		expect(doc).not.toBeNull();
 		expect(doc!.name).toBe(DOC);
 		expect(doc!.currentStatus).toBe("deleted");
@@ -141,7 +143,7 @@ describe("upsertDocument on deleted artifact", () => {
 
 	it("creates proposed v2 on top of deleted artifact", async () => {
 		const em = await getTestEm();
-		const result = await upsertDocument(em, projectId, chatId, DOC, DOC, "# New content");
+		const result = await upsertDocument(em, scope(), chatId, DOC, DOC, "# New content");
 		expect(result.action).toBe("proposed");
 		expect(result.version).toBe(2);
 	});
@@ -153,7 +155,7 @@ describe("upsertDocument on deleted artifact", () => {
 		const result = await approveVersion(em, v2!.id);
 		expect(result.success).toBe(true);
 
-		const docs = await listDocuments(em, projectId);
+		const docs = await listDocuments(em, scope());
 		expect(docs.some((d) => d.name === DOC)).toBe(true);
 	});
 });
@@ -200,29 +202,29 @@ describe("delete → restore → delete cycle", () => {
 
 		// 1. Create + approve
 		await createApprovedArtifact(DOC, "# v1");
-		let docs = await listDocuments(em, projectId);
+		let docs = await listDocuments(em, scope());
 		expect(docs.some((d) => d.name === DOC)).toBe(true);
 
 		// 2. Delete
 		await markCurrentVersionDeleted(DOC);
-		docs = await listDocuments(em, projectId);
+		docs = await listDocuments(em, scope());
 		expect(docs.some((d) => d.name === DOC)).toBe(false);
 
 		// 3. Restore via upsert + approve
-		const restore = await upsertDocument(em, projectId, chatId, DOC, DOC, "# v2 restored");
+		const restore = await upsertDocument(em, scope(), chatId, DOC, DOC, "# v2 restored");
 		const artifact = await em.findOneOrFail(ArtifactEntity, { project: projectId, key: DOC }, { populate: ["versions"] });
 		const proposed = artifact.versions.getItems().find((v) => v.version === restore.version);
 		await approveVersion(em, proposed!.id);
-		docs = await listDocuments(em, projectId);
+		docs = await listDocuments(em, scope());
 		expect(docs.some((d) => d.name === DOC)).toBe(true);
 
 		// 4. Delete again
 		await markCurrentVersionDeleted(DOC);
-		docs = await listDocuments(em, projectId);
+		docs = await listDocuments(em, scope());
 		expect(docs.some((d) => d.name === DOC)).toBe(false);
 
 		// 5. Still findable by name
-		const doc = await findDocumentByName(em, projectId, DOC);
+		const doc = await findDocumentByName(em, scope(), DOC);
 		expect(doc).not.toBeNull();
 		expect(doc!.currentStatus).toBe("deleted");
 	});
@@ -293,7 +295,7 @@ describe("API: restored artifact appears normally", () => {
 		await markCurrentVersionDeleted(DOC);
 		// Restore
 		const em = await getTestEm();
-		const result = await upsertDocument(em, projectId, chatId, DOC, DOC, "# Restored");
+		const result = await upsertDocument(em, scope(), chatId, DOC, DOC, "# Restored");
 		const artifact = await em.findOneOrFail(ArtifactEntity, { project: projectId, key: DOC }, { populate: ["versions"] });
 		const proposed = artifact.versions.getItems().find((v) => v.version === result.version);
 		await approveVersion(em, proposed!.id);

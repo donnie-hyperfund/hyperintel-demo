@@ -11,11 +11,12 @@ import {
     RejectArtifactActionSchema,
     UploadArtifactSchema,
 } from '@/lib/schema/artifact';
-import { SendChatActionSchema, SummarizeActionSchema } from '@/lib/schema/chat';
+import { SendChatActionSchema, SummarizeActionSchema, SendIntakeChatActionSchema} from '@/lib/schema/chat';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
 import { exportArtifactHandler } from './artifact-exporter';
 import { uploadArtifactHandler } from './artifact-uploader';
 import { chatActionHandler } from './chat-handler';
+import { intakeActionHandler } from './intake-handler';
 import { summarizeActionHandler } from './summarizer';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
@@ -37,6 +38,12 @@ app.onError((err) => {
 app.post('/chat', zValidator('json', SendChatActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await chatActionHandler(c.req.valid('json'), c.var);
+    });
+});
+
+app.post('/intake', zValidator('json', SendIntakeChatActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await intakeActionHandler(c.req.valid('json'), c.var);
     });
 });
 

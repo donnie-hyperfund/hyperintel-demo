@@ -28,6 +28,7 @@ import {
     countLines,
     type DocumentInfo,
     type DocumentListItem,
+    type DocumentScope,
     type EditOperation,
     extractViewport,
     findDocumentByName,
@@ -45,8 +46,10 @@ import { shouldGenerateAiContent } from './document-classifier';
 export interface DocumentToolsContext {
     /** Entity manager for DB operations */
     em: EntityManager;
-    /** Current project ID */
-    projectId: string;
+    /** Project scope — set for project chats */
+    projectId?: string;
+    /** User scope — set for user-level chats (intake) */
+    userId?: string;
     /** Current chat ID (for traceability) */
     chatId: string;
     /** Draft manager instance */
@@ -55,6 +58,13 @@ export interface DocumentToolsContext {
     embeddingQueue?: EmbeddingQueueAdapter;
     /** Version IDs created during this turn - will be linked to assistant message after persist */
     createdVersionIds: string[];
+}
+
+/** Derive DocumentScope from context. */
+function getScope(ctx: DocumentToolsContext): DocumentScope {
+    if (ctx.projectId) return { projectId: ctx.projectId };
+    if (ctx.userId) return { userId: ctx.userId };
+    throw new Error('DocumentToolsContext requires either projectId or userId');
 }
 
 // ============================================================================
@@ -213,9 +223,11 @@ After calling this, use write_document to add content or patch_document for prec
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
-                const { mode, name, title, document_type } = input;
+                const { mode, name, title, document_type} = input;
                 let { is_internal } = input;
-                const { em, projectId, draftManager } = ctx;
+                const { em, draftManager } = ctx;
+                const scope = getScope(ctx);
+                const scopeId = ctx.projectId ?? ctx.userId!;
 
                 // Enforce is_internal for internal document types
                 const isInternalType = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
@@ -227,7 +239,7 @@ You MUST call finalize_document when done or content will be lost.`,
                 const normalizedName = normalizeArtifactKey(name);
 
                 // Check for existing document
-                const existing = await findDocumentByName(em, projectId, normalizedName);
+                const existing = await findDocumentByName(em, scope, normalizedName);
 
                 // Validate based on mode
                 // Allow create on deleted artifacts (overwrites / restores them)
@@ -247,7 +259,7 @@ You MUST call finalize_document when done or content will be lost.`,
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
                     try {
-                        const draft = draftManager.begin(projectId, normalizedName, docTitle, mode, '', undefined, is_internal, document_type);
+                        const draft = draftManager.begin(scopeId, normalizedName, docTitle, mode, '', undefined, is_internal, document_type);
                         return {
                             status: 'editing',
                             mode: 'create',
@@ -302,7 +314,7 @@ You MUST call finalize_document when done or content will be lost.`,
 
                 try {
                     const draft = draftManager.begin(
-                        projectId,
+                        scopeId,
                         normalizedName,
                         docTitle,
                         mode,
@@ -435,13 +447,14 @@ The version is saved with status "proposed" - it will NOT be live until a user a
 If a proposed version already exists, it will be marked as "superseded".`,
             parameters: FinalizeDocumentParams,
             executor: async (_input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
-                const { em, projectId, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
+                const { em, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
+                const scope = getScope(ctx);
 
                 try {
                     const draft = draftManager.requireCurrent();
 
                     // Persist to database as proposed
-                    const result = await upsertDocument(em, projectId, chatId, draft.name, draft.title, draft.content, draft.is_internal, draft.document_type);
+                    const result = await upsertDocument(em, scope, chatId, draft.name, draft.title, draft.content, draft.is_internal, draft.document_type);
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
@@ -449,11 +462,11 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     // Only clear draft after successful persist
                     draftManager.discard();
 
-                    // Queue embedding job for the new version (fire-and-forget)
-                    if (embeddingQueue) {
+                    // Queue embedding job for the new version (fire-and-forget, project-scoped only)
+                    if (embeddingQueue && ctx.projectId) {
                         // Classify document to determine if AI-readable content should be generated
                         const generateAiContent = rCtx
-                            ? await shouldGenerateAiContent(rCtx, draft.name, draft.title, draft.content)
+                            ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
                             : true; // Default to true if no context
 
                         console.log('[finalize_document] AI content classification:', {
@@ -464,7 +477,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         const embedPromise = embeddingQueue
                             .send({
                                 type: 'index_artifact_version',
-                                projectId,
+                                projectId: ctx.projectId ?? null,
                                 versionId: result.versionId,
                                 content: draft.content,
                                 documentName: draft.name,
@@ -516,7 +529,8 @@ Version options:
             parameters: ReadDocumentParams,
             executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext) => {
                 const { name, version: versionMode, startLine, endLine } = input;
-                const { em, projectId, draftManager } = ctx;
+                const { em, draftManager } = ctx;
+                const scope = getScope(ctx);
 
                 const normalizedName = normalizeArtifactKey(name);
 
@@ -535,7 +549,7 @@ Version options:
                 }
 
                 // Fetch from database
-                const doc = await findDocumentByName(em, projectId, normalizedName);
+                const doc = await findDocumentByName(em, scope, normalizedName);
                 if (!doc) {
                     return {
                         error: `Document "${normalizedName}" not found. Use begin_document to create it.`,
@@ -636,9 +650,10 @@ Shows for each document:
             parameters: ListDocumentsParams,
             executor: async (input: z.infer<typeof ListDocumentsParams>, ctx: DocumentToolsContext) => {
                 const { search } = input;
-                const { em, projectId } = ctx;
+                const { em } = ctx;
+                const scope = getScope(ctx);
 
-                const documents = await listDocumentsDb(em, projectId, search ? { search } : undefined);
+                const documents = await listDocumentsDb(em, scope, search ? { search } : undefined);
 
                 return {
                     documents: documents.map((d: DocumentListItem) => ({
@@ -669,14 +684,15 @@ This triggers AI content generation (YAML) for internal documents and queues emb
             parameters: ApproveDocumentParams,
             executor: async (input: z.infer<typeof ApproveDocumentParams>, ctx: DocumentToolsContext, eCtx?: Ctx) => {
                 const { name } = input;
-                const { em, projectId } = ctx;
+                const { em } = ctx;
+                const scope = getScope(ctx);
 
                 if (!eCtx) {
                     return { error: 'Execution context not available' };
                 }
 
                 const normalizedName = normalizeArtifactKey(name);
-                const doc = await findDocumentByName(em, projectId, normalizedName);
+                const doc = await findDocumentByName(em, scope, normalizedName);
 
                 if (!doc) {
                     return { error: `Document "${normalizedName}" not found.` };
@@ -720,14 +736,15 @@ The rejection reason is stored and will be shown when the document is next edite
             parameters: RejectDocumentParams,
             executor: async (input: z.infer<typeof RejectDocumentParams>, ctx: DocumentToolsContext, eCtx?: Ctx) => {
                 const { name, reason } = input;
-                const { em, projectId } = ctx;
+                const { em } = ctx;
+                const scope = getScope(ctx);
 
                 if (!eCtx) {
                     return { error: 'Execution context not available' };
                 }
 
                 const normalizedName = normalizeArtifactKey(name);
-                const doc = await findDocumentByName(em, projectId, normalizedName);
+                const doc = await findDocumentByName(em, scope, normalizedName);
 
                 if (!doc) {
                     return { error: `Document "${normalizedName}" not found.` };
