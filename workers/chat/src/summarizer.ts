@@ -262,7 +262,7 @@ async function streamInternal(
         if (createdVersionIds.length > 0) {
             await em!
                 .createQueryBuilder(ArtifactVersionEntity)
-                .update({ chat_message: summaryMessage.id })
+                .update({ chat: newChat.id, chat_message: summaryMessage.id })
                 .where({ id: { $in: createdVersionIds } })
                 .execute();
         }
