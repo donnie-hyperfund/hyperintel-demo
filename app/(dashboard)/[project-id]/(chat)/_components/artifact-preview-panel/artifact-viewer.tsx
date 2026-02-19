@@ -24,6 +24,10 @@ type ArtifactViewerProps = {
     status?: VersionStatus;
     /** Whether the artifact is uploaded */
     isUploaded?: boolean;
+    /** Whether the artifact is internal (not exportable) */
+    isInternal?: boolean;
+    /** The active version's UUID */
+    artifactVersionId?: string;
     /** Artifact identifier (key) for API lookups */
     artifactKey?: string;
     /** Artifact ID for store lookups */
@@ -61,6 +65,8 @@ export const ArtifactViewer = ({
     version,
     status,
     isUploaded,
+    isInternal,
+    artifactVersionId,
     artifactKey,
     artifactId,
     updatedAt,
@@ -124,6 +130,8 @@ export const ArtifactViewer = ({
                 version={version}
                 status={status}
                 isUploaded={isUploaded}
+                isInternal={isInternal}
+                artifactVersionId={artifactVersionId}
                 updatedAt={updatedAt}
                 backHref={backHref}
                 onCloseAction={onCloseAction}

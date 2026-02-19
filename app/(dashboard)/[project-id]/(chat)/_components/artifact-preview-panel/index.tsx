@@ -26,6 +26,8 @@ export const ArtifactPreviewPanel = ({ version, artifactId }: ArtifactPreviewPan
     const content = currentArtifact ? getArtifactContent(currentArtifact) : '';
     const activeVersion = currentArtifact ? getArtifactVersion(currentArtifact) : undefined;
     const isUploaded = activeVersion?.is_uploaded;
+    const isInternal = activeVersion?.is_internal;
+    const artifactVersionId = activeVersion?.id;
     const showSkeleton = (isLoading || isStreaming) && !content;
 
     // Get previous content for diff comparison (current_version when viewing proposed)
@@ -74,6 +76,8 @@ export const ArtifactPreviewPanel = ({ version, artifactId }: ArtifactPreviewPan
                 version={version}
                 status={activeVersion?.status}
                 isUploaded={isUploaded}
+                isInternal={isInternal}
+                artifactVersionId={artifactVersionId}
                 artifactId={artifactId}
                 artifactKey={currentArtifact.key}
                 updatedAt={updatedAt}
