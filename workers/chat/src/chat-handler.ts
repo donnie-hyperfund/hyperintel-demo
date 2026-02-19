@@ -248,7 +248,7 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
             // Determine inference params - use override if provided, otherwise default
             const defaultInference: ParamsWithType = {
                 paramsType: AIParamsType.Anthropic,
-                params: { model: ANTHROPIC_MODELS.OPUS, thinking: true, thinkingBudget: 8000, searchEnabled: true },
+                params: { model: ANTHROPIC_MODELS.SONNET, thinking: true, thinkingBudget: 8000, searchEnabled: true },
             };
             const inferenceParams = options.overrideInference ?? defaultInference;
 
