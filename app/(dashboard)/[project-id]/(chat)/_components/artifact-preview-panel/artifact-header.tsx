@@ -1,7 +1,8 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
+import { enUS } from 'date-fns/locale';
 import { ArrowLeft, Check, Copy, Download, FileText, FileUp, Loader2, X } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
@@ -46,6 +47,7 @@ export function ArtifactHeader({
     const [exporting, setExporting] = useState(false);
 
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : undefined;
+    const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;
 
     const handleCopy = async () => {
@@ -112,15 +114,17 @@ export function ArtifactHeader({
                     <FileText className="size-5 shrink-0 text-neutral-500 mt-0.5" />
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                            <span className="line-clamp-1 text-sm font-medium">{title}</span>
+                            <span title={title} className="line-clamp-1 text-sm font-medium">
+                                {title}
+                            </span>
                             <VersionStatusBadge status={status} isUploaded={isUploaded} />
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
                             <span>v{version}</span>
-                            {timeAgo && (
+                            {timeAgo && updatedAtFormatted && (
                                 <>
                                     <span>·</span>
-                                    <span>{timeAgo}</span>
+                                    <span title={updatedAtFormatted}>{timeAgo}</span>
                                 </>
                             )}
                         </div>

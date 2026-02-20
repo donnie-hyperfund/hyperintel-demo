@@ -143,6 +143,7 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
             type="button"
             onClick={handleClick}
             disabled={isLoading}
+            title={documentName}
             className={cn(
                 indicatorVariants({ state: isSelected ? 'selected' : 'default' }),
                 isScrollTarget && 'artifact-scroll-highlight',
@@ -152,7 +153,7 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
             <FileText className="size-6 shrink-0 text-neutral-500" />
 
             <div className="min-w-0 flex-1">
-                <span className="text-sm font-medium truncate">{documentName}</span>
+                <span className="text-sm font-medium line-clamp-1">{documentName}</span>
                 <div className="mt-0.5 text-xs text-neutral-500">v{documentVersion}</div>
             </div>
         </button>

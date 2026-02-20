@@ -1,4 +1,5 @@
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
+import { enUS } from 'date-fns/locale';
 import { FileText } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { ArtifactDto } from '@/lib/schema/artifact';
@@ -12,6 +13,7 @@ type ArtifactListItemProps = {
 export function ArtifactListItem({ artifact, onClick }: ArtifactListItemProps) {
     const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
+    const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
     const status = (artifact.proposed_version ?? artifact.current_version)?.status;
     const isUploaded = (artifact.proposed_version ?? artifact.current_version)?.is_uploaded;
 
@@ -20,6 +22,7 @@ export function ArtifactListItem({ artifact, onClick }: ArtifactListItemProps) {
             type="button"
             onClick={onClick}
             className="w-full rounded-lg border p-3 text-left transition-colors hover:bg-accent/50"
+            title={artifact.title}
         >
             <div className="flex gap-3 items-center">
                 <FileText className="size-5 shrink-0 text-neutral-500 mt-0.5" />
@@ -30,10 +33,10 @@ export function ArtifactListItem({ artifact, onClick }: ArtifactListItemProps) {
                     </div>
                     <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
                         <span>v{artifact.version}</span>
-                        {timeAgo && (
+                        {timeAgo && updatedAtFormatted && (
                             <>
                                 <span>·</span>
-                                <span>{timeAgo}</span>
+                                <span title={updatedAtFormatted}>{timeAgo}</span>
                             </>
                         )}
                     </div>
