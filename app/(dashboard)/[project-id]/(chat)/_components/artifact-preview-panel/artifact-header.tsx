@@ -48,6 +48,9 @@ export function ArtifactHeader({
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : undefined;
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;
 
+    const shouldDisplayCopyButton = !!content;
+    const shouldDisplayDownloadButton = !!content;
+
     const handleCopy = async () => {
         await navigator.clipboard.writeText(content);
         setCopied(true);
@@ -129,23 +132,31 @@ export function ArtifactHeader({
             </div>
 
             <div className="flex items-center gap-1">
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" onClick={handleCopy} disabled={!content}>
-                            {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{copied ? 'Copied!' : 'Copy content'}</TooltipContent>
-                </Tooltip>
+                {shouldDisplayCopyButton && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" onClick={handleCopy} disabled={!content}>
+                                {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{copied ? 'Copied!' : 'Copy content'}</TooltipContent>
+                    </Tooltip>
+                )}
 
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" onClick={handleDownload} disabled={!content}>
-                            {downloaded ? <Check className="size-4 text-green-500" /> : <Download className="size-4" />}
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{downloaded ? 'Downloaded!' : 'Download'}</TooltipContent>
-                </Tooltip>
+                {shouldDisplayDownloadButton && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" onClick={handleDownload} disabled={!content}>
+                                {downloaded ? (
+                                    <Check className="size-4 text-green-500" />
+                                ) : (
+                                    <Download className="size-4" />
+                                )}
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{downloaded ? 'Downloaded!' : 'Download'}</TooltipContent>
+                    </Tooltip>
+                )}
 
                 {canExportDocx && (
                     <Tooltip>
