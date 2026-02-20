@@ -61,7 +61,7 @@ export function useFetchChat(
         projectId && chatId ? chatKeys.detail(projectId, chatId) : null,
         () => {
             if (!projectId || !chatId) throw new Error('Project ID and Chat ID are required');
-            return createChatApi(getToken).get(projectId, chatId);
+            return createChatApi(getToken).get(chatId);
         },
         { revalidateOnFocus: false, ...config },
     );
@@ -71,6 +71,6 @@ export function useDeleteChat(projectId: string, chatId: string) {
     const { getToken } = useAuth();
 
     return useSWRMutation<{ message: string }, Error, readonly string[]>([...chatKeys.detail(projectId, chatId)], () =>
-        createChatApi(getToken).delete(projectId, chatId),
+        createChatApi(getToken).delete(chatId),
     );
 }

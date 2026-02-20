@@ -29,7 +29,7 @@ export function createChatApi(getToken: TokenGetter) {
             return data;
         },
 
-        get: async (_projectId: string, chatId: string) => {
+        get: async (chatId: string) => {
             const { data } = await axios.get<ChatDto>(ENDPOINTS.byId(chatId));
             return data;
         },
@@ -39,7 +39,7 @@ export function createChatApi(getToken: TokenGetter) {
             return data;
         },
 
-        delete: async (_projectId: string, chatId: string) => {
+        delete: async (chatId: string) => {
             const { data } = await axios.delete<{ message: string }>(ENDPOINTS.byId(chatId));
             return data;
         },

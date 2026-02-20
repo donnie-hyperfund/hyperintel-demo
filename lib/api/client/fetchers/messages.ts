@@ -21,14 +21,14 @@ export function createMessageApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 
     return {
-        list: async (_projectId: string, chatId: string, params?: PaginationParams) => {
+        list: async (chatId: string, params?: PaginationParams) => {
             const { data } = await axios.get<PaginatedResponse<ChatMessageDto>>(
                 buildUrl(ENDPOINTS.root(chatId), params as Record<string, string | number | undefined>),
             );
             return data;
         },
 
-        get: async (_projectId: string, chatId: string, messageId: string) => {
+        get: async (chatId: string, messageId: string) => {
             const { data } = await axios.get<ChatMessageDto>(ENDPOINTS.byId(chatId, messageId));
             return data;
         },

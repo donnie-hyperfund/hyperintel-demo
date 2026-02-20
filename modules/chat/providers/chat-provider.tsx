@@ -237,8 +237,8 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
         try {
             const [messagesData, chatData] = await Promise.all([
-                api.messages.list(projectId, chatId, { page: 1 }),
-                api.chats.get(projectId, chatId),
+                api.messages.list(chatId, { page: 1 }),
+                api.chats.get(chatId),
             ]);
 
             // API returns DESC order (newest first), reverse for display (newest at bottom)
@@ -272,7 +272,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
         try {
             const nextPage = pagination.page + 1;
-            const data = await api.messages.list(projectId, chatId, { page: nextPage });
+            const data = await api.messages.list(chatId, { page: nextPage });
             // API returns DESC order (newest first), reverse and prepend to existing messages
             const olderMessages: Message[] = data.data?.map(mapApiMessage) || [];
 
