@@ -13,12 +13,17 @@ import remarkFootnotesExtra from 'remark-footnotes-extra';
 import remarkGfm from 'remark-gfm';
 import remarkInlineLinks from 'remark-inline-links';
 import remarkMath from 'remark-math';
+import { chunkMarkdown } from '@/components/ui/markdown-renderer/chunk-markdown';
 import type { GlobalCitation } from '@/components/ui/markdown-renderer/citations';
 import { remarkCitations } from '@/components/ui/markdown-renderer/remark-citations';
 import { remarkDirectivesHandler } from '@/components/ui/markdown-renderer/remark-directives-handler';
 import { useMarkdownComponents } from '@/components/ui/markdown-renderer/use-markdown-components';
 import { preprocessMarkdown } from '@/components/ui/markdown-renderer/utils';
+import { VirtualMarkdownRenderer } from '@/components/ui/markdown-renderer/virtual-markdown-renderer';
 import { cn } from '@/lib/utils';
+
+/** Content above this size (bytes) triggers chunked lazy rendering */
+const CHUNK_THRESHOLD = 100_000;
 
 const markdownVariants = cva('position-relative max-w-none', {
     variants: {
@@ -158,6 +163,26 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
         return plugins;
     }, []);
+
+    const shouldVirtualMarkdownRenderer = useMemo(() => {
+        return preprocessedMarkdown.length > CHUNK_THRESHOLD;
+    }, [preprocessedMarkdown]);
+
+    if (shouldVirtualMarkdownRenderer) {
+        return (
+            <VirtualMarkdownRenderer
+                markdown={preprocessedMarkdown}
+                height="100%"
+                overscan={5}
+                citations={citations}
+                id={id}
+                variant={variant as 'message' | 'document' | null}
+                directives={directives}
+                customComponents={customComponents}
+                className={cn(markdownVariants({ variant }))}
+            />
+        );
+    }
 
     return (
         <div className={cn(markdownVariants({ variant }))}>
