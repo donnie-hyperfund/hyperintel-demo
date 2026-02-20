@@ -104,6 +104,8 @@ export type StreamBlockDto = z.infer<typeof StreamBlockSchema>;
 export const ListChatsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),
+    type: z.string().optional(),
+    projectId: z.string().uuid().optional(),
 });
 export type ListChatsQueryDto = z.infer<typeof ListChatsQuerySchema>;
 
@@ -144,10 +146,12 @@ export type CreateMessageBodyDto = z.infer<typeof CreateMessageBodySchema>;
 
 export const ChatDtoSchema = z.object({
     id: z.string().uuid(),
+    type: z.string().optional(),
     phase: z.string(),
     phase_index: z.number().int(),
     summary: z.string().nullable().optional(),
-    project: z.union([z.string().uuid(), z.object({}).passthrough()]),
+    project: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
+    user: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
     message_count: z.number().optional(),
     first_message_content: z.string().nullable().optional(),
     /** Synthetic array of documents with version metadata */

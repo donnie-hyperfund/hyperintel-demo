@@ -4,7 +4,12 @@ import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { toast } from '@/hooks/use-toast';
-import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
+import {
+    artifactKeys,
+    createArtifactApi,
+    getArtifactListInfiniteKey,
+    serializeArtifactListKey,
+} from '@/lib/api/client/fetchers/artifacts';
 import type {
     InfinitePaginationParams,
     PaginatedResponse,
@@ -41,17 +46,13 @@ export function useFetchArtifactsInfinite(
     const { getToken } = useAuth();
 
     const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
-        (pageIndex, previousPageData) => {
-            if (!projectId) return null;
-            if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
-            return artifactKeys.list(projectId, { page: pageIndex + 1, limit: params.limit });
-        },
+        getArtifactListInfiniteKey(projectId, params.limit),
         (key) => {
             if (!projectId) throw new Error('Project ID is required');
             const params = key[key.length - 1] as PaginationParams;
             return createArtifactApi(getToken).list(projectId, params);
         },
-        { revalidateOnFocus: false, revalidateFirstPage: false, ...config },
+        { revalidateOnFocus: false, ...config },
     );
 
     const lastPage = result.data?.[result.data.length - 1];
@@ -114,7 +115,7 @@ export function useApproveArtifactVersion(projectId: string, artifactKey: string
                 throw new Error(error.message || 'Failed to approve artifact');
             }
 
-            globalMutate(artifactKeys.list(projectId));
+            globalMutate(serializeArtifactListKey(projectId));
             return api.getByKey(projectId, artifactKey, artifactVersion);
         },
     );
@@ -140,7 +141,7 @@ export function useRejectArtifactVersion(projectId: string, artifactKey: string,
                 throw new Error(error.message || 'Failed to reject artifact');
             }
 
-            globalMutate(artifactKeys.list(projectId));
+            globalMutate(serializeArtifactListKey(projectId));
             return api.getByKey(projectId, artifactKey, artifactVersion);
         },
     );
@@ -156,7 +157,7 @@ export function useDeleteArtifact(projectId: string, artifactKey: string) {
             const api = createArtifactApi(getToken);
             const artifact = await api.getByKey(projectId, artifactKey);
             const result = await api.delete(projectId, artifact.id);
-            globalMutate(artifactKeys.list(projectId));
+            globalMutate(serializeArtifactListKey(projectId));
             return result;
         },
     );
@@ -190,7 +191,7 @@ export function useUploadArtifact(projectId: string, chatId: string | null) {
                 throw new Error(error.message || 'Upload failed');
             }
 
-            globalMutate(artifactKeys.list(projectId));
+            globalMutate(serializeArtifactListKey(projectId));
             return response.json();
         },
     );

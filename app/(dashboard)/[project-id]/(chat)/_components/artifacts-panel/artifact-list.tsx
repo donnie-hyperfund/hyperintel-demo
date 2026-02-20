@@ -1,6 +1,6 @@
 import { useAuth } from '@clerk/nextjs';
 import { FileText, Loader2 } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -26,13 +26,11 @@ type PhaseDialogData = {
 const PAGE_SIZE = 20;
 
 export function ArtifactList() {
-    const params = useParams();
     const router = useRouter();
     const { getToken } = useAuth();
 
-    const currentChatId = params?.chatId as string | undefined;
+    const { projectId, chatId } = useChatContext();
 
-    const { projectId } = useChatContext();
     const { data, error, isLoading, size, setSize, hasNextPage } = useFetchArtifactsInfinite(projectId, {
         limit: PAGE_SIZE,
     });
@@ -66,7 +64,7 @@ export function ArtifactList() {
 
             try {
                 const api = createArtifactApi(getToken);
-                const data = await api.getByKey(projectId, artifact.key);
+                const data = await api.getByKey(projectId, artifact.key, version);
                 updateArtifact(localId, { ...data, id: localId, key: data.key, isLoading: false }, version);
             } catch {
                 updateArtifact(localId, { isLoading: false }, version);
@@ -81,7 +79,7 @@ export function ArtifactList() {
 
             const artifactChatId = getArtifactChatId(artifact);
 
-            if (artifactChatId && artifactChatId !== currentChatId) {
+            if (artifactChatId && artifactChatId !== chatId) {
                 const phaseNumber = chatsData?.data ? getPhaseNumber(chatsData.data, artifactChatId) : null;
 
                 setDialogData({
@@ -96,7 +94,7 @@ export function ArtifactList() {
 
             openArtifactPreview(artifact);
         },
-        [projectId, currentChatId, chatsData?.data, openArtifactPreview],
+        [projectId, chatId, chatsData?.data, openArtifactPreview],
     );
 
     const handlePhaseSwitch = useCallback(() => {
@@ -158,7 +156,7 @@ export function ArtifactList() {
                 )}
             </div>
 
-            {dialogData && (
+            {dialogData && dialogOpen && (
                 <PhaseSwitchDialog
                     open={dialogOpen}
                     phaseName={dialogData.phaseName}

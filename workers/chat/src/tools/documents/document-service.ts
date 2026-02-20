@@ -20,6 +20,27 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 
 // ============================================================================
+// SCOPE — project-scoped or user-scoped artifacts
+// ============================================================================
+
+export type DocumentScope = { projectId: string } | { userId: string };
+
+/** Build a MikroORM where-clause fragment from a scope. */
+function scopeFilter(scope: DocumentScope): Record<string, string> {
+    if ('projectId' in scope) return { project: scope.projectId };
+    return { user: scope.userId };
+}
+
+/** Set the owner (project or user) on a new artifact entity. */
+function setArtifactOwner(artifact: ArtifactEntity, scope: DocumentScope, em: EntityManager) {
+    if ('projectId' in scope) {
+        artifact.project = em.getReference('ProjectEntity', scope.projectId) as any;
+    } else {
+        artifact.user = em.getReference('UserEntity', scope.userId) as any;
+    }
+}
+
+// ============================================================================
 // UTILITIES
 // ============================================================================
 
@@ -234,18 +255,18 @@ export interface DocumentInfo {
 }
 
 /**
- * Find document by name in project with version status info.
+ * Find document by name within a scope (project or user) with version status info.
  */
 export async function findDocumentByName(
     em: EntityManager,
-    projectId: string,
+    scope: DocumentScope,
     name: string,
 ): Promise<DocumentInfo | null> {
     const normalizedName = normalizeArtifactKey(name);
 
     const artifact = await em.findOne(
         ArtifactEntity,
-        { project: projectId, key: normalizedName },
+        { ...scopeFilter(scope), key: normalizedName },
         { populate: ['current_version', 'versions'] },
     );
 
@@ -291,11 +312,11 @@ export interface DocumentListItem {
 }
 
 /**
- * List all documents in project with version status info.
+ * List all documents within a scope (project or user) with version status info.
  */
 export async function listDocuments(
     em: EntityManager,
-    projectId: string,
+    scope: DocumentScope,
     filter?: { search?: string },
 ): Promise<DocumentListItem[]> {
     // TODO: Add search filter on name/title when needed
@@ -303,7 +324,7 @@ export async function listDocuments(
     const artifacts = await em.find(
         ArtifactEntity,
         // TODO allow including deleted artifacts
-        { project: projectId, $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
+        { ...scopeFilter(scope), $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
         { populate: ['current_version', 'versions'] },
     );
 
@@ -334,7 +355,7 @@ export async function listDocuments(
  */
 export async function upsertDocument(
     em: EntityManager,
-    projectId: string,
+    scope: DocumentScope,
     chatId: string,
     name: string,
     title: string,
@@ -355,7 +376,7 @@ export async function upsertDocument(
     // Check if artifact exists
     const existing = await em.findOne(
         ArtifactEntity,
-        { project: projectId, key: normalizedName },
+        { ...scopeFilter(scope), key: normalizedName },
         { populate: ['current_version', 'versions'] },
     );
 
@@ -413,7 +434,7 @@ export async function upsertDocument(
             artifact.key = normalizedName;
             artifact.title = title;
             artifact.version = 1;
-            artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
+            setArtifactOwner(artifact, scope, txEm);
             // current_version stays null until first approval
 
             txEm.persist(artifact);

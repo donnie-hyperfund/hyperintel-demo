@@ -64,7 +64,8 @@ export const ArtifactDtoSchema = z.object({
     key: z.string(),
     title: z.string(),
     version: z.number().int(),
-    project: z.union([z.string().uuid(), z.object({}).passthrough()]),
+    project: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
+    user: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),
@@ -113,3 +114,13 @@ export const UploadArtifactResponseSchema = z.object({
     supersededVersion: z.number().int().positive().optional(),
 });
 export type UploadArtifactResponseDto = z.infer<typeof UploadArtifactResponseSchema>;
+
+export const EXPORT_FORMATS = ['docx'] as const;
+export const ExportFormatSchema = z.enum(EXPORT_FORMATS);
+export type ExportFormat = z.infer<typeof ExportFormatSchema>;
+
+export const ExportArtifactQuerySchema = z.object({
+    artifactVersionId: z.string().uuid(),
+    format: ExportFormatSchema.default('docx'),
+});
+export type ExportArtifactQueryDto = z.infer<typeof ExportArtifactQuerySchema>;

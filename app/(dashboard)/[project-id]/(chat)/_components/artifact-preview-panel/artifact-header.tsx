@@ -1,12 +1,14 @@
 'use client';
 
+import { useAuth } from '@clerk/nextjs';
 import { formatDistanceToNow } from 'date-fns';
-import { ArrowLeft, Check, Copy, Download, FileText, X } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Download, FileText, FileUp, Loader2, X } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { exportArtifact } from '@/lib/api/requests/worker/chat';
 import type { VersionStatus } from '@/lib/schema/artifact';
 import { VersionStatusBadge } from '../version-status-badge';
 
@@ -16,6 +18,8 @@ type ArtifactHeaderProps = {
     version?: number;
     status?: VersionStatus;
     isUploaded?: boolean;
+    isInternal?: boolean;
+    artifactVersionId?: string;
     backHref?: string;
     updatedAt?: Date;
     onCloseAction?: () => void;
@@ -29,15 +33,20 @@ export function ArtifactHeader({
     version,
     status,
     isUploaded,
+    isInternal,
+    artifactVersionId,
     backHref,
     updatedAt,
     onCloseAction,
     actions,
 }: ArtifactHeaderProps) {
+    const { getToken } = useAuth();
     const [copied, setCopied] = useState(false);
     const [downloaded, setDownloaded] = useState(false);
+    const [exporting, setExporting] = useState(false);
 
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : undefined;
+    const canExportDocx = !isInternal && !!artifactVersionId && !!content;
 
     const handleCopy = async () => {
         await navigator.clipboard.writeText(content);
@@ -58,6 +67,35 @@ export function ArtifactHeader({
 
         setDownloaded(true);
         setTimeout(() => setDownloaded(false), 1000);
+    };
+
+    const handleExportDocx = async () => {
+        if (!artifactVersionId) return;
+        setExporting(true);
+        try {
+            const token = await getToken();
+            if (!token) throw new Error('Not authenticated');
+
+            const res = await exportArtifact(artifactVersionId, token);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ message: 'Export failed' }));
+                throw new Error(err.message ?? 'Export failed');
+            }
+
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${title.replace(/\.md$/, '')}.docx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('[exportDocx] Failed:', err);
+        } finally {
+            setExporting(false);
+        }
     };
 
     return (
@@ -108,6 +146,21 @@ export function ArtifactHeader({
                     </TooltipTrigger>
                     <TooltipContent>{downloaded ? 'Downloaded!' : 'Download'}</TooltipContent>
                 </Tooltip>
+
+                {canExportDocx && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" onClick={handleExportDocx} disabled={exporting}>
+                                {exporting ? (
+                                    <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                    <FileUp className="size-4" />
+                                )}
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{exporting ? 'Exporting...' : 'Export to DOCX'}</TooltipContent>
+                    </Tooltip>
+                )}
 
                 {actions}
 
