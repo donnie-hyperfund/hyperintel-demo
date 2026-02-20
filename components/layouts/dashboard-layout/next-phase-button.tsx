@@ -19,13 +19,17 @@ export function NextPhaseButton() {
 
     const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
 
-    const totalPhases = chatPages?.[0]?.pagination.total ?? 0;
-    const isLatestPhase =
-        typeof state.phaseIndex === 'number' && totalPhases > 0 && state.phaseIndex === totalPhases - 1;
     const [dialogOpen, setDialogOpen] = useState(false);
 
+    const totalPhases = chatPages?.[0]?.data.length ?? 0;
+
+    const isLatestPhase =
+        typeof state.phaseIndex === 'number' && totalPhases > 0 && state.phaseIndex === totalPhases - 1;
+
     const visible = isLatestPhase && hasAnyApprovedArtifacts && !state.isGenerating && !state.isLoading;
+
     const isSummaryReady = !!state.summaryNewChatId;
+
     const isLocked = state.isSummarizing || isSummaryReady;
 
     const handleClick = useCallback(() => {
