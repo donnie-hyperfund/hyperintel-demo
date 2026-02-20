@@ -3,6 +3,7 @@
 import { Building2, Layers } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { NextPhaseButton } from '@/components/layouts/dashboard-layout/next-phase-button';
 import { PhasePicker } from '@/components/layouts/dashboard-layout/phase-picker';
 import {
     Breadcrumb,
@@ -50,6 +51,9 @@ export const DashboardHeader = () => {
                     </BreadcrumbItem>
                 </BreadcrumbList>
             </Breadcrumb>
+
+            <NextPhaseButton />
+
             <div className="ml-auto flex items-center gap-1">
                 <Button
                     variant="ghost"

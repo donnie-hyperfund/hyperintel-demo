@@ -13,9 +13,9 @@ import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
+import { getArtifactChatId, getArtifactVersion } from './artifact-provider/utils';
 
 export type ChatContextValue = {
     state: ChatState;
@@ -37,10 +37,12 @@ export type ChatContextValue = {
     stopGeneration: () => void;
     /** Set the current chat ID */
     setChatId: (chatId: string | null) => void;
-    /** Summarize the current chat and navigate to the new one */
+    /** Summarize the current chat and prepare the new phase */
     summarizeChat: () => void;
-    /** Whether the chat has any artifacts (documents created) */
-    hasArtifacts: boolean;
+    /** Navigate to the new phase chat (after summarization completes) */
+    navigateToNewPhase: () => void;
+    /** Whether the chat has any approved artifacts (documents created) */
+    hasAnyApprovedArtifacts: boolean;
     /** Set hasPendingChanges to false (call after approve/reject) */
     clearPendingChanges: () => void;
 };
@@ -100,6 +102,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             tokenUsage: cached?.token_usage ?? null,
             hasPendingChanges: cached?.has_pending_changes ?? false,
             phaseIndex: cached?.phase_index ?? null,
+            summaryNewChatId: null,
         };
     });
 
@@ -362,11 +365,11 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         [api, cache, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
     );
 
-    /** Summarize current chat and navigate to the new one */
+    /** Summarize current chat and store the new phase chat ID */
     const summarizeChat = useCallback(async () => {
         if (!chatId || state.isSummarizing) return;
 
-        setState((prev) => ({ ...prev, isSummarizing: true, error: null }));
+        setState((prev) => ({ ...prev, isSummarizing: true, summaryNewChatId: null, error: null }));
 
         try {
             const accessToken = (await getToken()) ?? '';
@@ -396,15 +399,17 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                     try {
                         const event = JSON.parse(jsonStr);
 
-                        // TODO: Uncomment this when backend is fixed
-                        // if (event.type === 'error') {
-                        //     setState((prev) => ({ ...prev, isSummarizing: false, error: new Error(event.error) }));
-                        //     return;
-                        // }
+                        if (event.type === 'error') {
+                            setState((prev) => ({ ...prev, isSummarizing: false, error: new Error(event.error) }));
+                            return;
+                        }
 
                         if (event.type === 'done' && event.newChatId) {
-                            setState((prev) => ({ ...prev, isSummarizing: false }));
-                            router.push(`/${projectId}/${event.newChatId}`);
+                            setState((prev) => ({
+                                ...prev,
+                                isSummarizing: false,
+                                summaryNewChatId: event.newChatId,
+                            }));
                             return;
                         }
                     } catch {
@@ -421,7 +426,13 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }
-    }, [chatId, getToken, projectId, router, state.isSummarizing]);
+    }, [chatId, getToken, state.isSummarizing]);
+
+    /** Navigate to the new phase chat after summarization */
+    const navigateToNewPhase = useCallback(() => {
+        if (!state.summaryNewChatId) return;
+        router.push(`/${projectId}/${state.summaryNewChatId}`);
+    }, [projectId, router, state.summaryNewChatId]);
 
     /** Stop the current generation */
     const stopGeneration = useCallback(() => {
@@ -453,10 +464,17 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 stopGeneration,
                 setChatId,
                 summarizeChat,
+                navigateToNewPhase,
                 clearPendingChanges,
 
-                // Computed values
-                hasArtifacts: Object.keys(artifactContext.artifacts).length > 0,
+                hasAnyApprovedArtifacts: Object.values(artifactContext.artifacts).some((versions) =>
+                    Object.values(versions).some(
+                        (artifact) =>
+                            getArtifactChatId(artifact) === chatId &&
+                            getArtifactVersion(artifact)?.status === 'approved' &&
+                            getArtifactVersion(artifact)?.document_type !== 'Completion Brief',
+                    ),
+                ),
             }}
         >
             {children}

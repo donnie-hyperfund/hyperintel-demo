@@ -42,6 +42,8 @@ export type ChatState = {
     tokenUsage: TokenUsage | null;
     hasPendingChanges: boolean;
     phaseIndex: number | null;
+    /** Chat ID of the new phase after summarization completes */
+    summaryNewChatId: string | null;
 };
 
 export type PaginationState = {

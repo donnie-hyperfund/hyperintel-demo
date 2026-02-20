@@ -3,13 +3,14 @@ import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { serializeException } from '@common/ai/utils';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
+import { preprocessContext } from './chat-handler';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
-import { approveVersion } from './tools/documents/document-service';
+import { approveVersion, listDocuments } from './tools/documents/document-service';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 export interface SummarizerOptions {
@@ -66,21 +67,6 @@ async function getSummarizerPrompt(ctx: Ctx): Promise<string> {
     return `${summarizerPrompt}\n\n---\n\n${completionBriefPrompt}`;
 }
 
-/**
- * Resolve phase number for the Completion Brief.
- * Priority: chat.phase (if numeric) → count of existing completion briefs + 1
- */
-async function resolvePhaseNumber(em: NonNullable<Ctx['em']>, projectId: string, chatPhase: string): Promise<number> {
-    const parsed = Number.parseInt(chatPhase, 10);
-    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-
-    const count = await em.count(ArtifactEntity, {
-        project: projectId,
-        key: { $like: 'completion-brief-phase-%' },
-    });
-    return count + 1;
-}
-
 function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -115,8 +101,8 @@ async function streamInternal(
             throw new Error('Cannot summarize empty chat');
         }
 
-        // Resolve phase number for the Completion Brief
-        const phaseNumber = await resolvePhaseNumber(em!, chat.project.id, chat.phase);
+        // Phase number is 1-based from the 0-based phase_index
+        const phaseNumber = chat.phase_index + 1;
         const briefName = `completion-brief-phase-${phaseNumber}.md`;
         const today = new Date().toISOString().split('T')[0];
 
@@ -134,6 +120,20 @@ async function streamInternal(
                 instructions += `**Path:** \`${doc.path}\`\n`;
                 if (doc.contentPreview) {
                     instructions += `**Preview:**\n\`\`\`\n${doc.contentPreview}\n\`\`\`\n\n`;
+                }
+            }
+        }
+
+        // Fetch live document statuses for documents touched in this phase
+        const phaseDocNames = new Set(documents.map((d) => d.path));
+        if (phaseDocNames.size > 0) {
+            const allDocuments = await listDocuments(em!, chat.project.id);
+            const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
+            if (phaseDocuments.length > 0) {
+                instructions += `\n\n## Current Document Statuses (this phase)\n\n`;
+                for (const doc of phaseDocuments) {
+                    const status = doc.hasProposed ? 'proposed' : (doc.currentStatus ?? doc.latestStatus);
+                    instructions += `- \`${doc.name}\` (${doc.title}): v${doc.latestVersion} — **${status}**\n`;
                 }
             }
         }
@@ -159,9 +159,7 @@ async function streamInternal(
         // Create embedding queue adapter
         const embeddingQueue = createEmbeddingQueueAdapter({
             queue: ctx.env.EMBEDDING_QUEUE,
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL
-                ? `${process.env.EMBEDDING_WORKER_URL}/enqueue`
-                : undefined,
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
             authSecret: process.env.AUTH_SECRET,
         });
 
@@ -195,6 +193,7 @@ async function streamInternal(
             tools,
             {
                 toolGroups: [DocumentToolGroup],
+                config: { preprocessContext },
             },
         );
 
@@ -203,7 +202,6 @@ async function streamInternal(
         for await (const event of stream) {
             switch (event.type) {
                 case 'delta':
-                    summaryContent += event.content;
                     enqueue({ type: 'delta', text: event.content });
                     break;
                 case 'tool_start':
@@ -221,6 +219,9 @@ async function streamInternal(
                         }
                     }
                     break;
+                case 'done_ext':
+                    summaryContent = event.streamLog.fullContent ?? '';
+                    break;
                 case 'error':
                     enqueue({ type: 'error', error: String(event.error) });
                     break;
@@ -236,9 +237,12 @@ async function streamInternal(
             await approveVersion(em!, versionId);
         }
 
+        // TODO: Can't use chat.phase_index + 1 because historical chats can trigger summarization too.
+        // Once we block message sending on non-latest chats, switch to phase_index-based calculation.
         const newChat = em!.create(ChatEntity, {
             project: chat.project.id,
             phase: chat.phase,
+            phase_index: await em!.count(ChatEntity, { project: chat.project.id }),
             metadata: {
                 summarizedFrom: chatId,
                 summarizedAt: new Date().toISOString(),
@@ -255,6 +259,15 @@ async function streamInternal(
         em!.persist(summaryMessage);
 
         await em!.flush();
+
+        // Link created document versions to the summary message (must be after flush so summaryMessage has an id)
+        if (createdVersionIds.length > 0) {
+            await em!
+                .createQueryBuilder(ArtifactVersionEntity)
+                .update({ chat: newChat.id, chat_message: summaryMessage.id })
+                .where({ id: { $in: createdVersionIds } })
+                .execute();
+        }
 
         enqueue({
             type: 'done',
