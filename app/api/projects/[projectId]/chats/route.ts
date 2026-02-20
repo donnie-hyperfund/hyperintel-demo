@@ -1,76 +1,13 @@
-import { sql, wrap } from '@mikro-orm/core';
+import { wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { createPaginatedResponse } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
+import { handleListChats } from '@/lib/chats/handlers';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { type ChatDto, CreateChatBodySchema, ListChatsQuerySchema } from '@/lib/schema/message';
-
-async function handleGetChats(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
-    const { em } = await getOrm();
-
-    const { searchParams } = new URL(req.url);
-    const queryData = validatePayload(ListChatsQuerySchema, {
-        page: searchParams.get('page') ?? undefined,
-        limit: searchParams.get('limit') ?? undefined,
-    });
-
-    if (queryData instanceof NextResponse) return queryData;
-
-    const page = queryData.page ?? 1;
-    const limit = queryData.limit ?? 20;
-
-    const totalCount = await em
-        .createQueryBuilder(ChatEntity, 'c')
-        .leftJoin('c.project', 'p')
-        .where({ 'p.id': projectId, 'p.user': user.id })
-        .getCount();
-
-    const nodes = await em
-        .createQueryBuilder(ChatEntity, 'c')
-        .select('c.*')
-        .addSelect(sql`COUNT(DISTINCT m.id) as message_count`)
-        .addSelect(sql`(
-            SELECT m2.content
-            FROM chat_messages m2
-            WHERE m2.chat_id = c.id
-            ORDER BY m2.created_at ASC
-            LIMIT 1
-        ) as first_message_content`)
-        .leftJoin('c.project', 'p')
-        .leftJoin('c.messages', 'm')
-        .where({
-            'p.id': projectId,
-            'p.user': user.id,
-        })
-        .groupBy(['c.id'])
-        .orderBy({ 'c.phase_index': 'ASC' })
-        .limit(limit)
-        .offset((page - 1) * limit)
-        .getResultList();
-
-    const mappedNodes = nodes.map((chat: any): ChatDto => {
-        const chatEntity = chat as ChatEntity;
-        chatEntity.message_count = parseInt(chat.message_count) || 0;
-        chatEntity.first_message_content = chat.first_message_content || null;
-        return wrap(chatEntity).toJSON();
-    });
-
-    return NextResponse.json(createPaginatedResponse(mappedNodes, totalCount, page, limit));
-}
-
-export async function GET(
-    req: NextRequest,
-    { params }: { params: Promise<{ projectId: string }> },
-): Promise<NextResponse> {
-    return withAuth(async (request, user) => {
-        const { projectId } = await params;
-        return await handleGetChats(request, projectId, user);
-    })(req);
-}
+import { type ChatDto, CreateChatBodySchema } from '@/lib/schema/message';
 
 async function handleCreateChat(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
@@ -103,12 +40,22 @@ async function handleCreateChat(req: NextRequest, projectId: string, user: UserE
     return NextResponse.json(chatDto, { status: 201 });
 }
 
+export async function GET(
+    req: NextRequest,
+    { params }: { params: Promise<{ projectId: string }> },
+): Promise<NextResponse> {
+    return withAuth(async (request, user) => {
+        const { projectId } = await params;
+        return handleListChats(request, user, projectId);
+    })(req);
+}
+
 export async function POST(
     req: NextRequest,
     { params }: { params: Promise<{ projectId: string }> },
 ): Promise<NextResponse> {
     return withAuth(async (request, user) => {
         const { projectId } = await params;
-        return await handleCreateChat(request, projectId, user);
+        return handleCreateChat(request, projectId, user);
     })(req);
 }

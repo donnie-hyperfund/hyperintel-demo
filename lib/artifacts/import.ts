@@ -1,0 +1,151 @@
+/**
+ * Artifact Import Service
+ *
+ * Copies user-scoped artifacts into a project scope.
+ * Used when creating a project from intake results (CPF/HPF).
+ *
+ * - Non-destructive: originals stay in user scope
+ * - Auto-approved: imported versions are immediately approved
+ * - Duplicate-safe: skips artifacts whose key already exists in the target project
+ */
+
+import type { EntityManager } from '@mikro-orm/postgresql';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+
+export interface ImportDetail {
+    sourceArtifactId: string;
+    newArtifactId?: string;
+    newVersionId?: string;
+    key: string;
+    content?: string;
+    status: 'imported' | 'skipped_duplicate' | 'error';
+    error?: string;
+}
+
+export interface ImportResult {
+    imported: number;
+    skipped: number;
+    details: ImportDetail[];
+}
+
+/**
+ * Copy user-scoped artifacts into a project.
+ *
+ * For each artifact ID:
+ * 1. Load source (must be user-scoped, owned by userId)
+ * 2. Pick latest version content (proposed > approved by version number)
+ * 3. Skip if key already exists in target project
+ * 4. Create project-scoped artifact + approved version in a transaction
+ */
+export async function importArtifactsToProject(
+    em: EntityManager,
+    userId: string,
+    projectId: string,
+    artifactIds: string[],
+): Promise<ImportResult> {
+    const details: ImportDetail[] = [];
+    let imported = 0;
+    let skipped = 0;
+
+    // Load all source artifacts in one query
+    const sources = await em.find(
+        ArtifactEntity,
+        { id: { $in: artifactIds }, user: userId, project: null },
+        { populate: ['versions'] },
+    );
+
+    const sourceMap = new Map(sources.map((a) => [a.id, a]));
+
+    // Check which keys already exist in the target project
+    const sourceKeys = sources.map((a) => a.key);
+    const existingInProject =
+        sourceKeys.length > 0
+            ? await em.find(ArtifactEntity, { project: projectId, key: { $in: sourceKeys } })
+            : [];
+    const existingKeys = new Set(existingInProject.map((a) => a.key));
+
+    await em.transactional(async (txEm) => {
+        for (const artifactId of artifactIds) {
+            const source = sourceMap.get(artifactId);
+
+            if (!source) {
+                details.push({
+                    sourceArtifactId: artifactId,
+                    key: 'unknown',
+                    status: 'error',
+                    error: 'Artifact not found or not owned by user',
+                });
+                skipped++;
+                continue;
+            }
+
+            if (existingKeys.has(source.key)) {
+                details.push({
+                    sourceArtifactId: artifactId,
+                    key: source.key,
+                    status: 'skipped_duplicate',
+                });
+                skipped++;
+                continue;
+            }
+
+            // Find best version: latest by version number
+            const versions = source.versions.getItems();
+            const bestVersion = versions.sort((a, b) => b.version - a.version)[0];
+
+            if (!bestVersion) {
+                details.push({
+                    sourceArtifactId: artifactId,
+                    key: source.key,
+                    status: 'error',
+                    error: 'No version found',
+                });
+                skipped++;
+                continue;
+            }
+
+            // Phase 1: Create artifact
+            const artifact = new ArtifactEntity();
+            artifact.key = source.key;
+            artifact.title = source.title;
+            artifact.version = 1;
+            artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
+            artifact.metadata = { importedFrom: artifactId };
+
+            txEm.persist(artifact);
+            await txEm.flush();
+
+            // Phase 2: Create approved version
+            const version = new ArtifactVersionEntity();
+            version.artifact = artifact;
+            version.version = 1;
+            version.content = bestVersion.content;
+            version.status = 'approved';
+            version.status_changed_at = new Date();
+            version.status_changed_by = userId;
+
+            txEm.persist(version);
+            await txEm.flush();
+
+            // Phase 3: Set current_version
+            artifact.current_version = version;
+            await txEm.flush();
+
+            // Prevent duplicate key in this batch
+            existingKeys.add(source.key);
+
+            details.push({
+                sourceArtifactId: artifactId,
+                newArtifactId: artifact.id,
+                newVersionId: version.id,
+                key: source.key,
+                content: bestVersion.content,
+                status: 'imported',
+            });
+            imported++;
+        }
+    });
+
+    return { imported, skipped, details };
+}

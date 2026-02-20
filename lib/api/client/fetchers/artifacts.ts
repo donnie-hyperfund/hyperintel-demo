@@ -1,3 +1,4 @@
+import { unstable_serialize } from 'swr/infinite';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
@@ -19,6 +20,18 @@ export const artifactKeys = {
     detail: (projectId: string, artifactId: string) => [...artifactKeys.details(), projectId, artifactId] as const,
     byKey: (projectId: string, key: string) => [...artifactKeys.details(), projectId, 'key', key] as const,
 };
+
+export function getArtifactListInfiniteKey(projectId: string | undefined, limit = 20) {
+    return (pageIndex: number, previousPageData: PaginatedResponse<ArtifactDto> | null) => {
+        if (!projectId) return null;
+        if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
+        return artifactKeys.list(projectId, { page: pageIndex + 1, limit });
+    };
+}
+
+export function serializeArtifactListKey(projectId: string, limit = 20) {
+    return unstable_serialize(getArtifactListInfiniteKey(projectId, limit));
+}
 
 export function createArtifactApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);

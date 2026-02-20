@@ -1,10 +1,21 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRef, useState } from 'react';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
+import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { toast } from '@/hooks/use-toast';
-import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
-import type { PaginatedResponse, PaginationParams, UploadStatus } from '@/lib/api/client/types';
+import {
+    artifactKeys,
+    createArtifactApi,
+    getArtifactListInfiniteKey,
+    serializeArtifactListKey,
+} from '@/lib/api/client/fetchers/artifacts';
+import type {
+    InfinitePaginationParams,
+    PaginatedResponse,
+    PaginationParams,
+    UploadStatus,
+} from '@/lib/api/client/types';
 import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { isKnownUploadError, UploadValidationError, validateArtifactFile } from '@/lib/artifacts/utils';
 import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
@@ -25,6 +36,29 @@ export function useFetchArtifacts(
         },
         { revalidateOnFocus: false, ...config },
     );
+}
+
+export function useFetchArtifactsInfinite(
+    projectId: string | undefined,
+    params: InfinitePaginationParams = { limit: 20 },
+    config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
+) {
+    const { getToken } = useAuth();
+
+    const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
+        getArtifactListInfiniteKey(projectId, params.limit),
+        (key) => {
+            if (!projectId) throw new Error('Project ID is required');
+            const params = key[key.length - 1] as PaginationParams;
+            return createArtifactApi(getToken).list(projectId, params);
+        },
+        { revalidateOnFocus: false, ...config },
+    );
+
+    const lastPage = result.data?.[result.data.length - 1];
+    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
+
+    return { ...result, hasNextPage };
 }
 
 export function useFetchArtifact(
@@ -81,7 +115,7 @@ export function useApproveArtifactVersion(projectId: string, artifactKey: string
                 throw new Error(error.message || 'Failed to approve artifact');
             }
 
-            globalMutate(artifactKeys.list(projectId));
+            globalMutate(serializeArtifactListKey(projectId));
             return api.getByKey(projectId, artifactKey, artifactVersion);
         },
     );
@@ -107,7 +141,7 @@ export function useRejectArtifactVersion(projectId: string, artifactKey: string,
                 throw new Error(error.message || 'Failed to reject artifact');
             }
 
-            globalMutate(artifactKeys.list(projectId));
+            globalMutate(serializeArtifactListKey(projectId));
             return api.getByKey(projectId, artifactKey, artifactVersion);
         },
     );
@@ -123,7 +157,7 @@ export function useDeleteArtifact(projectId: string, artifactKey: string) {
             const api = createArtifactApi(getToken);
             const artifact = await api.getByKey(projectId, artifactKey);
             const result = await api.delete(projectId, artifact.id);
-            globalMutate(artifactKeys.list(projectId));
+            globalMutate(serializeArtifactListKey(projectId));
             return result;
         },
     );
@@ -157,7 +191,7 @@ export function useUploadArtifact(projectId: string, chatId: string | null) {
                 throw new Error(error.message || 'Upload failed');
             }
 
-            globalMutate(artifactKeys.list(projectId));
+            globalMutate(serializeArtifactListKey(projectId));
             return response.json();
         },
     );
