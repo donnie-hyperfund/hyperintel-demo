@@ -1,5 +1,5 @@
 import { runInferenceNoStream, AIParamsType } from '@common/ai/inference/run-inference';
-import { ANTHROPIC_MODELS } from '@common/ai/types/models';
+import { COMMON_MODELS } from '@common/ai/types/models';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
@@ -11,7 +11,7 @@ import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
-const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
+const YAML_GENERATION_MODEL = COMMON_MODELS.QWEN_3_5;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
 
 async function generateYAMLForArtifact(
@@ -31,7 +31,7 @@ async function generateYAMLForArtifact(
     }));
 
     const result = await runInferenceNoStream(ctx, {
-        paramsType: AIParamsType.Anthropic,
+        paramsType: AIParamsType.OpenRouter,
         params: {
             model: YAML_GENERATION_MODEL,
             maxTokens: 4000,

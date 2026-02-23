@@ -1,6 +1,6 @@
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, ParamsWithType } from '@common/ai/inference';
-import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import { COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { getLangfusePrompt } from '@worker/vendor/langfuse-prompts';
 import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
@@ -248,8 +248,8 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
 
             // Determine inference params - use override if provided, otherwise default
             const defaultInference: ParamsWithType = {
-                paramsType: AIParamsType.Anthropic,
-                params: { model: ANTHROPIC_MODELS.SONNET, thinking: true, thinkingBudget: 8000, searchEnabled: true },
+                paramsType: AIParamsType.OpenRouter,
+                params: { model: COMMON_MODELS.QWEN_3_5 },
             };
             const inferenceParams = options.overrideInference ?? defaultInference;
 
