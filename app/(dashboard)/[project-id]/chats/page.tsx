@@ -16,7 +16,7 @@ export default function ChatsPage() {
                 <div className="mb-8 flex shrink-0 items-center justify-between">
                     <h1 className="text-2xl font-semibold">Phases</h1>
                     <Button asChild size="sm">
-                        <Link href={projectId ? `/${projectId}` : '#'}>
+                        <Link href={projectId ? `/${projectId}?new=true` : '#'}>
                             <Plus className="size-4 opacity-75" />
                             New Phase
                         </Link>
