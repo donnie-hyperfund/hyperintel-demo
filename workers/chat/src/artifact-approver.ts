@@ -3,9 +3,11 @@ import { ANTHROPIC_MODELS } from '@common/ai/types/models';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
+import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { Ctx } from './context';
+import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
@@ -139,14 +141,31 @@ export async function approveArtifactHandler(
         console.log('[approveArtifact] Skipping YAML generation for client deliverable:', version.artifact.key);
     }
 
+    const project = version.artifact.project;
+    const projectUser = project?.user;
+
     version.status = 'approved';
     version.status_changed_at = new Date();
-    version.status_changed_by = version.artifact.project.user.id;
+    version.status_changed_by = projectUser?.id;
     version.artifact.current_version = version;
 
     await em.flush();
 
-    if (ctx.env.EMBEDDING_QUEUE) {
+    // Publish publishable document types to user scope for cross-project availability
+    if (PUBLISHABLE_DOCUMENT_TYPES.includes(version.document_type) && project && projectUser) {
+        try {
+            const publishResult = await publishArtifactToUserScope(em, {
+                sourceVersion: version,
+                userId: projectUser.id,
+                projectId: project.id,
+            });
+            console.log('[approveArtifact] Published to user scope:', publishResult);
+        } catch (err) {
+            console.error('[approveArtifact] Publish to user scope failed (non-fatal):', err);
+        }
+    }
+
+    if (ctx.env.EMBEDDING_QUEUE && project) {
         try {
             const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
 
@@ -154,7 +173,7 @@ export async function approveArtifactHandler(
             // For client deliverables: index original content (no AI-readable version)
             await embeddingQueue.send({
                 type: 'index_artifact_version',
-                projectId: version.artifact.project.id,
+                projectId: project.id,
                 versionId: version.id,
                 content: isInternalDocument && yamlContent ? yamlContent : version.content,
                 documentName: version.artifact.key,
@@ -223,7 +242,7 @@ export async function rejectArtifactHandler(
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
-    version.status_changed_by = version.artifact.project.user.id;
+    version.status_changed_by = version.artifact.project?.user?.id;
     version.artifact.current_version = version;
 
     await em.flush();
