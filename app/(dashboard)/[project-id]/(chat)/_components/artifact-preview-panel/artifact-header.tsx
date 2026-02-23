@@ -25,6 +25,8 @@ type ArtifactHeaderProps = {
     onCloseAction?: () => void;
     /** Slot for extra action buttons (e.g. delete) rendered before the close button */
     actions?: ReactNode;
+    /** Whether the content is being streamed */
+    isStreaming?: boolean;
 };
 
 export function ArtifactHeader({
@@ -39,6 +41,7 @@ export function ArtifactHeader({
     updatedAt,
     onCloseAction,
     actions,
+    isStreaming,
 }: ArtifactHeaderProps) {
     const { getToken } = useAuth();
     const [copied, setCopied] = useState(false);
@@ -48,8 +51,8 @@ export function ArtifactHeader({
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : undefined;
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;
 
-    const shouldDisplayCopyButton = !!content;
-    const shouldDisplayDownloadButton = !!content;
+    const shouldDisplayCopyButton = !!content && !isStreaming;
+    const shouldDisplayDownloadButton = !!content && !isStreaming;
 
     const handleCopy = async () => {
         await navigator.clipboard.writeText(content);
