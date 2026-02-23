@@ -9,7 +9,7 @@
 import { runAgentStream } from '@common/ai/agent';
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
-import { COMMON_MODELS } from '@common/ai/types';
+import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { serializeException } from '@/common/ai/utils';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
@@ -156,8 +156,8 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
             const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
 
             const defaultInference: ParamsWithType = {
-                paramsType: AIParamsType.OpenRouter,
-                params: { model: COMMON_MODELS.QWEN_3_5 },
+                paramsType: AIParamsType.Anthropic,
+                params: { model: ANTHROPIC_MODELS.SONNET, thinking: false },
             };
             const inferenceParams = options.overrideInference ?? defaultInference;
 
