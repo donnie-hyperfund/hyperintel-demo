@@ -132,11 +132,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         }));
     }, []);
 
-    const revalidateArtifacts = useCallback(() => {
-        globalMutate(serializeArtifactListKey(projectId));
-    }, [globalMutate, projectId]);
-
-    const revalidateArtifactByKey = useCallback(
+    const revalidateArtifactByKeyAndVersion = useCallback(
         async (keyId: string, version: number) => {
             globalMutate(serializeArtifactListKey(projectId));
 
@@ -200,9 +196,8 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         artifactContext,
         setMessages,
         setIsLoading,
-        onArtifactOpen: handleArtifactOpen,
-        onArtifactComplete: revalidateArtifacts,
-        onApproveDocument: revalidateArtifactByKey,
+        handleArtifactOpen,
+        revalidateArtifactByKeyAndVersion,
         onTokenUsage,
         fetchArtifact,
         onDocumentStart,

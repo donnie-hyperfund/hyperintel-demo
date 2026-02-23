@@ -136,6 +136,7 @@ export const ArtifactViewer = ({
                 backHref={backHref}
                 onCloseAction={onCloseAction}
                 actions={deleteAction}
+                isStreaming={!!isStreaming}
             />
 
             {/* Preview */}

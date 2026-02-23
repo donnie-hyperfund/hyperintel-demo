@@ -30,11 +30,9 @@ type UseStreamReaderOptions = {
     /** Callback to set loading state */
     setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
     /** Called when a streamed artifact should be shown in the preview panel */
-    onArtifactOpen?: (artifactId: string, version: number) => void;
-    /** Called when an artifact stream completes */
-    onArtifactComplete?: () => void;
-    /** Called when a document is approved via chat — revalidates artifacts list and updates preview panel */
-    onApproveDocument?: (keyId: string, version: number) => void;
+    handleArtifactOpen?: (artifactId: string, version: number) => void;
+    /** Revalidate artifact from API - updates list in SWR cache and context state */
+    revalidateArtifactByKeyAndVersion?: (keyId: string, version: number) => void;
     /** Called when token usage is received from the done event */
     onTokenUsage?: (usage: TokenUsage) => void;
     /** Fetch artifact from API when not available in store */
@@ -51,9 +49,8 @@ export function useStreamReader({
     artifactContext,
     setMessages,
     setIsLoading,
-    onArtifactOpen,
-    onArtifactComplete,
-    onApproveDocument,
+    handleArtifactOpen,
+    revalidateArtifactByKeyAndVersion,
     onTokenUsage,
     fetchArtifact,
     onDocumentStart,
@@ -133,7 +130,7 @@ export function useStreamReader({
                                 1,
                             );
 
-                            onArtifactOpen?.(artifactId, 1);
+                            handleArtifactOpen?.(artifactId, 1);
                         } else if (payload.mode === 'edit') {
                             const loadedVersion = payload.loadedVersion ?? 1;
                             let existingArtifact = getArtifact(artifactId, loadedVersion);
@@ -185,7 +182,7 @@ export function useStreamReader({
                                 newVersion,
                             );
 
-                            onArtifactOpen?.(artifactId, newVersion);
+                            handleArtifactOpen?.(artifactId, newVersion);
                         }
                         break;
                     }
@@ -236,6 +233,7 @@ export function useStreamReader({
                                 },
                                 doc.version,
                             );
+                            revalidateArtifactByKeyAndVersion?.(doc.artifactId, doc.version);
                         }
                         break;
                     }
@@ -258,7 +256,7 @@ export function useStreamReader({
                             completedDoc.version,
                         );
                         streaming.streamingDocs.delete(payload.name);
-                        onArtifactComplete?.();
+                        revalidateArtifactByKeyAndVersion?.(completedDoc.artifactId, completedDoc.version);
                         break;
                     }
 
@@ -378,7 +376,7 @@ export function useStreamReader({
                                                     : event.result;
 
                                             if (parsed.name && parsed.version) {
-                                                onApproveDocument?.(parsed.name, parsed.version);
+                                                revalidateArtifactByKeyAndVersion?.(parsed.name, parsed.version);
                                             }
                                         } catch (err) {
                                             console.warn(
@@ -541,8 +539,8 @@ export function useStreamReader({
             updateArtifact,
             setMessages,
             setIsLoading,
-            onArtifactOpen,
-            onArtifactComplete,
+            handleArtifactOpen,
+            revalidateArtifactByKeyAndVersion,
             onTokenUsage,
             fetchArtifact,
             onDocumentStart,
