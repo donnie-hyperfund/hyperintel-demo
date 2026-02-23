@@ -1,5 +1,5 @@
 import { SWRConfig, unstable_serialize } from 'swr';
-import { assertAuth } from '@/lib/api/auth-guard';
+import { assertAuthPage } from '@/lib/api/auth-guard';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
 import { fetchProject } from '@/lib/api/server/fetchers/projects';
 
@@ -10,7 +10,7 @@ interface ProjectLayoutProps {
 
 export default async function ProjectLayout({ children, params }: ProjectLayoutProps) {
     const { 'project-id': projectId } = await params;
-    const user = await assertAuth();
+    const user = await assertAuthPage();
 
     const [project] = await Promise.all([fetchProject(projectId, user)]);
 
