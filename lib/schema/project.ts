@@ -35,6 +35,12 @@ export const ImportArtifactsBodySchema = z.object({
 });
 export type ImportArtifactsBodyDto = z.infer<typeof ImportArtifactsBodySchema>;
 
+/** Worker action schema — includes projectId since workers don't use path params */
+export const ImportArtifactsActionSchema = ImportArtifactsBodySchema.extend({
+    projectId: z.string().uuid(),
+});
+export type ImportArtifactsActionDto = z.infer<typeof ImportArtifactsActionSchema>;
+
 export const ImportDetailSchema = z.object({
     sourceArtifactId: z.string().uuid(),
     newArtifactId: z.string().uuid().optional(),

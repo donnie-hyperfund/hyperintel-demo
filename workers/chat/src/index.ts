@@ -12,8 +12,10 @@ import {
     UploadArtifactSchema,
 } from '@/lib/schema/artifact';
 import { SendChatActionSchema, SummarizeActionSchema, SendIntakeChatActionSchema} from '@/lib/schema/chat';
+import { ImportArtifactsActionSchema } from '@/lib/schema/project';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
 import { exportArtifactHandler } from './artifact-exporter';
+import { importArtifactsHandler } from './artifact-importer';
 import { uploadArtifactHandler } from './artifact-uploader';
 import { chatActionHandler } from './chat-handler';
 import { intakeActionHandler } from './intake-handler';
@@ -62,6 +64,12 @@ app.post('/artifacts/approve', zValidator('json', ApproveArtifactActionSchema), 
 app.post('/artifacts/reject', zValidator('json', RejectArtifactActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await rejectArtifactHandler(c.req.valid('json'), c.var);
+    });
+});
+
+app.post('/artifacts/import', zValidator('json', ImportArtifactsActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await importArtifactsHandler(c.req.valid('json'), c.var);
     });
 });
 

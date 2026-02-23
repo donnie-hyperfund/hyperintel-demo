@@ -3,6 +3,7 @@ export enum WORKERS_LOCAL_ENDPOINTS {
     SummarizeAction = '/api/chat/summarize',
     ApproveAction = '/api/chat/artifacts/approve',
     RejectAction = '/api/chat/artifacts/reject',
+    ImportAction = '/api/chat/artifacts/import',
     UploadAction = '/api/chat/artifacts/upload',
     ExportAction = '/api/chat/artifacts/export',
 }
@@ -17,6 +18,7 @@ export enum CHAT_EP {
     SummarizeAction = '/summarize',
     ApproveAction = '/artifacts/approve',
     RejectAction = '/artifacts/reject',
+    ImportAction = '/artifacts/import',
     UploadAction = '/artifacts/upload',
     ExportAction = '/artifacts/export',
 }
