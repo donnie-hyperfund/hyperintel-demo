@@ -1,4 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
 import { type NextRequest, NextResponse } from 'next/server';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
@@ -39,6 +40,18 @@ export async function assertAuth(): Promise<UserEntity> {
     }
 
     return user;
+}
+
+/**
+ * Same as assertAuth() but redirects to sign-in instead of throwing.
+ * Use in server component layouts/pages where an unhandled throw crashes the page.
+ */
+export async function assertAuthPage(): Promise<UserEntity> {
+    try {
+        return await assertAuth();
+    } catch {
+        redirect('/sign-in');
+    }
 }
 
 export function withAuth(handler: AuthenticatedHandler) {
