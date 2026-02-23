@@ -46,7 +46,7 @@ export function DashboardSidebar() {
         e.preventDefault();
         if (projectId) {
             window.dispatchEvent(new Event('new-phase'));
-            router.push(`/${projectId}`);
+            router.push(`/${projectId}?new=true`);
         }
     };
 
@@ -82,7 +82,7 @@ export function DashboardSidebar() {
                                     tooltip={isCollapsed ? 'New Phase' : undefined}
                                     className="px-4"
                                 >
-                                    <Link href={projectId ? `/${projectId}` : '#'} onClick={handleNewPhase}>
+                                    <Link href={projectId ? `/${projectId}?new=true` : '#'} onClick={handleNewPhase}>
                                         <div className="w-4 h-4 flex items-center justify-center overflow-visible">
                                             <div className="flex items-center justify-center size-6 rounded-full bg-green-500 shrink-0">
                                                 <Plus className="size-4 text-neutral-900" />

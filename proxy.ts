@@ -1,6 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { type NextRequest, NextResponse } from 'next/server';
 import { CURRENT_PROJECT_COOKIE_NAME, parseProjectCookie } from '@/lib/cookies/project';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
@@ -70,10 +71,16 @@ export default clerkMiddleware(async (auth, req) => {
                         return NextResponse.redirect(url);
                     }
 
-                    // If on root path, redirect to the current project
+                    // If on root path, redirect to the current project's last phase
                     if (pathname === '/') {
-                        const url = new URL(`/${validProjectId}`, req.url);
-                        return NextResponse.redirect(url);
+                        const lastChat = await em.findOne(
+                            ChatEntity,
+                            { project: validProjectId },
+                            { orderBy: { phase_index: 'desc' } },
+                        );
+
+                        const target = lastChat ? `/${validProjectId}/${lastChat.id}` : `/${validProjectId}`;
+                        return NextResponse.redirect(new URL(target, req.url));
                     }
                 }
             }

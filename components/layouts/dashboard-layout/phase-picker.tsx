@@ -45,7 +45,7 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
         e.preventDefault();
         setOpen(false);
         window.dispatchEvent(new Event('new-phase'));
-        router.push(`/${projectId}`);
+        router.push(`/${projectId}?new=true`);
     };
 
     return (
@@ -98,7 +98,7 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
                 </div>
                 <div className="border-t border-border sticky bottom-0 bg-popover">
                     <Link
-                        href={`/${projectId}`}
+                        href={`/${projectId}?new=true`}
                         onClick={handleNewPhase}
                         className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
