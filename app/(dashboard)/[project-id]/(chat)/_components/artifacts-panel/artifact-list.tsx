@@ -73,6 +73,27 @@ export function ArtifactList() {
         [projectId, getToken, addArtifact, updateArtifact, openPanel],
     );
 
+    const navigateToArtifact = useCallback(
+        (targetChatId: string, artifactKey: string, artifactVersion: number) => {
+            if (!projectId) return;
+            const search = new URLSearchParams({
+                scrollArtifactKey: artifactKey,
+                scrollArtifactVersion: String(artifactVersion),
+            });
+            router.push(`/${projectId}/${targetChatId}?${search}`);
+        },
+        [projectId, router],
+    );
+
+    const scrollToArtifact = useCallback(
+        (artifact: ArtifactDto) => {
+            const artifactChatId = getArtifactChatId(artifact);
+            if (!artifactChatId) return;
+            navigateToArtifact(artifactChatId, artifact.key, artifact.version);
+        },
+        [navigateToArtifact],
+    );
+
     const handleArtifactClick = useCallback(
         (artifact: ArtifactDto) => {
             if (!projectId) return;
@@ -93,21 +114,17 @@ export function ArtifactList() {
             }
 
             openArtifactPreview(artifact);
+            scrollToArtifact(artifact);
         },
         [projectId, chatId, chatsData?.data, openArtifactPreview],
     );
 
     const handlePhaseSwitch = useCallback(() => {
-        if (!projectId || !dialogData) return;
+        if (!dialogData) return;
         setDialogOpen(false);
-
         const { targetChatId, artifactKey, artifactVersion } = dialogData;
-        const search = new URLSearchParams({
-            scrollArtifactKey: artifactKey,
-            scrollArtifactVersion: String(artifactVersion),
-        });
-        router.push(`/${projectId}/${targetChatId}?${search}`);
-    }, [dialogData, projectId, router]);
+        navigateToArtifact(targetChatId, artifactKey, artifactVersion);
+    }, [dialogData, navigateToArtifact]);
 
     if (error) {
         return (
