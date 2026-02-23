@@ -16,6 +16,7 @@ export const INTERNAL_DOCUMENTS = [
     'Action Plan',
     'Completion Brief',
 ] as const;
+
 export const DOCUMENT_TYPES = [
     ...INTERNAL_DOCUMENTS,
     // 'Analysis',
@@ -25,6 +26,9 @@ export const DOCUMENT_TYPES = [
 ] as const;
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
 export type DocumentType = z.infer<typeof DocumentTypeSchema>;
+
+/** Document types that should be published to user scope on approval */
+export const PUBLISHABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['Legacy DNA'] as const;
 
 export const ListArtifactsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
