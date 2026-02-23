@@ -143,7 +143,11 @@ export const ArtifactViewer = ({
                 <div ref={containerRef} className="h-full overflow-y-auto">
                     {markdownContent ? (
                         <div className="p-6">
-                            <MarkdownRenderer markdown={markdownContent} directives={diffDirectives} />
+                            <MarkdownRenderer
+                                markdown={markdownContent}
+                                directives={diffDirectives}
+                                scrollContainerRef={containerRef}
+                            />
                         </div>
                     ) : (
                         <div className="flex items-center justify-center h-full text-muted-foreground">

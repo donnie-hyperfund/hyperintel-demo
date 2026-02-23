@@ -294,6 +294,7 @@
   font-size: 1rem;
   line-height: 1.625;
   color: inherit;
+  overflow-wrap: break-word;
 }
 
 .prose-document > :first-child {
@@ -457,6 +458,14 @@
 .prose-document :where(figcaption):not(:where([class~="not-prose"] *)) {
   font-size: 0.875em;
   margin-top: 0.4em;
+}
+
+/* Long === chains from AI dividers — keep text but contain overflow */
+.md-divider {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .artifact-scroll-highlight {
