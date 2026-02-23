@@ -20,6 +20,8 @@
 		"nodejs_compat"
 	],
 	"compatibility_date": "2025-04-29",
+	"workers_dev": true,
+	"preview_urls": true,
 	"observability": {
 		"enabled": true
 	},
@@ -28,7 +30,9 @@
 		"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 		"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 		"LANGFUSE_ENVIRONMENT": "production",
-		"CORS_ALLOWED_ORIGIN": "https://app.hprntl.ai"
+		"CORS_ALLOWED_ORIGIN": "https://app.hprntl.ai",
+		"WORKER_NAME": "hi-embedding",
+		"WORKER_NAME_FULL": "hi-embedding"
 	},
 	"secrets_store_secrets": [
 		{
@@ -74,7 +78,9 @@
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "development",
-				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai"
+				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
+				"WORKER_NAME": "hi-embedding",
+				"WORKER_NAME_FULL": "hi-embedding-dev"
 			},
 			"secrets_store_secrets": [
 				{
@@ -111,7 +117,13 @@
 						"max_batch_timeout": 5
 					}
 				]
-			}
+			},
+			"kv_namespaces": [
+				{
+					"binding": "PREVIEW_DB_MAP",
+					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			]
 		},
 		"experimental": {
 			"vars": {
@@ -120,7 +132,9 @@
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "development",
-				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai"
+				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
+				"WORKER_NAME": "hi-embedding",
+				"WORKER_NAME_FULL": "hi-embedding-experimental"
 			},
 			"secrets_store_secrets": [
 				{
@@ -157,7 +171,13 @@
 						"max_batch_timeout": 5
 					}
 				]
-			}
+			},
+			"kv_namespaces": [
+				{
+					"binding": "PREVIEW_DB_MAP",
+					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			]
 		}
 	},
 	"alias": {
