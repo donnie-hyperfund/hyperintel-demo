@@ -4,7 +4,7 @@ type NewStakeholderLayoutProps = LayoutProps<'/stakeholders/new'>;
 
 export default function NewStakeholderLayout({ children }: NewStakeholderLayoutProps) {
     return (
-        <ChatModule chatType="stakeholder" intakeConfig={{ framework: 'hpf', category: 'principal' }}>
+        <ChatModule>
             {children}
         </ChatModule>
     );

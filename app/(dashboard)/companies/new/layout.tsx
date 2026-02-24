@@ -4,7 +4,7 @@ type NewCompanyLayoutProps = LayoutProps<'/companies/new'>;
 
 export default function NewCompanyLayout({ children }: NewCompanyLayoutProps) {
     return (
-        <ChatModule chatType="company" intakeConfig={{ framework: 'cpf' }}>
+        <ChatModule>
             {children}
         </ChatModule>
     );
