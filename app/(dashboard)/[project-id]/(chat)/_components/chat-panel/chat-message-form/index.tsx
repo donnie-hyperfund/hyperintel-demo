@@ -92,12 +92,12 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                         }}
                     />
 
-                    <div className="w-full max-w-4xl relative z-10">
+                    <div className="w-full max-w-3xl relative z-10">
                         <motion.div
                             initial={{ y: 20, opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
                             exit={{ y: 20, opacity: 0 }}
-                            transition={{ duration: 0.3, ease: 'easeOut' }}
+                            transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
                             onClick={handleContainerClick}
                             className={cn(
                                 'relative flex flex-wrap items-end gap-2 rounded-5 border border-neutral-700 p-5 shadow-lg shadow-black/15 bg-neutral-800',
