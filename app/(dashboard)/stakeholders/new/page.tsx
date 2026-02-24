@@ -19,8 +19,10 @@ export default function NewStakeholderPage() {
                     HeaderComponent={
                         <DashboardHeader
                             title="New stakeholder"
-                            parentLabel="Stakeholders"
-                            parentHref="/stakeholders"
+                            parent={{
+                                label: 'Stakeholders',
+                                href: '/stakeholders',
+                            }}
                         />
                     }
                     emptyTitle="Ready to map a stakeholder?"

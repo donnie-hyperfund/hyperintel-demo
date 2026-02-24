@@ -12,21 +12,23 @@ import {
 
 type DashboardHeaderProps = {
     title: string;
-    parentLabel?: string;
-    parentHref?: string;
+    parent?: {
+        label: string;
+        href: string;
+    };
     ActionComponent?: ReactNode;
 };
 
-export const DashboardHeader = ({ title, parentLabel, parentHref, ActionComponent }: DashboardHeaderProps) => {
+export const DashboardHeader = ({ title, parent, ActionComponent }: DashboardHeaderProps) => {
     return (
         <header className="h-14 border-b border-border flex items-center px-6 gap-4">
             <Breadcrumb>
                 <BreadcrumbList>
-                    {parentLabel && parentHref && (
+                    {parent && (
                         <>
                             <BreadcrumbItem>
                                 <BreadcrumbLink asChild>
-                                    <Link href={parentHref}>{parentLabel}</Link>
+                                    <Link href={parent.href}>{parent.label}</Link>
                                 </BreadcrumbLink>
                             </BreadcrumbItem>
                             <BreadcrumbSeparator />

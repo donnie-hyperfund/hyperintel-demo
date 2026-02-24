@@ -17,7 +17,10 @@ export default function NewCompanyPage() {
             LeftPaneComponent={
                 <ChatPanel
                     HeaderComponent={
-                        <DashboardHeader title="New company" parentLabel="Companies" parentHref="/companies" />
+                        <DashboardHeader title="New company" parent={{
+                            label: 'Companies',
+                            href: '/companies',
+                        }} />
                     }
                     emptyTitle="Ready to build organizational intelligence?"
                     emptySubtitle="Tell us about the company and we'll create a comprehensive profile."
