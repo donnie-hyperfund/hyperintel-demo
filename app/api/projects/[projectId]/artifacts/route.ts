@@ -85,12 +85,14 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         });
     }
 
+    const proposedSub = (col: string) =>
+        `(SELECT pv.${col} FROM artifact_versions pv WHERE pv.artifact_id = a.id AND pv.status = 'proposed' ORDER BY pv.version DESC LIMIT 1)`;
+
     const query = em
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
         .leftJoin('a.project', 'p')
         .leftJoinAndSelect('a.current_version', 'cv')
-        .leftJoin('a.versions', 'pv', { 'pv.status': 'proposed' })
         .where({
             'p.id': projectId,
             'p.user': user.id,
@@ -100,23 +102,23 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
     if (queryData.visibility?.length) {
         const booleans = queryData.visibility.map((v) => v === 'internal');
         query.andWhere({
-            [raw('COALESCE(pv.is_internal, cv.is_internal)')]: { $in: booleans },
+            [raw(`COALESCE(${proposedSub('is_internal')}, cv.is_internal)`)]: { $in: booleans },
         });
     }
 
     if (queryData.status?.length) {
         query.andWhere({
-            [raw('COALESCE(pv.status, cv.status)')]: { $in: queryData.status },
+            [raw(`COALESCE(${proposedSub('status')}, cv.status)`)]: { $in: queryData.status },
         });
     }
 
     if (queryData.chatId?.length) {
         query.andWhere({
-            [raw('COALESCE(pv.chat_id, cv.chat_id)')]: { $in: queryData.chatId },
+            [raw(`COALESCE(${proposedSub('chat_id')}, cv.chat_id)`)]: { $in: queryData.chatId },
         });
     }
 
-    query.groupBy(['a.id', 'cv.id']).orderBy({ 'a.created_at': 'DESC' });
+    query.orderBy({ 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
