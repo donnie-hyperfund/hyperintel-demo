@@ -157,7 +157,7 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
 
             const defaultInference: ParamsWithType = {
                 paramsType: AIParamsType.Anthropic,
-                params: { model: ANTHROPIC_MODELS.SONNET, thinking: false },
+                params: { model: data.model ?? ANTHROPIC_MODELS.SONNET, thinking: false },
             };
             const inferenceParams = options.overrideInference ?? defaultInference;
 
