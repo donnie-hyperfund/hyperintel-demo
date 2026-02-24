@@ -2,9 +2,9 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { enUS } from 'date-fns/locale';
 import { FileText, Lock } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
-import { VersionStatusBadge } from '../version-status-badge';
 
 type ArtifactListItemProps = {
     artifact: ArtifactDto;
