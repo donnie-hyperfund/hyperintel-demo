@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowRight, Loader2 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -11,13 +11,15 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { toast } from '@/hooks/use-toast';
 import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { getArtifactChatId, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function NextPhaseButton() {
-    const { projectId, chatId, summarizeChat, navigateToNewPhase, state } = useChatContext();
+    const { projectId, chatId, summarizeChat, navigateToNewPhase, clearPendingPhaseTransition, state } =
+        useChatContext();
 
     const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
     const { data: artifactPages } = useFetchArtifactsInfinite(projectId, { limit: 20 });
@@ -41,7 +43,9 @@ export function NextPhaseButton() {
         );
     }, [artifactPages, chatId]);
 
-    const visible = isLatestPhase && hasAnyApprovedArtifacts && !state.isGenerating && !state.isLoading;
+    const canTransition = isLatestPhase && hasAnyApprovedArtifacts && !state.isLoading;
+
+    const buttonVisible = canTransition && !state.isGenerating;
 
     const isSummaryReady = !!state.summaryNewChatId;
 
@@ -58,20 +62,50 @@ export function NextPhaseButton() {
         navigateToNewPhase();
     }, [navigateToNewPhase, revalidateChats]);
 
-    if (!visible) return null;
+    // React to chat-triggered phase transition (AI called generate_summary)
+    useEffect(() => {
+        if (!state.pendingPhaseTransition) return;
+        clearPendingPhaseTransition();
+
+        if (!canTransition) {
+            const reasons: string[] = [];
+            if (!isLatestPhase) reasons.push('You are not on the latest phase.');
+            if (!hasAnyApprovedArtifacts) reasons.push('You have no approved artifacts.');
+            if (state.isLoading) reasons.push('Wait for the chat to finish responding.');
+            toast({
+                title: 'Cannot transition to next phase.',
+                description: reasons.join('\n'),
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setDialogOpen(true);
+        summarizeChat();
+    }, [
+        state.pendingPhaseTransition,
+        canTransition,
+        isLatestPhase,
+        hasAnyApprovedArtifacts,
+        state.isLoading,
+        clearPendingPhaseTransition,
+        summarizeChat,
+    ]);
 
     return (
         <>
-            <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleClick}
-                disabled={state.isSummarizing}
-                className="gap-1.5"
-            >
-                Next phase
-                <ArrowRight className="size-3.5" />
-            </Button>
+            {buttonVisible && (
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleClick}
+                    disabled={state.isSummarizing}
+                    className="gap-1.5"
+                >
+                    Next phase
+                    <ArrowRight className="size-3.5" />
+                </Button>
+            )}
 
             <Dialog
                 open={dialogOpen}
@@ -81,6 +115,7 @@ export function NextPhaseButton() {
                 }}
             >
                 <DialogContent
+                    className="outline-none"
                     showCloseButton={!isLocked}
                     onPointerDownOutside={(e) => {
                         if (isLocked) e.preventDefault();

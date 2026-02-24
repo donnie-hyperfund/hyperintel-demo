@@ -43,6 +43,8 @@ export type ChatContextValue = {
     navigateToNewPhase: () => void;
     /** Set hasPendingChanges to false (call after approve/reject) */
     clearPendingChanges: () => void;
+    /** Clear the pending phase transition flag (called after dialog handles it) */
+    clearPendingPhaseTransition: () => void;
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -101,6 +103,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             hasPendingChanges: cached?.has_pending_changes ?? false,
             phaseIndex: cached?.phase_index ?? null,
             summaryNewChatId: null,
+            pendingPhaseTransition: false,
         };
     });
 
@@ -166,6 +169,16 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setState((prev) => ({ ...prev, hasPendingChanges: false }));
     }, []);
 
+    const clearPendingPhaseTransition = useCallback(() => {
+        setState((prev) => ({ ...prev, pendingPhaseTransition: false }));
+    }, []);
+
+    const onTerminalTool = useCallback((toolName: string) => {
+        if (toolName === 'generate_summary') {
+            setState((prev) => ({ ...prev, pendingPhaseTransition: true }));
+        }
+    }, []);
+
     const handleArtifactOpen = useCallback(
         (artifactId: string, version: number) => {
             openPanel({ panel: 'artifact-preview', artifactId, version });
@@ -199,6 +212,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         onTokenUsage,
         fetchArtifact,
         onDocumentStart,
+        onTerminalTool,
     });
 
     /** Convert API message to internal Message format */
@@ -459,6 +473,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 summarizeChat,
                 navigateToNewPhase,
                 clearPendingChanges,
+                clearPendingPhaseTransition,
             }}
         >
             {children}
