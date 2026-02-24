@@ -5,7 +5,7 @@ import { cva } from 'class-variance-authority';
 import { FileText } from 'lucide-react';
 
 import { useCallback, useEffect, useRef } from 'react';
-import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
+import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
 import { cn } from '@/lib/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
@@ -66,7 +66,7 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
         openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
 
         try {
-            const api = createArtifactApi(getToken);
+            const api = createProjectArtifactApi(getToken);
             const fetchedArtifact = await api.getByKey(projectId, documentName, documentVersion);
 
             if (fetchedArtifact) {

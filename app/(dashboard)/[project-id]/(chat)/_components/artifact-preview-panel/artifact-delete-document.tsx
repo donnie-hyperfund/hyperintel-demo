@@ -15,7 +15,7 @@ import {
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
-import { useDeleteArtifact } from '@/lib/api/client/hooks/use-artifacts';
+import { useDeleteProjectArtifact } from '@/lib/api/client/hooks/use-project-artifacts';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 type ArtifactDeleteDocumentProps = {
@@ -32,7 +32,7 @@ export function ArtifactDeleteDocument({
     onDeleted,
 }: ArtifactDeleteDocumentProps) {
     const { projectId } = useChatContext();
-    const { trigger: deleteArtifact, isMutating } = useDeleteArtifact(projectId, artifactKey);
+    const { trigger: deleteArtifact, isMutating } = useDeleteProjectArtifact(projectId!, artifactKey);
 
     const handleDelete = async () => {
         try {
