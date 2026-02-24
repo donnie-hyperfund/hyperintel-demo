@@ -1,8 +1,10 @@
+import { ANTHROPIC_MODELS } from '@common/ai/types';
 import z from 'zod';
 
 export const SendChatActionSchema = z.object({
     message: z.string(),
     chatId: z.string().uuid(),
+    model: z.nativeEnum(ANTHROPIC_MODELS).optional(),
 });
 
 export type SendChatActionDto = z.infer<typeof SendChatActionSchema>;
