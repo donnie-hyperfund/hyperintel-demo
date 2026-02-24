@@ -30,11 +30,27 @@ export type DocumentType = z.infer<typeof DocumentTypeSchema>;
 /** Document types that should be published to user scope on approval */
 export const PUBLISHABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['Legacy DNA'] as const;
 
+export const FILTERABLE_STATUSES = ['proposed', 'approved', 'rejected', 'superseded'] as const;
+export const FilterableStatusSchema = z.enum(FILTERABLE_STATUSES);
+export type FilterableStatus = z.infer<typeof FilterableStatusSchema>;
+
+export const VisibilityFilterSchema = z.enum(['client', 'internal']);
+export type VisibilityFilter = z.infer<typeof VisibilityFilterSchema>;
+
+const csvOf = <T extends z.ZodTypeAny>(schema: T) =>
+    z
+        .string()
+        .transform((s) => s.split(',').filter(Boolean))
+        .pipe(z.array(schema));
+
 export const ListArtifactsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),
     key: z.string().optional(),
     version: z.coerce.number().int().positive().optional(),
+    visibility: csvOf(VisibilityFilterSchema).optional(),
+    status: csvOf(FilterableStatusSchema).optional(),
+    chatId: csvOf(z.string().uuid()).optional(),
 });
 export type ListArtifactsQueryDto = z.infer<typeof ListArtifactsQuerySchema>;
 
@@ -68,8 +84,14 @@ export const ArtifactDtoSchema = z.object({
     key: z.string(),
     title: z.string(),
     version: z.number().int(),
-    project: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
-    user: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
+    project: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
+    user: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),

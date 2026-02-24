@@ -1,8 +1,9 @@
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS } from 'date-fns/locale';
-import { FileText } from 'lucide-react';
+import { FileText, Lock } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { ArtifactDto } from '@/lib/schema/artifact';
+import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { VersionStatusBadge } from '../version-status-badge';
 
 type ArtifactListItemProps = {
@@ -14,8 +15,10 @@ export function ArtifactListItem({ artifact, onClick }: ArtifactListItemProps) {
     const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
     const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
-    const status = (artifact.proposed_version ?? artifact.current_version)?.status;
-    const isUploaded = (artifact.proposed_version ?? artifact.current_version)?.is_uploaded;
+    const artifactVersion = getArtifactVersion(artifact);
+    const status = artifactVersion?.status;
+    const isUploaded = artifactVersion?.is_uploaded;
+    const isInternal = artifactVersion?.is_internal === true;
 
     return (
         <button
@@ -37,6 +40,15 @@ export function ArtifactListItem({ artifact, onClick }: ArtifactListItemProps) {
                             <>
                                 <span>·</span>
                                 <span title={updatedAtFormatted}>{timeAgo}</span>
+                            </>
+                        )}
+                        {isInternal && (
+                            <>
+                                <span>·</span>
+                                <span className="inline-flex items-center gap-0.5">
+                                    <Lock className="size-3" />
+                                    System-only
+                                </span>
                             </>
                         )}
                     </div>
