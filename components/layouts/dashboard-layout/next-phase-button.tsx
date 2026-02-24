@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowRight, Loader2 } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -11,13 +11,16 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
+import { getArtifactChatId, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function NextPhaseButton() {
-    const { projectId, hasAnyApprovedArtifacts, summarizeChat, navigateToNewPhase, state } = useChatContext();
+    const { projectId, chatId, summarizeChat, navigateToNewPhase, state } = useChatContext();
 
     const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
+    const { data: artifactPages } = useFetchArtifactsInfinite(projectId, { limit: 20 });
 
     const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -25,6 +28,18 @@ export function NextPhaseButton() {
 
     const isLatestPhase =
         typeof state.phaseIndex === 'number' && totalPhases > 0 && state.phaseIndex === totalPhases - 1;
+
+    const hasAnyApprovedArtifacts = useMemo(() => {
+        if (!artifactPages || !chatId) return false;
+        return artifactPages.some((page) =>
+            page.data.some(
+                (artifact) =>
+                    getArtifactChatId(artifact) === chatId &&
+                    getArtifactVersion(artifact)?.status === 'approved' &&
+                    getArtifactVersion(artifact)?.document_type !== 'Completion Brief',
+            ),
+        );
+    }, [artifactPages, chatId]);
 
     const visible = isLatestPhase && hasAnyApprovedArtifacts && !state.isGenerating && !state.isLoading;
 

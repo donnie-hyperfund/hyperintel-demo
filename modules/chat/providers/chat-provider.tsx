@@ -15,7 +15,7 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
-import { getArtifactChatId, getArtifactVersion } from './artifact-provider/utils';
+import { getArtifactVersion } from './artifact-provider/utils';
 
 export type ChatContextValue = {
     state: ChatState;
@@ -41,8 +41,6 @@ export type ChatContextValue = {
     summarizeChat: () => void;
     /** Navigate to the new phase chat (after summarization completes) */
     navigateToNewPhase: () => void;
-    /** Whether the chat has any approved artifacts (documents created) */
-    hasAnyApprovedArtifacts: boolean;
     /** Set hasPendingChanges to false (call after approve/reject) */
     clearPendingChanges: () => void;
 };
@@ -461,15 +459,6 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 summarizeChat,
                 navigateToNewPhase,
                 clearPendingChanges,
-
-                hasAnyApprovedArtifacts: Object.values(artifactContext.artifacts).some((versions) =>
-                    Object.values(versions).some(
-                        (artifact) =>
-                            getArtifactChatId(artifact) === chatId &&
-                            getArtifactVersion(artifact)?.status === 'approved' &&
-                            getArtifactVersion(artifact)?.document_type !== 'Completion Brief',
-                    ),
-                ),
             }}
         >
             {children}
