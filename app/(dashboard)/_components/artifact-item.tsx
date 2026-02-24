@@ -27,7 +27,7 @@ export const ArtifactItem = ({ artifact, icon: Icon = FileText, isSelected, onCl
         >
             <Icon className="size-5.5 shrink-0 text-neutral-500" />
             <div className="min-w-0 flex-1">
-                <span className="line-clamp-1 text-sm font-medium">{artifact.title}</span>
+                <span className="line-clamp-1 text-sm font-medium" title={artifact.title}>{artifact.title}</span>
 
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500">
                     <span>{formattedDate ?? '-'}</span>

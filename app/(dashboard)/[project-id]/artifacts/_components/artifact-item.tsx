@@ -28,7 +28,7 @@ export const ArtifactItem = ({ artifact, projectId }: ArtifactItemProps) => {
             <CardHeader className="mb-0 gap-1 py-0">
                 <div className="flex items-center gap-2">
                     <FileText className="size-4 shrink-0 text-neutral-500" />
-                    <div className="line-clamp-1 text-base font-semibold leading-tight">{artifact.title}</div>
+                    <div className="line-clamp-1 text-base font-semibold leading-tight" title={artifact.title}>{artifact.title}</div>
                 </div>
             </CardHeader>
             <CardContent className="py-0 pt-1">
