@@ -6,12 +6,12 @@ import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 
-type ArtifactListItemProps = {
+type ProjectArtifactListItemProps = {
     artifact: ArtifactDto;
     onClick: () => void;
 };
 
-export function ArtifactListItem({ artifact, onClick }: ArtifactListItemProps) {
+export function ProjectArtifactListItem({ artifact, onClick }: ProjectArtifactListItemProps) {
     const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
     const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;

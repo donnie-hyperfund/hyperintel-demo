@@ -1,7 +1,6 @@
 'use client';
 
 import { ArtifactPreviewPanel } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel';
-import ArtifactsPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/artifacts-panel';
 import ChatPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel';
 import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
 import { ResizablePanelWrapper } from '@/components/layouts/panel-wrapper/resizable-panel-wrapper';
@@ -28,12 +27,13 @@ export default function NewStakeholderPage() {
                 />
             }
             RightPaneComponent={
-                <>
-                    {panelState?.panel === 'artifact-preview' && (
-                        <ArtifactPreviewPanel version={panelState.version} artifactId={panelState.artifactId} />
-                    )}
-                    {panelState?.panel === 'artifacts' && <ArtifactsPanel onClose={closePanel} />}
-                </>
+                panelState?.panel === 'artifact-preview' ? (
+                    <ArtifactPreviewPanel
+                        version={panelState.version}
+                        artifactId={panelState.artifactId}
+                        onClose={closePanel}
+                    />
+                ) : undefined
             }
         />
     );
