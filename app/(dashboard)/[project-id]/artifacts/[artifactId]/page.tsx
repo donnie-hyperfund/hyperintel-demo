@@ -5,14 +5,14 @@ import { useParams } from 'next/navigation';
 import { ArtifactViewer } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel/artifact-viewer';
 import { ArtifactViewerSkeleton } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel/artifact-viewer-skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { useFetchProjectArtifact } from '@/lib/api/client/hooks/use-project-artifacts';
+import { useFetchArtifact } from '@/lib/api/client/hooks/use-artifacts';
 
 type ArtifactDetailPageParams = PageParams<'/[project-id]/artifacts/[artifactId]'>;
 
 export default function ArtifactDetailPage() {
     const { 'project-id': projectId, artifactId } = useParams<ArtifactDetailPageParams>();
 
-    const { data: artifact, error, isLoading } = useFetchProjectArtifact(projectId, artifactId);
+    const { data: artifact, error, isLoading } = useFetchArtifact(projectId, artifactId);
 
     if (error) {
         return (
