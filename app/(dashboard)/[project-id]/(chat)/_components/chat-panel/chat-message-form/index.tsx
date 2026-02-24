@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
+import { SwitchModelSelector } from './switch-model-selector';
 
 type ChatMessageFormProps = {
     className?: string;
@@ -124,18 +125,22 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                             </Button>
                         </motion.div>
 
-                        <div className="flex items-center h-9 px-1 justify-between">
+                        <div className="flex flex-col gap-2">
                             {errors.message && (
                                 <motion.p
                                     initial={{ opacity: 0, y: -10 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0, y: -10 }}
-                                    className="text-xs text-red-400 justify-self-start"
+                                    className="flex items-center h-9 px-1 text-xs text-red-400 justify-self-start"
                                 >
                                     {errors.message.message}
                                 </motion.p>
                             )}
-                            <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
+
+                            <div className="flex items-center h-9 px-1 justify-between">
+                                <SwitchModelSelector />
+                                <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
+                            </div>
                         </div>
                     </div>
                 </form>

@@ -13,6 +13,7 @@ import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 import { getArtifactVersion } from './artifact-provider/utils';
@@ -82,6 +83,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
+    const { selectedModel } = useModelSelection();
     const skipNextLoad = useRef(false);
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
@@ -332,6 +334,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                     {
                         message: content,
                         chatId: chatIdToUse,
+                        model: selectedModel,
                     },
                     accessToken,
                 );
@@ -355,7 +358,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 abortControllerRef.current = null;
             }
         },
-        [api, cache, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
+        [api, cache, chatId, getToken, globalMutate, projectId, readStream, selectedModel, state.isGenerating],
     );
 
     /** Summarize current chat and store the new phase chat ID */
