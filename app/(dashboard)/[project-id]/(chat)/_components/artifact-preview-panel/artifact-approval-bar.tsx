@@ -3,9 +3,14 @@
 import { Check, Loader2, X as XIcon } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { useApproveArtifactVersion, useRejectArtifactVersion } from '@/lib/api/client/hooks/use-artifacts';
+import {
+    useApproveProjectArtifactVersion,
+    useRejectProjectArtifactVersion,
+} from '@/lib/api/client/hooks/use-project-artifacts';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+
+type ArtifactApprovalBarParams = PageParams<'/[project-id]'>;
 
 type ArtifactApprovalBarProps = {
     artifactId: string;
@@ -23,15 +28,14 @@ export function ArtifactApprovalBar({
     const { updateArtifact, artifacts } = useArtifactContext();
     const { clearPendingChanges } = useChatContext();
 
-    const params = useParams();
-    const projectId = params?.['project-id'] as string;
+    const { 'project-id': projectId } = useParams<ArtifactApprovalBarParams>();
 
-    const { trigger: approve, isMutating: isApproving } = useApproveArtifactVersion(
+    const { trigger: approve, isMutating: isApproving } = useApproveProjectArtifactVersion(
         projectId,
         artifactKey,
         artifactVersion,
     );
-    const { trigger: reject, isMutating: isRejecting } = useRejectArtifactVersion(
+    const { trigger: reject, isMutating: isRejecting } = useRejectProjectArtifactVersion(
         projectId,
         artifactKey,
         artifactVersion,

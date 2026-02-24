@@ -3,15 +3,16 @@
 import { FileText } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { EmptyState } from '@/components/ui/empty-state';
-import { useFetchArtifacts } from '@/lib/api/client/hooks/use-artifacts';
+import { useFetchProjectArtifacts } from '@/lib/api/client/hooks/use-project-artifacts';
 import { ArtifactItem } from './artifact-item';
 import { ArtifactItemSkeleton } from './artifact-item-skeleton';
 
-export const ArtifactList = () => {
-    const params = useParams();
-    const projectId = params?.['project-id'] as string | undefined;
+type ArtifactListParams = PageParams<'/[project-id]'>;
 
-    const { data, error, isLoading } = useFetchArtifacts(projectId);
+export const ArtifactList = () => {
+    const { 'project-id': projectId } = useParams<ArtifactListParams>();
+
+    const { data, error, isLoading } = useFetchProjectArtifacts(projectId);
     const artifacts = data?.data ?? [];
 
     if (error) {

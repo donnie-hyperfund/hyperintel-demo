@@ -1,19 +1,18 @@
 'use client';
 
-import { formatDistanceToNow } from 'date-fns';
 import { FileText } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { ArtifactViewer } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel/artifact-viewer';
 import { ArtifactViewerSkeleton } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel/artifact-viewer-skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { useFetchArtifact } from '@/lib/api/client/hooks/use-artifacts';
+import { useFetchProjectArtifact } from '@/lib/api/client/hooks/use-project-artifacts';
+
+type ArtifactDetailPageParams = PageParams<'/[project-id]/artifacts/[artifactId]'>;
 
 export default function ArtifactDetailPage() {
-    const params = useParams();
-    const projectId = params?.['project-id'] as string | undefined;
-    const artifactId = params?.artifactId as string | undefined;
+    const { 'project-id': projectId, artifactId } = useParams<ArtifactDetailPageParams>();
 
-    const { data: artifact, error, isLoading } = useFetchArtifact(projectId, artifactId);
+    const { data: artifact, error, isLoading } = useFetchProjectArtifact(projectId, artifactId);
 
     if (error) {
         return (

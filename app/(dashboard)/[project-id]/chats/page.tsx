@@ -6,9 +6,10 @@ import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ChatList } from './_components/chat-list';
 
+type ChatsPageParams = PageParams<'/[project-id]'>;
+
 export default function ChatsPage() {
-    const params = useParams();
-    const projectId = params?.['project-id'] as string | undefined;
+    const { 'project-id': projectId } = useParams<ChatsPageParams>();
 
     return (
         <div className="flex h-full w-full flex-col items-center overflow-y-auto px-4 py-12">

@@ -4,10 +4,7 @@ import { projectKeys } from '@/lib/api/client/fetchers/projects';
 import { fetchProject } from '@/lib/api/server/fetchers/projects';
 import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
 
-interface ProjectLayoutProps {
-    children: React.ReactNode;
-    params: Promise<{ 'project-id': string }>;
-}
+type ProjectLayoutProps = LayoutProps<'/[project-id]'>;
 
 export default async function ProjectLayout({ children, params }: ProjectLayoutProps) {
     const { 'project-id': projectId } = await params;
