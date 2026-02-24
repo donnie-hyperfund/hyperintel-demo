@@ -63,9 +63,6 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
         }
     }, [initialMessage, sendMessage]);
 
-    const isPanelOpen = panelState !== null;
-    const activePanel = panelState?.panel ?? null;
-
     return (
         <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-full">
             {/* Chat Panel */}
@@ -75,26 +72,26 @@ export default function ChatInterface({ initialMessage }: ChatInterfaceProps) {
                 defaultSize={60}
                 minSize={60}
                 maxSize={80}
-                className={cn(isPanelOpen && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
+                className={cn(panelState !== null && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
             >
                 <ChatPanel conversationRef={chatConversationRef} formRef={chatMessageFormRef} />
             </ResizablePanel>
 
-            {isPanelOpen && (
-                <Fragment key={activePanel}>
+            {panelState !== null && (
+                <Fragment key={panelState.panel}>
                     <ResizableHandle />
 
                     <ResizablePanel
                         id="right-panel"
                         order={2}
-                        defaultSize={activePanel === 'artifact-preview' ? 35 : 20}
+                        defaultSize={panelState.panel === 'artifact-preview' ? 35 : 20}
                         minSize={20}
                     >
                         {panelState.panel === 'artifact-preview' && (
                             <ArtifactPreviewPanel version={panelState.version} artifactId={panelState.artifactId} />
                         )}
-                        {activePanel === 'artifacts' && <ArtifactsPanel onClose={closePanel} />}
-                        {activePanel === 'resources' && <ResourcesPanel onClose={closePanel} />}
+                        {panelState.panel === 'artifacts' && <ArtifactsPanel onClose={closePanel} />}
+                        {panelState.panel === 'resources' && <ResourcesPanel onClose={closePanel} />}
                     </ResizablePanel>
                 </Fragment>
             )}

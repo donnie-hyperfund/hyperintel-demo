@@ -10,8 +10,6 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 export default function NewStakeholderPage() {
     const { panelState, closePanel } = useActivePanelContext();
 
-    const activePanel = panelState?.panel;
-
     return (
         <ResizablePanelWrapper
             LeftPaneComponent={
@@ -34,7 +32,7 @@ export default function NewStakeholderPage() {
                     {panelState?.panel === 'artifact-preview' && (
                         <ArtifactPreviewPanel version={panelState.version} artifactId={panelState.artifactId} />
                     )}
-                    {activePanel === 'artifacts' && <ArtifactsPanel onClose={closePanel} />}
+                    {panelState?.panel === 'artifacts' && <ArtifactsPanel onClose={closePanel} />}
                 </>
             }
         />
