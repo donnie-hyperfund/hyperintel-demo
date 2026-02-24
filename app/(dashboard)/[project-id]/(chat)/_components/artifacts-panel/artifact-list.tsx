@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
+import type { ArtifactFilterParams } from '@/lib/api/client/fetchers/artifacts';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
@@ -13,8 +14,18 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { getArtifactChatId } from '@/modules/chat/providers/artifact-provider/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import type { ArtifactFilters } from './artifact-filter-dropdown';
+import { getActiveFilterCount } from './artifact-filter-dropdown';
 import { ArtifactListItem, ArtifactListItemSkeleton } from './artifact-list-item';
 import { PhaseSwitchDialog } from './phase-switch-dialog';
+
+function filtersToParams(filters: ArtifactFilters): ArtifactFilterParams {
+    const params: ArtifactFilterParams = {};
+    if (filters.visibility.length) params.visibility = filters.visibility;
+    if (filters.status.length) params.status = filters.status;
+    if (filters.chatIds.length) params.chatId = filters.chatIds;
+    return params;
+}
 
 type PhaseDialogData = {
     phaseName: string;
@@ -25,14 +36,21 @@ type PhaseDialogData = {
 
 const PAGE_SIZE = 20;
 
-export function ArtifactList() {
+type ArtifactListProps = {
+    filters: ArtifactFilters;
+};
+
+export function ArtifactList({ filters }: ArtifactListProps) {
     const router = useRouter();
     const { getToken } = useAuth();
 
     const { projectId, chatId } = useChatContext();
 
+    const filterParams = useMemo(() => filtersToParams(filters), [filters]);
+
     const { data, error, isLoading, size, setSize, hasNextPage } = useFetchArtifactsInfinite(projectId, {
         limit: PAGE_SIZE,
+        ...filterParams,
     });
     const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
     const { addArtifact, updateArtifact } = useArtifactContext();
@@ -146,12 +164,14 @@ export function ArtifactList() {
         );
     }
 
+    const hasActiveFilters = getActiveFilterCount(filters) > 0;
+
     if (artifacts.length === 0) {
         return (
             <EmptyState
                 icon={FileText}
-                title="No deliverables yet"
-                description="Deliverables created during your phases will appear here."
+                title={hasActiveFilters ? 'No deliverables match these filters' : 'No deliverables yet'}
+                description={hasActiveFilters ? undefined : 'Deliverables created during your phases will appear here.'}
             />
         );
     }

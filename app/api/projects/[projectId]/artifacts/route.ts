@@ -1,4 +1,4 @@
-import { wrap } from '@mikro-orm/core';
+import { raw, wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
@@ -20,6 +20,9 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         limit: searchParams.get('limit') ?? undefined,
         key: searchParams.get('key') ?? undefined,
         version: searchParams.get('version') ?? undefined,
+        visibility: searchParams.get('visibility') ?? undefined,
+        status: searchParams.get('status') ?? undefined,
+        chatId: searchParams.get('chatId') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
@@ -82,6 +85,9 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         });
     }
 
+    const proposedSub = (col: string) =>
+        `(SELECT pv.${col} FROM artifact_versions pv WHERE pv.artifact_id = a.id AND pv.status = 'proposed' ORDER BY pv.version DESC LIMIT 1)`;
+
     const query = em
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
@@ -91,8 +97,28 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
             'p.id': projectId,
             'p.user': user.id,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
-        })
-        .orderBy({ 'a.created_at': 'DESC' });
+        });
+
+    if (queryData.visibility?.length) {
+        const booleans = queryData.visibility.map((v) => v === 'internal');
+        query.andWhere({
+            [raw(`COALESCE(${proposedSub('is_internal')}, cv.is_internal)`)]: { $in: booleans },
+        });
+    }
+
+    if (queryData.status?.length) {
+        query.andWhere({
+            [raw(`COALESCE(${proposedSub('status')}, cv.status)`)]: { $in: queryData.status },
+        });
+    }
+
+    if (queryData.chatId?.length) {
+        query.andWhere({
+            [raw(`COALESCE(${proposedSub('chat_id')}, cv.chat_id)`)]: { $in: queryData.chatId },
+        });
+    }
+
+    query.orderBy({ 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,

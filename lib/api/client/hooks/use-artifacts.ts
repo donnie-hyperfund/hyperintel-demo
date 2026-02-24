@@ -5,6 +5,8 @@ import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { toast } from '@/hooks/use-toast';
 import {
+    type ArtifactFilterParams,
+    type ArtifactListParams,
     artifactKeys,
     createArtifactApi,
     getArtifactListInfiniteKey,
@@ -40,16 +42,17 @@ export function useFetchArtifacts(
 
 export function useFetchArtifactsInfinite(
     projectId: string | undefined,
-    params: InfinitePaginationParams = { limit: 20 },
+    params: InfinitePaginationParams & ArtifactFilterParams = { limit: 20 },
     config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
+    const { limit, ...filters } = params;
 
     const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
-        getArtifactListInfiniteKey(projectId, params.limit),
+        getArtifactListInfiniteKey(projectId, limit, filters),
         (key) => {
             if (!projectId) throw new Error('Project ID is required');
-            const params = key[key.length - 1] as PaginationParams;
+            const params = key[key.length - 1] as ArtifactListParams;
             return createArtifactApi(getToken).list(projectId, params);
         },
         { revalidateOnFocus: false, ...config },
