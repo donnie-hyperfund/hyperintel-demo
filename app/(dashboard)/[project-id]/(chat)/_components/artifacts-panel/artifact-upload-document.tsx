@@ -21,7 +21,7 @@ function getUploadTooltip(status: UploadStatus) {
 export function ArtifactUploadDocument() {
     const { chatId, projectId } = useChatContext();
 
-    const { fileInputRef, handleFileChange, status, accept } = useUploadProjectArtifact(projectId!, chatId);
+    const { fileInputRef, handleFileChange, status, accept } = useUploadProjectArtifact(projectId, chatId);
 
     const handleClick = useCallback(
         (e: React.MouseEvent<HTMLButtonElement>) => {

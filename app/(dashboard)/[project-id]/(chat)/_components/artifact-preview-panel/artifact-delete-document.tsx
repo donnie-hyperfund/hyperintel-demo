@@ -32,7 +32,7 @@ export function ArtifactDeleteDocument({
     onDeleted,
 }: ArtifactDeleteDocumentProps) {
     const { projectId } = useChatContext();
-    const { trigger: deleteArtifact, isMutating } = useDeleteProjectArtifact(projectId!, artifactKey);
+    const { trigger: deleteArtifact, isMutating } = useDeleteProjectArtifact(projectId, artifactKey);
 
     const handleDelete = async () => {
         try {
