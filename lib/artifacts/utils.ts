@@ -1,4 +1,10 @@
-import { ALLOWED_ARTIFACT_EXTENSIONS, MAX_ARTIFACT_UPLOAD_SIZE } from '@/lib/schema/artifact';
+import { ALLOWED_ARTIFACT_EXTENSIONS, type DocumentType, MAX_ARTIFACT_UPLOAD_SIZE } from '@/lib/schema/artifact';
+
+const INTAKE_DOCUMENT_TYPES: readonly DocumentType[] = ['Company Profile', 'Human Persona'];
+
+export function isIntakeDocument(documentType: DocumentType | undefined): boolean {
+    return !!documentType && INTAKE_DOCUMENT_TYPES.includes(documentType);
+}
 
 // ── Upload error codes (shared between FE & BE) ────────────────────────────
 

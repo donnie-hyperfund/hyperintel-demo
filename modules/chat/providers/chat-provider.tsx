@@ -7,23 +7,24 @@ import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
-import { serializeArtifactListKey } from '@/lib/api/client/fetchers/artifacts';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
-import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
+import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
+import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
+import type { IntakeFramework, PersonaCategory } from '@/lib/schema/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
+import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { useStreamReader } from '../hooks/use-stream-reader';
-import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
-import { getArtifactVersion } from './artifact-provider/utils';
+import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
-export type ChatContextValue = {
+export type BaseChatContextValue = {
     state: ChatState;
     /** API client for chat operations */
     api: ApiClient;
-    /** Project ID */
-    projectId: string;
+    /** Chat type */
+    chatType: ChatType;
     /** Current chat ID */
     chatId: string | null;
     /** Pagination state for infinite scroll */
@@ -48,17 +49,41 @@ export type ChatContextValue = {
     clearPendingPhaseTransition: () => void;
 };
 
+type PhaseChatContextValue = BaseChatContextValue & {
+    chatType: 'phase';
+    /** Project ID (null for intake chats) */
+    projectId: string;
+};
+
+type CompanyStakeholderChatContextValue = BaseChatContextValue & {
+    chatType: 'company' | 'stakeholder';
+};
+
+type ChatContextValue = PhaseChatContextValue | CompanyStakeholderChatContextValue;
+
 const ChatContext = createContext<ChatContextValue | null>(null);
 
 type ChatProviderProps = {
     children: ReactNode;
-    /** Project ID for API calls */
-    projectId: string;
+    /** Project ID for API calls (required for phase chats, omit for intake) */
+    projectId?: string;
+    /** Chat type — defaults to 'phase' */
+    chatType?: ChatType;
+    /** Intake configuration (required when chatType is 'company' or 'stakeholder') */
+    intakeConfig?: { framework: IntakeFramework; category?: PersonaCategory };
     /** Initial chat ID (optional - will create on first message if not provided) */
     initialChatId?: string;
     /** Initial messages to display */
     initialMessages?: Message[];
 };
+
+function buildContextValue(
+    chatType: ChatType,
+    projectId: string | undefined,
+    base: Omit<BaseChatContextValue, 'chatType'>,
+): ChatContextValue {
+    return chatType === 'phase' ? { ...base, chatType, projectId: projectId! } : { ...base, chatType };
+}
 
 /** Create a user message with a single text block */
 function createUserMessage(content: string): Message {
@@ -71,7 +96,14 @@ function createUserMessage(content: string): Message {
     };
 }
 
-export function ChatProvider({ children, projectId, initialChatId, initialMessages = [] }: ChatProviderProps) {
+export function ChatProvider({
+    children,
+    projectId,
+    chatType = 'phase',
+    intakeConfig,
+    initialChatId,
+    initialMessages = [],
+}: ChatProviderProps) {
     const artifactContext = useArtifactContext();
 
     const { openPanel } = useActivePanelContext();
@@ -90,9 +122,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
     const [state, setState] = useState<ChatState>(() => {
-        const cached = initialChatId
-            ? fallback?.[unstable_serialize(chatKeys.detail(projectId, initialChatId))]
-            : undefined;
+        const cached = initialChatId ? fallback?.[unstable_serialize(chatKeys.detail(initialChatId))] : undefined;
 
         return {
             messages: initialMessages,
@@ -137,12 +167,14 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
     const revalidateArtifactByKeyAndVersion = useCallback(
         async (keyId: string, version: number) => {
-            globalMutate(serializeArtifactListKey(projectId));
+            if (!projectId) return;
+
+            globalMutate(serializeProjectArtifactListKey(projectId));
 
             try {
                 const allVersions = Array.from({ length: version }, (_, i) => version - i);
                 const results = await Promise.all(
-                    allVersions.map((v) => api.artifacts.getByKey(projectId, keyId, v).catch(() => null)),
+                    allVersions.map((v) => api.projectArtifacts.getByKey(projectId, keyId, v).catch(() => null)),
                 );
 
                 for (const data of results) {
@@ -156,7 +188,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 // SWR revalidation will still keep the list up to date
             }
         },
-        [globalMutate, projectId, artifactContext, api.artifacts],
+        [globalMutate, projectId, artifactContext, api.projectArtifacts],
     );
 
     const onTokenUsage = useCallback((usage: TokenUsage) => {
@@ -190,8 +222,9 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
     const fetchArtifact = useCallback(
         async (artifactKey: string, version: number) => {
+            if (!projectId) return null;
             try {
-                const artifact = await api.artifacts.getByKey(projectId, artifactKey, version);
+                const artifact = await api.projectArtifacts.getByKey(projectId, artifactKey, version);
                 if (artifact) {
                     artifactContext.addArtifact(artifact, version);
                 }
@@ -249,8 +282,8 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
         try {
             const [messagesData, chatData] = await Promise.all([
-                api.messages.list(projectId, chatId, { page: 1 }),
-                api.chats.get(projectId, chatId),
+                api.messages.list(chatId, { page: 1 }),
+                api.chats.get(chatId),
             ]);
 
             // API returns DESC order (newest first), reverse for display (newest at bottom)
@@ -274,7 +307,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             console.error('Error loading messages:', error);
             setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
         }
-    }, [api, chatId, projectId, mapApiMessage]);
+    }, [api, chatId, mapApiMessage]);
 
     /** Load more (older) messages for infinite scroll */
     const loadMoreMessages = useCallback(async () => {
@@ -284,7 +317,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
         try {
             const nextPage = pagination.page + 1;
-            const data = await api.messages.list(projectId, chatId, { page: nextPage });
+            const data = await api.messages.list(chatId, { page: nextPage });
             // API returns DESC order (newest first), reverse and prepend to existing messages
             const olderMessages: Message[] = data.data?.map(mapApiMessage) || [];
 
@@ -302,7 +335,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             console.error('Error loading more messages:', error);
             setPagination((prev) => ({ ...prev, isLoadingMore: false }));
         }
-    }, [api, chatId, projectId, pagination.isLoadingMore, pagination.hasMore, pagination.page, mapApiMessage]);
+    }, [api, chatId, pagination.isLoadingMore, pagination.hasMore, pagination.page, mapApiMessage]);
 
     /** Send a message - creates chat if needed, handles streaming */
     const sendMessage = useCallback(
@@ -327,24 +360,43 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 // If no chatId, create a new chat first
                 let chatIdToUse = chatId;
                 if (!chatIdToUse) {
-                    const newChat = await api.chats.create(projectId);
-                    chatIdToUse = newChat.id;
+                    // TODO: Unify this when backend is updated
+                    if (chatType === 'phase') {
+                        if (!projectId) {
+                            throw new Error('Project ID is required for phase chats');
+                        }
 
-                    // Skip the message reload effect
-                    skipNextLoad.current = true;
-                    setChatId(chatIdToUse);
-                    setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
+                        // Phase chat — project-scoped creation
+                        const newChat = await api.chats.create(projectId);
+                        chatIdToUse = newChat.id;
 
-                    // Update URL without navigation using history API
-                    window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
+                        skipNextLoad.current = true;
+                        setChatId(chatIdToUse);
+                        setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
 
-                    insertChatToCache(cache, globalMutate, newChat);
+                        // Update URL without navigation using history API
+                        window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
+
+                        insertChatToCache(cache, globalMutate, newChat);
+                    } else {
+                        // Intake chat — unified creation
+                        const newChat = await api.chats.createIntake({
+                            framework: intakeConfig!.framework,
+                            category: intakeConfig?.category,
+                        });
+                        chatIdToUse = newChat.id;
+
+                        skipNextLoad.current = true;
+                        setChatId(chatIdToUse);
+                    }
                 }
 
                 // Create abort controller for this request
                 abortControllerRef.current = new AbortController();
 
-                const response = await sendAction(
+                // TODO: Unify this when backend is updated
+                const send = chatType === 'phase' ? sendAction : sendIntakeAction;
+                const response = await send(
                     {
                         message: content,
                         chatId: chatIdToUse,
@@ -377,7 +429,8 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
     /** Summarize current chat and store the new phase chat ID */
     const summarizeChat = useCallback(async () => {
-        if (!chatId || state.isSummarizing) return;
+        // Summarization is only for phase chats
+        if (chatType !== 'phase' || !chatId || state.isSummarizing) return;
 
         setState((prev) => ({ ...prev, isSummarizing: true, summaryNewChatId: null, error: null }));
 
@@ -436,7 +489,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }
-    }, [chatId, getToken, state.isSummarizing]);
+    }, [chatId, getToken, chatType, state.isSummarizing]);
 
     /** Navigate to the new phase chat after summarization */
     const navigateToNewPhase = useCallback(() => {
@@ -462,10 +515,9 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
     return (
         <ChatContext.Provider
-            value={{
+            value={buildContextValue(chatType, projectId, {
                 state,
                 api,
-                projectId,
                 chatId,
                 pagination,
                 loadMessages,
@@ -476,8 +528,12 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 summarizeChat,
                 navigateToNewPhase,
                 clearPendingChanges,
+<<<<<<< HEAD
                 clearPendingPhaseTransition,
             }}
+=======
+            })}
+>>>>>>> 9ec3d34 (feat: add phase 2 context management)
         >
             {children}
         </ChatContext.Provider>

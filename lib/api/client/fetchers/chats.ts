@@ -1,24 +1,27 @@
+import type { CreateIntakeChatBodyDto } from '@/lib/schema/chat';
 import type { ChatDto } from '@/lib/schema/message';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
     root: (projectId: string) => `/api/projects/${projectId}/chats`,
-    byId: (projectId: string, chatId: string) => `/api/projects/${projectId}/chats/${chatId}`,
+    byId: (chatId: string) => `/api/chats/${chatId}`,
+    unified: '/api/chats',
 } as const;
 
 export const chatKeys = {
     all: ['chats'] as const,
     lists: () => [...chatKeys.all, 'list'] as const,
-    list: (projectId: string, params?: PaginationParams) => [...chatKeys.lists(), projectId, params] as const,
+    list: (params?: PaginationParams) => [...chatKeys.lists(), params] as const,
     details: () => [...chatKeys.all, 'detail'] as const,
-    detail: (projectId: string, chatId: string) => [...chatKeys.details(), projectId, chatId] as const,
+    detail: (chatId: string) => [...chatKeys.details(), chatId] as const,
 };
 
 export function createChatApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 
     return {
+        // TODO: Unify this when backend is updated
         list: async (projectId: string, params?: PaginationParams) => {
             const { data } = await axios.get<PaginatedResponse<ChatDto>>(
                 buildUrl(ENDPOINTS.root(projectId), params as Record<string, string | number | undefined>),
@@ -26,8 +29,14 @@ export function createChatApi(getToken: TokenGetter) {
             return data;
         },
 
-        get: async (projectId: string, chatId: string) => {
-            const { data } = await axios.get<ChatDto>(ENDPOINTS.byId(projectId, chatId));
+        get: async (chatId: string) => {
+            const { data } = await axios.get<ChatDto>(ENDPOINTS.byId(chatId));
+            return data;
+        },
+
+        // TODO: Unify this when backend is updated
+        createIntake: async (body: CreateIntakeChatBodyDto) => {
+            const { data } = await axios.post<ChatDto>(ENDPOINTS.unified, body);
             return data;
         },
 
@@ -36,8 +45,8 @@ export function createChatApi(getToken: TokenGetter) {
             return data;
         },
 
-        delete: async (projectId: string, chatId: string) => {
-            const { data } = await axios.delete<{ message: string }>(ENDPOINTS.byId(projectId, chatId));
+        delete: async (chatId: string) => {
+            const { data } = await axios.delete<{ message: string }>(ENDPOINTS.byId(chatId));
             return data;
         },
     };

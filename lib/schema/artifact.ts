@@ -22,6 +22,8 @@ export const DOCUMENT_TYPES = [
     // 'Analysis',
     'Research Report',
     'Executive Summary',
+    'Company Profile',
+    'Human Persona',
     'Other',
 ] as const;
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
@@ -51,6 +53,7 @@ export const ListArtifactsQuerySchema = z.object({
     visibility: csvOf(VisibilityFilterSchema).optional(),
     status: csvOf(FilterableStatusSchema).optional(),
     chatId: csvOf(z.string().uuid()).optional(),
+    document_type: DocumentTypeSchema.optional(),
 });
 export type ListArtifactsQueryDto = z.infer<typeof ListArtifactsQuerySchema>;
 

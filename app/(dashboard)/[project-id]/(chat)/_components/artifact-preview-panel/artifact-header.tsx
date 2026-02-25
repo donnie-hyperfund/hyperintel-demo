@@ -11,12 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import { exportArtifact } from '@/lib/api/requests/worker/chat';
+import { isIntakeDocument } from '@/lib/artifacts/utils';
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
-
-const documentTypeIconsMap: Partial<Record<DocumentType, typeof FileText>> = {
-    'Company Profile': Building,
-    'Human Persona': Users,
-};
 
 type ArtifactHeaderProps = {
     title: string;
@@ -34,6 +30,11 @@ type ArtifactHeaderProps = {
     actions?: ReactNode;
     /** Whether the content is being streamed */
     isStreaming?: boolean;
+};
+
+const documentTypeIconsMap: Partial<Record<DocumentType, typeof FileText>> = {
+    'Company Profile': Building,
+    'Human Persona': Users,
 };
 
 export function ArtifactHeader({
@@ -61,6 +62,7 @@ export function ArtifactHeader({
     const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;
 
+    const shouldDisplayVersion = !isIntakeDocument(documentType);
     const shouldDisplayCopyButton = !!content && !isStreaming;
     const shouldDisplayDownloadButton = !!content && !isStreaming;
 
@@ -134,10 +136,10 @@ export function ArtifactHeader({
                             <VersionStatusBadge status={status} isUploaded={isUploaded} />
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
-                            <span>v{version}</span>
+                            {shouldDisplayVersion && <span>v{version}</span>}
                             {timeAgo && updatedAtFormatted && (
                                 <>
-                                    <span>·</span>
+                                    {shouldDisplayVersion && <span>·</span>}
                                     <span title={updatedAtFormatted}>{timeAgo}</span>
                                 </>
                             )}
