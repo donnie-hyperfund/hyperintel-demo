@@ -41,7 +41,8 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
 
     const message = watch('message');
     const hasContent = message && message.trim().length > 0;
-    const isDisabled = !hasContent || isGenerating || isSummarizing || isLoading;
+    const isBusy = isGenerating || isSummarizing || isLoading;
+    const isDisabled = !hasContent || isBusy;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
         if (!data.message.trim()) return;
@@ -99,48 +100,45 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                             transition={{ duration: 0.3, ease: 'easeOut' }}
                             onClick={handleContainerClick}
                             className={cn(
-                                'relative flex items-end gap-2 rounded-5 border border-neutral-700 p-5 shadow-lg shadow-black/15 bg-neutral-800',
+                                'relative flex flex-wrap items-end gap-2 rounded-5 border border-neutral-700 p-5 shadow-lg shadow-black/15 bg-neutral-800',
                                 errors.message && 'border-red-400 ring-red-500/20 dark:ring-red-500/40',
                             )}
                         >
-                            <div className="flex-1 min-w-0">
-                                <AutoExpandingTextarea
-                                    name={name}
-                                    ref={mergedRef}
-                                    value={message || ''}
-                                    onChange={(e) => {
-                                        onChange(e);
-                                    }}
-                                    onBlur={onBlur}
-                                    onKeyDown={handleKeyDown}
-                                    placeholder="Type your message..."
-                                    className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground"
-                                    maxHeight={144}
-                                    minHeight={24}
-                                />
+                            <AutoExpandingTextarea
+                                name={name}
+                                ref={mergedRef}
+                                value={message || ''}
+                                onChange={(e) => {
+                                    onChange(e);
+                                }}
+                                onBlur={onBlur}
+                                onKeyDown={handleKeyDown}
+                                placeholder="Type your message..."
+                                className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground"
+                                maxHeight={144}
+                                minHeight={24}
+                            />
+                            <div className="flex items-end gap-2 ml-auto">
+                                <SwitchModelSelector disabled={isBusy} />
+                                <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
+                                    <Send className="size-4" />
+                                </Button>
                             </div>
-
-                            <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
-                                <Send className="size-4" />
-                            </Button>
                         </motion.div>
 
-                        <div className="flex flex-col gap-2">
+                        <div className="flex items-center h-9 px-1 justify-between">
                             {errors.message && (
                                 <motion.p
                                     initial={{ opacity: 0, y: -10 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0, y: -10 }}
-                                    className="flex items-center h-9 px-1 text-xs text-red-400 justify-self-start"
+                                    className="text-xs text-red-400 justify-self-start"
                                 >
                                     {errors.message.message}
                                 </motion.p>
                             )}
 
-                            <div className="flex items-center h-9 px-1 justify-between">
-                                <SwitchModelSelector />
-                                <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
-                            </div>
+                            <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
                         </div>
                     </div>
                 </form>
