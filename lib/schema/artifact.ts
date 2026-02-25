@@ -145,6 +145,13 @@ export const EXPORT_FORMATS = ['docx'] as const;
 export const ExportFormatSchema = z.enum(EXPORT_FORMATS);
 export type ExportFormat = z.infer<typeof ExportFormatSchema>;
 
+export const ListUserResourcesQuerySchema = z.object({
+    page: z.coerce.number().int().positive().optional().default(1),
+    limit: z.coerce.number().int().positive().max(100).optional().default(20),
+    documentType: csvOf(DocumentTypeSchema).optional(),
+});
+export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
+
 export const ExportArtifactQuerySchema = z.object({
     artifactVersionId: z.string().uuid(),
     format: ExportFormatSchema.default('docx'),
