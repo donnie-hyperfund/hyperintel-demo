@@ -113,7 +113,12 @@ export function handleCommonStreamEvent(
             return true;
 
         case 'reasoning_done':
-            enqueue({ type: 'reasoning_done', blockId: event.blockId, offsetMs: event.offsetMs, durationMs: event.durationMs });
+            enqueue({
+                type: 'reasoning_done',
+                blockId: event.blockId,
+                offsetMs: event.offsetMs,
+                durationMs: event.durationMs,
+            });
             return true;
 
         case 'retry_attempt':
