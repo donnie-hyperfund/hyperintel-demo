@@ -1,0 +1,22 @@
+name: Setup repo
+inputs:
+  node-version:
+    default: '22'
+  clone-token:
+    required: true
+    description: PAT for private submodule checkout
+runs:
+  using: composite
+  steps:
+    - run: |
+        git config --global url."https://x-access-token:${{ inputs.clone-token }}@github.com/".insteadOf "https://github.com/"
+        git submodule update --init --recursive
+      shell: bash
+    - run: corepack enable
+      shell: bash
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash

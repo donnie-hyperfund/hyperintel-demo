@@ -1,0 +1,40 @@
+name: PR Check
+on:
+    pull_request:
+        types: [opened, synchronize]
+        branches: [main]
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.head_ref }}
+                  fetch-depth: 0
+
+            - uses: ./.github/actions/init
+              with:
+                  clone-token: ${{ secrets.CLONE_TOKEN }}
+
+            - name: Get changed files
+              id: changed
+              run: |
+                  FILES=$(git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' ':!common/' ':!workers/_common/' | tr '\n' ' ')
+                  echo "files=$FILES" >> "$GITHUB_OUTPUT"
+
+# TODO: typecheck will fail currently
+#            - name: Typecheck
+#              run: pnpm run tsc:check
+
+            - name: Biome fix changed files
+              if: steps.changed.outputs.files != ''
+              run: pnpm biome check --write ${{ steps.changed.outputs.files }}
+
+            - name: Commit fixes
+              uses: stefanzweifel/git-auto-commit-action@v5
+              with:
+                  commit_message: 'style: autofix (biome)'
+                  commit_options: '--no-verify'

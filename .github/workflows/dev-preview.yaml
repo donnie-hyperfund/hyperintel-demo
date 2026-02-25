@@ -8,20 +8,13 @@ on:
 
 jobs:
   deploy-preview:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - run: |
-          git config --global url."https://x-access-token:${{ secrets.CLONE_TOKEN }}@github.com/".insteadOf "https://github.com/"
-          git submodule update --init --recursive
-      - run: corepack enable
-      - uses: actions/setup-node@v6
+      - uses: ./.github/actions/init
         with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          clone-token: ${{ secrets.CLONE_TOKEN }}
 
       - name: Branch names
         id: branch
@@ -59,7 +52,7 @@ jobs:
           failed=0
           for dir in workers/*/; do
             name=$(basename "$dir")
-            [[ "$name" == _common || "$name" == node_modules ]] && continue
+            [[ "$name" == _common || "$name" == node_modules || "$name" == objects ]] && continue
             [[ ! -f "$dir/wrangler.jsonc" ]] && continue
             echo "::group::Deploying $name"
             if ! npx wrangler versions upload --env=dev \
