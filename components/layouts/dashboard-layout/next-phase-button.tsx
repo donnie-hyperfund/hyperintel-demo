@@ -140,7 +140,15 @@ export function NextPhaseButton() {
                     )}
 
                     {state.error && !state.isSummarizing && (
-                        <p className="text-sm text-destructive text-center py-2">{state.error.message}</p>
+                        <div className="flex flex-col items-center justify-center gap-2">
+                            <p className="text-sm text-destructive text-center py-2">
+                                Something went wrong. Please try again.
+                            </p>
+                            <Button onClick={handleClick} className="gap-2 ml-auto">
+                                Try again
+                                <ArrowRight className="size-4" />
+                            </Button>
+                        </div>
                     )}
 
                     {isSummaryReady && (
