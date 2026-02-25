@@ -7,7 +7,7 @@
  */
 
 import type { AgentStreamEvent } from '@common/ai/agent';
-import { serializeException } from '@/common/ai/utils';
+import { serializeException, stringifyError } from '@/common/ai/utils';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { Ctx } from '../context';
 
@@ -78,7 +78,7 @@ export function handleCommonStreamEvent(
             return true;
 
         case 'error':
-            enqueue({ type: 'error', error: String(event.error), soft: event.soft ?? false });
+            enqueue({ type: 'error', error: stringifyError(event.error), soft: event.soft ?? false });
             return true;
 
         case 'search_start':

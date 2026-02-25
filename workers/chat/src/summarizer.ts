@@ -1,7 +1,7 @@
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types';
-import { serializeException } from '@common/ai/utils';
+import { serializeException, stringifyError } from '@common/ai/utils';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -223,7 +223,7 @@ async function streamInternal(
                     summaryContent = event.streamLog.fullContent ?? '';
                     break;
                 case 'error':
-                    enqueue({ type: 'error', error: String(event.error) });
+                    enqueue({ type: 'error', error: stringifyError(event.error) });
                     break;
                 default:
                     break;
