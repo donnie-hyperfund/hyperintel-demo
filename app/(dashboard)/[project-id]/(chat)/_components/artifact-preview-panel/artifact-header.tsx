@@ -3,21 +3,27 @@
 import { useAuth } from '@clerk/nextjs';
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS } from 'date-fns/locale';
-import { ArrowLeft, Check, Copy, Download, FileText, FileUp, Loader2, X } from 'lucide-react';
+import { ArrowLeft, Building, Check, Copy, Download, FileText, FileUp, Loader2, Users, X } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import { exportArtifact } from '@/lib/api/requests/worker/chat';
-import type { VersionStatus } from '@/lib/schema/artifact';
-import { VersionStatusBadge } from '../version-status-badge';
+import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
+
+const documentTypeIconsMap: Partial<Record<DocumentType, typeof FileText>> = {
+    'Company Profile': Building,
+    'Human Persona': Users,
+};
 
 type ArtifactHeaderProps = {
     title: string;
     content: string;
     version?: number;
     status?: VersionStatus;
+    documentType?: DocumentType;
     isUploaded?: boolean;
     isInternal?: boolean;
     artifactVersionId?: string;
@@ -35,6 +41,7 @@ export function ArtifactHeader({
     content,
     version,
     status,
+    documentType,
     isUploaded,
     isInternal,
     artifactVersionId,
@@ -49,6 +56,7 @@ export function ArtifactHeader({
     const [downloaded, setDownloaded] = useState(false);
     const [exporting, setExporting] = useState(false);
 
+    const Icon = (documentType && documentTypeIconsMap[documentType]) || FileText;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : undefined;
     const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;
@@ -117,7 +125,7 @@ export function ArtifactHeader({
                     </Button>
                 )}
                 <div className="flex gap-3 items-center">
-                    <FileText className="size-5 shrink-0 text-neutral-500 mt-0.5" />
+                    <Icon className="size-5 shrink-0 text-neutral-500 mt-0.5" />
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
                             <span title={title} className="line-clamp-1 text-sm font-medium">

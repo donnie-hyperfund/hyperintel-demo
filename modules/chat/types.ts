@@ -8,6 +8,8 @@ import type { ArtifactDto } from '@/lib/schema/artifact';
 // Chat Types
 // =============================================================================
 
+export type ChatType = 'phase' | 'company' | 'stakeholder';
+
 export type MessageArtifactRef = {
     id: string;
     identifier: string;
