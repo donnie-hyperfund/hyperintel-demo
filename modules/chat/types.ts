@@ -44,6 +44,8 @@ export type ChatState = {
     phaseIndex: number | null;
     /** Chat ID of the new phase after summarization completes */
     summaryNewChatId: string | null;
+    /** True when AI triggered generate_summary from chat — tells UI to show the phase transition dialog */
+    pendingPhaseTransition: boolean;
 };
 
 export type PaginationState = {

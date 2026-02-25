@@ -39,6 +39,8 @@ type UseStreamReaderOptions = {
     fetchArtifact?: (artifactKey: string, version: number) => Promise<Artifact | null>;
     /** Called when a document stream starts */
     onDocumentStart?: () => void;
+    /** Called when a terminal tool completes (e.g. generate_summary) via done event */
+    onTerminalTool?: (toolName: string) => void;
 };
 
 /**
@@ -54,6 +56,7 @@ export function useStreamReader({
     onTokenUsage,
     fetchArtifact,
     onDocumentStart,
+    onTerminalTool,
 }: UseStreamReaderOptions) {
     const { getArtifact, addArtifact, updateArtifact } = artifactContext;
 
@@ -516,6 +519,9 @@ export function useStreamReader({
                                             tokenBreakdown: event.tokenBreakdown,
                                         });
                                     }
+                                    if (event.outputType === 'tool' && event.outputTool) {
+                                        onTerminalTool?.(event.outputTool);
+                                    }
                                     break;
 
                                 default:
@@ -544,6 +550,7 @@ export function useStreamReader({
             onTokenUsage,
             fetchArtifact,
             onDocumentStart,
+            onTerminalTool,
         ],
     );
 
