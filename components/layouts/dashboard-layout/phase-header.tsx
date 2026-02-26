@@ -18,7 +18,7 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export const PhaseHeader = () => {
-    const { projectId } = useParams<PageParams<'/[project-id]'>>();
+    const { 'project-id': projectId } = useParams<PageParams<'/[project-id]'>>();
 
     const { chatId, state } = useChatContext();
     const { data: project } = useFetchProject(projectId);
