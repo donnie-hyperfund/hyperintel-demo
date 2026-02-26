@@ -18,9 +18,5 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
         fallback[unstable_serialize(projectKeys.detail(projectId))] = project;
     }
 
-    return (
-        <SWRConfig value={{ fallback }}>
-            <ModelSelectionProvider>{children}</ModelSelectionProvider>
-        </SWRConfig>
-    );
+    return <SWRConfig value={{ fallback }}>{children}</SWRConfig>;
 }
