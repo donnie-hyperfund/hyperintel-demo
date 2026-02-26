@@ -167,6 +167,7 @@ export function ChatProvider({
 
     const revalidateArtifactByKeyAndVersion = useCallback(
         async (keyId: string, version: number) => {
+            // TODO: Handle it with a unified artifact API when backend is updated
             if (!projectId) return;
 
             globalMutate(serializeProjectArtifactListKey(projectId));
@@ -222,7 +223,9 @@ export function ChatProvider({
 
     const fetchArtifact = useCallback(
         async (artifactKey: string, version: number) => {
+            // TODO: Handle it with a unified artifact API when backend is updated
             if (!projectId) return null;
+
             try {
                 const artifact = await api.projectArtifacts.getByKey(projectId, artifactKey, version);
                 if (artifact) {
