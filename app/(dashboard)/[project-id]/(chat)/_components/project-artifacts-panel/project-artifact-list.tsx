@@ -44,7 +44,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     const router = useRouter();
     const { getToken } = useAuth();
 
-    const { projectId, chatId } = useChatContext();
+    const { projectId, chatId } = useChatContext<'phase'>();
 
     const filterParams = useMemo(() => filtersToParams(filters), [filters]);
 

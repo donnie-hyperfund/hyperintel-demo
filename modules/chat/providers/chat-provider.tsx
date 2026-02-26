@@ -10,8 +10,8 @@ import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
-import type { IntakeFramework, PersonaCategory } from '@/lib/schema/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
+import { intakeConfigMap } from '@/modules/chat/contants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
@@ -51,17 +51,19 @@ export type BaseChatContextValue = {
 
 type PhaseChatContextValue = BaseChatContextValue & {
     chatType: 'phase';
-    /** Project ID (null for intake chats) */
     projectId: string;
 };
 
 type CompanyStakeholderChatContextValue = BaseChatContextValue & {
     chatType: 'company' | 'stakeholder';
+    projectId?: never;
 };
 
-type ChatContextValue = PhaseChatContextValue | CompanyStakeholderChatContextValue;
+type ChatContextValue<TChatType extends ChatType> = TChatType extends 'phase'
+    ? PhaseChatContextValue
+    : CompanyStakeholderChatContextValue;
 
-const ChatContext = createContext<ChatContextValue | null>(null);
+const ChatContext = createContext<ChatContextValue<ChatType> | null>(null);
 
 type ChatProviderProps = {
     children: ReactNode;
@@ -69,8 +71,6 @@ type ChatProviderProps = {
     projectId?: string;
     /** Chat type — defaults to 'phase' */
     chatType?: ChatType;
-    /** Intake configuration (required when chatType is 'company' or 'stakeholder') */
-    intakeConfig?: { framework: IntakeFramework; category?: PersonaCategory };
     /** Initial chat ID (optional - will create on first message if not provided) */
     initialChatId?: string;
     /** Initial messages to display */
@@ -81,7 +81,7 @@ function buildContextValue(
     chatType: ChatType,
     projectId: string | undefined,
     base: Omit<BaseChatContextValue, 'chatType'>,
-): ChatContextValue {
+): ChatContextValue<ChatType> {
     return chatType === 'phase' ? { ...base, chatType, projectId: projectId! } : { ...base, chatType };
 }
 
@@ -100,7 +100,6 @@ export function ChatProvider({
     children,
     projectId,
     chatType = 'phase',
-    intakeConfig,
     initialChatId,
     initialMessages = [],
 }: ChatProviderProps) {
@@ -384,8 +383,8 @@ export function ChatProvider({
                     } else {
                         // Intake chat — unified creation
                         const newChat = await api.chats.createIntake({
-                            framework: intakeConfig!.framework,
-                            category: intakeConfig?.category,
+                            framework: intakeConfigMap[chatType].framework,
+                            category: intakeConfigMap[chatType].category,
                         });
                         chatIdToUse = newChat.id;
 
@@ -427,7 +426,7 @@ export function ChatProvider({
                 abortControllerRef.current = null;
             }
         },
-        [api, cache, chatId, getToken, globalMutate, projectId, readStream, selectedModel, state.isGenerating],
+        [api, cache, chatId, getToken, globalMutate, chatType, projectId, readStream, selectedModel, state.isGenerating],
     );
 
     /** Summarize current chat and store the new phase chat ID */
@@ -543,8 +542,8 @@ export function ChatProvider({
     );
 }
 
-export function useChatContext(): ChatContextValue {
-    const context = useContext(ChatContext);
+export function useChatContext<TChatType extends ChatType>(): ChatContextValue<TChatType> {
+    const context = useContext(ChatContext) as ChatContextValue<TChatType> | null;
     if (!context) {
         throw new Error('useChatContext must be used within a ChatProvider');
     }

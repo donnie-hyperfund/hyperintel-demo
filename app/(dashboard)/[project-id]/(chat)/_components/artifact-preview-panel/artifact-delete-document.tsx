@@ -31,7 +31,8 @@ export function ArtifactDeleteDocument({
     onProcessingChange,
     onDeleted,
 }: ArtifactDeleteDocumentProps) {
-    const { projectId } = useChatContext();
+    const { projectId } = useChatContext<'phase'>();
+    // TODO: Use the unified artifact API when backend is updated
     const { trigger: deleteArtifact, isMutating } = useDeleteProjectArtifact(projectId, artifactKey);
 
     const handleDelete = async () => {

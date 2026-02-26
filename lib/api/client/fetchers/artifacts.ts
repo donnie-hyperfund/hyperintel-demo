@@ -4,6 +4,7 @@ import type { PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
     root: '/api/artifacts',
+    byId: (artifactId: string) => `/api/artifacts/${artifactId}`,
 } as const;
 
 export const artifactKeys = {
@@ -25,6 +26,11 @@ export function createArtifactApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 
     return {
+        delete: async (artifactId: string) => {
+            const { data } = await axios.delete<{ success: true; message: string }>(ENDPOINTS.byId(artifactId));
+            return data;
+        },
+
         list: async (documentType?: DocumentType, paginationParams?: PaginationParams) => {
             const params = {
                 ...(documentType ? { document_type: documentType } : undefined),

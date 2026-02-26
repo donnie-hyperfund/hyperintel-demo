@@ -40,7 +40,7 @@ type ProjectArtifactFilterDropdownProps = {
 };
 
 export function ProjectArtifactFilterDropdown({ filters, onChange }: ProjectArtifactFilterDropdownProps) {
-    const { projectId } = useChatContext();
+    const { projectId } = useChatContext<'phase'>();
     const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
 
     const phases = useMemo(() => {

@@ -86,11 +86,16 @@ export const ArtifactViewer = ({
 
     const {
         state: { messages },
+        projectId,
     } = useChatContext();
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
     const showApprovalBar =
-        !isIntakeDocument(documentType) && status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
+        !isIntakeDocument(documentType) &&
+        status === 'proposed' &&
+        !isStreaming &&
+        !!artifactKey &&
+        !isLastMessageStreaming;
     const canDelete = !!artifactKey && !!isUploaded && !isStreaming && status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
     const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
@@ -118,9 +123,10 @@ export const ArtifactViewer = ({
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
-    const deleteAction = canDelete && (
+    // TODO: Remove the !!projectId when backend is updated and we can use a unified artifact API
+    const deleteAction = canDelete && !!projectId && (
         <ArtifactDeleteDocument
-            artifactKey={artifactKey}
+            artifactKey={artifactKey!}
             title={title}
             onProcessingChange={setIsProcessingDelete}
             onDeleted={onCloseAction}

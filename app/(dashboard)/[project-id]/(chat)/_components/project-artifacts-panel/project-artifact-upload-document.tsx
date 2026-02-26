@@ -19,7 +19,7 @@ function getUploadTooltip(status: UploadStatus) {
 }
 
 export function ProjectArtifactUploadDocument() {
-    const { chatId, projectId } = useChatContext();
+    const { chatId, projectId } = useChatContext<'phase'>();
 
     const { fileInputRef, handleFileChange, status, accept } = useUploadProjectArtifact(projectId, chatId);
 
