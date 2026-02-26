@@ -3,6 +3,7 @@
 import { Building2, Layers } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { NextPhaseButton } from '@/components/layouts/dashboard-layout/next-phase-button';
 import { PhasePicker } from '@/components/layouts/dashboard-layout/phase-picker';
 import {
     Breadcrumb,
@@ -26,27 +27,32 @@ export const PhaseHeader = () => {
 
     return (
         <header className="h-14 border-b border-border flex items-center px-6 gap-4">
-            <Breadcrumb>
-                <BreadcrumbList>
-                    {project?.name && (
-                        <>
-                            <BreadcrumbItem>
-                                <BreadcrumbLink asChild>
-                                    <Link href={`/${projectId}/chats`}>{project.name}</Link>
-                                </BreadcrumbLink>
-                            </BreadcrumbItem>
-                            <BreadcrumbSeparator />
-                        </>
-                    )}
-                    <BreadcrumbItem>
-                        <PhasePicker
-                            projectId={projectId}
-                            currentChatId={chatId ?? undefined}
-                            currentPhaseIndex={state.phaseIndex}
-                        />
-                    </BreadcrumbItem>
-                </BreadcrumbList>
-            </Breadcrumb>
+            <div className="flex items-center gap-3">
+                <Breadcrumb>
+                    <BreadcrumbList>
+                        {project?.name && (
+                            <>
+                                <BreadcrumbItem>
+                                    <BreadcrumbLink asChild>
+                                        <Link href={`/${projectId}/chats`}>{project.name}</Link>
+                                    </BreadcrumbLink>
+                                </BreadcrumbItem>
+                                <BreadcrumbSeparator />
+                            </>
+                        )}
+                        <BreadcrumbItem>
+                            <PhasePicker
+                                projectId={projectId}
+                                currentChatId={chatId ?? undefined}
+                                currentPhaseIndex={state.phaseIndex}
+                            />
+                        </BreadcrumbItem>
+                    </BreadcrumbList>
+                </Breadcrumb>
+
+                <NextPhaseButton />
+            </div>
+
             <div className="ml-auto flex items-center gap-1">
                 <Button
                     variant="ghost"
