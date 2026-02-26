@@ -7,7 +7,7 @@ import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
-import { ArtifactItemSkeleton, ArtifactListItem } from '../../_components/artifact-list-item';
+import { ArtifactItemSkeleton, ArtifactListItem } from '@/modules/artifacts/components/artifact-list-item';
 
 const PAGE_SIZE = 20;
 
@@ -70,7 +70,7 @@ export const StakeholderList = () => {
     return (
         <div className="space-y-2 flex-1">
             {artifacts.map((artifact) => (
-                <ArtifactListItem key={artifact.id} artifact={artifact} icon={Users} />
+                <ArtifactListItem key={artifact.id} artifact={artifact} shouldDisplayVersionInfo={false} />
             ))}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">

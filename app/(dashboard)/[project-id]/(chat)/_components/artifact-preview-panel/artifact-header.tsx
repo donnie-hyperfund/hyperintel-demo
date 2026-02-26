@@ -3,7 +3,7 @@
 import { useAuth } from '@clerk/nextjs';
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS } from 'date-fns/locale';
-import { ArrowLeft, Building, Check, Copy, Download, FileText, FileUp, Loader2, Users, X } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Download, FileUp, Loader2, X } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
@@ -13,6 +13,7 @@ import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import { exportArtifact } from '@/lib/api/requests/worker/chat';
 import { isIntakeDocument } from '@/lib/artifacts/utils';
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
+import { getDocumentTypeIcon } from '@/modules/artifacts/utils';
 
 type ArtifactHeaderProps = {
     title: string;
@@ -30,11 +31,6 @@ type ArtifactHeaderProps = {
     actions?: ReactNode;
     /** Whether the content is being streamed */
     isStreaming?: boolean;
-};
-
-const documentTypeIconsMap: Partial<Record<DocumentType, typeof FileText>> = {
-    'Company Profile': Building,
-    'Human Persona': Users,
 };
 
 export function ArtifactHeader({
@@ -57,7 +53,7 @@ export function ArtifactHeader({
     const [downloaded, setDownloaded] = useState(false);
     const [exporting, setExporting] = useState(false);
 
-    const Icon = (documentType && documentTypeIconsMap[documentType]) || FileText;
+    const Icon = getDocumentTypeIcon(documentType);
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : undefined;
     const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;

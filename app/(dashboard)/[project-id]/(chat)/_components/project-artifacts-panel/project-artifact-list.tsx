@@ -10,14 +10,14 @@ import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
 import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
+import { ArtifactItemSkeleton, ArtifactListItem } from '@/modules/artifacts/components/artifact-list-item';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { getArtifactChatId } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { getArtifactChatId } from '@/modules/chat/providers/artifact-provider/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { PhaseSwitchDialog } from '../phase-switch-dialog';
 import type { ProjectArtifactFilters } from './project-artifact-filter-dropdown';
 import { getActiveFilterCount } from './project-artifact-filter-dropdown';
-import { ArtifactListItemSkeleton, ProjectArtifactListItem } from './project-artifact-list-item';
 
 function filtersToParams(filters: ProjectArtifactFilters): ProjectArtifactFilterParams {
     const params: ProjectArtifactFilterParams = {};
@@ -159,7 +159,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         return (
             <div className="space-y-2">
                 {Array.from({ length: 3 }).map((_, i) => (
-                    <ArtifactListItemSkeleton key={i} />
+                    <ArtifactItemSkeleton key={i} size="sm" />
                 ))}
             </div>
         );
@@ -181,9 +181,10 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         <>
             <div className="space-y-2">
                 {artifacts.map((artifact) => (
-                    <ProjectArtifactListItem
+                    <ArtifactListItem
                         key={artifact.id}
                         artifact={artifact}
+                        size="sm"
                         onClick={() => handleArtifactClick(artifact)}
                     />
                 ))}

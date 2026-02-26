@@ -14,7 +14,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
-import { getArtifactChatId, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
+import { getArtifactChatId, getArtifactVersion } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function NextPhaseButton() {

@@ -1,9 +1,9 @@
 'use client';
 
 import { type ReactNode, Suspense } from 'react';
+import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
 import type { Message } from '../types';
 import { ActivePanelProvider } from './active-panel-provider';
-import { ArtifactProvider } from './artifact-provider';
 import { ChatProvider } from './chat-provider';
 import { ScrollTargetProvider } from './scroll-target-provider';
 

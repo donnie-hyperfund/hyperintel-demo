@@ -2,8 +2,8 @@
 
 import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
 import type { ArtifactVersionDto } from '@/lib/schema/artifact';
-import type { Artifact } from '../../types';
-import { getArtifactContent } from './utils';
+import type { Artifact } from '../../chat/types';
+import { getArtifactContent } from '../utils';
 
 /** Update type that allows partial version objects for deep merge */
 export type ArtifactUpdate = Omit<Partial<Artifact>, 'proposed_version' | 'current_version'> & {

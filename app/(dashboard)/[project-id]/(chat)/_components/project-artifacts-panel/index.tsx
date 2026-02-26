@@ -34,7 +34,7 @@ export default function ProjectArtifactsPanel({ onClose }: ProjectArtifactsPanel
                     </Button>
                 </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex flex-1 flex-col overflow-y-auto p-4">
                 <ProjectArtifactList filters={filters} />
             </div>
         </div>
