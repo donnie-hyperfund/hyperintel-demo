@@ -27,13 +27,13 @@ export default function NewStakeholderPage() {
                 />
             }
             RightPaneComponent={
-                panelState?.panel === 'artifact-preview' ? (
+                panelState?.panel === 'artifact-preview' && (
                     <ArtifactPreviewPanel
                         version={panelState.version}
                         artifactId={panelState.artifactId}
                         onClose={closePanel}
                     />
-                ) : undefined
+                )
             }
         />
     );

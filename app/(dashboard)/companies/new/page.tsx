@@ -14,23 +14,26 @@ export default function NewCompanyPage() {
             LeftPaneComponent={
                 <ChatPanel
                     HeaderComponent={
-                        <DashboardHeader title="New company" parent={{
-                            label: 'Companies',
-                            href: '/companies',
-                        }} />
+                        <DashboardHeader
+                            title="New company"
+                            parent={{
+                                label: 'Companies',
+                                href: '/companies',
+                            }}
+                        />
                     }
                     emptyTitle="Ready to build organizational intelligence?"
                     emptySubtitle="Tell us about the company and we'll create a comprehensive profile."
                 />
             }
             RightPaneComponent={
-                panelState?.panel === 'artifact-preview' ? (
+                panelState?.panel === 'artifact-preview' && (
                     <ArtifactPreviewPanel
                         version={panelState.version}
                         artifactId={panelState.artifactId}
                         onClose={closePanel}
                     />
-                ) : undefined
+                )
             }
         />
     );

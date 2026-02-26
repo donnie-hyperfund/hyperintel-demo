@@ -9,7 +9,7 @@ type ArtifactListItemProps = {
     artifact: ArtifactDto;
     icon?: LucideIcon;
     isSelected?: boolean;
-    onClick: () => void;
+    onClick?: () => void;
 };
 
 export const ArtifactListItem = ({ artifact, icon: Icon = FileText, isSelected, onClick }: ArtifactListItemProps) => {

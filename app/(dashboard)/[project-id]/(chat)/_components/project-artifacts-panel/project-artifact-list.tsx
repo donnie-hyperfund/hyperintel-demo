@@ -48,14 +48,11 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
 
     const filterParams = useMemo(() => filtersToParams(filters), [filters]);
 
-    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectArtifactsInfinite(
-        projectId ?? undefined,
-        {
-            limit: PAGE_SIZE,
-            ...filterParams,
-        },
-    );
-    const { data: chatsData } = useFetchChats(projectId ?? undefined, { limit: 100 });
+    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectArtifactsInfinite(projectId, {
+        limit: PAGE_SIZE,
+        ...filterParams,
+    });
+    const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
 
     const { addArtifact, updateArtifact } = useArtifactContext();
     const { openPanel } = useActivePanelContext();

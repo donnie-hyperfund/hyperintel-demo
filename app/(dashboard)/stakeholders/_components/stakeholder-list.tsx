@@ -70,7 +70,7 @@ export const StakeholderList = () => {
     return (
         <div className="space-y-2 flex-1">
             {artifacts.map((artifact) => (
-                <ArtifactListItem key={artifact.id} artifact={artifact} icon={Users} onClick={() => {}} />
+                <ArtifactListItem key={artifact.id} artifact={artifact} icon={Users} />
             ))}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">
