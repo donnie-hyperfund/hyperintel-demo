@@ -2,7 +2,6 @@ import { SWRConfig, unstable_serialize } from 'swr';
 import { assertAuthPage } from '@/lib/api/auth-guard';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
 import { fetchProject } from '@/lib/api/server/fetchers/projects';
-import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
 
 type ProjectLayoutProps = LayoutProps<'/[project-id]'>;
 
