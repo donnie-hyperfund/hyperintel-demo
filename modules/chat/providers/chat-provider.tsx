@@ -530,12 +530,8 @@ export function ChatProvider({
                 summarizeChat,
                 navigateToNewPhase,
                 clearPendingChanges,
-<<<<<<< HEAD
                 clearPendingPhaseTransition,
-            }}
-=======
             })}
->>>>>>> 9ec3d34 (feat: add phase 2 context management)
         >
             {children}
         </ChatContext.Provider>
