@@ -14,7 +14,7 @@ const badgeVariants = cva('px-1.5 py-0.25 text-[10px] font-medium rounded border
     },
 });
 
-const STATUS_LABELS: Record<VersionStatus, string> = {
+const statusLabelMap: Record<VersionStatus, string> = {
     proposed: 'Pending',
     approved: 'Approved',
     rejected: 'Rejected',
@@ -31,5 +31,5 @@ type VersionStatusBadgeProps = {
 export function VersionStatusBadge({ status, isUploaded, className }: VersionStatusBadgeProps) {
     if (!status || (isUploaded && status !== 'deleted')) return null;
 
-    return <span className={cn(badgeVariants({ status }), className)}>{STATUS_LABELS[status]}</span>;
+    return <span className={cn(badgeVariants({ status }), className)}>{statusLabelMap[status]}</span>;
 }

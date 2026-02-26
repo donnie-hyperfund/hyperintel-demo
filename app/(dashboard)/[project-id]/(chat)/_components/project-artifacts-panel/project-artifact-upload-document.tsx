@@ -2,7 +2,7 @@ import { Check, Loader2, Upload } from 'lucide-react';
 import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useUploadArtifact } from '@/lib/api/client/hooks/use-artifacts';
+import { useUploadProjectArtifact } from '@/lib/api/client/hooks/use-project-artifacts';
 import { UploadStatus } from '@/lib/api/client/types';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
@@ -18,10 +18,10 @@ function getUploadTooltip(status: UploadStatus) {
     return 'Upload document';
 }
 
-export function ArtifactUploadDocument() {
-    const { chatId, projectId } = useChatContext();
+export function ProjectArtifactUploadDocument() {
+    const { chatId, projectId } = useChatContext<'phase'>();
 
-    const { fileInputRef, handleFileChange, status, accept } = useUploadArtifact(projectId, chatId);
+    const { fileInputRef, handleFileChange, status, accept } = useUploadProjectArtifact(projectId, chatId);
 
     const handleClick = useCallback(
         (e: React.MouseEvent<HTMLButtonElement>) => {

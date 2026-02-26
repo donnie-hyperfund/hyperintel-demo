@@ -10,13 +10,13 @@ import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import type { FilterableStatus, VisibilityFilter } from '@/lib/schema/artifact';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
-export type ArtifactFilters = {
+export type ProjectArtifactFilters = {
     visibility: VisibilityFilter[];
     status: FilterableStatus[];
     chatIds: string[];
 };
 
-export const EMPTY_FILTERS: ArtifactFilters = { visibility: [], status: [], chatIds: [] };
+export const EMPTY_FILTERS: ProjectArtifactFilters = { visibility: [], status: [], chatIds: [] };
 
 const VISIBILITY_OPTIONS: { value: VisibilityFilter; label: string }[] = [
     { value: 'client', label: 'Client deliverables' },
@@ -30,17 +30,17 @@ const STATUS_OPTIONS: { value: FilterableStatus; label: string }[] = [
     { value: 'superseded', label: 'Superseded' },
 ];
 
-export function getActiveFilterCount(filters: ArtifactFilters): number {
+export function getActiveFilterCount(filters: ProjectArtifactFilters): number {
     return filters.visibility.length + filters.status.length + filters.chatIds.length;
 }
 
-type ArtifactFilterDropdownProps = {
-    filters: ArtifactFilters;
-    onChange: (filters: ArtifactFilters) => void;
+type ProjectArtifactFilterDropdownProps = {
+    filters: ProjectArtifactFilters;
+    onChange: (filters: ProjectArtifactFilters) => void;
 };
 
-export function ArtifactFilterDropdown({ filters, onChange }: ArtifactFilterDropdownProps) {
-    const { projectId } = useChatContext();
+export function ProjectArtifactFilterDropdown({ filters, onChange }: ProjectArtifactFilterDropdownProps) {
+    const { projectId } = useChatContext<'phase'>();
     const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
 
     const phases = useMemo(() => {
@@ -53,8 +53,8 @@ export function ArtifactFilterDropdown({ filters, onChange }: ArtifactFilterDrop
     const activeCount = getActiveFilterCount(filters);
 
     const toggle = useCallback(
-        <K extends keyof ArtifactFilters>(key: K, value: ArtifactFilters[K][number]) => {
-            const current = filters[key] as ArtifactFilters[K][number][];
+        <K extends keyof ProjectArtifactFilters>(key: K, value: ProjectArtifactFilters[K][number]) => {
+            const current = filters[key] as ProjectArtifactFilters[K][number][];
             const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
             onChange({ ...filters, [key]: next });
         },

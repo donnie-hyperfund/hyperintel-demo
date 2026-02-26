@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
-import type { VersionStatus } from '@/lib/schema/artifact';
+import { isIntakeDocument } from '@/lib/artifacts/utils';
+import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
@@ -26,6 +27,8 @@ type ArtifactViewerProps = {
     isUploaded?: boolean;
     /** Whether the artifact is internal (not exportable) */
     isInternal?: boolean;
+    /** Document type of the artifact */
+    documentType?: DocumentType;
     /** The active version's UUID */
     artifactVersionId?: string;
     /** Artifact identifier (key) for API lookups */
@@ -66,6 +69,7 @@ export const ArtifactViewer = ({
     status,
     isUploaded,
     isInternal,
+    documentType,
     artifactVersionId,
     artifactKey,
     artifactId,
@@ -82,10 +86,16 @@ export const ArtifactViewer = ({
 
     const {
         state: { messages },
+        projectId,
     } = useChatContext();
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
-    const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
+    const showApprovalBar =
+        !isIntakeDocument(documentType) &&
+        status === 'proposed' &&
+        !isStreaming &&
+        !!artifactKey &&
+        !isLastMessageStreaming;
     const canDelete = !!artifactKey && !!isUploaded && !isStreaming && status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
     const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
@@ -113,9 +123,10 @@ export const ArtifactViewer = ({
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
-    const deleteAction = canDelete && (
+    // TODO: Remove the !!projectId when backend is updated and we can use a unified artifact API
+    const deleteAction = canDelete && !!projectId && (
         <ArtifactDeleteDocument
-            artifactKey={artifactKey}
+            artifactKey={artifactKey!}
             title={title}
             onProcessingChange={setIsProcessingDelete}
             onDeleted={onCloseAction}
@@ -129,6 +140,7 @@ export const ArtifactViewer = ({
                 content={content}
                 version={version}
                 status={status}
+                documentType={documentType}
                 isUploaded={isUploaded}
                 isInternal={isInternal}
                 artifactVersionId={artifactVersionId}

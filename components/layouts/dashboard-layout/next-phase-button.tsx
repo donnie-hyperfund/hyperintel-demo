@@ -12,17 +12,17 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
-import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
+import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
 import { getArtifactChatId, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function NextPhaseButton() {
     const { projectId, chatId, summarizeChat, navigateToNewPhase, clearPendingPhaseTransition, state } =
-        useChatContext();
+        useChatContext<'phase'>();
 
     const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
-    const { data: artifactPages } = useFetchArtifactsInfinite(projectId, { limit: 20 });
+    const { data: artifactPages } = useFetchProjectArtifactsInfinite(projectId, { limit: 20 });
 
     const [dialogOpen, setDialogOpen] = useState(false);
 

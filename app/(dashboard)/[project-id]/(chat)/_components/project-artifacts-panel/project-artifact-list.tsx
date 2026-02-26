@@ -4,23 +4,23 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
-import type { ArtifactFilterParams } from '@/lib/api/client/fetchers/artifacts';
-import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
-import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
+import type { ProjectArtifactFilterParams } from '@/lib/api/client/fetchers/project-artifacts';
+import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
+import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
 import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { getArtifactChatId } from '@/modules/chat/providers/artifact-provider/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import type { ArtifactFilters } from './artifact-filter-dropdown';
-import { getActiveFilterCount } from './artifact-filter-dropdown';
-import { ArtifactListItem, ArtifactListItemSkeleton } from './artifact-list-item';
-import { PhaseSwitchDialog } from './phase-switch-dialog';
+import { PhaseSwitchDialog } from '../phase-switch-dialog';
+import type { ProjectArtifactFilters } from './project-artifact-filter-dropdown';
+import { getActiveFilterCount } from './project-artifact-filter-dropdown';
+import { ArtifactListItemSkeleton, ProjectArtifactListItem } from './project-artifact-list-item';
 
-function filtersToParams(filters: ArtifactFilters): ArtifactFilterParams {
-    const params: ArtifactFilterParams = {};
+function filtersToParams(filters: ProjectArtifactFilters): ProjectArtifactFilterParams {
+    const params: ProjectArtifactFilterParams = {};
     if (filters.visibility.length) params.visibility = filters.visibility;
     if (filters.status.length) params.status = filters.status;
     if (filters.chatIds.length) params.chatId = filters.chatIds;
@@ -36,23 +36,24 @@ type PhaseDialogData = {
 
 const PAGE_SIZE = 20;
 
-type ArtifactListProps = {
-    filters: ArtifactFilters;
+type ProjectArtifactListProps = {
+    filters: ProjectArtifactFilters;
 };
 
-export function ArtifactList({ filters }: ArtifactListProps) {
+export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     const router = useRouter();
     const { getToken } = useAuth();
 
-    const { projectId, chatId } = useChatContext();
+    const { projectId, chatId } = useChatContext<'phase'>();
 
     const filterParams = useMemo(() => filtersToParams(filters), [filters]);
 
-    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchArtifactsInfinite(projectId, {
+    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectArtifactsInfinite(projectId, {
         limit: PAGE_SIZE,
         ...filterParams,
     });
     const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
+
     const { addArtifact, updateArtifact } = useArtifactContext();
     const { openPanel } = useActivePanelContext();
 
@@ -81,7 +82,7 @@ export function ArtifactList({ filters }: ArtifactListProps) {
             openPanel({ panel: 'artifact-preview', artifactId: localId, version });
 
             try {
-                const api = createArtifactApi(getToken);
+                const api = createProjectArtifactApi(getToken);
                 const data = await api.getByKey(projectId, artifact.key, version);
                 updateArtifact(localId, { ...data, id: localId, key: data.key, isLoading: false }, version);
             } catch {
@@ -180,7 +181,7 @@ export function ArtifactList({ filters }: ArtifactListProps) {
         <>
             <div className="space-y-2">
                 {artifacts.map((artifact) => (
-                    <ArtifactListItem
+                    <ProjectArtifactListItem
                         key={artifact.id}
                         artifact={artifact}
                         onClick={() => handleArtifactClick(artifact)}

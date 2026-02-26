@@ -54,7 +54,7 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
                 <button
                     type="button"
                     className={cn(
-                        'group flex items-center gap-1.5 text-sm rounded-md px-2 py-1 transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground',
+                        'group flex items-center gap-1.5 text-sm rounded-md px-2 py-1 transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground cursor-pointer',
                         isNewChat && 'text-neutral-500',
                     )}
                 >

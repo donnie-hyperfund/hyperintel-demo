@@ -3,12 +3,9 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { NewPhaseChat } from './_components/new-phase-chat';
 
-type ChatPageProps = {
-    params: Promise<{ 'project-id': string }>;
-    searchParams: Promise<{ new?: string }>;
-};
+type ChatPageParams = PageProps<'/[project-id]'>;
 
-export default async function ChatPage({ params, searchParams }: ChatPageProps) {
+export default async function ChatPage({ params, searchParams }: ChatPageParams) {
     const { 'project-id': projectId } = await params;
     const sp = await searchParams;
 

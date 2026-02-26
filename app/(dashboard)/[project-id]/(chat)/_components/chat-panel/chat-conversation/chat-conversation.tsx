@@ -90,7 +90,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
 
     return (
         <div ref={containerRef} className="relative flex-1 overflow-y-auto p-6">
-            <div className="w-full max-w-4xl mx-auto min-w-0 min-h-full flex flex-col">
+            <div className="w-full max-w-3xl mx-auto min-w-0 min-h-full flex flex-col">
                 {/* Loading indicator for older messages */}
                 {pagination?.isLoadingMore && (
                     <div className="flex justify-center py-4">

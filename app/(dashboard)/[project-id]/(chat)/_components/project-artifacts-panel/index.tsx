@@ -3,18 +3,22 @@
 import { X } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ArtifactFilterDropdown, type ArtifactFilters, EMPTY_FILTERS } from './artifact-filter-dropdown';
-import { ArtifactList } from './artifact-list';
-import { ArtifactUploadDocument } from './artifact-upload-document';
+import {
+    EMPTY_FILTERS,
+    ProjectArtifactFilterDropdown,
+    type ProjectArtifactFilters,
+} from './project-artifact-filter-dropdown';
+import { ProjectArtifactList } from './project-artifact-list';
+import { ProjectArtifactUploadDocument } from './project-artifact-upload-document';
 
-type ArtifactsPanelProps = {
+type ProjectArtifactsPanelProps = {
     onClose: () => void;
 };
 
-export default function ArtifactsPanel({ onClose }: ArtifactsPanelProps) {
-    const [filters, setFilters] = useState<ArtifactFilters>(EMPTY_FILTERS);
+export default function ProjectArtifactsPanel({ onClose }: ProjectArtifactsPanelProps) {
+    const [filters, setFilters] = useState<ProjectArtifactFilters>(EMPTY_FILTERS);
 
-    const handleFilterChange = useCallback((next: ArtifactFilters) => {
+    const handleFilterChange = useCallback((next: ProjectArtifactFilters) => {
         setFilters(next);
     }, []);
 
@@ -23,15 +27,15 @@ export default function ArtifactsPanel({ onClose }: ArtifactsPanelProps) {
             <div className="flex items-center justify-between px-4 h-14 border-b border-border shrink-0">
                 <h2 className="text-sm font-medium">Deliverables</h2>
                 <div className="flex items-center gap-1">
-                    <ArtifactUploadDocument />
-                    <ArtifactFilterDropdown filters={filters} onChange={handleFilterChange} />
+                    <ProjectArtifactUploadDocument />
+                    <ProjectArtifactFilterDropdown filters={filters} onChange={handleFilterChange} />
                     <Button variant="ghost" size="icon" className="size-7" onClick={onClose}>
                         <X className="size-4" />
                     </Button>
                 </div>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
-                <ArtifactList filters={filters} />
+                <ProjectArtifactList filters={filters} />
             </div>
         </div>
     );
