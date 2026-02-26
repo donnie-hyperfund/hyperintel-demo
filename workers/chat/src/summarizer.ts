@@ -124,7 +124,7 @@ async function streamInternal(
         // Fetch live document statuses for documents touched in this phase
         const phaseDocNames = new Set(documents.map((d) => d.name));
         if (phaseDocNames.size > 0) {
-            const allDocuments = await listDocuments(em!, chat.project.id);
+            const allDocuments = await listDocuments(em!, { projectId: chat.project.id });
             const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
             if (phaseDocuments.length > 0) {
                 instructions += `\n\n## Current Document Statuses (this phase)\n\n`;
