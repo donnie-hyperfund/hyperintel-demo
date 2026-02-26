@@ -11,11 +11,11 @@ import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { getArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/contants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
-import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
@@ -426,7 +426,18 @@ export function ChatProvider({
                 abortControllerRef.current = null;
             }
         },
-        [api, cache, chatId, getToken, globalMutate, chatType, projectId, readStream, selectedModel, state.isGenerating],
+        [
+            api,
+            cache,
+            chatId,
+            getToken,
+            globalMutate,
+            chatType,
+            projectId,
+            readStream,
+            selectedModel,
+            state.isGenerating,
+        ],
     );
 
     /** Summarize current chat and store the new phase chat ID */

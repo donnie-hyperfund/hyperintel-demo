@@ -7,7 +7,7 @@ import {
     useApproveProjectArtifactVersion,
     useRejectProjectArtifactVersion,
 } from '@/lib/api/client/hooks/use-project-artifacts';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 type ArtifactApprovalBarParams = PageParams<'/[project-id]'>;

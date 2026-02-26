@@ -2,8 +2,8 @@
 
 import { useCallback, useRef } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
-import type { ArtifactContextValue } from '@/modules/chat/providers/artifact-provider';
-import { getArtifactContent } from '@/modules/chat/providers/artifact-provider/utils';
+import type { ArtifactContextValue } from '@/modules/artifacts/providers/artifact-provider';
+import { getArtifactContent } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
 import type { Message, StreamBlock, TokenUsage } from '../types';
 

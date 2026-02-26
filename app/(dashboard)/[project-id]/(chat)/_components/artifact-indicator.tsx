@@ -7,8 +7,8 @@ import { FileText } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
 import { cn } from '@/lib/utils';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
 

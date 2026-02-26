@@ -1,79 +1,48 @@
+import { useAuth } from '@clerk/nextjs';
+import { useMemo } from 'react';
+import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
+import {
+    createResourceApi,
+    getResourceListInfiniteKey,
+    type ResourceListParams,
+} from '@/lib/api/client/fetchers/resources';
+import type { InfinitePaginationParams, PaginatedResponse } from '@/lib/api/client/types';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 
-const MOCK_COMPANIES: ArtifactDto[] = [
-    {
-        id: 'mock-company-1',
-        key: 'acme-corp',
-        title: 'Acme Corporation',
-        version: 1,
-        current_version: { id: 'v1', version: 1, content: '', status: 'approved', document_type: 'Company Profile', created_at: '2025-01-15T10:00:00Z', updated_at: '2025-01-15T10:00:00Z' },
-        created_at: '2025-01-15T10:00:00Z',
-        updated_at: '2025-01-15T10:00:00Z',
-    },
-    {
-        id: 'mock-company-2',
-        key: 'globex-industries',
-        title: 'Globex Industries',
-        version: 1,
-        current_version: { id: 'v2', version: 1, content: '', status: 'approved', document_type: 'Company Profile', created_at: '2025-02-01T10:00:00Z', updated_at: '2025-02-01T10:00:00Z' },
-        created_at: '2025-02-01T10:00:00Z',
-        updated_at: '2025-02-01T10:00:00Z',
-    },
-    {
-        id: 'mock-company-3',
-        key: 'initech-solutions',
-        title: 'Initech Solutions',
-        version: 1,
-        current_version: { id: 'v3', version: 1, content: '', status: 'approved', document_type: 'Company Profile', created_at: '2025-02-20T10:00:00Z', updated_at: '2025-02-20T10:00:00Z' },
-        created_at: '2025-02-20T10:00:00Z',
-        updated_at: '2025-02-20T10:00:00Z',
-    },
-];
+function getDocType(a: ArtifactDto) {
+    return a.current_version?.document_type ?? a.proposed_version?.document_type;
+}
 
-const MOCK_STAKEHOLDERS: ArtifactDto[] = [
-    {
-        id: 'mock-stakeholder-1',
-        key: 'john-smith',
-        title: 'John Smith — CEO, Acme Corporation',
-        version: 1,
-        current_version: { id: 'v4', version: 1, content: '', status: 'approved', document_type: 'Human Persona', created_at: '2025-01-16T10:00:00Z', updated_at: '2025-01-16T10:00:00Z' },
-        created_at: '2025-01-16T10:00:00Z',
-        updated_at: '2025-01-16T10:00:00Z',
-    },
-    {
-        id: 'mock-stakeholder-2',
-        key: 'sarah-chen',
-        title: 'Sarah Chen — VP Engineering, Globex',
-        version: 1,
-        current_version: { id: 'v5', version: 1, content: '', status: 'approved', document_type: 'Human Persona', created_at: '2025-02-02T10:00:00Z', updated_at: '2025-02-02T10:00:00Z' },
-        created_at: '2025-02-02T10:00:00Z',
-        updated_at: '2025-02-02T10:00:00Z',
-    },
-    {
-        id: 'mock-stakeholder-3',
-        key: 'michael-torres',
-        title: 'Michael Torres — CFO, Initech Solutions',
-        version: 1,
-        current_version: { id: 'v6', version: 1, content: '', status: 'approved', document_type: 'Human Persona', created_at: '2025-02-21T10:00:00Z', updated_at: '2025-02-21T10:00:00Z' },
-        created_at: '2025-02-21T10:00:00Z',
-        updated_at: '2025-02-21T10:00:00Z',
-    },
-    {
-        id: 'mock-stakeholder-4',
-        key: 'lisa-park',
-        title: 'Lisa Park — Head of Strategy, Acme',
-        version: 1,
-        current_version: { id: 'v7', version: 1, content: '', status: 'approved', document_type: 'Human Persona', created_at: '2025-03-05T10:00:00Z', updated_at: '2025-03-05T10:00:00Z' },
-        created_at: '2025-03-05T10:00:00Z',
-        updated_at: '2025-03-05T10:00:00Z',
-    },
-];
+export function useFetchResources(
+    params: InfinitePaginationParams = { limit: 20 },
+    config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
+) {
+    const { getToken } = useAuth();
 
-export function useFetchResources() {
-    return {
-        companies: MOCK_COMPANIES,
-        stakeholders: MOCK_STAKEHOLDERS,
-        isLoading: false,
-        error: undefined as Error | undefined,
-    };
+    const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
+        getResourceListInfiniteKey(params.limit),
+        (key) => {
+            const pageParams = key[key.length - 1] as ResourceListParams;
+            return createResourceApi(getToken).list(pageParams);
+        },
+        { revalidateOnFocus: false, ...config },
+    );
+
+    const lastPage = result.data?.[result.data.length - 1];
+    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
+
+    const allItems = useMemo(() => {
+        if (!result.data) return [];
+        return result.data.flatMap((page) => page.data);
+    }, [result.data]);
+
+    const { companies, stakeholders } = useMemo(
+        () => ({
+            companies: allItems.filter((a) => getDocType(a) === 'Company Profile'),
+            stakeholders: allItems.filter((a) => getDocType(a) === 'Human Persona'),
+        }),
+        [allItems],
+    );
+
+    return { ...result, companies, stakeholders, hasNextPage };
 }

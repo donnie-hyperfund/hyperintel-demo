@@ -1,8 +1,8 @@
 'use client';
 
 import { FileText, Loader2 } from 'lucide-react';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { getArtifactContent, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { getArtifactContent, getArtifactVersion } from '@/modules/artifacts/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
 type ArtifactPreviewPanelProps = {
