@@ -20,8 +20,7 @@ export interface SummarizerOptions {
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
 
 interface DocumentInfo {
-    title: string;
-    path: string;
+    name: string;
     contentPreview?: string;
 }
 
@@ -30,12 +29,11 @@ function extractDocuments(messages: ChatMessageEntity[]): DocumentInfo[] {
     for (const msg of messages) {
         if (!msg.blocks) continue;
         for (const block of msg.blocks as any[]) {
-            if (block.type === 'tool_call' && block.toolName === 'finalize_document') {
+            if (block.type === 'tool_call' && block.toolName === 'begin_document') {
                 const input = block.toolInput;
-                if (input?.title && input?.path) {
+                if (input?.name) {
                     docs.push({
-                        title: input.title,
-                        path: input.path,
+                        name: input.name,
                         contentPreview: input.content?.slice(0, 500),
                     });
                 }
@@ -116,8 +114,7 @@ async function streamInternal(
         if (documents.length > 0) {
             instructions += `\n\n## Documents Created During This Conversation\n\n`;
             for (const doc of documents) {
-                instructions += `### ${doc.title}\n`;
-                instructions += `**Path:** \`${doc.path}\`\n`;
+                instructions += `### ${doc.name}\n`;
                 if (doc.contentPreview) {
                     instructions += `**Preview:**\n\`\`\`\n${doc.contentPreview}\n\`\`\`\n\n`;
                 }
@@ -125,7 +122,7 @@ async function streamInternal(
         }
 
         // Fetch live document statuses for documents touched in this phase
-        const phaseDocNames = new Set(documents.map((d) => d.path));
+        const phaseDocNames = new Set(documents.map((d) => d.name));
         if (phaseDocNames.size > 0) {
             const allDocuments = await listDocuments(em!, chat.project.id);
             const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
