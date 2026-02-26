@@ -45,7 +45,7 @@ export function NextPhaseButton() {
 
     const canTransition = isLatestPhase && hasAnyApprovedArtifacts && !state.isLoading;
 
-    const buttonVisible = canTransition && !state.isGenerating;
+    const isButtonVisible = canTransition && !state.isGenerating;
 
     const isSummaryReady = !!state.summaryNewChatId;
 
@@ -94,7 +94,7 @@ export function NextPhaseButton() {
 
     return (
         <>
-            {buttonVisible && (
+            {isButtonVisible && (
                 <Button
                     variant="secondary"
                     size="sm"
@@ -102,7 +102,7 @@ export function NextPhaseButton() {
                     disabled={state.isSummarizing}
                     className="gap-1.5"
                 >
-                    Next phase
+                    Start next phase
                     <ArrowRight className="size-3.5" />
                 </Button>
             )}
