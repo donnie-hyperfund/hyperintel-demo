@@ -29,6 +29,7 @@ export type DocumentEvent =
           title: string;
           mode: 'create' | 'edit';
           isInternal: boolean;
+          documentType?: string;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           loadedVersion?: number;
           rejectionReason?: string;
@@ -115,6 +116,10 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         mode: result.mode || 'create',
                         isInternal: activeDoc.isInternal,
                     };
+
+                    if (result.document_type) {
+                        startEvent.documentType = result.document_type;
+                    }
 
                     // Add edit-mode specific fields
                     if (result.loadedFrom) {
