@@ -3,10 +3,12 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { loadVersionsForArtifacts } from '@/lib/artifacts/queries';
+import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { ListUserResourcesQuerySchema } from '@/lib/schema/artifact';
+import { GetArtifactQuerySchema, ListUserResourcesQuerySchema } from '@/lib/schema/artifact';
 
 export async function handleListResources(req: NextRequest, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
@@ -46,4 +48,66 @@ export async function handleListResources(req: NextRequest, user: UserEntity): P
     }));
 
     return NextResponse.json(createPaginatedResponse(data, totalCount, page, limit));
+}
+
+export async function handleGetResourceByKey(req: NextRequest, key: string, user: UserEntity): Promise<NextResponse> {
+    const { em } = await getOrm();
+    const { searchParams } = new URL(req.url);
+
+    const queryData = validatePayload(GetArtifactQuerySchema, {
+        version: searchParams.get('version') ?? undefined,
+    });
+
+    if (queryData instanceof NextResponse) return queryData;
+
+    const normalizedKey = normalizeArtifactKey(key);
+
+    const artifact = await em
+        .createQueryBuilder(ArtifactEntity, 'a')
+        .select('a.*')
+        .leftJoinAndSelect('a.current_version', 'cv')
+        .where({
+            'a.key': normalizedKey,
+            'a.user': user.id,
+            $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+        })
+        .getSingleResult();
+
+    if (!artifact) {
+        return NextResponse.json({ error: 'Resource not found', code: 'RESOURCE_NOT_FOUND' }, { status: 404 });
+    }
+
+    if (queryData.version !== undefined) {
+        const requestedVersion = await em.findOne(ArtifactVersionEntity, {
+            artifact: artifact.id,
+            version: queryData.version,
+        });
+        if (!requestedVersion) {
+            return NextResponse.json({ error: 'Version not found', code: 'VERSION_NOT_FOUND' }, { status: 404 });
+        }
+
+        const previousVersion =
+            queryData.version > 1
+                ? await em.findOne(ArtifactVersionEntity, {
+                      artifact: artifact.id,
+                      version: queryData.version - 1,
+                  })
+                : null;
+
+        return NextResponse.json({
+            ...wrap(artifact).toJSON(),
+            current_version: previousVersion ? wrap(previousVersion).toJSON() : undefined,
+            proposed_version: wrap(requestedVersion).toJSON(),
+        });
+    }
+
+    const proposedVersion = await em.findOne(ArtifactVersionEntity, {
+        artifact: artifact.id,
+        status: 'proposed',
+    });
+
+    return NextResponse.json({
+        ...wrap(artifact).toJSON(),
+        proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
+    });
 }
