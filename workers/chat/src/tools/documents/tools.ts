@@ -19,10 +19,11 @@ import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
-import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
-import type { Ctx } from '../../context';
+import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
+import type { Ctx } from '../../context';
+import { shouldGenerateAiContent } from './document-classifier';
 import {
     applyEdits,
     countLines,
@@ -37,7 +38,6 @@ import {
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
-import { shouldGenerateAiContent } from './document-classifier';
 
 // ============================================================================
 // TYPES
@@ -223,7 +223,7 @@ After calling this, use write_document to add content or patch_document for prec
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
-                const { mode, name, title, document_type} = input;
+                const { mode, name, title, document_type } = input;
                 let { is_internal } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
@@ -259,7 +259,16 @@ You MUST call finalize_document when done or content will be lost.`,
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
                     try {
-                        const draft = draftManager.begin(scopeId, normalizedName, docTitle, mode, '', undefined, is_internal, document_type);
+                        const draft = draftManager.begin(
+                            scopeId,
+                            normalizedName,
+                            docTitle,
+                            mode,
+                            '',
+                            undefined,
+                            is_internal,
+                            document_type,
+                        );
                         return {
                             status: 'editing',
                             mode: 'create',
@@ -342,7 +351,8 @@ You MUST call finalize_document when done or content will be lost.`,
                         title: draft.title,
                         is_internal: draft.is_internal,
                         document_type: draft.document_type,
-                        ...(existingDocumentType && existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
+                        ...(existingDocumentType &&
+                            existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
                         loadedFrom,
                         loadedVersion,
                         lines: countLines(draft.content),
@@ -454,7 +464,16 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     const draft = draftManager.requireCurrent();
 
                     // Persist to database as proposed
-                    const result = await upsertDocument(em, scope, chatId, draft.name, draft.title, draft.content, draft.is_internal, draft.document_type);
+                    const result = await upsertDocument(
+                        em,
+                        scope,
+                        chatId,
+                        draft.name,
+                        draft.title,
+                        draft.content,
+                        draft.is_internal,
+                        draft.document_type,
+                    );
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
@@ -496,7 +515,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             status: 'proposed',
                             lines: result.lines,
                         },
-                        appendedOutput: `::document[${draft.name}]{version=${result.version} lines=${result.lines}}`,
+                        appendedOutput: `::document[${draft.name}]{version=${result.version} lines=${result.lines} documentType="${draft.document_type}"}`,
                         message: `Saved as proposed v${result.version}. Awaiting user approval to become live.`,
                     };
 
