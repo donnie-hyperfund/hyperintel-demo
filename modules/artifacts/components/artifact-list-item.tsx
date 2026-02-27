@@ -176,7 +176,7 @@ function ArtifactListItemDateMeta({ createdAt }: ArtifactListItemDateMetaProps) 
 
 type ArtifactListItemSkeletonProps = VariantProps<typeof skeletonVariants>;
 
-export const ArtifactListItemSkeleton = ({ size = 'md' }: ArtifactListItemSkeletonProps) => {
+export function ArtifactListItemSkeleton({ size = 'md' }: ArtifactListItemSkeletonProps) {
     return (
         <div className={skeletonVariants({ size })}>
             {size === 'md' && <Skeleton className="size-6 shrink-0 rounded" />}
@@ -186,4 +186,4 @@ export const ArtifactListItemSkeleton = ({ size = 'md' }: ArtifactListItemSkelet
             </div>
         </div>
     );
-};
+}
