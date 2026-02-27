@@ -69,9 +69,20 @@ export const StakeholderList = () => {
 
     return (
         <div className="space-y-2 flex-1">
-            {artifacts.map((artifact) => (
-                <ArtifactListItem key={artifact.id} artifact={artifact} shouldDisplayVersionInfo={false} />
-            ))}
+            {artifacts.map((artifact) => {
+                const activeVersion = artifact.current_version ?? artifact.proposed_version;
+                const href = activeVersion?.chat ? `/stakeholders/${activeVersion.chat}` : undefined;
+
+                return (
+                    <ArtifactListItem
+                        key={artifact.id}
+                        artifact={artifact}
+                        icon={Users}
+                        shouldDisplayVersionInfo={false}
+                        href={href}
+                    />
+                );
+            })}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />

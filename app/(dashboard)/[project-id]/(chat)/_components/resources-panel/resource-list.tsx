@@ -59,8 +59,8 @@ export function ResourceList() {
 
     return (
         <div className="space-y-6">
-            <ResourceSection title="Companies" artifacts={companies} />
-            <ResourceSection title="Stakeholders" artifacts={stakeholders} />
+            <ResourceSection title="Companies" basePath="/companies" artifacts={companies} />
+            <ResourceSection title="Stakeholders" basePath="/stakeholders" artifacts={stakeholders} />
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
