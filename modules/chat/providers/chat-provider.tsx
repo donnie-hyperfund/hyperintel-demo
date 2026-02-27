@@ -2,7 +2,7 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
@@ -390,6 +390,12 @@ export function ChatProvider({
 
                         skipNextLoad.current = true;
                         setChatId(chatIdToUse);
+
+                        const basePath =
+                            chatType === 'company' ? '/companies' : chatType === 'stakeholder' ? '/stakeholders' : null;
+                        if (basePath) {
+                            window.history.replaceState(null, '', `${basePath}/${chatIdToUse}`);
+                        }
                     }
                 }
 
@@ -525,6 +531,14 @@ export function ChatProvider({
             isGenerating: false,
         }));
     }, []);
+
+    // Auto-load messages when an initial chat ID is provided
+    useEffect(() => {
+        if (initialChatId) {
+            loadMessages();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialChatId]);
 
     return (
         <ChatContext.Provider
