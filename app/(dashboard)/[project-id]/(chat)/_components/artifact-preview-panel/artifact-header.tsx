@@ -129,7 +129,7 @@ export function ArtifactHeader({
                             <span title={title} className="line-clamp-1 text-sm font-medium">
                                 {title}
                             </span>
-                            <VersionStatusBadge status={status} isUploaded={isUploaded} />
+                            {shouldDisplayVersion && <VersionStatusBadge status={status} isUploaded={isUploaded} />}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
                             {shouldDisplayVersion && <span>v{version}</span>}

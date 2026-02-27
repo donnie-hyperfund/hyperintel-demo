@@ -5,6 +5,8 @@ import type { PaginatedResponse, PaginationParams } from '../types';
 const ENDPOINTS = {
     root: '/api/artifacts',
     byId: (artifactId: string) => `/api/artifacts/${artifactId}`,
+    // TODO: use /api/artifacts/${key} when backend is updated
+    byKey: (key: string) => `/api/resources/${key}`,
 } as const;
 
 export const artifactKeys = {
@@ -28,6 +30,15 @@ export function createArtifactApi(getToken: TokenGetter) {
     return {
         delete: async (artifactId: string) => {
             const { data } = await axios.delete<{ success: true; message: string }>(ENDPOINTS.byId(artifactId));
+            return data;
+        },
+
+        getByKey: async (key: string, version?: number) => {
+            const params: Record<string, string | number> = {};
+            if (version !== undefined) {
+                params.version = version;
+            }
+            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.byKey(key), params));
             return data;
         },
 

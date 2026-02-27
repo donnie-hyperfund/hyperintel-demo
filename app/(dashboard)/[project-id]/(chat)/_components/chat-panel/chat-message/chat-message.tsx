@@ -18,13 +18,19 @@ const documentDirective: DirectiveHandler = ({ type, label, attributes, children
     if (type === 'container') {
         return (
             <div>
-                <ArtifactIndicator documentName={label} documentVersion={version} />
+                <ArtifactIndicator
+                    documentName={label}
+                    documentVersion={version}
+                    documentType={attributes['document-type']}
+                />
                 {children}
             </div>
         );
     }
 
-    return <ArtifactIndicator documentName={label} documentVersion={version} />;
+    return (
+        <ArtifactIndicator documentName={label} documentVersion={version} documentType={attributes['document-type']} />
+    );
 };
 
 const chatDirectives = {

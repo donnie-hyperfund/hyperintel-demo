@@ -222,11 +222,8 @@ export function ChatProvider({
 
     const fetchArtifact = useCallback(
         async (artifactKey: string, version: number) => {
-            // TODO: Handle it with a unified artifact API when backend is updated
-            if (!projectId) return null;
-
             try {
-                const artifact = await api.projectArtifacts.getByKey(projectId, artifactKey, version);
+                const artifact = await api.artifacts.getByKey(artifactKey, version);
                 if (artifact) {
                     artifactContext.addArtifact(artifact, version);
                 }
