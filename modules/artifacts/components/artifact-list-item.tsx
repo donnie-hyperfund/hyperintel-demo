@@ -1,8 +1,9 @@
-import { cva } from 'class-variance-authority';
+import { cva, VariantProps } from 'class-variance-authority';
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS } from 'date-fns/locale';
 import type { LucideIcon } from 'lucide-react';
 import { Lock } from 'lucide-react';
+import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import type { ArtifactDto } from '@/lib/schema/artifact';
@@ -39,12 +40,12 @@ const skeletonVariants = cva('flex items-center border', {
     defaultVariants: { size: 'md' },
 });
 
-type ArtifactListItemProps = {
+type ArtifactListItemProps = VariantProps<typeof containerVariants> & {
     artifact: ArtifactDto;
-    size?: 'sm' | 'md';
     icon?: LucideIcon;
     isSelected?: boolean;
     shouldDisplayVersionInfo?: boolean;
+    href?: string;
     onClick?: () => void;
 };
 
@@ -54,20 +55,21 @@ export const ArtifactListItem = ({
     icon,
     isSelected,
     shouldDisplayVersionInfo = true,
+    href,
     onClick,
 }: ArtifactListItemProps) => {
     const artifactVersion = getArtifactVersion(artifact);
     const Icon = icon ?? getDocumentTypeIcon(artifactVersion?.document_type);
 
     return (
-        <button
-            type="button"
+        <ArtifactListItemContainer
+            href={href}
             onClick={onClick}
             title={artifact.title}
             className={cn(
                 containerVariants({ size }),
                 isSelected ? 'bg-neutral-900 border-neutral-500/30' : 'border-border',
-                typeof onClick === 'function' && 'cursor-pointer hover:bg-accent/50',
+                (href || onClick) && 'cursor-pointer hover:bg-accent/50',
             )}
         >
             <Icon className={iconSizeVariants({ size })} />
@@ -83,16 +85,52 @@ export const ArtifactListItem = ({
                 </div>
 
                 {shouldDisplayVersionInfo ? (
-                    <VersionMeta artifact={artifact} />
+                    <ArtifactListItemVersionMeta artifact={artifact} />
                 ) : (
-                    <DateMeta createdAt={artifact.created_at} />
+                    <ArtifactListItemDateMeta createdAt={artifact.created_at} />
                 )}
             </div>
-        </button>
+        </ArtifactListItemContainer>
     );
 };
 
-function VersionMeta({ artifact }: { artifact: ArtifactDto }) {
+type ArtifactListItemContainerProps = {
+    className: string;
+    title: string;
+    children: React.ReactNode;
+    href?: string;
+    onClick?: () => void;
+};
+
+function ArtifactListItemContainer({ children, className, title, href, onClick }: ArtifactListItemContainerProps) {
+    if (href) {
+        return (
+            <Link href={href} title={title} className={className}>
+                {children}
+            </Link>
+        );
+    }
+
+    if (onClick) {
+        return (
+            <button type="button" onClick={onClick} title={title} className={className}>
+                {children}
+            </button>
+        );
+    }
+
+    return (
+        <div title={title} className={className}>
+            {children}
+        </div>
+    );
+}
+
+type ArtifactListItemVersionMetaProps = {
+    artifact: ArtifactDto;
+};
+
+function ArtifactListItemVersionMeta({ artifact }: ArtifactListItemVersionMetaProps) {
     const artifactVersion = getArtifactVersion(artifact);
     const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
@@ -121,7 +159,11 @@ function VersionMeta({ artifact }: { artifact: ArtifactDto }) {
     );
 }
 
-function DateMeta({ createdAt }: { createdAt: string | Date }) {
+type ArtifactListItemDateMetaProps = {
+    createdAt: string | Date;
+};
+
+function ArtifactListItemDateMeta({ createdAt }: ArtifactListItemDateMetaProps) {
     const createdDate = createdAt ? new Date(createdAt) : null;
     const formattedDate = createdDate ? format(createdDate, 'MMM d, yyyy') : null;
 
@@ -132,7 +174,9 @@ function DateMeta({ createdAt }: { createdAt: string | Date }) {
     );
 }
 
-export const ArtifactItemSkeleton = ({ size = 'md' }: { size?: 'sm' | 'md' }) => {
+type ArtifactListItemSkeletonProps = VariantProps<typeof skeletonVariants>;
+
+export const ArtifactListItemSkeleton = ({ size = 'md' }: ArtifactListItemSkeletonProps) => {
     return (
         <div className={skeletonVariants({ size })}>
             {size === 'md' && <Skeleton className="size-6 shrink-0 rounded" />}

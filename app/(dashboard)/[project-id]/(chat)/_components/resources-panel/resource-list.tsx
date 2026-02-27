@@ -4,7 +4,7 @@ import { Building2, Loader2 } from 'lucide-react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
-import { ArtifactItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { ResourceSection } from './resource-section';
 
 const PAGE_SIZE = 20;
@@ -25,7 +25,7 @@ export function ResourceList() {
         return (
             <div className="space-y-2">
                 {Array.from({ length: 4 }).map((_, i) => (
-                    <ArtifactItemSkeleton key={i} />
+                    <ArtifactListItemSkeleton key={i} />
                 ))}
             </div>
         );
