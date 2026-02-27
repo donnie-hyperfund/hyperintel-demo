@@ -12,7 +12,7 @@ import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/proje
 import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
-import { getArtifactVersion } from '@/modules/artifacts/utils';
+import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/contants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
@@ -179,7 +179,7 @@ export function ChatProvider({
 
                 for (const data of results) {
                     if (data) {
-                        artifactContext.updateArtifact(keyId, data, getArtifactVersion(data)?.version, {
+                        artifactContext.updateArtifact(keyId, data, getLatestArtifactVersion(data)?.version, {
                             merge: false,
                         });
                     }

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { getArtifactChatId } from '@/modules/artifacts/utils';
 
 const PAGE_SIZE = 20;
 
@@ -70,8 +71,8 @@ export const StakeholderList = () => {
     return (
         <div className="space-y-2 flex-1">
             {artifacts.map((artifact) => {
-                const activeVersion = artifact.current_version ?? artifact.proposed_version;
-                const href = activeVersion?.chat ? `/stakeholders/${activeVersion.chat}` : undefined;
+                const chatId = getArtifactChatId(artifact);
+                const href = chatId ? `/stakeholders/${chatId}` : undefined;
 
                 return (
                     <ArtifactListItem

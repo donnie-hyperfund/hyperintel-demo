@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
-import { getArtifactVersion, getDocumentTypeIcon } from '@/modules/artifacts/utils';
+import { getDocumentTypeIcon, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 
 const containerVariants = cva('flex w-full items-center text-left transition-colors border', {
     variants: {
@@ -58,7 +58,7 @@ export const ArtifactListItem = ({
     href,
     onClick,
 }: ArtifactListItemProps) => {
-    const artifactVersion = getArtifactVersion(artifact);
+    const artifactVersion = getLatestArtifactVersion(artifact);
     const Icon = icon ?? getDocumentTypeIcon(artifactVersion?.document_type);
 
     return (
@@ -131,7 +131,7 @@ type ArtifactListItemVersionMetaProps = {
 };
 
 function ArtifactListItemVersionMeta({ artifact }: ArtifactListItemVersionMetaProps) {
-    const artifactVersion = getArtifactVersion(artifact);
+    const artifactVersion = getLatestArtifactVersion(artifact);
     const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
     const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
