@@ -93,6 +93,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                     }
                 });
 
+                console.log(props);
+
                 return handler({
                     type: type as 'text' | 'leaf' | 'container',
                     name,
