@@ -10,7 +10,7 @@ import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
 import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
-import { ArtifactItemSkeleton, ArtifactListItem } from '@/modules/artifacts/components/artifact-list-item';
+import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
 import { getArtifactChatId } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
@@ -159,7 +159,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         return (
             <div className="space-y-2">
                 {Array.from({ length: 3 }).map((_, i) => (
-                    <ArtifactItemSkeleton key={i} size="sm" />
+                    <ArtifactListItemSkeleton key={i} size="sm" />
                 ))}
             </div>
         );

@@ -14,7 +14,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
-import { getArtifactChatId, getArtifactVersion } from '@/modules/artifacts/utils';
+import { getArtifactChatId, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function NextPhaseButton() {
@@ -37,8 +37,8 @@ export function NextPhaseButton() {
             page.data.some(
                 (artifact) =>
                     getArtifactChatId(artifact) === chatId &&
-                    getArtifactVersion(artifact)?.status === 'approved' &&
-                    getArtifactVersion(artifact)?.document_type !== 'Completion Brief',
+                    getLatestArtifactVersion(artifact)?.status === 'approved' &&
+                    getLatestArtifactVersion(artifact)?.document_type !== 'Completion Brief',
             ),
         );
     }, [artifactPages, chatId]);

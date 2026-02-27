@@ -2,7 +2,7 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
@@ -12,7 +12,7 @@ import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/proje
 import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
-import { getArtifactVersion } from '@/modules/artifacts/utils';
+import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/contants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
@@ -179,7 +179,7 @@ export function ChatProvider({
 
                 for (const data of results) {
                     if (data) {
-                        artifactContext.updateArtifact(keyId, data, getArtifactVersion(data)?.version, {
+                        artifactContext.updateArtifact(keyId, data, getLatestArtifactVersion(data)?.version, {
                             merge: false,
                         });
                     }
@@ -390,6 +390,12 @@ export function ChatProvider({
 
                         skipNextLoad.current = true;
                         setChatId(chatIdToUse);
+
+                        const basePath =
+                            chatType === 'company' ? '/companies' : chatType === 'stakeholder' ? '/stakeholders' : null;
+                        if (basePath) {
+                            window.history.replaceState(null, '', `${basePath}/${chatIdToUse}`);
+                        }
                     }
                 }
 
@@ -525,6 +531,14 @@ export function ChatProvider({
             isGenerating: false,
         }));
     }, []);
+
+    // Auto-load messages when an initial chat ID is provided
+    useEffect(() => {
+        if (initialChatId) {
+            loadMessages();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialChatId]);
 
     return (
         <ChatContext.Provider

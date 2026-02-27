@@ -1,5 +1,5 @@
 import { ChatModule } from '@/modules/chat/providers/chat-module';
-import ChatInterface from '../_components/chat-interface';
+import PhaseChatInterface from '../_components/phase-chat-interface';
 
 type ChatPageProps = PageProps<'/[project-id]/[chatId]'>;
 
@@ -8,7 +8,7 @@ export default async function ChatPage({ params }: ChatPageProps) {
 
     return (
         <ChatModule key={chatId} projectId={projectId} initialChatId={chatId}>
-            <ChatInterface />
+            <PhaseChatInterface />
         </ChatModule>
     );
 }
