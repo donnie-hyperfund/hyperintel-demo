@@ -28,9 +28,7 @@ export async function handleListResources(
 
     const { page, limit, documentType } = queryData;
 
-    const query = em
-        .createQueryBuilder(ArtifactEntity, 'a')
-        .select('a.*');
+    const query = em.createQueryBuilder(ArtifactEntity, 'a').select('a.*');
 
     if (projectId) {
         // Project-scoped: imported resources only
@@ -149,10 +147,7 @@ export async function handleRemoveProjectResource(
         .getSingleResult();
 
     if (!artifact) {
-        return NextResponse.json(
-            { message: 'Resource not found', code: 'RESOURCE_NOT_FOUND' },
-            { status: 404 },
-        );
+        return NextResponse.json({ message: 'Resource not found', code: 'RESOURCE_NOT_FOUND' }, { status: 404 });
     }
 
     await em.transactional(async (txEm) => {

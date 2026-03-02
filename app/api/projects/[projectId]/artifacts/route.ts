@@ -101,10 +101,7 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
 
     // Exclude imported resources (they are shown via the project resources endpoint)
     query.andWhere({
-        $or: [
-            { [raw("a.metadata->>'importedFrom'")]: null },
-            { [raw('a.metadata')]: null },
-        ],
+        $or: [{ [raw("a.metadata->>'importedFrom'")]: null }, { [raw('a.metadata')]: null }],
     });
 
     if (queryData.visibility?.length) {

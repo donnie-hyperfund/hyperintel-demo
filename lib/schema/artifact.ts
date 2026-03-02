@@ -33,7 +33,11 @@ export type DocumentType = z.infer<typeof DocumentTypeSchema>;
 export const PUBLISHABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['Legacy DNA'] as const;
 
 /** Document types that are treated as project resources (not deliverables) when imported */
-export const RESOURCE_DOCUMENT_TYPES: readonly DocumentType[] = ['Legacy DNA', 'Company Profile', 'Human Persona'] as const;
+export const RESOURCE_DOCUMENT_TYPES: readonly DocumentType[] = [
+    'Legacy DNA',
+    'Company Profile',
+    'Human Persona',
+] as const;
 
 export const FILTERABLE_STATUSES = ['proposed', 'approved', 'rejected', 'superseded'] as const;
 export const FilterableStatusSchema = z.enum(FILTERABLE_STATUSES);
