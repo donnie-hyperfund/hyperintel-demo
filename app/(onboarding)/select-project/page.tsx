@@ -68,7 +68,7 @@ export default function SelectProjectPage() {
                     className="self-stretch flex justify-center"
                 >
                     <Button asChild className="w-full max-w-[24rem]" size="xl">
-                        <Link href="/new-project">Create project</Link>
+                        <Link href="/projects/new">Create project</Link>
                     </Button>
                 </motion.div>
             </div>
@@ -112,7 +112,7 @@ export default function SelectProjectPage() {
                     className="self-stretch flex justify-center pt-4"
                 >
                     <Button variant="outline" asChild size="xl" className="w-full max-w-[24rem]">
-                        <Link href="/new-project">
+                        <Link href="/projects/new">
                             <Plus className="size-4" />
                             Create new project
                         </Link>

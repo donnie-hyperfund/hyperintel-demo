@@ -44,7 +44,7 @@ export const ProjectList = () => {
                 description="Create your first project to start organizing your chats and deliverables."
             >
                 <Button asChild className="mt-2">
-                    <Link href="/new-project">
+                    <Link href="/projects/new">
                         <Plus className="size-4" />
                         Create project
                     </Link>
