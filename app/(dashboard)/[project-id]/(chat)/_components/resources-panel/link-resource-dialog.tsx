@@ -17,9 +17,9 @@ import {
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from '@/hooks/use-toast';
-import { createProjectApi } from '@/lib/api/client/fetchers/projects';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
 import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
+import { importArtifacts } from '@/lib/api/requests/worker/projects';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 
@@ -60,8 +60,15 @@ export function LinkResourceDialog() {
         if (selectedIds.length === 0) return;
         setIsImporting(true);
         try {
-            const api = createProjectApi(getToken);
-            await api.importArtifacts(projectId, selectedIds);
+            const token = await getToken();
+            if (!token) throw new Error('Not authenticated');
+
+            const response = await importArtifacts({ projectId, artifactIds: selectedIds }, token);
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Failed to import artifacts');
+            }
+
             await mutateProjectResources();
             toast({ title: `${selectedIds.length} resource(s) linked to project.` });
             setSelectedIds([]);
