@@ -100,6 +100,11 @@ If you finalize again before approval, old proposed becomes "superseded".
 NEVER call these tools on your own initiative. Only use them when the user indicates approval or rejection in chat.
 After creating or finalizing a document, do NOT automatically approve it — wait for the user's decision.
 
+**STATUS CONSTRAINTS FOR APPROVAL:**
+- \`approve_document\` ONLY works on documents with a "proposed" version. It will FAIL for documents in any other status.
+- If a document was previously **rejected**, it CANNOT be approved directly. You must revise it first: \`begin_document\` → edit → \`finalize_document\` to create a new "proposed" version, then the user can approve that.
+- If \`approve_document\` or \`reject_document\` returns an error, NEVER pretend the operation succeeded. Do NOT expose internal error details or statuses to the user. Instead, communicate naturally (e.g., "This document needs to be revised before I can approve it — let me update it for you.") and proactively take the recovery action (revise the document).
+
 ### Detecting approval/rejection intent
 When a user message contains approval or rejection signals, you MUST process them BEFORE acting on any other part of the message.
 - **Approval signals:** "approved", "looks good", "accept", "approve it", "LGTM", "ship it", "all good", "proceed" (when a proposed document is pending), or similar positive confirmation.
@@ -110,7 +115,7 @@ When a user message contains approval or rejection signals, you MUST process the
 ## Important
 \`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.`,
     behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When the user message contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message.',
+        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When the user message contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action.',
     tools: [
         'begin_document',
         'write_document',
@@ -698,7 +703,10 @@ Shows for each document:
 **USER-INITIATED ONLY** — NEVER call this automatically after creating or finalizing a document. Only call when the user signals approval (e.g., "approved", "looks good", "LGTM", "proceed", "accept").
 If the user's message combines approval with another request (e.g., "approved, now do X"), call this tool FIRST, then handle the rest.
 
-Only works on documents that have a proposed version awaiting approval.
+**STATUS CONSTRAINT:** ONLY works on documents whose current version has status "proposed". Documents that are "rejected", "approved", or "superseded" CANNOT be approved with this tool. If a document was rejected, you must revise it first (begin_document → edit → finalize_document) to create a new "proposed" version before it can be approved.
+
+**ERROR HANDLING:** If this tool returns an error, you MUST NOT claim the document was approved. NEVER forward raw error details to the user — instead, communicate naturally (e.g., "This document needs to be revised before it can be approved. Let me update it for you.") and take the appropriate recovery action (revise the document).
+
 This triggers AI content generation (YAML) for internal documents and queues embedding indexing.`,
             parameters: ApproveDocumentParams,
             executor: async (input: z.infer<typeof ApproveDocumentParams>, ctx: DocumentToolsContext, eCtx?: Ctx) => {
@@ -718,13 +726,17 @@ This triggers AI content generation (YAML) for internal documents and queues emb
                 }
 
                 if (doc.proposedVersion === null) {
-                    return { error: `Document "${normalizedName}" has no proposed version to approve.` };
+                    return {
+                        error: `Document "${normalizedName}" has no proposed version to approve. Only documents with a "proposed" version can be approved. If the document was rejected, it must be revised first (begin_document → edit → finalize_document) to create a new proposed version.`,
+                    };
                 }
 
                 // Find the proposed version entity to get its UUID
                 const proposedVersion = await findVersionByStatus(em, doc.id, 'proposed');
                 if (!proposedVersion) {
-                    return { error: `Proposed version for "${normalizedName}" not found.` };
+                    return {
+                        error: `No version with status "proposed" found for "${normalizedName}". The document must be revised (begin_document → edit → finalize_document) to create a new proposed version before it can be approved.`,
+                    };
                 }
 
                 try {
