@@ -32,6 +32,7 @@ export type DocumentEvent =
           documentType?: string;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           loadedVersion?: number;
+          nextVersion?: number;
           rejectionReason?: string;
       }
     | { type: 'document_delta'; name: string; content: string }
@@ -127,6 +128,9 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     }
                     if (result.loadedVersion !== undefined) {
                         startEvent.loadedVersion = result.loadedVersion;
+                    }
+                    if (result.nextVersion !== undefined) {
+                        startEvent.nextVersion = result.nextVersion;
                     }
                     if (result.rejectionReason) {
                         startEvent.rejectionReason = result.rejectionReason;

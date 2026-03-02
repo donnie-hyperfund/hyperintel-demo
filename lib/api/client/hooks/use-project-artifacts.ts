@@ -18,9 +18,14 @@ import type {
     PaginationParams,
     UploadStatus,
 } from '@/lib/api/client/types';
-import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
+import { approveArtifact, rejectArtifact, restoreArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { isKnownUploadError, UploadValidationError, validateArtifactFile } from '@/lib/artifacts/utils';
-import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
+import type {
+    ArtifactDto,
+    ArtifactVersionHistoryResponseDto,
+    RestoreArtifactResponseDto,
+    UploadArtifactResponseDto,
+} from '@/lib/schema/artifact';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
 
 export function useFetchProjectArtifacts(
@@ -84,15 +89,33 @@ export function useFetchProjectArtifact(
 export function useFetchProjectArtifactByKey(
     projectId: string | undefined,
     key: string | undefined,
+    version?: number,
     config?: SWRConfiguration<ArtifactDto>,
 ) {
     const { getToken } = useAuth();
 
     return useSWR<ArtifactDto>(
-        projectId && key ? projectArtifactKeys.byKey(projectId, key) : null,
+        projectId && key ? [...projectArtifactKeys.byKey(projectId, key), version] : null,
         () => {
             if (!projectId || !key) throw new Error('Project ID and key are required');
-            return createProjectArtifactApi(getToken).getByKey(projectId, key);
+            return createProjectArtifactApi(getToken).getByKey(projectId, key, version);
+        },
+        { revalidateOnFocus: false, ...config },
+    );
+}
+
+export function useFetchProjectArtifactVersions(
+    projectId: string | undefined,
+    key: string | undefined,
+    config?: SWRConfiguration<ArtifactVersionHistoryResponseDto>,
+) {
+    const { getToken } = useAuth();
+
+    return useSWR<ArtifactVersionHistoryResponseDto>(
+        projectId && key ? projectArtifactKeys.history(projectId, key) : null,
+        () => {
+            if (!projectId || !key) throw new Error('Project ID and key are required');
+            return createProjectArtifactApi(getToken).listVersionsByKey(projectId, key);
         },
         { revalidateOnFocus: false, ...config },
     );
@@ -146,6 +169,37 @@ export function useRejectProjectArtifactVersion(projectId: string, artifactKey: 
 
             globalMutate(serializeProjectArtifactListKey(projectId));
             return api.getByKey(projectId, artifactKey, artifactVersion);
+        },
+    );
+}
+
+export function useRestoreProjectArtifactVersion(projectId: string, artifactKey: string) {
+    const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
+
+    return useSWRMutation<ArtifactDto, Error, readonly string[], { sourceVersionId: string }>(
+        [...projectArtifactKeys.history(projectId, artifactKey), 'restore'],
+        async (_, { arg }) => {
+            const token = await getToken();
+            if (!token) throw new Error('Not authenticated');
+
+            const response = await restoreArtifact(
+                { projectId, key: artifactKey, sourceVersionId: arg.sourceVersionId },
+                token,
+            );
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Failed to restore artifact');
+            }
+
+            const result = (await response.json()) as RestoreArtifactResponseDto;
+            const api = createProjectArtifactApi(getToken);
+
+            globalMutate(serializeProjectArtifactListKey(projectId));
+            globalMutate(projectArtifactKeys.history(projectId, artifactKey));
+            globalMutate(projectArtifactKeys.byKey(projectId, artifactKey));
+
+            return api.getByKey(projectId, artifactKey, result.restoredVersion);
         },
     );
 }

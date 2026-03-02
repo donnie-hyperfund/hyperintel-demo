@@ -14,8 +14,8 @@ import type { ChatMessageDto } from '@/lib/schema/message';
 import { intakeConfigMap } from '@/modules/chat/contants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
+import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
@@ -179,9 +179,12 @@ export function ChatProvider({
 
                 for (const data of results) {
                     if (data) {
-                        artifactContext.updateArtifact(keyId, data, getArtifactVersion(data)?.version, {
-                            merge: false,
-                        });
+                        artifactContext.updateArtifact(
+                            keyId,
+                            { ...data, id: data.key }, // @TODO: cleanup and refactor key/id + unify db/frontend source of truth
+                            getArtifactVersion(data)?.version,
+                            { merge: false },
+                        );
                     }
                 }
             } catch {
@@ -228,7 +231,7 @@ export function ChatProvider({
             try {
                 const artifact = await api.projectArtifacts.getByKey(projectId, artifactKey, version);
                 if (artifact) {
-                    artifactContext.addArtifact(artifact, version);
+                    artifactContext.addArtifact({ ...artifact, id: artifactKey }, version);
                 }
                 return artifact;
             } catch (error) {
@@ -236,7 +239,7 @@ export function ChatProvider({
                 return null;
             }
         },
-        [api.artifacts, projectId, artifactContext],
+        [api.projectArtifacts, projectId, artifactContext],
     );
 
     // Use the stream reader hook for SSE processing
@@ -426,7 +429,18 @@ export function ChatProvider({
                 abortControllerRef.current = null;
             }
         },
-        [api, cache, chatId, getToken, globalMutate, chatType, projectId, readStream, selectedModel, state.isGenerating],
+        [
+            api,
+            cache,
+            chatId,
+            getToken,
+            globalMutate,
+            chatType,
+            projectId,
+            readStream,
+            selectedModel,
+            state.isGenerating,
+        ],
     );
 
     /** Summarize current chat and store the new phase chat ID */

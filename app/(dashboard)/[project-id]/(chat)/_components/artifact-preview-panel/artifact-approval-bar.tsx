@@ -57,7 +57,9 @@ export function ArtifactApprovalBar({
             onProcessingChange?.(true);
             const updated = await approve();
             if (updated) {
-                updateArtifact(artifactId, updated, artifactVersion, { merge: false });
+                // artifactId received in prop comes from panel state, we set key as id everywhere in app, because we don't have id yet when artifact is streamed
+                // @TODO: cleanup and refactor key/id + unify db/frontend source of truth
+                updateArtifact(artifactId, { ...updated, id: artifactKey }, artifactVersion, { merge: false });
                 // Clear pending changes only if no other artifacts are pending
                 if (!hasOtherPendingArtifacts()) {
                     clearPendingChanges();
@@ -76,7 +78,9 @@ export function ArtifactApprovalBar({
             // TODO: Remove the need for the reason
             const updated = await reject('rejected');
             if (updated) {
-                updateArtifact(artifactId, updated, artifactVersion, { merge: false });
+                // artifactId received in prop comes from panel state, we set key as id everywhere in app, because we don't have id yet when artifact is streamed
+                // @TODO: cleanup and refactor key/id + unify db/frontend source of truth
+                updateArtifact(artifactId, { ...updated, id: artifactKey }, artifactVersion, { merge: false });
                 // Clear pending changes only if no other artifacts are pending
                 if (!hasOtherPendingArtifacts()) {
                     clearPendingChanges();

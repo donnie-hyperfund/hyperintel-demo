@@ -1,20 +1,20 @@
-import { runInferenceNoStream, AIParamsType } from '@common/ai/inference/run-inference';
+import { AIParamsType, runInferenceNoStream } from '@common/ai/inference/run-inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types/models';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
-import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
+import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
+import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
-import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
 
-async function generateYAMLForArtifact(
+export async function generateYAMLForArtifact(
     content: string,
     messages: ChatMessageEntity[],
     ctx: Ctx,
@@ -55,6 +55,63 @@ async function generateYAMLForArtifact(
     yamlContent = yamlContent.replace(/^```ya?ml\s*\n?/i, '').replace(/\n?```\s*$/i, '');
 
     return yamlContent;
+}
+
+/**
+ * Best-effort post-flush effects shared by approve and restore flows.
+ * Publishes to user scope (for cross-project availability) and indexes in embedding queue.
+ *
+ * Expects version.artifact (with .project and .project.user) to be populated.
+ */
+export async function publishToUserScopeAndIndexVersion(
+    version: ArtifactVersionEntity,
+    ctx: Ctx,
+    embedding: { content: string; isAiContent: boolean },
+): Promise<void> {
+    const { em } = ctx;
+
+    if (!em) {
+        throw new PublicError(500, {
+            message: 'Database connection not available',
+            code: 'DATABASE_UNAVAILABLE',
+        });
+    }
+
+    const project = version.artifact.project;
+    const projectUser = project?.user;
+
+    // Publish publishable document types to user scope for cross-project availability.
+    if (PUBLISHABLE_DOCUMENT_TYPES.includes(version.document_type) && project && projectUser) {
+        try {
+            const publishResult = await publishArtifactToUserScope(em, {
+                sourceVersion: version,
+                userId: projectUser.id,
+                projectId: project.id,
+            });
+            console.log('[publishToUserScopeAndIndexVersion] Published to user scope:', publishResult);
+        } catch (err) {
+            console.error('[publishToUserScopeAndIndexVersion] Publish to user scope failed (non-fatal):', err);
+        }
+    }
+
+    if (ctx.env.EMBEDDING_QUEUE && project) {
+        try {
+            const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
+
+            // For internal documents: index the AI-readable YAML
+            // For client deliverables: index original content (no AI-readable version)
+            await embeddingQueue.send({
+                type: 'index_artifact_version',
+                projectId: project.id,
+                versionId: version.id,
+                content: embedding.content,
+                documentName: version.artifact.key,
+                is_ai_content: embedding.isAiContent,
+            });
+        } catch (err) {
+            console.error('[publishToUserScopeAndIndexVersion] Embedding queue failed:', err);
+        }
+    }
 }
 
 export async function approveArtifactHandler(
@@ -106,11 +163,7 @@ export async function approveArtifactHandler(
     }
 
     // Classify document to determine if AI-readable YAML should be generated
-    const isInternalDocument = await shouldGenerateAiContent(
-        ctx,
-        version.artifact.key,
-        version.artifact.title,
-    );
+    const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.artifact.title);
 
     console.log('[approveArtifact] Document classification:', {
         documentKey: version.artifact.key,
@@ -151,38 +204,11 @@ export async function approveArtifactHandler(
 
     await em.flush();
 
-    // Publish publishable document types to user scope for cross-project availability
-    if (PUBLISHABLE_DOCUMENT_TYPES.includes(version.document_type) && project && projectUser) {
-        try {
-            const publishResult = await publishArtifactToUserScope(em, {
-                sourceVersion: version,
-                userId: projectUser.id,
-                projectId: project.id,
-            });
-            console.log('[approveArtifact] Published to user scope:', publishResult);
-        } catch (err) {
-            console.error('[approveArtifact] Publish to user scope failed (non-fatal):', err);
-        }
-    }
-
-    if (ctx.env.EMBEDDING_QUEUE && project) {
-        try {
-            const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
-
-            // For internal documents: index AI-readable YAML
-            // For client deliverables: index original content (no AI-readable version)
-            await embeddingQueue.send({
-                type: 'index_artifact_version',
-                projectId: project.id,
-                versionId: version.id,
-                content: isInternalDocument && yamlContent ? yamlContent : version.content,
-                documentName: version.artifact.key,
-                is_ai_content: isInternalDocument,
-            });
-        } catch (err) {
-            console.error('[approveArtifact] Embedding queue failed:', err);
-        }
-    }
+    // Post-flush best-effort: publish to user scope + index embeddings.
+    await publishToUserScopeAndIndexVersion(version, ctx, {
+        content: isInternalDocument && yamlContent ? yamlContent : version.content,
+        isAiContent: isInternalDocument,
+    });
 
     return {
         success: true,

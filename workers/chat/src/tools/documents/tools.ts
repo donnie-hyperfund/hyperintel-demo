@@ -19,14 +19,14 @@ import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
-import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
-import type { Ctx } from '../../context';
+import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
+import type { Ctx } from '../../context';
+import { shouldGenerateAiContent } from './document-classifier';
 import {
     applyEdits,
     countLines,
-    type DocumentInfo,
     type DocumentListItem,
     type DocumentScope,
     type EditOperation,
@@ -37,7 +37,6 @@ import {
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
-import { shouldGenerateAiContent } from './document-classifier';
 
 // ============================================================================
 // TYPES
@@ -223,7 +222,7 @@ After calling this, use write_document to add content or patch_document for prec
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
-                const { mode, name, title, document_type} = input;
+                const { mode, name, title, document_type } = input;
                 let { is_internal } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
@@ -259,7 +258,16 @@ You MUST call finalize_document when done or content will be lost.`,
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
                     try {
-                        const draft = draftManager.begin(scopeId, normalizedName, docTitle, mode, '', undefined, is_internal, document_type);
+                        const draft = draftManager.begin(
+                            scopeId,
+                            normalizedName,
+                            docTitle,
+                            mode,
+                            '',
+                            undefined,
+                            is_internal,
+                            document_type,
+                        );
                         return {
                             status: 'editing',
                             mode: 'create',
@@ -290,24 +298,21 @@ You MUST call finalize_document when done or content will be lost.`,
                 let rejectionReason: string | null = null;
 
                 if (existing!.proposedVersion !== null && existing!.proposedContent !== null) {
-                    // Continue editing proposed version
                     contentToLoad = existing!.proposedContent;
                     loadedFrom = 'proposed';
                     loadedVersion = existing!.proposedVersion;
                     existingDocumentType = existing!.proposedDocumentType;
+                } else if (existing!.approvedContent !== null) {
+                    contentToLoad = existing!.approvedContent;
+                    loadedFrom = isDeleted ? 'deleted' : 'approved';
+                    loadedVersion = existing!.approvedVersion;
+                    existingDocumentType = existing!.approvedDocumentType;
                 } else if (existing!.rejectedVersion !== null && existing!.rejectedContent !== null) {
-                    // Revise rejected version - load its content so agent can fix it
                     contentToLoad = existing!.rejectedContent;
                     loadedFrom = 'rejected';
                     loadedVersion = existing!.rejectedVersion;
                     existingDocumentType = existing!.rejectedDocumentType;
                     rejectionReason = existing!.rejectionReason;
-                } else if (existing!.currentContent !== null) {
-                    // TODO: add a param to specifically confirm restoring and editing a deleted document
-                    contentToLoad = existing!.currentContent;
-                    loadedFrom = isDeleted ? 'deleted' : 'approved';
-                    loadedVersion = existing!.currentVersion;
-                    existingDocumentType = existing!.currentDocumentType;
                 } else {
                     return { error: 'No version available to edit.' };
                 }
@@ -335,6 +340,8 @@ You MUST call finalize_document when done or content will be lost.`,
                         ? `${messages[loadedFrom]} Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
                         : messages[loadedFrom];
 
+                    const nextVersion = existing!.latestVersion + 1;
+
                     return {
                         status: 'editing',
                         mode: 'edit',
@@ -342,9 +349,11 @@ You MUST call finalize_document when done or content will be lost.`,
                         title: draft.title,
                         is_internal: draft.is_internal,
                         document_type: draft.document_type,
-                        ...(existingDocumentType && existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
+                        ...(existingDocumentType &&
+                            existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
                         loadedFrom,
                         loadedVersion,
+                        nextVersion,
                         lines: countLines(draft.content),
                         message,
                         ...(isDeleted && { previouslyDeleted: true }),
@@ -454,7 +463,16 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     const draft = draftManager.requireCurrent();
 
                     // Persist to database as proposed
-                    const result = await upsertDocument(em, scope, chatId, draft.name, draft.title, draft.content, draft.is_internal, draft.document_type);
+                    const result = await upsertDocument(
+                        em,
+                        scope,
+                        chatId,
+                        draft.name,
+                        draft.title,
+                        draft.content,
+                        draft.is_internal,
+                        draft.document_type,
+                    );
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
@@ -563,8 +581,8 @@ Version options:
 
                 switch (versionMode) {
                     case 'approved':
-                        content = doc.currentContent;
-                        version = doc.currentVersion;
+                        content = doc.approvedContent;
+                        version = doc.approvedVersion;
                         source = 'approved';
                         if (!content) {
                             return {
@@ -582,8 +600,8 @@ Version options:
                         if (!content) {
                             return {
                                 error: `No proposed version exists for "${normalizedName}".`,
-                                hasApproved: doc.currentVersion !== null,
-                                approvedVersion: doc.currentVersion,
+                                hasApproved: doc.approvedVersion !== null,
+                                approvedVersion: doc.approvedVersion,
                             };
                         }
                         break;
@@ -595,9 +613,9 @@ Version options:
                             content = doc.proposedContent;
                             version = doc.proposedVersion;
                             source = 'proposed';
-                        } else if (doc.currentContent !== null) {
-                            content = doc.currentContent;
-                            version = doc.currentVersion;
+                        } else if (doc.approvedContent !== null) {
+                            content = doc.approvedContent;
+                            version = doc.approvedVersion;
                             source = 'approved';
                         } else if (doc.rejectedContent !== null) {
                             content = doc.rejectedContent;
@@ -626,9 +644,9 @@ Version options:
                     response.hasProposed = true;
                     response.proposedVersion = doc.proposedVersion;
                 }
-                if (source === 'proposed' && doc.currentVersion !== null) {
+                if (source === 'proposed' && doc.approvedVersion !== null) {
                     response.hasApproved = true;
-                    response.approvedVersion = doc.currentVersion;
+                    response.approvedVersion = doc.approvedVersion;
                 }
 
                 return response;

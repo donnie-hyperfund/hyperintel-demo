@@ -144,7 +144,7 @@ export function useStreamReader({
                                 existingArtifact = await fetchArtifact(artifactId, loadedVersion);
                             }
 
-                            const newVersion = loadedVersion + 1;
+                            const newVersion = payload.nextVersion;
 
                             streaming.streamingDocs.set(artifactId, {
                                 artifactId,

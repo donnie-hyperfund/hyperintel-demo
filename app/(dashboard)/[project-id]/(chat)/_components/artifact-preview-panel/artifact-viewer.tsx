@@ -12,6 +12,7 @@ import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
+import { ArtifactVersionHistoryDialog } from './artifact-version-history-dialog';
 import { DiffControlBar } from './diff-control-bar';
 
 type ArtifactViewerProps = {
@@ -123,14 +124,25 @@ export const ArtifactViewer = ({
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
-    // TODO: Remove the !!projectId when backend is updated and we can use a unified artifact API
-    const deleteAction = canDelete && !!projectId && (
-        <ArtifactDeleteDocument
-            artifactKey={artifactKey!}
-            title={title}
-            onProcessingChange={setIsProcessingDelete}
-            onDeleted={onCloseAction}
-        />
+    // TODO: Remove the !!projectId guard when backend is updated and we can use a unified artifact API
+    const headerActions = (
+        <>
+            {projectId && artifactKey && artifactId && (
+                <ArtifactVersionHistoryDialog
+                    artifactKey={artifactKey}
+                    artifactId={artifactId}
+                    currentVersion={version}
+                />
+            )}
+            {canDelete && !!projectId && (
+                <ArtifactDeleteDocument
+                    artifactKey={artifactKey!}
+                    title={title}
+                    onProcessingChange={setIsProcessingDelete}
+                    onDeleted={onCloseAction}
+                />
+            )}
+        </>
     );
 
     return (
@@ -147,7 +159,7 @@ export const ArtifactViewer = ({
                 updatedAt={updatedAt}
                 backHref={backHref}
                 onCloseAction={onCloseAction}
-                actions={deleteAction}
+                actions={headerActions}
                 isStreaming={!!isStreaming}
             />
 
