@@ -60,9 +60,7 @@ export async function importArtifactsToProject(
     // Check which keys already exist in the target project
     const sourceKeys = sources.map((a) => a.key);
     const existingInProject =
-        sourceKeys.length > 0
-            ? await em.find(ArtifactEntity, { project: projectId, key: { $in: sourceKeys } })
-            : [];
+        sourceKeys.length > 0 ? await em.find(ArtifactEntity, { project: projectId, key: { $in: sourceKeys } }) : [];
     const existingKeys = new Set(existingInProject.map((a) => a.key));
 
     await em.transactional(async (txEm) => {
@@ -121,6 +119,8 @@ export async function importArtifactsToProject(
             version.artifact = artifact;
             version.version = 1;
             version.content = bestVersion.content;
+            version.document_type = bestVersion.document_type;
+            version.is_internal = bestVersion.is_internal;
             version.status = 'approved';
             version.status_changed_at = new Date();
             version.status_changed_by = userId;
