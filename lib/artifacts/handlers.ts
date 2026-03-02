@@ -1,4 +1,4 @@
-import { wrap } from '@mikro-orm/core';
+import { raw, wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
@@ -10,7 +10,11 @@ import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { GetArtifactQuerySchema, ListUserResourcesQuerySchema } from '@/lib/schema/artifact';
 
-export async function handleListResources(req: NextRequest, user: UserEntity): Promise<NextResponse> {
+export async function handleListResources(
+    req: NextRequest,
+    user: UserEntity,
+    projectId?: string,
+): Promise<NextResponse> {
     const { em } = await getOrm();
     const { searchParams } = new URL(req.url);
 
@@ -24,18 +28,29 @@ export async function handleListResources(req: NextRequest, user: UserEntity): P
 
     const { page, limit, documentType } = queryData;
 
-    const where: Record<string, unknown> = { user: user.id, project: null };
+    const query = em.createQueryBuilder(ArtifactEntity, 'a').select('a.*');
 
-    if (documentType?.length) {
-        where.current_version = { document_type: { $in: documentType } };
+    if (projectId) {
+        // Project-scoped: imported resources only
+        query
+            .leftJoin('a.project', 'p')
+            .leftJoinAndSelect('a.current_version', 'cv')
+            .where({
+                'p.id': projectId,
+                'p.user': user.id,
+                [raw("a.metadata->>'importedFrom'")]: { $ne: null },
+                $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+            });
+    } else {
+        // User-scoped: global resources
+        const where: Record<string, unknown> = { user: user.id, project: null };
+        if (documentType?.length) {
+            where.current_version = { document_type: { $in: documentType } };
+        }
+        query.leftJoinAndSelect('a.current_version', 'cv').where(where);
     }
 
-    const query = em
-        .createQueryBuilder(ArtifactEntity, 'a')
-        .select('a.*')
-        .leftJoinAndSelect('a.current_version', 'cv')
-        .where(where)
-        .orderBy({ 'cv.document_type': 'ASC', 'a.created_at': 'DESC' });
+    query.orderBy({ 'cv.document_type': 'ASC', 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, { page, perPage: limit });
 
@@ -110,4 +125,35 @@ export async function handleGetResourceByKey(req: NextRequest, key: string, user
         ...wrap(artifact).toJSON(),
         proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
     });
+}
+
+export async function handleRemoveProjectResource(
+    projectId: string,
+    artifactId: string,
+    user: UserEntity,
+): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const artifact = await em
+        .createQueryBuilder(ArtifactEntity, 'a')
+        .select('a.*')
+        .leftJoin('a.project', 'p')
+        .where({
+            'a.id': artifactId,
+            'p.id': projectId,
+            'p.user': user.id,
+            [raw("a.metadata->>'importedFrom'")]: { $ne: null },
+        })
+        .getSingleResult();
+
+    if (!artifact) {
+        return NextResponse.json({ message: 'Resource not found', code: 'RESOURCE_NOT_FOUND' }, { status: 404 });
+    }
+
+    await em.transactional(async (txEm) => {
+        await txEm.nativeDelete(ArtifactVersionEntity, { artifact: artifact.id });
+        await txEm.nativeDelete(ArtifactEntity, { id: artifact.id });
+    });
+
+    return NextResponse.json({ success: true, message: 'Resource removed from project' });
 }
