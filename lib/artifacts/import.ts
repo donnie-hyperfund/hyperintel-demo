@@ -121,6 +121,8 @@ export async function importArtifactsToProject(
             version.artifact = artifact;
             version.version = 1;
             version.content = bestVersion.content;
+            version.document_type = bestVersion.document_type;
+            version.is_internal = bestVersion.is_internal;
             version.status = 'approved';
             version.status_changed_at = new Date();
             version.status_changed_by = userId;

@@ -99,6 +99,14 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
         });
 
+    // Exclude imported resources (they are shown via the project resources endpoint)
+    query.andWhere({
+        $or: [
+            { [raw("a.metadata->>'importedFrom'")]: null },
+            { [raw('a.metadata')]: null },
+        ],
+    });
+
     if (queryData.visibility?.length) {
         const booleans = queryData.visibility.map((v) => v === 'internal');
         query.andWhere({
