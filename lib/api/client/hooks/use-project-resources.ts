@@ -2,10 +2,10 @@ import { useAuth } from '@clerk/nextjs';
 import { useMemo } from 'react';
 import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import {
-    createResourceApi,
-    getResourceListInfiniteKey,
-    type ResourceListParams,
-} from '@/lib/api/client/fetchers/resources';
+    createProjectResourceApi,
+    getProjectResourceListInfiniteKey,
+    type ProjectResourceListParams,
+} from '@/lib/api/client/fetchers/project-resources';
 import type { InfinitePaginationParams, PaginatedResponse } from '@/lib/api/client/types';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 
@@ -13,17 +13,18 @@ function getDocType(a: ArtifactDto) {
     return a.current_version?.document_type ?? a.proposed_version?.document_type;
 }
 
-export function useFetchResources(
+export function useFetchProjectResources(
+    projectId: string,
     params: InfinitePaginationParams = { limit: 20 },
     config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
 
     const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
-        getResourceListInfiniteKey(params.limit),
+        getProjectResourceListInfiniteKey(projectId, params.limit),
         (key) => {
-            const pageParams = key[key.length - 1] as ResourceListParams;
-            return createResourceApi(getToken).list(pageParams);
+            const pageParams = key[key.length - 1] as ProjectResourceListParams;
+            return createProjectResourceApi(getToken).list(projectId, pageParams);
         },
         { revalidateOnFocus: false, ...config },
     );
@@ -45,5 +46,5 @@ export function useFetchResources(
         [allItems],
     );
 
-    return { ...result, companies, stakeholders, legacyDna, hasNextPage };
+    return { ...result, allItems, companies, stakeholders, legacyDna, hasNextPage };
 }
