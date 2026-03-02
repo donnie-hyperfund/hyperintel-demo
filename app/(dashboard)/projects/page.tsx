@@ -15,7 +15,7 @@ export default function ProjectsPage() {
                     title="Your projects"
                     ActionComponent={
                         <Button asChild size="sm">
-                            <Link href="/new-project">
+                            <Link href="/projects/new">
                                 <Plus className="size-4 opacity-75" />
                                 New project
                             </Link>

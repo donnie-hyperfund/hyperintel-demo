@@ -7,7 +7,8 @@ import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
-import { ArtifactItemSkeleton, ArtifactListItem } from '../../_components/artifact-list-item';
+import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { getArtifactChatId } from '@/modules/artifacts/utils';
 
 const PAGE_SIZE = 20;
 
@@ -61,7 +62,7 @@ export const StakeholderList = () => {
         return (
             <div className="space-y-2 flex-1">
                 {Array.from({ length: 4 }).map((_, index) => (
-                    <ArtifactItemSkeleton key={index} />
+                    <ArtifactListItemSkeleton key={index} />
                 ))}
             </div>
         );
@@ -69,9 +70,20 @@ export const StakeholderList = () => {
 
     return (
         <div className="space-y-2 flex-1">
-            {artifacts.map((artifact) => (
-                <ArtifactListItem key={artifact.id} artifact={artifact} icon={Users} />
-            ))}
+            {artifacts.map((artifact) => {
+                const chatId = getArtifactChatId(artifact);
+                const href = chatId ? `/stakeholders/${chatId}` : undefined;
+
+                return (
+                    <ArtifactListItem
+                        key={artifact.id}
+                        artifact={artifact}
+                        icon={Users}
+                        shouldDisplayVersionInfo={false}
+                        href={href}
+                    />
+                );
+            })}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />

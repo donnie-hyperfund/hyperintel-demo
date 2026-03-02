@@ -14,7 +14,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
-import { getArtifactChatId, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
+import { getArtifactChatId, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function NextPhaseButton() {
@@ -37,15 +37,15 @@ export function NextPhaseButton() {
             page.data.some(
                 (artifact) =>
                     getArtifactChatId(artifact) === chatId &&
-                    getArtifactVersion(artifact)?.status === 'approved' &&
-                    getArtifactVersion(artifact)?.document_type !== 'Completion Brief',
+                    getLatestArtifactVersion(artifact)?.status === 'approved' &&
+                    getLatestArtifactVersion(artifact)?.document_type !== 'Completion Brief',
             ),
         );
     }, [artifactPages, chatId]);
 
     const canTransition = isLatestPhase && hasAnyApprovedArtifacts && !state.isLoading;
 
-    const buttonVisible = canTransition && !state.isGenerating;
+    const isButtonVisible = canTransition && !state.isGenerating;
 
     const isSummaryReady = !!state.summaryNewChatId;
 
@@ -94,7 +94,7 @@ export function NextPhaseButton() {
 
     return (
         <>
-            {buttonVisible && (
+            {isButtonVisible && (
                 <Button
                     variant="secondary"
                     size="sm"
@@ -102,7 +102,7 @@ export function NextPhaseButton() {
                     disabled={state.isSummarizing}
                     className="gap-1.5"
                 >
-                    Next phase
+                    Start next phase
                     <ArrowRight className="size-3.5" />
                 </Button>
             )}

@@ -2,7 +2,7 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
@@ -11,10 +11,15 @@ import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/contants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
+<<<<<<< feat/frontend/artifacts-version-management-system
 import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
 import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
+=======
+>>>>>>> main
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
@@ -179,12 +184,18 @@ export function ChatProvider({
 
                 for (const data of results) {
                     if (data) {
+<<<<<<< feat/frontend/artifacts-version-management-system
                         artifactContext.updateArtifact(
                             keyId,
                             { ...data, id: data.key }, // @TODO: cleanup and refactor key/id + unify db/frontend source of truth
                             getArtifactVersion(data)?.version,
                             { merge: false },
                         );
+=======
+                        artifactContext.updateArtifact(keyId, data, getLatestArtifactVersion(data)?.version, {
+                            merge: false,
+                        });
+>>>>>>> main
                     }
                 }
             } catch {
@@ -225,11 +236,8 @@ export function ChatProvider({
 
     const fetchArtifact = useCallback(
         async (artifactKey: string, version: number) => {
-            // TODO: Handle it with a unified artifact API when backend is updated
-            if (!projectId) return null;
-
             try {
-                const artifact = await api.projectArtifacts.getByKey(projectId, artifactKey, version);
+                const artifact = await api.artifacts.getByKey(artifactKey, version);
                 if (artifact) {
                     artifactContext.addArtifact({ ...artifact, id: artifactKey }, version);
                 }
@@ -393,6 +401,12 @@ export function ChatProvider({
 
                         skipNextLoad.current = true;
                         setChatId(chatIdToUse);
+
+                        const basePath =
+                            chatType === 'company' ? '/companies' : chatType === 'stakeholder' ? '/stakeholders' : null;
+                        if (basePath) {
+                            window.history.replaceState(null, '', `${basePath}/${chatIdToUse}`);
+                        }
                     }
                 }
 
@@ -528,6 +542,14 @@ export function ChatProvider({
             isGenerating: false,
         }));
     }, []);
+
+    // Auto-load messages when an initial chat ID is provided
+    useEffect(() => {
+        if (initialChatId) {
+            loadMessages();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialChatId]);
 
     return (
         <ChatContext.Provider

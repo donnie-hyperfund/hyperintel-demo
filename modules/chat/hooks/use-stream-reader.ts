@@ -2,8 +2,8 @@
 
 import { useCallback, useRef } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
-import type { ArtifactContextValue } from '@/modules/chat/providers/artifact-provider';
-import { getArtifactContent } from '@/modules/chat/providers/artifact-provider/utils';
+import type { ArtifactContextValue } from '@/modules/artifacts/providers/artifact-provider';
+import { getLatestArtifactContent } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
 import type { Message, StreamBlock, TokenUsage } from '../types';
 
@@ -121,7 +121,7 @@ export function useStreamReader({
                                         version: 1,
                                         content: '',
                                         status: 'proposed',
-                                        document_type: payload.document_type,
+                                        document_type: payload.documentType,
                                         created_at: now,
                                         updated_at: now,
                                     },
@@ -148,11 +148,13 @@ export function useStreamReader({
 
                             streaming.streamingDocs.set(artifactId, {
                                 artifactId,
-                                content: existingArtifact ? (getArtifactContent(existingArtifact) ?? '') : '',
+                                content: existingArtifact ? (getLatestArtifactContent(existingArtifact) ?? '') : '',
                                 version: newVersion,
                             });
 
-                            const loadedContent = existingArtifact ? getArtifactContent(existingArtifact) : undefined;
+                            const loadedContent = existingArtifact
+                                ? getLatestArtifactContent(existingArtifact)
+                                : undefined;
 
                             addArtifact(
                                 {
@@ -175,7 +177,7 @@ export function useStreamReader({
                                         version: newVersion,
                                         content: loadedContent ?? '',
                                         status: 'proposed',
-                                        document_type: payload.document_type,
+                                        document_type: payload.documentType,
                                         created_at: now,
                                         updated_at: now,
                                     },

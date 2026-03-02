@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ChatModule } from '@/modules/chat/providers/chat-module';
-import ChatInterface from './chat-interface';
+import PhaseChatInterface from './phase-chat-interface';
 
 type NewPhaseChatProps = {
     projectId: string;
@@ -19,7 +19,7 @@ export function NewPhaseChat({ projectId }: NewPhaseChatProps) {
 
     return (
         <ChatModule key={mountKey} projectId={projectId}>
-            <ChatInterface />
+            <PhaseChatInterface />
         </ChatModule>
     );
 }
