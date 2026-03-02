@@ -53,7 +53,7 @@ export default function LinkResourcesPage() {
             >
                 <h1 className="text-3xl font-semibold tracking-tight">Link resources</h1>
                 <p className="text-muted-foreground text-sm leading-relaxed">
-                    Select existing companies and stakeholders to include in your new project.
+                    Select existing resources to include in your new project.
                 </p>
             </motion.div>
 

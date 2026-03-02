@@ -1,7 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
-import { Building, Building2, Users } from 'lucide-react';
+import { Building, Building2, Dna, Users } from 'lucide-react';
 import { useMemo } from 'react';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
@@ -15,9 +15,12 @@ type ResourceSelectListProps = {
 };
 
 export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: ResourceSelectListProps) {
-    const { companies, stakeholders, isLoading } = useFetchResources();
+    const { companies, stakeholders, legacyDna, isLoading } = useFetchResources();
 
-    const totalCount = useMemo(() => companies.length + stakeholders.length, [companies, stakeholders]);
+    const totalCount = useMemo(
+        () => companies.length + stakeholders.length + legacyDna.length,
+        [companies, stakeholders, legacyDna],
+    );
 
     if (isLoading) {
         return (
@@ -35,7 +38,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
                 <EmptyState
                     icon={Building2}
                     title="No resources yet"
-                    description="Companies & stakeholders will appear here once created."
+                    description="Companies, stakeholders, and legacy DNA will appear here once created."
                 />
             </div>
         );
@@ -46,6 +49,13 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
     return (
         <>
             <div className="max-h-128 overflow-y-auto px-4 py-6 space-y-4">
+                <Section
+                    title="Legacy DNA"
+                    icon={Dna}
+                    artifacts={legacyDna}
+                    selectedIds={selectedIds}
+                    onToggle={onToggle}
+                />
                 <Section
                     title="Companies"
                     icon={Building}

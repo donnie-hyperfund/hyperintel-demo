@@ -17,8 +17,8 @@ import { useProjectCreationWizard } from './_providers/project-creation-wizard-p
 export default function NewProjectPage() {
     const router = useRouter();
     const { data, updateData, submitProject, isSubmitting } = useProjectCreationWizard();
-    const { companies, stakeholders } = useFetchResources();
-    const hasResources = companies.length > 0 || stakeholders.length > 0;
+    const { companies, stakeholders, legacyDna } = useFetchResources();
+    const hasResources = companies.length > 0 || stakeholders.length > 0 || legacyDna.length > 0;
 
     const {
         register,
