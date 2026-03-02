@@ -44,7 +44,7 @@ export default clerkMiddleware(async (auth, req) => {
 
                 // Redirect to new-project if user has no projects and not already on onboarding page
                 if (!hasProjects && !isOnOnboardingPage) {
-                    const url = new URL('/projects/new', req.url);
+                    const url = new URL('/projects/new?onboarding=true', req.url);
                     return NextResponse.redirect(url);
                 }
 
