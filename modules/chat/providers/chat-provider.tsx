@@ -15,11 +15,6 @@ import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provi
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/contants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-<<<<<<< feat/frontend/artifacts-version-management-system
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
-=======
->>>>>>> main
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
@@ -184,18 +179,12 @@ export function ChatProvider({
 
                 for (const data of results) {
                     if (data) {
-<<<<<<< feat/frontend/artifacts-version-management-system
                         artifactContext.updateArtifact(
                             keyId,
                             { ...data, id: data.key }, // @TODO: cleanup and refactor key/id + unify db/frontend source of truth
-                            getArtifactVersion(data)?.version,
+                            getLatestArtifactVersion(data)?.version,
                             { merge: false },
                         );
-=======
-                        artifactContext.updateArtifact(keyId, data, getLatestArtifactVersion(data)?.version, {
-                            merge: false,
-                        });
->>>>>>> main
                     }
                 }
             } catch {

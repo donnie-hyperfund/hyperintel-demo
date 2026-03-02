@@ -2,7 +2,7 @@
 
 import { FileText, Loader2 } from 'lucide-react';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
-import { getLatestArtifactContent, getLatestArtifactVersion } from '@/modules/artifacts/utils';
+import { getLatestArtifactVersion, getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
 type ArtifactPreviewPanelProps = {
@@ -22,7 +22,7 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
     const isLoading = currentArtifact?.isLoading;
     const isStreaming = currentArtifact?.isStreaming;
     const isUpdating = currentArtifact?.isUpdating;
-    const content = currentArtifact ? getLatestArtifactContent(currentArtifact) : '';
+    const content = currentArtifact ? getLatestArtifactVersionContent(currentArtifact) : '';
     const activeVersion = currentArtifact ? getLatestArtifactVersion(currentArtifact) : undefined;
     const isUploaded = activeVersion?.is_uploaded;
     const isInternal = activeVersion?.is_internal;

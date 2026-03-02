@@ -3,7 +3,7 @@
 import { useCallback, useRef } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
 import type { ArtifactContextValue } from '@/modules/artifacts/providers/artifact-provider';
-import { getLatestArtifactContent } from '@/modules/artifacts/utils';
+import { getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
 import type { Message, StreamBlock, TokenUsage } from '../types';
 
@@ -148,12 +148,14 @@ export function useStreamReader({
 
                             streaming.streamingDocs.set(artifactId, {
                                 artifactId,
-                                content: existingArtifact ? (getLatestArtifactContent(existingArtifact) ?? '') : '',
+                                content: existingArtifact
+                                    ? (getLatestArtifactVersionContent(existingArtifact) ?? '')
+                                    : '',
                                 version: newVersion,
                             });
 
                             const loadedContent = existingArtifact
-                                ? getLatestArtifactContent(existingArtifact)
+                                ? getLatestArtifactVersionContent(existingArtifact)
                                 : undefined;
 
                             addArtifact(

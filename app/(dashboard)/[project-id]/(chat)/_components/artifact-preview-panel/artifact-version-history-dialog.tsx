@@ -25,9 +25,9 @@ import {
     useRestoreProjectArtifactVersion,
 } from '@/lib/api/client/hooks/use-project-artifacts';
 import { type ArtifactVersionDto, TERMINAL_VERSION_STATUSES } from '@/lib/schema/artifact';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 type ArtifactVersionHistoryDialogProps = {
@@ -51,7 +51,8 @@ export function ArtifactVersionHistoryDialog({
     const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
 
     const { projectId } = useChatContext<'phase'>();
-    const { addArtifact } = useArtifactContext();
+    const { addArtifact, artifacts } = useArtifactContext();
+    console.log('artifacts in context', artifacts);
     const { openPanel } = useActivePanelContext();
 
     const { data: history, isLoading: isLoadingVersions } = useFetchProjectArtifactVersions(
@@ -87,7 +88,7 @@ export function ArtifactVersionHistoryDialog({
         selectedVersion ?? undefined,
     );
 
-    const previewContent = previewArtifact ? (getArtifactVersion(previewArtifact)?.content ?? '') : '';
+    const previewContent = previewArtifact ? getLatestArtifactVersionContent(previewArtifact) : '';
     const isLatestNonTerminal =
         !!history &&
         selectedVersion === history.artifact.latestVersion &&
@@ -111,7 +112,7 @@ export function ArtifactVersionHistoryDialog({
                 },
                 restoredVersion,
             );
-            openPanel({ panel: 'artifact-preview', artifactId, version: restoredVersion });
+            openPanel({ panel: 'artifact-preview', artifactId: artifactKey, version: restoredVersion });
 
             toast({ title: `Restored v${selectedEntry.version} as v${updatedArtifact.version}` });
             setOpen(false);

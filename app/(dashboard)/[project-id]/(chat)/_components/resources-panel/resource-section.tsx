@@ -2,7 +2,7 @@
 
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { ArtifactListItem } from '@/modules/artifacts/components/artifact-list-item';
-import { getArtifactChatId } from '@/modules/artifacts/utils';
+import { getLatestArtifactVersionChatId } from '@/modules/artifacts/utils';
 
 type ResourceSectionProps = {
     title: string;
@@ -18,7 +18,7 @@ export function ResourceSection({ title, basePath, artifacts }: ResourceSectionP
             <h3 className="text-xs font-medium uppercase tracking-wider text-neutral-500">{title}</h3>
             <div className="space-y-2">
                 {artifacts.map((artifact) => {
-                    const chatId = getArtifactChatId(artifact);
+                    const chatId = getLatestArtifactVersionChatId(artifact);
                     const href = chatId ? `${basePath}/${chatId}` : undefined;
 
                     return (

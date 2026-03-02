@@ -12,7 +12,7 @@ import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
-import { getArtifactChatId } from '@/modules/artifacts/utils';
+import { getLatestArtifactVersionChatId } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { PhaseSwitchDialog } from '../phase-switch-dialog';
@@ -106,7 +106,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
 
     const scrollToArtifact = useCallback(
         (artifact: ArtifactDto) => {
-            const artifactChatId = getArtifactChatId(artifact);
+            const artifactChatId = getLatestArtifactVersionChatId(artifact);
             if (!artifactChatId) return;
             navigateToArtifact(artifactChatId, artifact.key, artifact.version);
         },
@@ -117,7 +117,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         (artifact: ArtifactDto) => {
             if (!projectId) return;
 
-            const artifactChatId = getArtifactChatId(artifact);
+            const artifactChatId = getLatestArtifactVersionChatId(artifact);
 
             if (artifactChatId && artifactChatId !== chatId) {
                 const phaseNumber = chatsData?.data ? getPhaseNumber(chatsData.data, artifactChatId) : null;
