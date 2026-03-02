@@ -8,7 +8,51 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { GetArtifactQuerySchema, ListUserResourcesQuerySchema } from '@/lib/schema/artifact';
+import {
+    GetArtifactQuerySchema,
+    ListArtifactVersionsQuerySchema,
+    ListUserResourcesQuerySchema,
+} from '@/lib/schema/artifact';
+
+export async function handleGetVersions(req: NextRequest, projectId: string, userId: string): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const queryData = validatePayload(ListArtifactVersionsQuerySchema, {
+        key: req.nextUrl.searchParams.get('key') ?? undefined,
+    });
+    if (queryData instanceof NextResponse) return queryData;
+
+    const key = normalizeArtifactKey(queryData.key);
+
+    const artifact = await em
+        .createQueryBuilder(ArtifactEntity, 'a')
+        .select('a.*')
+        .leftJoin('a.project', 'p')
+        .leftJoinAndSelect('a.current_version', 'cv')
+        .where({
+            'a.key': key,
+            'p.id': projectId,
+            'p.user': userId,
+        })
+        .getSingleResult();
+
+    if (!artifact) {
+        return NextResponse.json({ error: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 });
+    }
+
+    const versions = await em.find(ArtifactVersionEntity, { artifact: artifact.id }, { orderBy: { version: 'DESC' } });
+
+    return NextResponse.json({
+        artifact: {
+            id: artifact.id,
+            key: artifact.key,
+            title: artifact.title,
+            latestVersion: artifact.version,
+            currentVersion: artifact.current_version?.version ?? null,
+        },
+        versions: versions.map((v) => wrap(v).toJSON()),
+    });
+}
 
 export async function handleListResources(req: NextRequest, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
