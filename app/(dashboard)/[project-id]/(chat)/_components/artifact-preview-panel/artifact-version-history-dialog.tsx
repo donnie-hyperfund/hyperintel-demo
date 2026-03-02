@@ -51,8 +51,8 @@ export function ArtifactVersionHistoryDialog({
     const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
 
     const { projectId } = useChatContext<'phase'>();
-    const { addArtifact, artifacts } = useArtifactContext();
-    console.log('artifacts in context', artifacts);
+    const { addArtifact } = useArtifactContext();
+
     const { openPanel } = useActivePanelContext();
 
     const { data: history, isLoading: isLoadingVersions } = useFetchProjectArtifactVersions(
