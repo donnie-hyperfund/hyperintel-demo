@@ -1,6 +1,10 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
+import { ChevronLeft } from 'lucide-react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useRouter } from 'nextjs-toploader/app';
+import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -8,15 +12,26 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useSignOut } from '@/hooks/use-sign-out';
+import { cn } from '@/lib/utils';
 
 export function OnboardingHeader() {
     const { user } = useUser();
     const { signOut } = useSignOut();
 
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const router = useRouter();
+
     const email = user?.primaryEmailAddress?.emailAddress || user?.emailAddresses[0]?.emailAddress || '';
+    const shouldShowBackButton = pathname !== '/projects/new' || searchParams.get('onboarding') !== 'true';
 
     return (
-        <header className="flex items-center justify-end px-6 py-4">
+        <header className={cn('flex items-center px-6 py-4', shouldShowBackButton ? 'justify-between' : 'justify-end')}>
+            {shouldShowBackButton && (
+                <Button variant="ghost-light" size="icon" onClick={() => router.back()}>
+                    <ChevronLeft className="size-6" />
+                </Button>
+            )}
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <button

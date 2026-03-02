@@ -1,24 +1,24 @@
 'use client';
 
-import { useUser } from '@clerk/nextjs';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { motion } from 'motion/react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'nextjs-toploader/app';
+
 import { useForm } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { toast } from '@/hooks/use-toast';
-import { useCreateProject } from '@/lib/api/client/hooks/use-projects';
-import { setCurrentProjectCookie } from '@/lib/cookies/project';
+import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
 import { type CreateProjectBodyDto, CreateProjectBodySchema } from '@/lib/schema/project';
+import { useProjectCreationWizard } from './_providers/project-creation-wizard-provider';
 
 export default function NewProjectPage() {
     const router = useRouter();
-    const { user } = useUser();
-    const { trigger: createProject, isMutating } = useCreateProject();
+    const { data, updateData, submitProject, isSubmitting } = useProjectCreationWizard();
+    const { companies, stakeholders } = useFetchResources();
+    const hasResources = companies.length > 0 || stakeholders.length > 0;
 
     const {
         register,
@@ -28,38 +28,19 @@ export default function NewProjectPage() {
         resolver: zodResolver(CreateProjectBodySchema),
         mode: 'onChange',
         defaultValues: {
-            name: '',
-            description: '',
+            name: data.name ?? '',
+            description: data.description ?? '',
         },
     });
 
-    const onSubmit = async (data: CreateProjectBodyDto) => {
-        if (!user?.id) {
-            toast({
-                title: 'You must be logged in to create a project.',
-                variant: 'destructive',
-            });
-            return;
+    const onSubmit = handleSubmit((formData) => {
+        if (hasResources) {
+            updateData(formData);
+            router.push('/projects/new/resources');
+        } else {
+            submitProject(formData);
         }
-
-        try {
-            const newProject = await createProject(data);
-
-            toast({
-                title: 'Project created successfully!',
-            });
-
-            // Set the current project cookie and redirect to the new project
-            setCurrentProjectCookie(user.id, newProject.id);
-            router.push(`/${newProject.id}`);
-        } catch (error) {
-            console.error('Failed to create project:', error);
-            toast({
-                title: 'Failed to create project. Please try again.',
-                variant: 'destructive',
-            });
-        }
-    };
+    });
 
     return (
         <div className="mx-auto w-full max-w-md">
@@ -76,7 +57,7 @@ export default function NewProjectPage() {
                 </p>
             </motion.div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col items-center justify-center">
+            <form onSubmit={onSubmit} className="flex flex-col items-center justify-center">
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -92,7 +73,6 @@ export default function NewProjectPage() {
                                         id="name"
                                         type="text"
                                         placeholder="Workspace name"
-                                        disabled={isMutating}
                                         className="text-base"
                                         aria-invalid={!!errors.name}
                                         size="xl"
@@ -106,7 +86,6 @@ export default function NewProjectPage() {
                                     <Textarea
                                         id="description"
                                         placeholder="What's this project for? (optional)"
-                                        disabled={isMutating}
                                         className="min-h-28 text-base"
                                         rows={4}
                                         size="xl"
@@ -126,8 +105,13 @@ export default function NewProjectPage() {
                     transition={{ duration: 0.4, delay: 0.4, ease: 'easeOut' }}
                     className="self-stretch flex justify-center"
                 >
-                    <Button type="submit" disabled={isMutating || !isValid} className="w-full max-w-[24rem]" size="xl">
-                        {isMutating ? 'Creating...' : 'Create project'}
+                    <Button
+                        type="submit"
+                        disabled={!isValid || isSubmitting}
+                        className="w-full max-w-[24rem]"
+                        size="xl"
+                    >
+                        {isSubmitting ? 'Creating...' : hasResources ? 'Next' : 'Create project'}
                     </Button>
                 </motion.div>
             </form>

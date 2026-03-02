@@ -7,7 +7,7 @@ import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 
 const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/api/webhooks(.*)']);
-const isOnboardingRoute = createRouteMatcher(['/new-project(.*)', '/select-project(.*)']);
+const isOnboardingRoute = createRouteMatcher(['/projects/new(.*)', '/select-project(.*)']);
 
 /**
  * Test-only auth bypass for Playwright.
@@ -44,7 +44,7 @@ export default clerkMiddleware(async (auth, req) => {
 
                 // Redirect to new-project if user has no projects and not already on onboarding page
                 if (!hasProjects && !isOnOnboardingPage) {
-                    const url = new URL('/new-project', req.url);
+                    const url = new URL('/projects/new?onboarding=true', req.url);
                     return NextResponse.redirect(url);
                 }
 
@@ -92,7 +92,7 @@ export default clerkMiddleware(async (auth, req) => {
 
     // Additional safety check to redirect to new-project if user is not found
     if (!clerkUserId && pathname === '/') {
-        return NextResponse.redirect(new URL('/new-project', req.url));
+        return NextResponse.redirect(new URL('/projects/new', req.url));
     }
 
     return NextResponse.next();

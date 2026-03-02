@@ -68,7 +68,7 @@ export const ArtifactListItem = ({
             title={artifact.title}
             className={cn(
                 containerVariants({ size }),
-                isSelected ? 'bg-neutral-900 border-neutral-500/30' : 'border-border',
+                isSelected ? 'bg-neutral-900 border-neutral-500/40' : 'border-border',
                 (href || onClick) && 'cursor-pointer hover:bg-accent/50',
             )}
         >

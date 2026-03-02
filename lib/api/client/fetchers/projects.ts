@@ -1,4 +1,4 @@
-import type { CreateProjectBodyDto, ProjectDto, UpdateProjectBodyDto } from '@/lib/schema/project';
+import type { CreateProjectBodyDto, ImportResultDto, ProjectDto, UpdateProjectBodyDto } from '@/lib/schema/project';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
 
@@ -43,6 +43,13 @@ export function createProjectApi(getToken: TokenGetter) {
 
         delete: async (id: string) => {
             const { data } = await axios.delete<{ message: string }>(ENDPOINTS.byId(id));
+            return data;
+        },
+
+        importArtifacts: async (projectId: string, artifactIds: string[]) => {
+            const { data } = await axios.post<ImportResultDto>(`${ENDPOINTS.byId(projectId)}/import-artifacts`, {
+                artifactIds,
+            });
             return data;
         },
     };
