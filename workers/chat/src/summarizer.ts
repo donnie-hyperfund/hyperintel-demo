@@ -124,16 +124,18 @@ async function streamInternal(
         // Fetch live document statuses for documents touched in this phase
         const phaseDocNames = new Set(documents.map((d) => d.name));
         if (phaseDocNames.size > 0) {
-            const allDocuments = await listDocuments(em!, { projectId: chat.project.id });
+            const allDocuments = await listDocuments(em!, { projectId: chat.project!.id });
             const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
             if (phaseDocuments.length > 0) {
-                instructions += `\n\n## Current Document Statuses (this phase)\n\n`;
+                instructions += `\n\n## Current Document Statuses (this phase)\n\nThese statuses are queried from the database at the time of summarization. Users may approve or reject documents via the UI — this does NOT appear in the conversation history. Use these statuses as the source of truth.\n\n`;
                 for (const doc of phaseDocuments) {
                     const status = doc.hasProposed ? 'proposed' : (doc.currentStatus ?? doc.latestStatus);
                     instructions += `- \`${doc.name}\` (${doc.title}): v${doc.latestVersion} — **${status}**\n`;
                 }
             }
         }
+
+        instructions += `\n\n## Completion Brief\n\nThe Completion Brief you create is automatically approved by the system immediately after you finish. Report its status as "approved", NOT "proposed". Do not mention that it needs or awaits user approval.\n`;
 
         const historyMessages = messages.map((m) => ({
             role: m.role as 'user' | 'assistant',
