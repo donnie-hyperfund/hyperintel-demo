@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, useCallback, useContext, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { createProjectApi } from '@/lib/api/client/fetchers/projects';
+import { importArtifacts } from '@/lib/api/requests/worker/projects';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { WizardData } from '../_types';
 
@@ -50,7 +51,14 @@ export function ProjectCreationWizardProvider({ children }: { children: React.Re
 
                 const ids = merged.selectedResourceIds ?? [];
                 if (ids.length > 0) {
-                    await api.importArtifacts(newProject.id, ids);
+                    const token = await getToken();
+                    if (!token) throw new Error('Not authenticated');
+
+                    const response = await importArtifacts({ projectId: newProject.id, artifactIds: ids }, token);
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.message || 'Failed to import artifacts');
+                    }
                 }
 
                 toast({ title: 'Project created successfully!' });
