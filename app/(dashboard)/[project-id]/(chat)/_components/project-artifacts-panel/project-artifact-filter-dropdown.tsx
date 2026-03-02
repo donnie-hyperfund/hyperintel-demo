@@ -27,7 +27,6 @@ const STATUS_OPTIONS: { value: FilterableStatus; label: string }[] = [
     { value: 'proposed', label: 'Pending' },
     { value: 'approved', label: 'Approved' },
     { value: 'rejected', label: 'Rejected' },
-    { value: 'superseded', label: 'Superseded' },
 ];
 
 export function getActiveFilterCount(filters: ProjectArtifactFilters): number {
