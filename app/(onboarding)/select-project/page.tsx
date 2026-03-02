@@ -4,7 +4,7 @@ import { useUser } from '@clerk/nextjs';
 import { FileCode, Plus } from 'lucide-react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'nextjs-toploader/app';
 import { ProjectCard } from '@/app/_components/project-card';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';

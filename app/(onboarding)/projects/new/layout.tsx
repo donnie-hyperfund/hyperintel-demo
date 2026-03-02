@@ -1,5 +1,21 @@
+import { SWRConfig } from 'swr';
+import { unstable_serialize } from 'swr/infinite';
+import { assertAuthPage } from '@/lib/api/auth-guard';
+import { getResourceListInfiniteKey } from '@/lib/api/client/fetchers/resources';
+import { fetchResources } from '@/lib/api/server/fetchers/resources';
 import { ProjectCreationWizardProvider } from './_providers/project-creation-wizard-provider';
 
-export default function NewProjectLayout({ children }: { children: React.ReactNode }) {
-    return <ProjectCreationWizardProvider>{children}</ProjectCreationWizardProvider>;
+export default async function NewProjectLayout({ children }: { children: React.ReactNode }) {
+    const user = await assertAuthPage();
+    const resources = await fetchResources(user, { page: 1, limit: 20 });
+
+    const fallback: Record<string, unknown> = {
+        [unstable_serialize(getResourceListInfiniteKey(20))]: [resources],
+    };
+
+    return (
+        <SWRConfig value={{ fallback }}>
+            <ProjectCreationWizardProvider>{children}</ProjectCreationWizardProvider>
+        </SWRConfig>
+    );
 }
