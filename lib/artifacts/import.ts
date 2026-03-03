@@ -34,7 +34,7 @@ export interface ImportResult {
  *
  * For each artifact ID:
  * 1. Load source (must be user-scoped, owned by userId)
- * 2. Pick latest version content (proposed > approved by version number)
+ * 2. Pick latest approved version (only approved versions can be imported)
  * 3. Skip if key already exists in target project
  * 4. Create project-scoped artifact + approved version in a transaction
  */
@@ -88,16 +88,18 @@ export async function importArtifactsToProject(
                 continue;
             }
 
-            // Find best version: latest by version number
+            // Find best version: latest approved by version number
             const versions = source.versions.getItems();
-            const bestVersion = versions.sort((a, b) => b.version - a.version)[0];
+            const bestVersion = versions
+                .filter((v) => v.status === 'approved')
+                .sort((a, b) => b.version - a.version)[0];
 
             if (!bestVersion) {
                 details.push({
                     sourceArtifactId: artifactId,
                     key: source.key,
                     status: 'error',
-                    error: 'No version found',
+                    error: 'No approved version found — resource must be approved before importing',
                 });
                 skipped++;
                 continue;

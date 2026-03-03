@@ -15,6 +15,8 @@ export const INTERNAL_DOCUMENTS = [
     'PSEB',
     'Action Plan',
     'Completion Brief',
+    'Company Profile',
+    'Human Persona',
 ] as const;
 
 export const DOCUMENT_TYPES = [
@@ -22,8 +24,6 @@ export const DOCUMENT_TYPES = [
     // 'Analysis',
     'Research Report',
     'Executive Summary',
-    'Company Profile',
-    'Human Persona',
     'Other',
 ] as const;
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
@@ -159,6 +159,11 @@ export const ListUserResourcesQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional().default(1),
     limit: z.coerce.number().int().positive().max(100).optional().default(20),
     documentType: csvOf(DocumentTypeSchema).optional(),
+    /** When true, only return resources whose current_version is approved */
+    approvedOnly: z
+        .enum(['true', 'false'])
+        .transform((v) => v === 'true')
+        .optional(),
 });
 export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
 

@@ -26,7 +26,7 @@ export async function handleListResources(
 
     if (queryData instanceof NextResponse) return queryData;
 
-    const { page, limit, documentType } = queryData;
+    const { page, limit, documentType, approvedOnly } = queryData;
 
     const query = em.createQueryBuilder(ArtifactEntity, 'a').select('a.*');
 
@@ -46,6 +46,9 @@ export async function handleListResources(
         const where: Record<string, unknown> = { user: user.id, project: null };
         if (documentType?.length) {
             where.current_version = { document_type: { $in: documentType } };
+        }
+        if (approvedOnly) {
+            where['cv.status'] = 'approved';
         }
         query.leftJoinAndSelect('a.current_version', 'cv').where(where);
     }

@@ -77,10 +77,11 @@ export async function approveArtifactHandler(
         .leftJoinAndSelect('v.artifact', 'a')
         .leftJoinAndSelect('v.chat', 'c')
         .leftJoinAndSelect('a.project', 'p')
-        .leftJoinAndSelect('p.user', 'u')
+        .leftJoinAndSelect('p.user', 'pu')
+        .leftJoinAndSelect('a.user', 'au')
         .where({
             'v.id': versionId,
-            'u.clerkId': user.userId,
+            $or: [{ 'pu.clerkId': user.userId }, { 'au.clerkId': user.userId }],
         })
         .getSingleResult();
 
@@ -146,7 +147,7 @@ export async function approveArtifactHandler(
 
     version.status = 'approved';
     version.status_changed_at = new Date();
-    version.status_changed_by = projectUser?.id;
+    version.status_changed_by = projectUser?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
 
     await em.flush();
@@ -210,11 +211,13 @@ export async function rejectArtifactHandler(
         .createQueryBuilder(ArtifactVersionEntity, 'v')
         .select('v.*')
         .leftJoinAndSelect('v.artifact', 'a')
+        .leftJoinAndSelect('v.chat', 'c')
         .leftJoinAndSelect('a.project', 'p')
-        .leftJoinAndSelect('p.user', 'u')
+        .leftJoinAndSelect('p.user', 'pu')
+        .leftJoinAndSelect('a.user', 'au')
         .where({
             'v.id': versionId,
-            'u.clerkId': user.userId,
+            $or: [{ 'pu.clerkId': user.userId }, { 'au.clerkId': user.userId }],
         })
         .getSingleResult();
 
@@ -242,7 +245,7 @@ export async function rejectArtifactHandler(
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
-    version.status_changed_by = version.artifact.project?.user?.id;
+    version.status_changed_by = version.artifact.project?.user?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
 
     await em.flush();
