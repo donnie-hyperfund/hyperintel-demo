@@ -7,20 +7,18 @@ import {
     type ResourceListParams,
 } from '@/lib/api/client/fetchers/resources';
 import type { InfinitePaginationParams, PaginatedResponse } from '@/lib/api/client/types';
+import { getArtifactDocumentType } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 
-function getDocType(a: ArtifactDto) {
-    return a.current_version?.document_type ?? a.proposed_version?.document_type;
-}
-
 export function useFetchResources(
-    params: InfinitePaginationParams = { limit: 20 },
+    params: InfinitePaginationParams & { approvedOnly?: boolean } = { limit: 20 },
     config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
+    const { approvedOnly } = params;
 
     const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
-        getResourceListInfiniteKey(params.limit),
+        getResourceListInfiniteKey(params.limit, approvedOnly),
         (key) => {
             const pageParams = key[key.length - 1] as ResourceListParams;
             return createResourceApi(getToken).list(pageParams);
@@ -38,9 +36,9 @@ export function useFetchResources(
 
     const { companies, stakeholders, legacyDna } = useMemo(
         () => ({
-            companies: allItems.filter((a) => getDocType(a) === 'Company Profile'),
-            stakeholders: allItems.filter((a) => getDocType(a) === 'Human Persona'),
-            legacyDna: allItems.filter((a) => getDocType(a) === 'Legacy DNA'),
+            companies: allItems.filter((a) => getArtifactDocumentType(a) === 'Company Profile'),
+            stakeholders: allItems.filter((a) => getArtifactDocumentType(a) === 'Human Persona'),
+            legacyDna: allItems.filter((a) => getArtifactDocumentType(a) === 'Legacy DNA'),
         }),
         [allItems],
     );

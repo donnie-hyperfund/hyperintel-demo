@@ -7,11 +7,8 @@ import {
     type ProjectResourceListParams,
 } from '@/lib/api/client/fetchers/project-resources';
 import type { InfinitePaginationParams, PaginatedResponse } from '@/lib/api/client/types';
+import { getArtifactDocumentType, isApprovedArtifact } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
-
-function getDocType(a: ArtifactDto) {
-    return a.current_version?.document_type ?? a.proposed_version?.document_type;
-}
 
 export function useFetchProjectResources(
     projectId: string,
@@ -39,9 +36,13 @@ export function useFetchProjectResources(
 
     const { companies, stakeholders, legacyDna } = useMemo(
         () => ({
-            companies: allItems.filter((a) => getDocType(a) === 'Company Profile'),
-            stakeholders: allItems.filter((a) => getDocType(a) === 'Human Persona'),
-            legacyDna: allItems.filter((a) => getDocType(a) === 'Legacy DNA'),
+            companies: allItems.filter(
+                (a) => getArtifactDocumentType(a) === 'Company Profile' && isApprovedArtifact(a),
+            ),
+            stakeholders: allItems.filter(
+                (a) => getArtifactDocumentType(a) === 'Human Persona' && isApprovedArtifact(a),
+            ),
+            legacyDna: allItems.filter((a) => getArtifactDocumentType(a) === 'Legacy DNA' && isApprovedArtifact(a)),
         }),
         [allItems],
     );

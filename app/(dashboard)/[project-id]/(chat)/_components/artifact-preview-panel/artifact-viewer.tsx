@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
-import { isIntakeDocument } from '@/lib/artifacts/utils';
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
@@ -90,12 +89,7 @@ export const ArtifactViewer = ({
     } = useChatContext();
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
-    const showApprovalBar =
-        !isIntakeDocument(documentType) &&
-        status === 'proposed' &&
-        !isStreaming &&
-        !!artifactKey &&
-        !isLastMessageStreaming;
+    const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
     const canDelete = !!artifactKey && !!isUploaded && !isStreaming && status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
     const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
