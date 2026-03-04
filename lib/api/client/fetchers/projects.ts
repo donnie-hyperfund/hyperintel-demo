@@ -15,6 +15,13 @@ export const projectKeys = {
     detail: (id: string) => [...projectKeys.details(), id] as const,
 };
 
+export function getProjectListInfiniteKey(limit = 20) {
+    return (pageIndex: number, previousPageData: PaginatedResponse<ProjectDto> | null) => {
+        if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
+        return projectKeys.list({ page: pageIndex + 1, limit });
+    };
+}
+
 export function createProjectApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 

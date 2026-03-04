@@ -1,9 +1,10 @@
 import { useAuth } from '@clerk/nextjs';
 import useSWR, { type SWRConfiguration } from 'swr';
+import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import type { CreateProjectBodyDto, ProjectDto, UpdateProjectBodyDto } from '@/lib/schema/project';
-import { createProjectApi, projectKeys } from '../fetchers/projects';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import { createProjectApi, getProjectListInfiniteKey, projectKeys } from '../fetchers/projects';
+import type { InfinitePaginationParams, PaginatedResponse, PaginationParams } from '../types';
 
 export function useFetchProjects(params?: PaginationParams, config?: SWRConfiguration<PaginatedResponse<ProjectDto>>) {
     const { getToken } = useAuth();
@@ -13,6 +14,27 @@ export function useFetchProjects(params?: PaginationParams, config?: SWRConfigur
         () => createProjectApi(getToken).list(params),
         { revalidateOnFocus: false, ...config },
     );
+}
+
+export function useFetchProjectsInfinite(
+    params: InfinitePaginationParams = { limit: 20 },
+    config?: SWRInfiniteConfiguration<PaginatedResponse<ProjectDto>>,
+) {
+    const { getToken } = useAuth();
+
+    const result = useSWRInfinite<PaginatedResponse<ProjectDto>>(
+        getProjectListInfiniteKey(params.limit),
+        (key) => {
+            const params = key[key.length - 1] as PaginationParams;
+            return createProjectApi(getToken).list(params);
+        },
+        { revalidateOnFocus: false, ...config },
+    );
+
+    const lastPage = result.data?.[result.data.length - 1];
+    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
+
+    return { ...result, hasNextPage };
 }
 
 export function useFetchProject(projectId: string | undefined, config?: SWRConfiguration<ProjectDto>) {
