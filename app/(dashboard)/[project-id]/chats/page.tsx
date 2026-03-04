@@ -6,9 +6,10 @@ import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ChatList } from './_components/chat-list';
 
+type ChatsPageParams = PageParams<'/[project-id]'>;
+
 export default function ChatsPage() {
-    const params = useParams();
-    const projectId = params?.['project-id'] as string | undefined;
+    const { 'project-id': projectId } = useParams<ChatsPageParams>();
 
     return (
         <div className="flex h-full w-full flex-col items-center overflow-y-auto px-4 py-12">
@@ -16,7 +17,7 @@ export default function ChatsPage() {
                 <div className="mb-8 flex shrink-0 items-center justify-between">
                     <h1 className="text-2xl font-semibold">Phases</h1>
                     <Button asChild size="sm">
-                        <Link href={projectId ? `/${projectId}` : '#'}>
+                        <Link href={projectId ? `/${projectId}?new=true` : '#'}>
                             <Plus className="size-4 opacity-75" />
                             New Phase
                         </Link>

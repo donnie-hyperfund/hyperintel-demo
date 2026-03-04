@@ -8,6 +8,7 @@ export {
     countLines,
     type DocumentInfo,
     type DocumentListItem,
+    type DocumentScope,
     type EditOperation,
     type EditResult,
     extractViewport,

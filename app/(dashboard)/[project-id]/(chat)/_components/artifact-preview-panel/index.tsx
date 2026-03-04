@@ -1,18 +1,17 @@
 'use client';
 
 import { FileText, Loader2 } from 'lucide-react';
-import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { getArtifactContent, getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { getLatestArtifactContent, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
 type ArtifactPreviewPanelProps = {
     version: number;
     artifactId: string;
+    onClose: () => void;
 };
 
-export const ArtifactPreviewPanel = ({ version, artifactId }: ArtifactPreviewPanelProps) => {
-    const { closePanel } = useActivePanelContext();
+export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactPreviewPanelProps) => {
     const { getArtifact } = useArtifactContext();
 
     const currentArtifact = artifactId && version ? getArtifact(artifactId, version) : null;
@@ -23,10 +22,11 @@ export const ArtifactPreviewPanel = ({ version, artifactId }: ArtifactPreviewPan
     const isLoading = currentArtifact?.isLoading;
     const isStreaming = currentArtifact?.isStreaming;
     const isUpdating = currentArtifact?.isUpdating;
-    const content = currentArtifact ? getArtifactContent(currentArtifact) : '';
-    const activeVersion = currentArtifact ? getArtifactVersion(currentArtifact) : undefined;
+    const content = currentArtifact ? getLatestArtifactContent(currentArtifact) : '';
+    const activeVersion = currentArtifact ? getLatestArtifactVersion(currentArtifact) : undefined;
     const isUploaded = activeVersion?.is_uploaded;
     const isInternal = activeVersion?.is_internal;
+    const documentType = activeVersion?.document_type;
     const artifactVersionId = activeVersion?.id;
     const showSkeleton = (isLoading || isStreaming) && !content;
 
@@ -81,7 +81,8 @@ export const ArtifactPreviewPanel = ({ version, artifactId }: ArtifactPreviewPan
                 artifactId={artifactId}
                 artifactKey={currentArtifact.key}
                 updatedAt={updatedAt}
-                onCloseAction={closePanel}
+                onCloseAction={onClose}
+                documentType={documentType}
                 isStreaming={!!isStreaming}
                 isUpdating={!!isUpdating}
             />

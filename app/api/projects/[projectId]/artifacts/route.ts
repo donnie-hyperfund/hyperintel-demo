@@ -1,14 +1,15 @@
-import { wrap } from '@mikro-orm/core';
+import { raw, wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
+import { loadVersionsForArtifacts } from '@/lib/artifacts/queries';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { type ArtifactDto, ListArtifactsQuerySchema } from '@/lib/schema/artifact';
+import { ListArtifactsQuerySchema } from '@/lib/schema/artifact';
 
 async function handleGetArtifacts(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
@@ -19,6 +20,9 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
         limit: searchParams.get('limit') ?? undefined,
         key: searchParams.get('key') ?? undefined,
         version: searchParams.get('version') ?? undefined,
+        visibility: searchParams.get('visibility') ?? undefined,
+        status: searchParams.get('status') ?? undefined,
+        chatId: searchParams.get('chatId') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
@@ -62,12 +66,11 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
                       })
                     : null;
 
-            const dto: ArtifactDto = {
+            return NextResponse.json({
                 ...wrap(artifact).toJSON(),
                 current_version: previousVersion ? wrap(previousVersion).toJSON() : undefined,
                 proposed_version: wrap(requestedVersion).toJSON(),
-            };
-            return NextResponse.json(dto);
+            });
         }
 
         // Default: fetch actual current and proposed versions
@@ -76,12 +79,14 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
             status: 'proposed',
         });
 
-        const dto: ArtifactDto = {
+        return NextResponse.json({
             ...wrap(artifact).toJSON(),
             proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
-        };
-        return NextResponse.json(dto);
+        });
     }
+
+    const proposedSub = (col: string) =>
+        `(SELECT pv.${col} FROM artifact_versions pv WHERE pv.artifact_id = a.id AND pv.status = 'proposed' ORDER BY pv.version DESC LIMIT 1)`;
 
     const query = em
         .createQueryBuilder(ArtifactEntity, 'a')
@@ -92,8 +97,33 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
             'p.id': projectId,
             'p.user': user.id,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
-        })
-        .orderBy({ 'a.created_at': 'DESC' });
+        });
+
+    // Exclude imported resources (they are shown via the project resources endpoint)
+    query.andWhere({
+        $or: [{ [raw("a.metadata->>'importedFrom'")]: null }, { [raw('a.metadata')]: null }],
+    });
+
+    if (queryData.visibility?.length) {
+        const booleans = queryData.visibility.map((v) => v === 'internal');
+        query.andWhere({
+            [raw(`COALESCE(${proposedSub('is_internal')}, cv.is_internal)`)]: { $in: booleans },
+        });
+    }
+
+    if (queryData.status?.length) {
+        query.andWhere({
+            [raw(`COALESCE(${proposedSub('status')}, cv.status)`)]: { $in: queryData.status },
+        });
+    }
+
+    if (queryData.chatId?.length) {
+        query.andWhere({
+            [raw(`COALESCE(${proposedSub('chat_id')}, cv.chat_id)`)]: { $in: queryData.chatId },
+        });
+    }
+
+    query.orderBy({ 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
@@ -102,15 +132,9 @@ async function handleGetArtifacts(req: NextRequest, projectId: string, user: Use
 
     // Batch load proposed versions for all artifacts
     const artifactIds = nodes.map((a: ArtifactEntity) => a.id);
-    const proposedVersions = artifactIds.length
-        ? await em.find(ArtifactVersionEntity, {
-              artifact: { $in: artifactIds },
-              status: 'proposed',
-          })
-        : [];
-    const proposedByArtifact = new Map(proposedVersions.map((v) => [v.artifact.id, v]));
+    const proposedByArtifact = await loadVersionsForArtifacts(em, artifactIds, 'proposed');
 
-    const mappedNodes = nodes.map((artifact: ArtifactEntity): ArtifactDto => {
+    const mappedNodes = nodes.map((artifact: ArtifactEntity) => {
         const proposed = proposedByArtifact.get(artifact.id);
         return {
             ...wrap(artifact).toJSON(),

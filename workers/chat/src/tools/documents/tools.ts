@@ -19,15 +19,17 @@ import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
-import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
-import type { Ctx } from '../../context';
+import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
+import type { Ctx } from '../../context';
+import { shouldGenerateAiContent } from './document-classifier';
 import {
     applyEdits,
     countLines,
     type DocumentInfo,
     type DocumentListItem,
+    type DocumentScope,
     type EditOperation,
     extractViewport,
     findDocumentByName,
@@ -36,7 +38,6 @@ import {
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
-import { shouldGenerateAiContent } from './document-classifier';
 
 // ============================================================================
 // TYPES
@@ -45,8 +46,10 @@ import { shouldGenerateAiContent } from './document-classifier';
 export interface DocumentToolsContext {
     /** Entity manager for DB operations */
     em: EntityManager;
-    /** Current project ID */
-    projectId: string;
+    /** Project scope — set for project chats */
+    projectId?: string;
+    /** User scope — set for user-level chats (intake) */
+    userId?: string;
     /** Current chat ID (for traceability) */
     chatId: string;
     /** Draft manager instance */
@@ -55,6 +58,13 @@ export interface DocumentToolsContext {
     embeddingQueue?: EmbeddingQueueAdapter;
     /** Version IDs created during this turn - will be linked to assistant message after persist */
     createdVersionIds: string[];
+}
+
+/** Derive DocumentScope from context. */
+function getScope(ctx: DocumentToolsContext): DocumentScope {
+    if (ctx.projectId) return { projectId: ctx.projectId };
+    if (ctx.userId) return { userId: ctx.userId };
+    throw new Error('DocumentToolsContext requires either projectId or userId');
 }
 
 // ============================================================================
@@ -90,6 +100,11 @@ If you finalize again before approval, old proposed becomes "superseded".
 NEVER call these tools on your own initiative. Only use them when the user indicates approval or rejection in chat.
 After creating or finalizing a document, do NOT automatically approve it — wait for the user's decision.
 
+**STATUS CONSTRAINTS FOR APPROVAL:**
+- \`approve_document\` ONLY works on documents with a "proposed" version. It will FAIL for documents in any other status.
+- If a document was previously **rejected**, it CANNOT be approved directly. You must revise it first: \`begin_document\` → edit → \`finalize_document\` to create a new "proposed" version, then the user can approve that.
+- If \`approve_document\` or \`reject_document\` returns an error, NEVER pretend the operation succeeded. Do NOT expose internal error details or statuses to the user. Instead, communicate naturally (e.g., "This document needs to be revised before I can approve it — let me update it for you.") and proactively take the recovery action (revise the document).
+
 ### Detecting approval/rejection intent
 When a user message contains approval or rejection signals, you MUST process them BEFORE acting on any other part of the message.
 - **Approval signals:** "approved", "looks good", "accept", "approve it", "LGTM", "ship it", "all good", "proceed" (when a proposed document is pending), or similar positive confirmation.
@@ -100,7 +115,7 @@ When a user message contains approval or rejection signals, you MUST process the
 ## Important
 \`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.`,
     behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When the user message contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message.',
+        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When the user message contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action.',
     tools: [
         'begin_document',
         'write_document',
@@ -215,7 +230,9 @@ You MUST call finalize_document when done or content will be lost.`,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
                 const { mode, name, title, document_type } = input;
                 let { is_internal } = input;
-                const { em, projectId, draftManager } = ctx;
+                const { em, draftManager } = ctx;
+                const scope = getScope(ctx);
+                const scopeId = ctx.projectId ?? ctx.userId!;
 
                 // Enforce is_internal for internal document types
                 const isInternalType = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
@@ -227,7 +244,7 @@ You MUST call finalize_document when done or content will be lost.`,
                 const normalizedName = normalizeArtifactKey(name);
 
                 // Check for existing document
-                const existing = await findDocumentByName(em, projectId, normalizedName);
+                const existing = await findDocumentByName(em, scope, normalizedName);
 
                 // Validate based on mode
                 // Allow create on deleted artifacts (overwrites / restores them)
@@ -247,7 +264,16 @@ You MUST call finalize_document when done or content will be lost.`,
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
                     try {
-                        const draft = draftManager.begin(projectId, normalizedName, docTitle, mode, '', undefined, is_internal, document_type);
+                        const draft = draftManager.begin(
+                            scopeId,
+                            normalizedName,
+                            docTitle,
+                            mode,
+                            '',
+                            undefined,
+                            is_internal,
+                            document_type,
+                        );
                         return {
                             status: 'editing',
                             mode: 'create',
@@ -302,7 +328,7 @@ You MUST call finalize_document when done or content will be lost.`,
 
                 try {
                     const draft = draftManager.begin(
-                        projectId,
+                        scopeId,
                         normalizedName,
                         docTitle,
                         mode,
@@ -330,7 +356,8 @@ You MUST call finalize_document when done or content will be lost.`,
                         title: draft.title,
                         is_internal: draft.is_internal,
                         document_type: draft.document_type,
-                        ...(existingDocumentType && existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
+                        ...(existingDocumentType &&
+                            existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
                         loadedFrom,
                         loadedVersion,
                         lines: countLines(draft.content),
@@ -435,13 +462,23 @@ The version is saved with status "proposed" - it will NOT be live until a user a
 If a proposed version already exists, it will be marked as "superseded".`,
             parameters: FinalizeDocumentParams,
             executor: async (_input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
-                const { em, projectId, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
+                const { em, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
+                const scope = getScope(ctx);
 
                 try {
                     const draft = draftManager.requireCurrent();
 
                     // Persist to database as proposed
-                    const result = await upsertDocument(em, projectId, chatId, draft.name, draft.title, draft.content, draft.is_internal, draft.document_type);
+                    const result = await upsertDocument(
+                        em,
+                        scope,
+                        chatId,
+                        draft.name,
+                        draft.title,
+                        draft.content,
+                        draft.is_internal,
+                        draft.document_type,
+                    );
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
@@ -449,11 +486,11 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     // Only clear draft after successful persist
                     draftManager.discard();
 
-                    // Queue embedding job for the new version (fire-and-forget)
-                    if (embeddingQueue) {
+                    // Queue embedding job for the new version (fire-and-forget, project-scoped only)
+                    if (embeddingQueue && ctx.projectId) {
                         // Classify document to determine if AI-readable content should be generated
                         const generateAiContent = rCtx
-                            ? await shouldGenerateAiContent(rCtx, draft.name, draft.title, draft.content)
+                            ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
                             : true; // Default to true if no context
 
                         console.log('[finalize_document] AI content classification:', {
@@ -464,7 +501,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         const embedPromise = embeddingQueue
                             .send({
                                 type: 'index_artifact_version',
-                                projectId,
+                                projectId: ctx.projectId ?? null,
                                 versionId: result.versionId,
                                 content: draft.content,
                                 documentName: draft.name,
@@ -483,7 +520,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             status: 'proposed',
                             lines: result.lines,
                         },
-                        appendedOutput: `::document[${draft.name}]{version=${result.version} status=proposed lines=${result.lines}}`,
+                        appendedOutput: `::document[${draft.name}]{version=${result.version} lines=${result.lines} documentType="${draft.document_type}"}`,
                         message: `Saved as proposed v${result.version}. Awaiting user approval to become live.`,
                     };
 
@@ -516,7 +553,8 @@ Version options:
             parameters: ReadDocumentParams,
             executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext) => {
                 const { name, version: versionMode, startLine, endLine } = input;
-                const { em, projectId, draftManager } = ctx;
+                const { em, draftManager } = ctx;
+                const scope = getScope(ctx);
 
                 const normalizedName = normalizeArtifactKey(name);
 
@@ -535,7 +573,7 @@ Version options:
                 }
 
                 // Fetch from database
-                const doc = await findDocumentByName(em, projectId, normalizedName);
+                const doc = await findDocumentByName(em, scope, normalizedName);
                 if (!doc) {
                     return {
                         error: `Document "${normalizedName}" not found. Use begin_document to create it.`,
@@ -636,9 +674,10 @@ Shows for each document:
             parameters: ListDocumentsParams,
             executor: async (input: z.infer<typeof ListDocumentsParams>, ctx: DocumentToolsContext) => {
                 const { search } = input;
-                const { em, projectId } = ctx;
+                const { em } = ctx;
+                const scope = getScope(ctx);
 
-                const documents = await listDocumentsDb(em, projectId, search ? { search } : undefined);
+                const documents = await listDocumentsDb(em, scope, search ? { search } : undefined);
 
                 return {
                     documents: documents.map((d: DocumentListItem) => ({
@@ -664,32 +703,40 @@ Shows for each document:
 **USER-INITIATED ONLY** — NEVER call this automatically after creating or finalizing a document. Only call when the user signals approval (e.g., "approved", "looks good", "LGTM", "proceed", "accept").
 If the user's message combines approval with another request (e.g., "approved, now do X"), call this tool FIRST, then handle the rest.
 
-Only works on documents that have a proposed version awaiting approval.
+**STATUS CONSTRAINT:** ONLY works on documents whose current version has status "proposed". Documents that are "rejected", "approved", or "superseded" CANNOT be approved with this tool. If a document was rejected, you must revise it first (begin_document → edit → finalize_document) to create a new "proposed" version before it can be approved.
+
+**ERROR HANDLING:** If this tool returns an error, you MUST NOT claim the document was approved. NEVER forward raw error details to the user — instead, communicate naturally (e.g., "This document needs to be revised before it can be approved. Let me update it for you.") and take the appropriate recovery action (revise the document).
+
 This triggers AI content generation (YAML) for internal documents and queues embedding indexing.`,
             parameters: ApproveDocumentParams,
             executor: async (input: z.infer<typeof ApproveDocumentParams>, ctx: DocumentToolsContext, eCtx?: Ctx) => {
                 const { name } = input;
-                const { em, projectId } = ctx;
+                const { em } = ctx;
+                const scope = getScope(ctx);
 
                 if (!eCtx) {
                     return { error: 'Execution context not available' };
                 }
 
                 const normalizedName = normalizeArtifactKey(name);
-                const doc = await findDocumentByName(em, projectId, normalizedName);
+                const doc = await findDocumentByName(em, scope, normalizedName);
 
                 if (!doc) {
                     return { error: `Document "${normalizedName}" not found.` };
                 }
 
                 if (doc.proposedVersion === null) {
-                    return { error: `Document "${normalizedName}" has no proposed version to approve.` };
+                    return {
+                        error: `Document "${normalizedName}" has no proposed version to approve. Only documents with a "proposed" version can be approved. If the document was rejected, it must be revised first (begin_document → edit → finalize_document) to create a new proposed version.`,
+                    };
                 }
 
                 // Find the proposed version entity to get its UUID
                 const proposedVersion = await findVersionByStatus(em, doc.id, 'proposed');
                 if (!proposedVersion) {
-                    return { error: `Proposed version for "${normalizedName}" not found.` };
+                    return {
+                        error: `No version with status "proposed" found for "${normalizedName}". The document must be revised (begin_document → edit → finalize_document) to create a new proposed version before it can be approved.`,
+                    };
                 }
 
                 try {
@@ -720,14 +767,15 @@ The rejection reason is stored and will be shown when the document is next edite
             parameters: RejectDocumentParams,
             executor: async (input: z.infer<typeof RejectDocumentParams>, ctx: DocumentToolsContext, eCtx?: Ctx) => {
                 const { name, reason } = input;
-                const { em, projectId } = ctx;
+                const { em } = ctx;
+                const scope = getScope(ctx);
 
                 if (!eCtx) {
                     return { error: 'Execution context not available' };
                 }
 
                 const normalizedName = normalizeArtifactKey(name);
-                const doc = await findDocumentByName(em, projectId, normalizedName);
+                const doc = await findDocumentByName(em, scope, normalizedName);
 
                 if (!doc) {
                     return { error: `Document "${normalizedName}" not found.` };

@@ -6,6 +6,7 @@ const envFrontendSchema = z.object({
     // NEXT_PUBLIC_VERCEL_URL: z.string().optional(),
     NEXT_PUBLIC_CLOUDFLARE_BASE: z.string().optional(),
     NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV: z.string().optional(),
+    NEXT_PUBLIC_CLOUDFLARE_ALIAS: z.string().optional(),
     NEXT_PUBLIC_LOCAL_WORKERS: z.coerce.boolean().optional().default(false),
 });
 
@@ -16,6 +17,7 @@ const parsedFrontendEnv = envFrontendSchema.safeParse({
     NEXT_PUBLIC_CLOUDFLARE_BASE: process.env.NEXT_PUBLIC_CLOUDFLARE_BASE,
     NEXT_PUBLIC_LOCAL_WORKERS: process.env.NEXT_PUBLIC_LOCAL_WORKERS,
     NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV: process.env.NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV,
+    NEXT_PUBLIC_CLOUDFLARE_ALIAS: process.env.NEXT_PUBLIC_CLOUDFLARE_ALIAS,
 });
 
 if (!parsedFrontendEnv.success) {

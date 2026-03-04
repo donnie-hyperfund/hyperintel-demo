@@ -1,24 +1,22 @@
-'use client';
+import { redirect } from 'next/navigation';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { getOrm } from '@/lib/orm/orm';
+import { NewPhaseChat } from './_components/new-phase-chat';
 
-import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { ChatModule } from '@/modules/chat/providers/chat-module';
-import ChatInterface from './_components/chat-interface';
+type ChatPageParams = PageProps<'/[project-id]'>;
 
-export default function ChatPage() {
-    const params = useParams();
-    const projectId = params['project-id'] as string;
-    const [mountKey, setMountKey] = useState(0);
+export default async function ChatPage({ params, searchParams }: ChatPageParams) {
+    const { 'project-id': projectId } = await params;
+    const sp = await searchParams;
 
-    useEffect(() => {
-        const handleNewPhase = () => setMountKey((k) => k + 1);
-        window.addEventListener('new-phase', handleNewPhase);
-        return () => window.removeEventListener('new-phase', handleNewPhase);
-    }, []);
+    if (!sp.new) {
+        const { em } = await getOrm();
+        const lastChat = await em.findOne(ChatEntity, { project: projectId }, { orderBy: { phase_index: 'desc' } });
 
-    return (
-        <ChatModule key={mountKey} projectId={projectId}>
-            <ChatInterface />
-        </ChatModule>
-    );
+        if (lastChat) {
+            redirect(`/${projectId}/${lastChat.id}`);
+        }
+    }
+
+    return <NewPhaseChat projectId={projectId} />;
 }

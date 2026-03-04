@@ -1,28 +1,16 @@
 import { NextResponse } from 'next/server';
-import { assertClerkAuth } from '@/lib/api/auth-guard';
+import { assertAuth } from '@/lib/api/auth-guard';
 import { getOrm } from '@/lib/orm';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
     try {
-        const clerkUser = await assertClerkAuth();
+        const user = await assertAuth();
         const { em } = await getOrm();
-
-        // Find user by Clerk ID
-        let user = await em.findOne(UserEntity, { clerkId: clerkUser.userId });
-        if (!user) {
-            user = em.create(UserEntity, {
-                clerkId: clerkUser.userId,
-                email: `${clerkUser.userId}@placeholder.com`,
-                emailConfirmed: false,
-            });
-            await em.persistAndFlush(user);
-        }
         const userId = user.id;
 
         // Find or create project

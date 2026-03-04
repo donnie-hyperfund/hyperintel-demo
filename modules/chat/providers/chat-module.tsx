@@ -1,28 +1,43 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { type ReactNode, Suspense } from 'react';
+import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
 import type { Message } from '../types';
 import { ActivePanelProvider } from './active-panel-provider';
-import { ArtifactProvider } from './artifact-provider';
 import { ChatProvider } from './chat-provider';
 import { ScrollTargetProvider } from './scroll-target-provider';
 
-type ChatModuleProps = {
+type ChatModuleBaseProps = {
     children: ReactNode;
-    /** Project ID for API calls */
-    projectId: string;
-    /** Initial chat ID (optional) */
     initialChatId?: string;
-    /** Initial messages to display */
     initialMessages?: Message[];
 };
 
-export function ChatModule({ children, projectId, initialChatId, initialMessages = [] }: ChatModuleProps) {
+type PhaseChatModuleProps = ChatModuleBaseProps & {
+    chatType?: 'phase';
+    projectId: string;
+};
+
+type IntakeChatModuleProps = ChatModuleBaseProps & {
+    chatType: 'company' | 'stakeholder';
+    projectId?: never;
+};
+
+export type ChatModuleProps = PhaseChatModuleProps | IntakeChatModuleProps;
+
+export function ChatModule({ children, projectId, chatType, initialChatId, initialMessages = [] }: ChatModuleProps) {
     return (
         <ActivePanelProvider>
             <ArtifactProvider>
-                <ChatProvider projectId={projectId} initialChatId={initialChatId} initialMessages={initialMessages}>
-                    <ScrollTargetProvider>{children}</ScrollTargetProvider>
+                <ChatProvider
+                    projectId={projectId}
+                    chatType={chatType}
+                    initialChatId={initialChatId}
+                    initialMessages={initialMessages}
+                >
+                    <Suspense>
+                        <ScrollTargetProvider>{children}</ScrollTargetProvider>
+                    </Suspense>
                 </ChatProvider>
             </ArtifactProvider>
         </ActivePanelProvider>

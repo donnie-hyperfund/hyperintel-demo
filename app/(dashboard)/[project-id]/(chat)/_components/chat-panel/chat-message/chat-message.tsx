@@ -2,8 +2,8 @@
 
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
+import type { Message } from '@/modules/chat/types';
 import { ArtifactIndicator } from '../../artifact-indicator';
-import type { Message } from '../../chat-interface';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
 import { MessageThinkingBlock } from './message-thinking-block';
 
@@ -18,13 +18,19 @@ const documentDirective: DirectiveHandler = ({ type, label, attributes, children
     if (type === 'container') {
         return (
             <div>
-                <ArtifactIndicator documentName={label} documentVersion={version} />
+                <ArtifactIndicator
+                    documentName={label}
+                    documentVersion={version}
+                    documentType={attributes['document-type']}
+                />
                 {children}
             </div>
         );
     }
 
-    return <ArtifactIndicator documentName={label} documentVersion={version} />;
+    return (
+        <ArtifactIndicator documentName={label} documentVersion={version} documentType={attributes['document-type']} />
+    );
 };
 
 const chatDirectives = {

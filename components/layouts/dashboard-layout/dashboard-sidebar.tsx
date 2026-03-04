@@ -1,54 +1,38 @@
 'use client';
 
-import { ChevronRight, FileCode, MessageSquare, Plus } from 'lucide-react';
+import { Building, FileCode, LayoutDashboard, Users } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { usePathname } from 'next/navigation';
 import {
     Sidebar,
     SidebarContent,
     SidebarFooter,
     SidebarGroup,
     SidebarGroupContent,
+    SidebarGroupLabel,
     SidebarHeader,
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
-    SidebarMenuSub,
-    SidebarMenuSubButton,
-    SidebarMenuSubItem,
     SidebarTrigger,
     useSidebar,
 } from '@/components/ui/sidebar';
-import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
-import { sortChatsByCreatedAt } from '@/lib/phases';
 import { cn } from '@/lib/utils';
 import { DashboardSidebarFooter } from './dashboard-sidebar-footer';
 
-const navItems = [{ icon: FileCode, label: 'Projects', href: '/projects' }];
+const navItems = [
+    { icon: LayoutDashboard, label: 'Workspace', href: '/workspace' },
+    { icon: FileCode, label: 'Projects', href: '/projects' },
+    { icon: Building, label: 'Companies', href: '/companies' },
+    { icon: Users, label: 'Stakeholders', href: '/stakeholders' },
+];
 
 export function DashboardSidebar() {
     const { state } = useSidebar();
     const isCollapsed = state === 'collapsed';
     const isExpanded = !isCollapsed;
-    const params = useParams();
     const pathname = usePathname();
-    const router = useRouter();
-    const projectId = params?.['project-id'] as string | undefined;
-
-    const { data: chatsData } = useFetchChats(projectId, { limit: 20 });
-    const chats = sortChatsByCreatedAt(chatsData?.data ?? []);
-
-    const isPhasesActive = pathname?.startsWith(`/${projectId}/chats`) || pathname === `/${projectId}`;
-
-    const handleNewPhase = (e: React.MouseEvent) => {
-        e.preventDefault();
-        if (projectId) {
-            window.dispatchEvent(new Event('new-phase'));
-            router.push(`/${projectId}`);
-        }
-    };
 
     return (
         <Sidebar collapsible="icon" className="border-r border-neutral-800">
@@ -60,11 +44,11 @@ export function DashboardSidebar() {
             >
                 {isExpanded ? (
                     <>
-                        <div className="overflow-visible w-full">
+                        <Link href="/workspace" className="overflow-visible w-full">
                             <div className="w-[143px] h-[28px] flex items-center justify-center overflow-visible">
                                 <Image src="/logo.svg" alt="HYPERINTEL" width={143} height={28} className="shrink-0" />
                             </div>
-                        </div>
+                        </Link>
                         <SidebarTrigger />
                     </>
                 ) : (
@@ -75,78 +59,13 @@ export function DashboardSidebar() {
             <SidebarContent className="gap-5">
                 <SidebarGroup className="px-2">
                     <SidebarGroupContent>
-                        <SidebarMenu className="gap-1">
-                            <SidebarMenuItem>
-                                <SidebarMenuButton
-                                    asChild
-                                    tooltip={isCollapsed ? 'New Phase' : undefined}
-                                    className="px-4"
-                                >
-                                    <Link href={projectId ? `/${projectId}` : '#'} onClick={handleNewPhase}>
-                                        <div className="w-4 h-4 flex items-center justify-center overflow-visible">
-                                            <div className="flex items-center justify-center size-6 rounded-full bg-green-500 shrink-0">
-                                                <Plus className="size-4 text-neutral-900" />
-                                            </div>
-                                        </div>
-                                        <span>New Phase</span>
-                                    </Link>
-                                </SidebarMenuButton>
-                            </SidebarMenuItem>
-
-                            {/* Phases with collapsible sub-items */}
-                            <Collapsible asChild defaultOpen={isPhasesActive} className="group/collapsible">
-                                <SidebarMenuItem>
-                                    <div className="relative">
-                                        <SidebarMenuButton
-                                            asChild
-                                            isActive={isPhasesActive}
-                                            tooltip={isCollapsed ? 'Phases' : undefined}
-                                            className={cn('px-4', isPhasesActive && 'bg-neutral-850 text-neutral-100')}
-                                        >
-                                            <Link href={projectId ? `/${projectId}/chats` : '#'}>
-                                                <MessageSquare />
-                                                <span>Phases</span>
-                                            </Link>
-                                        </SidebarMenuButton>
-                                        {chats.length > 0 && (
-                                            <CollapsibleTrigger asChild>
-                                                <button
-                                                    type="button"
-                                                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center size-5 rounded-md hover:bg-neutral-800 group-data-[collapsible=icon]:hidden"
-                                                >
-                                                    <ChevronRight className="size-3.5 text-neutral-500 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                                                </button>
-                                            </CollapsibleTrigger>
-                                        )}
-                                    </div>
-                                    <CollapsibleContent>
-                                        <SidebarMenuSub>
-                                            {chats.map((chat, index) => {
-                                                const chatHref = `/${projectId}/${chat.id}`;
-                                                const label = `Phase ${index + 1}`;
-                                                return (
-                                                    <SidebarMenuSubItem key={chat.id}>
-                                                        <SidebarMenuSubButton
-                                                            asChild
-                                                            size="sm"
-                                                            isActive={pathname === chatHref}
-                                                        >
-                                                            <Link href={chatHref}>
-                                                                <span className="truncate">{label}</span>
-                                                            </Link>
-                                                        </SidebarMenuSubButton>
-                                                    </SidebarMenuSubItem>
-                                                );
-                                            })}
-                                        </SidebarMenuSub>
-                                    </CollapsibleContent>
-                                </SidebarMenuItem>
-                            </Collapsible>
-
+                        <SidebarMenu className="gap-1.5">
                             {navItems.map((item) => {
                                 const Icon = item.icon;
-                                const href = projectId ? `/${projectId}${item.href}` : '#';
-                                const isActive = pathname?.startsWith(`/${projectId}${item.href}`);
+                                const isActive =
+                                    item.href === '/workspace'
+                                        ? pathname === '/workspace'
+                                        : pathname?.startsWith(item.href);
 
                                 return (
                                     <SidebarMenuItem key={item.label}>
@@ -156,7 +75,7 @@ export function DashboardSidebar() {
                                             tooltip={isCollapsed ? item.label : undefined}
                                             className={cn('px-4', isActive && 'bg-neutral-850 text-neutral-100')}
                                         >
-                                            <Link href={href}>
+                                            <Link href={item.href}>
                                                 <Icon />
                                                 <span>{item.label}</span>
                                             </Link>
@@ -167,6 +86,17 @@ export function DashboardSidebar() {
                         </SidebarMenu>
                     </SidebarGroupContent>
                 </SidebarGroup>
+
+                {isExpanded && (
+                    <SidebarGroup className="px-2">
+                        <SidebarGroupLabel className="px-4 text-xs font-medium text-neutral-500 uppercase tracking-wider">
+                            Recent Projects
+                        </SidebarGroupLabel>
+                        <SidebarGroupContent>
+                            <SidebarMenu className="gap-0.5">{/* TODO: Wire up recent projects data */}</SidebarMenu>
+                        </SidebarGroupContent>
+                    </SidebarGroup>
+                )}
             </SidebarContent>
 
             <SidebarFooter>

@@ -22,7 +22,7 @@ const overrideOpts: ChatHandlerOptions = {
     // useLocalPrompts: true,
     overrideInference: {
         paramsType: AIParamsType.Anthropic,
-        params: { model: ANTHROPIC_MODELS.OPUS, thinking: true, thinkingBudget: 8000, searchEnabled: true },
+        params: { model: ANTHROPIC_MODELS.SONNET, thinking: true, thinkingBudget: 8000, searchEnabled: true },
         //paramsType: AIParamsType.OpenRouter,
         //params: { model: COMMON_MODELS.LLAMA_MAVERICK, reasoning: true },
         //params: { model: COMMON_MODELS.CLAUDE_OPUS, reasoning: true },

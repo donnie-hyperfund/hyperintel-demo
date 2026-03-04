@@ -7,7 +7,7 @@ import { config as baseConfig } from './mikro-orm.config';
 export const config: Options = {
     ...baseConfig,
     // Use direct connection for migrations (not pooler)
-    clientUrl: process.env.DATABASE_MIGRATE_URL || process.env.DATABASE_URL,
+    clientUrl: process.env.DATABASE_MIGRATE_URL || process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL,
     allowGlobalContext: true,
     discovery: { disableDynamicFileAccess: true },
     highlighter: new SqlHighlighter(),

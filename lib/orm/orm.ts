@@ -22,6 +22,12 @@ if (process.env.NODE_ENV === 'development') {
 
 const reqStore = cache(() => ({ verified: false }));
 
+/** Reuse the same EM fork within a single Next.js request (RSC / route handler / middleware). */
+const getRequestFork = cache(async (): Promise<EntityManager> => {
+    const orm = await globalThis.__ormPromise!;
+    return orm.em.fork();
+});
+
 export function rawOrmGuard(verify: string) {
     if (verify !== "I know what I'm doing") throw new Error("You don't know what you're doing");
     reqStore().verified = true;
@@ -82,8 +88,7 @@ export async function getOrm(
     if (raw) {
         return globalThis.__ormPromise;
     } else {
-        const orm = await globalThis.__ormPromise;
-        return { em: orm.em.fork() };
+        return { em: await getRequestFork() };
     }
 }
 

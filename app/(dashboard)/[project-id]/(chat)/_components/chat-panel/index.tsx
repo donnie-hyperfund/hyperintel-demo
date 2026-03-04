@@ -1,25 +1,29 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import ChatConversation from './chat-conversation/chat-conversation';
+import { ChatEmptyTitle } from './chat-conversation/chat-empty-title';
 import ChatMessageForm from './chat-message-form';
 
 type ChatPanelProps = {
-    conversationRef?: React.RefObject<HTMLDivElement | null>;
-    formRef?: React.RefObject<HTMLDivElement | null>;
+    HeaderComponent: React.ReactNode;
+    emptyTitle: string;
+    emptySubtitle: string;
 };
 
-export default function ChatPanel({ conversationRef, formRef }: ChatPanelProps) {
-    const internalConversationRef = useRef<HTMLDivElement>(null);
-    const internalFormRef = useRef<HTMLDivElement>(null);
+export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }: ChatPanelProps) {
+    const { chatId } = useChatContext();
+    const isEmpty = !chatId;
 
-    const chatConversationRef = conversationRef ?? internalConversationRef;
-    const chatMessageFormRef = formRef ?? internalFormRef;
+    const conversationRef = useRef<HTMLDivElement>(null);
+    const formRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        const formElement = chatMessageFormRef.current;
-        const conversationElement = chatConversationRef.current;
+        if (isEmpty) return;
+
+        const formElement = formRef.current;
+        const conversationElement = conversationRef.current;
 
         if (!formElement || !conversationElement) return;
 
@@ -36,15 +40,30 @@ export default function ChatPanel({ conversationRef, formRef }: ChatPanelProps) 
         return () => {
             resizeObserver.disconnect();
         };
-    }, [chatConversationRef, chatMessageFormRef]);
+    }, [isEmpty]);
+
+    if (isEmpty) {
+        return (
+            <div className="flex flex-col relative h-full">
+                {HeaderComponent}
+
+                <div className="flex flex-1 flex-col items-center justify-center px-4">
+                    <ChatEmptyTitle title={emptyTitle} subtitle={emptySubtitle} className="mb-12" />
+                    <ChatMessageForm ref={formRef} className="w-full" />
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col relative h-full">
-            <DashboardHeader />
+            {HeaderComponent}
 
-            <ChatConversation ref={chatConversationRef} />
+            <ChatConversation ref={conversationRef} />
 
-            <ChatMessageForm ref={chatMessageFormRef} className="absolute bottom-0 left-0 right-0" />
+            <div className="absolute bottom-0 left-0 right-0">
+                <ChatMessageForm ref={formRef} />
+            </div>
         </div>
     );
 }

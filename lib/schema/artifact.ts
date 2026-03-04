@@ -15,7 +15,10 @@ export const INTERNAL_DOCUMENTS = [
     'PSEB',
     'Action Plan',
     'Completion Brief',
+    'Company Profile',
+    'Human Persona',
 ] as const;
+
 export const DOCUMENT_TYPES = [
     ...INTERNAL_DOCUMENTS,
     // 'Analysis',
@@ -26,11 +29,38 @@ export const DOCUMENT_TYPES = [
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
 export type DocumentType = z.infer<typeof DocumentTypeSchema>;
 
+/** Document types that should be published to user scope on approval */
+export const PUBLISHABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['Legacy DNA'] as const;
+
+/** Document types that are treated as project resources (not deliverables) when imported */
+export const RESOURCE_DOCUMENT_TYPES: readonly DocumentType[] = [
+    'Legacy DNA',
+    'Company Profile',
+    'Human Persona',
+] as const;
+
+export const FILTERABLE_STATUSES = ['proposed', 'approved', 'rejected', 'superseded'] as const;
+export const FilterableStatusSchema = z.enum(FILTERABLE_STATUSES);
+export type FilterableStatus = z.infer<typeof FilterableStatusSchema>;
+
+export const VisibilityFilterSchema = z.enum(['client', 'internal']);
+export type VisibilityFilter = z.infer<typeof VisibilityFilterSchema>;
+
+const csvOf = <T extends z.ZodTypeAny>(schema: T) =>
+    z
+        .string()
+        .transform((s) => s.split(',').filter(Boolean))
+        .pipe(z.array(schema));
+
 export const ListArtifactsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),
     key: z.string().optional(),
     version: z.coerce.number().int().positive().optional(),
+    visibility: csvOf(VisibilityFilterSchema).optional(),
+    status: csvOf(FilterableStatusSchema).optional(),
+    chatId: csvOf(z.string().uuid()).optional(),
+    document_type: DocumentTypeSchema.optional(),
 });
 export type ListArtifactsQueryDto = z.infer<typeof ListArtifactsQuerySchema>;
 
@@ -64,7 +94,14 @@ export const ArtifactDtoSchema = z.object({
     key: z.string(),
     title: z.string(),
     version: z.number().int(),
-    project: z.union([z.string().uuid(), z.object({}).passthrough()]),
+    project: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
+    user: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),
@@ -117,6 +154,18 @@ export type UploadArtifactResponseDto = z.infer<typeof UploadArtifactResponseSch
 export const EXPORT_FORMATS = ['docx'] as const;
 export const ExportFormatSchema = z.enum(EXPORT_FORMATS);
 export type ExportFormat = z.infer<typeof ExportFormatSchema>;
+
+export const ListUserResourcesQuerySchema = z.object({
+    page: z.coerce.number().int().positive().optional().default(1),
+    limit: z.coerce.number().int().positive().max(100).optional().default(20),
+    documentType: csvOf(DocumentTypeSchema).optional(),
+    /** When true, only return resources whose current_version is approved */
+    approvedOnly: z
+        .enum(['true', 'false'])
+        .transform((v) => v === 'true')
+        .optional(),
+});
+export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
 
 export const ExportArtifactQuerySchema = z.object({
     artifactVersionId: z.string().uuid(),
