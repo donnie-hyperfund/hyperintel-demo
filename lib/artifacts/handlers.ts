@@ -22,6 +22,7 @@ export async function handleListResources(
         page: searchParams.get('page') ?? undefined,
         limit: searchParams.get('limit') ?? undefined,
         documentType: searchParams.get('documentType') ?? undefined,
+        approvedOnly: searchParams.get('approvedOnly') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;

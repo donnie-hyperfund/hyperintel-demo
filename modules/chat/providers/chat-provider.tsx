@@ -166,16 +166,17 @@ export function ChatProvider({
 
     const revalidateArtifactByKeyAndVersion = useCallback(
         async (keyId: string, version: number) => {
-            // TODO: Handle it with a unified artifact API when backend is updated
-            if (!projectId) return;
+            if (projectId) {
+                globalMutate(serializeProjectArtifactListKey(projectId));
+            }
 
-            globalMutate(serializeProjectArtifactListKey(projectId));
+            const fetcher = projectId
+                ? (v: number) => api.projectArtifacts.getByKey(projectId, keyId, v)
+                : (v: number) => api.artifacts.getByKey(keyId, v);
 
             try {
                 const allVersions = Array.from({ length: version }, (_, i) => version - i);
-                const results = await Promise.all(
-                    allVersions.map((v) => api.projectArtifacts.getByKey(projectId, keyId, v).catch(() => null)),
-                );
+                const results = await Promise.all(allVersions.map((v) => fetcher(v).catch(() => null)));
 
                 for (const data of results) {
                     if (data) {
@@ -188,7 +189,7 @@ export function ChatProvider({
                 // SWR revalidation will still keep the list up to date
             }
         },
-        [globalMutate, projectId, artifactContext, api.projectArtifacts],
+        [globalMutate, projectId, artifactContext, api.projectArtifacts, api.artifacts],
     );
 
     const onTokenUsage = useCallback((usage: TokenUsage) => {

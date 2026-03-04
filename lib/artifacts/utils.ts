@@ -1,9 +1,17 @@
-import { ALLOWED_ARTIFACT_EXTENSIONS, type DocumentType, MAX_ARTIFACT_UPLOAD_SIZE } from '@/lib/schema/artifact';
+import { ALLOWED_ARTIFACT_EXTENSIONS, type ArtifactDto, MAX_ARTIFACT_UPLOAD_SIZE } from '@/lib/schema/artifact';
 
-const INTAKE_DOCUMENT_TYPES: readonly DocumentType[] = ['Company Profile', 'Human Persona'];
+// ── Artifact DTO helpers ────────────────────────────────────────────────────
 
-export function isIntakeDocument(documentType: DocumentType | undefined): boolean {
-    return !!documentType && INTAKE_DOCUMENT_TYPES.includes(documentType);
+export function getLatestArtifactVersion(artifact: ArtifactDto) {
+    return artifact.proposed_version ?? artifact.current_version;
+}
+
+export function getArtifactDocumentType(artifact: ArtifactDto) {
+    return getLatestArtifactVersion(artifact)?.document_type;
+}
+
+export function isApprovedArtifact(artifact: ArtifactDto) {
+    return getLatestArtifactVersion(artifact)?.status === 'approved';
 }
 
 // ── Upload error codes (shared between FE & BE) ────────────────────────────

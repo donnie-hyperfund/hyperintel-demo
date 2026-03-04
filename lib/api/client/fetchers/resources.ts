@@ -8,6 +8,7 @@ const ENDPOINTS = {
 
 export type ResourceListParams = PaginationParams & {
     documentType?: DocumentType[];
+    approvedOnly?: boolean;
 };
 
 export const resourceKeys = {
@@ -16,10 +17,10 @@ export const resourceKeys = {
     list: (params?: ResourceListParams) => [...resourceKeys.lists(), params] as const,
 };
 
-export function getResourceListInfiniteKey(limit = 20) {
+export function getResourceListInfiniteKey(limit = 20, approvedOnly?: boolean) {
     return (pageIndex: number, previousPageData: PaginatedResponse<ArtifactDto> | null) => {
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
-        return resourceKeys.list({ page: pageIndex + 1, limit });
+        return resourceKeys.list({ page: pageIndex + 1, limit, approvedOnly });
     };
 }
 
@@ -28,10 +29,11 @@ export function createResourceApi(getToken: TokenGetter) {
 
     return {
         list: async (params?: ResourceListParams) => {
-            const { documentType, ...pagination } = params ?? {};
+            const { documentType, approvedOnly, ...pagination } = params ?? {};
             const query: Record<string, string | number | undefined> = {
                 ...pagination,
                 documentType: documentType?.join(','),
+                approvedOnly: approvedOnly ? 'true' : undefined,
             };
             const { data } = await axios.get<PaginatedResponse<ArtifactDto>>(buildUrl(ENDPOINTS.root, query));
             return data;
