@@ -1,20 +1,34 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { FileCode, Plus } from 'lucide-react';
+import { FileCode, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
+import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
-import { useFetchProjects } from '@/lib/api/client/hooks/use-projects';
+import { useFetchProjectsInfinite } from '@/lib/api/client/hooks/use-projects';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 import { ProjectItem, ProjectItemSkeleton } from './project-item';
 
+const PAGE_SIZE = 20;
+
 export const ProjectList = () => {
     const { user } = useUser();
-    const { data, error, isLoading } = useFetchProjects();
-    const projects = data?.data ?? [];
+    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectsInfinite({ limit: PAGE_SIZE });
+
+    const projects = useMemo(() => {
+        if (!data) return [];
+        return data.flatMap((page) => page.data);
+    }, [data]);
+
+    const [sentryRef] = useInfiniteScroll({
+        loading: isLoading,
+        hasNextPage,
+        onLoadMore: () => setSize(size + 1),
+        rootMargin: '0px 0px 100px 0px',
+    });
 
     const handleProjectNavigate = useCallback(
         (project: ProjectDto) => {
@@ -73,6 +87,11 @@ export const ProjectList = () => {
                     onNavigate={() => handleProjectNavigate(project)}
                 />
             ))}
+            {(isLoading || hasNextPage) && (
+                <div ref={sentryRef} className="flex items-center justify-center py-3 sm:col-span-2">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                </div>
+            )}
         </div>
     );
 };

@@ -74,15 +74,7 @@ export const CompanyList = () => {
                 const chatId = getArtifactChatId(artifact);
                 const href = chatId ? `/companies/${chatId}` : undefined;
 
-                return (
-                    <ArtifactListItem
-                        key={artifact.id}
-                        artifact={artifact}
-                        icon={Building}
-                        shouldDisplayVersionInfo={false}
-                        href={href}
-                    />
-                );
+                return <ArtifactListItem key={artifact.id} artifact={artifact} icon={Building} href={href} />;
             })}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">

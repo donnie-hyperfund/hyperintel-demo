@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import { exportArtifact } from '@/lib/api/requests/worker/chat';
-import { isIntakeDocument } from '@/lib/artifacts/utils';
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
 import { getDocumentTypeIcon } from '@/modules/artifacts/utils';
 
@@ -58,7 +57,6 @@ export function ArtifactHeader({
     const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;
 
-    const shouldDisplayVersion = !isIntakeDocument(documentType);
     const shouldDisplayCopyButton = !!content && !isStreaming;
     const shouldDisplayDownloadButton = !!content && !isStreaming;
 
@@ -129,13 +127,13 @@ export function ArtifactHeader({
                             <span title={title} className="line-clamp-1 text-sm font-medium">
                                 {title}
                             </span>
-                            {shouldDisplayVersion && <VersionStatusBadge status={status} isUploaded={isUploaded} />}
+                            <VersionStatusBadge status={status} isUploaded={isUploaded} />
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
-                            {shouldDisplayVersion && <span>v{version}</span>}
+                            <span>v{version}</span>
                             {timeAgo && updatedAtFormatted && (
                                 <>
-                                    {shouldDisplayVersion && <span>·</span>}
+                                    <span>·</span>
                                     <span title={updatedAtFormatted}>{timeAgo}</span>
                                 </>
                             )}
