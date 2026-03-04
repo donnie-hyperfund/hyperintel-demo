@@ -44,7 +44,10 @@ export async function publishArtifactToUserScope(
 ): Promise<PublishResult> {
     const { sourceVersion, userId, projectId, projectName } = params;
     const sourceArtifact = sourceVersion.artifact;
-    const projectSlug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const projectSlug = projectName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
     const baseKey = sourceArtifact.key.replace(/\.md$/, '');
     const key = `${baseKey}-${projectSlug}.md`;
     const publishedFrom = { projectId, artifactId: sourceArtifact.id, versionId: sourceVersion.id };
