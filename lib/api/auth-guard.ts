@@ -1,4 +1,5 @@
-import { auth } from '@clerk/nextjs/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
+import { type EntityManager, UniqueConstraintViolationException } from '@mikro-orm/postgresql';
 import { redirect } from 'next/navigation';
 import { type NextRequest, NextResponse } from 'next/server';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
@@ -6,6 +7,40 @@ import { getOrm } from '@/lib/orm/orm';
 import type { ClerkUser } from '@/lib/types/clerk';
 
 type AuthenticatedHandler = (req: NextRequest, user: UserEntity) => Promise<NextResponse> | NextResponse;
+
+/**
+ * Find or create a UserEntity for a Clerk-authenticated user.
+ * Covers the race where signup completes before the Clerk webhook fires.
+ */
+async function ensureUser(clerkId: string, em: EntityManager): Promise<UserEntity> {
+    const existing = await em.findOne(UserEntity, { clerkId });
+    if (existing) return existing;
+
+    const clerkUser = await currentUser();
+
+    const email = clerkUser?.emailAddresses?.[0]?.emailAddress ?? `${clerkId}@placeholder.com`;
+    const firstName = clerkUser?.firstName;
+    const lastName = clerkUser?.lastName;
+    const name = firstName && lastName ? `${firstName} ${lastName}` : (firstName ?? lastName ?? null);
+
+    try {
+        const user = em.create(UserEntity, {
+            clerkId,
+            email,
+            name,
+            emailConfirmed: false,
+        });
+        await em.persistAndFlush(user);
+        return user;
+    } catch (error) {
+        if (error instanceof UniqueConstraintViolationException) {
+            em.clear();
+            const user = await em.findOne(UserEntity, { clerkId });
+            if (user) return user;
+        }
+        throw error;
+    }
+}
 
 /**
  * Returns ClerkUser shape for worker context compatibility.
@@ -33,13 +68,7 @@ export async function assertAuth(): Promise<UserEntity> {
     }
 
     const { em } = await getOrm();
-    const user = await em.findOne(UserEntity, { clerkId: userId });
-
-    if (!user) {
-        throw new Error('User not found');
-    }
-
-    return user;
+    return ensureUser(userId, em);
 }
 
 /**
@@ -63,11 +92,7 @@ export function withAuth(handler: AuthenticatedHandler) {
         }
 
         const { em } = await getOrm();
-        const user = await em.findOne(UserEntity, { clerkId: userId });
-
-        if (!user) {
-            return NextResponse.json({ error: 'User not found', code: 'USER_NOT_FOUND' }, { status: 404 });
-        }
+        const user = await ensureUser(userId, em);
 
         return handler(req, user);
     };
