@@ -171,7 +171,7 @@ function ArtifactListItemDateMeta({ artifact }: { artifact: ArtifactDto }) {
             {projectName && (
                 <>
                     <span>·</span>
-                    <span title={projectName} className="line-clamp-1">
+                    <span title={`Resource from "${projectName}" project.`} className="line-clamp-1">
                         {projectName}
                     </span>
                 </>
