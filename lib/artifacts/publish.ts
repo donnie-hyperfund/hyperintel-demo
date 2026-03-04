@@ -50,7 +50,7 @@ export async function publishArtifactToUserScope(
         .replace(/^-|-$/g, '');
     const baseKey = sourceArtifact.key.replace(/\.md$/, '');
     const key = `${baseKey}-${projectSlug}.md`;
-    const publishedFrom = { projectId, artifactId: sourceArtifact.id, versionId: sourceVersion.id };
+    const publishedFrom = { projectId, projectName, artifactId: sourceArtifact.id, versionId: sourceVersion.id };
 
     try {
         const existing = await em.findOne(
