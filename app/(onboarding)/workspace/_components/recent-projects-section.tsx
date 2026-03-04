@@ -10,47 +10,6 @@ import { useFetchProjects } from '@/lib/api/client/hooks/use-projects';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 
-function ProjectsLoading() {
-    return (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-                <ProjectItemSkeleton key={i} />
-            ))}
-        </div>
-    );
-}
-
-function ProjectsError() {
-    return (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 px-4 py-3 text-rose-200 text-sm">
-            Failed to load projects.
-        </div>
-    );
-}
-
-function ProjectsEmpty() {
-    return (
-        <div className="rounded-2xl border border-dashed border-neutral-700 px-4 py-10 text-center text-neutral-400 text-sm">
-            No projects yet. Create one above to get started.
-        </div>
-    );
-}
-
-function ProjectsGrid({ projects, onOpen }: { projects: ProjectDto[]; onOpen: (project: ProjectDto) => void }) {
-    return (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {projects.map((project) => (
-                <ProjectItem
-                    key={project.id}
-                    project={project}
-                    href={`/${project.id}`}
-                    onNavigate={() => onOpen(project)}
-                />
-            ))}
-        </div>
-    );
-}
-
 export function RecentProjectsSection() {
     const router = useRouter();
     const { user } = useUser();
@@ -93,5 +52,46 @@ export function RecentProjectsSection() {
 
             {renderContent()}
         </motion.section>
+    );
+}
+
+function ProjectsLoading() {
+    return (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+                <ProjectItemSkeleton key={i} />
+            ))}
+        </div>
+    );
+}
+
+function ProjectsError() {
+    return (
+        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 px-4 py-3 text-rose-200 text-sm">
+            Failed to load projects.
+        </div>
+    );
+}
+
+function ProjectsEmpty() {
+    return (
+        <div className="rounded-2xl border border-dashed border-neutral-700 px-4 py-10 text-center text-neutral-400 text-sm">
+            No projects yet. Create one above to get started.
+        </div>
+    );
+}
+
+function ProjectsGrid({ projects, onOpen }: { projects: ProjectDto[]; onOpen: (project: ProjectDto) => void }) {
+    return (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {projects.map((project) => (
+                <ProjectItem
+                    key={project.id}
+                    project={project}
+                    href={`/${project.id}`}
+                    onNavigate={() => onOpen(project)}
+                />
+            ))}
+        </div>
     );
 }
