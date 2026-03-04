@@ -14,6 +14,12 @@ export function isApprovedArtifact(artifact: ArtifactDto) {
     return getLatestArtifactVersion(artifact)?.status === 'approved';
 }
 
+/** Extract the source project name from a published artifact's metadata (Legacy DNA). */
+export function getSourceProjectName(artifact: ArtifactDto): string | undefined {
+    const publishedFrom = artifact.metadata?.publishedFrom as { projectName?: string } | undefined;
+    return publishedFrom?.projectName;
+}
+
 // ── Upload error codes (shared between FE & BE) ────────────────────────────
 
 export const UPLOAD_ERROR_CODES = {
