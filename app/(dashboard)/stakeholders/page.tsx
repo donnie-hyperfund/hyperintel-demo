@@ -12,12 +12,12 @@ export default function StakeholdersPage() {
         <ListPageWrapper
             HeaderComponent={
                 <ListPageHeader
-                    title="Stakeholder profiles"
+                    title="Stakeholder personas"
                     ActionComponent={
                         <Button asChild size="sm">
                             <Link href="/stakeholders/new">
                                 <Plus className="size-4 opacity-75" />
-                                New stakeholder
+                                New persona
                             </Link>
                         </Button>
                     }

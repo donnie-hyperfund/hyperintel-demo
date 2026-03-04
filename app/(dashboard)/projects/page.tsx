@@ -12,7 +12,7 @@ export default function ProjectsPage() {
         <ListPageWrapper
             HeaderComponent={
                 <ListPageHeader
-                    title="Your projects"
+                    title="Projects"
                     ActionComponent={
                         <Button asChild size="sm">
                             <Link href="/projects/new">

@@ -17,7 +17,7 @@ export default function CompaniesPage() {
                         <Button asChild size="sm">
                             <Link href="/companies/new">
                                 <Plus className="size-4 opacity-75" />
-                                New company
+                                New profile
                             </Link>
                         </Button>
                     }

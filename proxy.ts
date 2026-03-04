@@ -7,12 +7,20 @@ import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 
 const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/api/webhooks(.*)']);
-const isOnboardingRoute = createRouteMatcher(['/projects/new(.*)', '/select-project(.*)']);
+
+/** Routes that any authenticated user can visit freely (no project cookie required). */
+const isBrowsableRoute = createRouteMatcher([
+    '/workspace',
+    '/projects',
+    '/projects/new(.*)',
+    '/companies(.*)',
+    '/stakeholders(.*)',
+    '/select-project(.*)',
+]);
 
 /**
  * Test-only auth bypass for Playwright.
  * Only active when E2E_AUTH_BYPASS=true (set in .env.test, NEVER in .env/.env.dev/.env.prd).
- * Returns the clerk user ID from the x-test-clerk-id header, or null if bypass is not active.
  */
 function getTestAuthBypass(req: NextRequest): string | null {
     if (process.env.NODE_ENV === 'production' || process.env.E2E_AUTH_BYPASS !== 'true') {
@@ -39,60 +47,45 @@ export default clerkMiddleware(async (auth, req) => {
             if (user) {
                 const projectCount = await em.count(ProjectEntity, { user: user.id });
                 const hasProjects = projectCount > 0;
+                const browsable = isBrowsableRoute(req);
 
-                const isOnOnboardingPage = isOnboardingRoute(req);
-
-                // Redirect to new-project if user has no projects and not already on onboarding page
-                if (!hasProjects && !isOnOnboardingPage) {
-                    const url = new URL('/projects/new?onboarding=true', req.url);
-                    return NextResponse.redirect(url);
+                if (!hasProjects && !browsable) {
+                    return NextResponse.redirect(new URL('/workspace', req.url));
                 }
 
-                // If user has projects, check for current project cookie
-                if (hasProjects && !isOnOnboardingPage) {
+                if (hasProjects && pathname === '/') {
                     const cookieValue = req.cookies.get(CURRENT_PROJECT_COOKIE_NAME)?.value;
                     const parsedCookie = parseProjectCookie(cookieValue);
 
-                    // Check if cookie exists and belongs to current user
                     let validProjectId: string | null = null;
                     if (parsedCookie && parsedCookie.userId === clerkUserId) {
                         const project = await em.findOne(ProjectEntity, {
                             id: parsedCookie.projectId,
                             user: user.id,
                         });
-                        if (project) {
-                            validProjectId = parsedCookie.projectId;
-                        }
+                        if (project) validProjectId = parsedCookie.projectId;
                     }
 
-                    // If no valid cookie or wrong user, redirect to select-project
                     if (!validProjectId) {
-                        const url = new URL('/select-project', req.url);
-                        return NextResponse.redirect(url);
+                        return NextResponse.redirect(new URL('/workspace', req.url));
                     }
 
-                    // If on root path, redirect to the current project's last phase
-                    if (pathname === '/') {
-                        const lastChat = await em.findOne(
-                            ChatEntity,
-                            { project: validProjectId },
-                            { orderBy: { phase_index: 'desc' } },
-                        );
-
-                        const target = lastChat ? `/${validProjectId}/${lastChat.id}` : `/${validProjectId}`;
-                        return NextResponse.redirect(new URL(target, req.url));
-                    }
+                    const lastChat = await em.findOne(
+                        ChatEntity,
+                        { project: validProjectId },
+                        { orderBy: { phase_index: 'desc' } },
+                    );
+                    const target = lastChat ? `/${validProjectId}/${lastChat.id}` : `/${validProjectId}`;
+                    return NextResponse.redirect(new URL(target, req.url));
                 }
             }
         } catch (error) {
             console.error('Error checking user projects:', error);
-            // Continue without redirect on error
         }
     }
 
-    // Additional safety check to redirect to new-project if user is not found
     if (!clerkUserId && pathname === '/') {
-        return NextResponse.redirect(new URL('/projects/new', req.url));
+        return NextResponse.redirect(new URL('/workspace', req.url));
     }
 
     return NextResponse.next();
