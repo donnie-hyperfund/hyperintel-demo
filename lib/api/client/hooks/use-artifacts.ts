@@ -1,6 +1,5 @@
 import { useAuth } from '@clerk/nextjs';
-import useSWR, { type SWRConfiguration } from 'swr';
-import { useSWRConfig } from 'swr';
+import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { artifactKeys, createArtifactApi, getArtifactListInfiniteKey } from '@/lib/api/client/fetchers/artifacts';
