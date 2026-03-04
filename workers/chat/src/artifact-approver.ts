@@ -1,24 +1,20 @@
-import { runInferenceNoStream, AIParamsType } from '@common/ai/inference/run-inference';
+import { AIParamsType, runInferenceNoStream } from '@common/ai/inference/run-inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types/models';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
-import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
+import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
+import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
-import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
 
-async function generateYAMLForArtifact(
-    content: string,
-    messages: ChatMessageEntity[],
-    ctx: Ctx,
-): Promise<string> {
+async function generateYAMLForArtifact(content: string, messages: ChatMessageEntity[], ctx: Ctx): Promise<string> {
     const localPath = resolveLocalPromptPath();
     const systemPrompt = await getPromptContent(ctx, YAML_PROMPT_SLUG, localPath);
     if (!systemPrompt) {
@@ -107,11 +103,7 @@ export async function approveArtifactHandler(
     }
 
     // Classify document to determine if AI-readable YAML should be generated
-    const isInternalDocument = await shouldGenerateAiContent(
-        ctx,
-        version.artifact.key,
-        version.artifact.title,
-    );
+    const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.artifact.title);
 
     console.log('[approveArtifact] Document classification:', {
         documentKey: version.artifact.key,
@@ -159,6 +151,7 @@ export async function approveArtifactHandler(
                 sourceVersion: version,
                 userId: projectUser.id,
                 projectId: project.id,
+                projectName: project.name,
             });
             console.log('[approveArtifact] Published to user scope:', publishResult);
         } catch (err) {
