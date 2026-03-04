@@ -159,6 +159,7 @@ export async function approveArtifactHandler(
                 sourceVersion: version,
                 userId: projectUser.id,
                 projectId: project.id,
+                projectName: project.name,
             });
             console.log('[approveArtifact] Published to user scope:', publishResult);
         } catch (err) {

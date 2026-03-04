@@ -20,6 +20,8 @@ export interface PublishToUserScopeParams {
     userId: string;
     /** Source project ID (for metadata) */
     projectId: string;
+    /** Project name — incorporated into the published artifact key */
+    projectName: string;
 }
 
 export interface PublishResult {
@@ -40,9 +42,11 @@ export async function publishArtifactToUserScope(
     em: EntityManager,
     params: PublishToUserScopeParams,
 ): Promise<PublishResult> {
-    const { sourceVersion, userId, projectId } = params;
+    const { sourceVersion, userId, projectId, projectName } = params;
     const sourceArtifact = sourceVersion.artifact;
-    const key = sourceArtifact.key;
+    const projectSlug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const baseKey = sourceArtifact.key.replace(/\.md$/, '');
+    const key = `${baseKey}-${projectSlug}.md`;
     const publishedFrom = { projectId, artifactId: sourceArtifact.id, versionId: sourceVersion.id };
 
     try {
