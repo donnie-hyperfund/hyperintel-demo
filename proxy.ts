@@ -21,6 +21,7 @@ const isBrowsableRoute = createRouteMatcher([
 /**
  * Test-only auth bypass for Playwright.
  * Only active when E2E_AUTH_BYPASS=true (set in .env.test, NEVER in .env/.env.dev/.env.prd).
+ * Returns the clerk user ID from the x-test-clerk-id header, or null if bypass is not active.
  */
 function getTestAuthBypass(req: NextRequest): string | null {
     if (process.env.NODE_ENV === 'production' || process.env.E2E_AUTH_BYPASS !== 'true') {
@@ -84,7 +85,7 @@ export default clerkMiddleware(async (auth, req) => {
         }
     }
 
-    if (!clerkUserId && pathname === '/') {
+    if (pathname === '/') {
         return NextResponse.redirect(new URL('/workspace', req.url));
     }
 
