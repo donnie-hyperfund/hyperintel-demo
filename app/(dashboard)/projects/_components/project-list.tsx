@@ -60,7 +60,7 @@ export const ProjectList = () => {
                 <Button asChild className="mt-2">
                     <Link href="/projects/new">
                         <Plus className="size-4" />
-                        Create project
+                        New project
                     </Link>
                 </Button>
             </EmptyState>
