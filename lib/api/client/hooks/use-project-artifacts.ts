@@ -4,6 +4,7 @@ import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { toast } from '@/hooks/use-toast';
+import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import {
     createProjectArtifactApi,
     getProjectArtifactListInfiniteKey,
@@ -99,54 +100,62 @@ export function useFetchProjectArtifactByKey(
     );
 }
 
-export function useApproveProjectArtifactVersion(projectId: string, artifactKey: string, artifactVersion: number) {
+export function useApproveProjectArtifactVersion(
+    projectId: string | undefined,
+    artifactKey: string,
+    artifactVersion: number,
+    versionId: string,
+) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
     return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[]>(
-        [...projectArtifactKeys.byKey(projectId, artifactKey)],
+        [...projectArtifactKeys.byKey(projectId ?? '_user', artifactKey)],
         async () => {
-            const api = createProjectArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
-            if (!artifact.proposed_version) throw new Error('No proposed version');
-
             const token = await getToken();
             if (!token) throw new Error('Not authenticated');
 
-            const response = await approveArtifact({ versionId: artifact.proposed_version.id }, token);
+            const response = await approveArtifact({ versionId }, token);
             if (!response.ok) {
                 const error = await response.json();
                 throw new Error(error.message || 'Failed to approve artifact');
             }
 
-            globalMutate(serializeProjectArtifactListKey(projectId));
-            return api.getByKey(projectId, artifactKey, artifactVersion);
+            if (projectId) {
+                globalMutate(serializeProjectArtifactListKey(projectId));
+                return createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, artifactVersion);
+            }
+            return createArtifactApi(getToken).getByKey(artifactKey, artifactVersion);
         },
     );
 }
 
-export function useRejectProjectArtifactVersion(projectId: string, artifactKey: string, artifactVersion: number) {
+export function useRejectProjectArtifactVersion(
+    projectId: string | undefined,
+    artifactKey: string,
+    artifactVersion: number,
+    versionId: string,
+) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
     return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[], string>(
-        [...projectArtifactKeys.byKey(projectId, artifactKey)],
+        [...projectArtifactKeys.byKey(projectId ?? '_user', artifactKey)],
         async (_, { arg: reason }) => {
-            const api = createProjectArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
-            if (!artifact.proposed_version) throw new Error('No proposed version');
-
             const token = await getToken();
             if (!token) throw new Error('Not authenticated');
 
-            const response = await rejectArtifact({ versionId: artifact.proposed_version.id, reason }, token);
+            const response = await rejectArtifact({ versionId, reason }, token);
             if (!response.ok) {
                 const error = await response.json();
                 throw new Error(error.message || 'Failed to reject artifact');
             }
 
-            globalMutate(serializeProjectArtifactListKey(projectId));
-            return api.getByKey(projectId, artifactKey, artifactVersion);
+            if (projectId) {
+                globalMutate(serializeProjectArtifactListKey(projectId));
+                return createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, artifactVersion);
+            }
+            return createArtifactApi(getToken).getByKey(artifactKey, artifactVersion);
         },
     );
 }

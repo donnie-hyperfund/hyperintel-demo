@@ -472,15 +472,6 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         em!.persist(assistantMsg);
                     }
 
-                    // Link created document versions to the assistant message
-                    if (assistantMsg && createdVersionIds.length > 0) {
-                        await em!
-                            .createQueryBuilder(ArtifactVersionEntity)
-                            .update({ chat_message: assistantMsg.id })
-                            .where({ id: { $in: createdVersionIds } })
-                            .execute();
-                    }
-
                     // Calculate token usage estimates
                     let usedContextTokens = estimateContextTokens(allMessages);
                     if (assistantContent) usedContextTokens += estimateTextTokens(assistantContent);
@@ -513,7 +504,17 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                     chat.token_usage = { tokenBreakdown, usedTokens };
                     chat.active_agent_message_id = null;
 
+                    // Flush assistant message before linking versions (FK requires row to exist)
                     await em!.flush();
+
+                    // Link created document versions to the assistant message
+                    if (assistantMsg && createdVersionIds.length > 0) {
+                        await em!
+                            .createQueryBuilder(ArtifactVersionEntity)
+                            .update({ chat_message: assistantMsg.id })
+                            .where({ id: { $in: createdVersionIds } })
+                            .execute();
+                    }
 
                     let hasPendingChanges = false;
                     const phaseIndex = chat.phase_index;

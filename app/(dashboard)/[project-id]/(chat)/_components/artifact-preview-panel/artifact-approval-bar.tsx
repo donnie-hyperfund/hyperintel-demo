@@ -1,25 +1,21 @@
 'use client';
 
 import { Check, Loader2, X as XIcon } from 'lucide-react';
-import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
-import { useApproveUserArtifactVersion, useRejectUserArtifactVersion } from '@/lib/api/client/hooks/use-artifacts';
 import {
     useApproveProjectArtifactVersion,
     useRejectProjectArtifactVersion,
 } from '@/lib/api/client/hooks/use-project-artifacts';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
-import { isIntakeChat } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
-
-type ArtifactApprovalBarParams = PageParams<'/[project-id]'>;
 
 type ArtifactApprovalBarProps = {
     artifactId: string;
     artifactKey: string;
     artifactVersion: number;
+    artifactVersionId: string;
     onProcessingChange?: (isProcessing: boolean) => void;
 };
 
@@ -27,42 +23,36 @@ export function ArtifactApprovalBar({
     artifactId,
     artifactKey,
     artifactVersion,
+    artifactVersionId,
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
     const { updateArtifact } = useArtifactContext();
     const { clearPendingChanges, chatType, hasOtherPendingArtifacts } = useChatContext();
     const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
-    const isIntake = isIntakeChat(chatType);
+    const isIntake = chatType !== 'phase';
 
-    const { 'project-id': projectId } = useParams<ArtifactApprovalBarParams>();
+    const chatContext = useChatContext();
+    const projectId = chatContext.chatType === 'phase' ? chatContext.projectId : undefined;
 
-    // Project-scoped hooks (only triggered for phase chats)
-    const { trigger: approveProjectArtifact, isMutating: isApprovingProjectArtifact } =
-        useApproveProjectArtifactVersion(projectId, artifactKey, artifactVersion);
-    const { trigger: rejectProjectArtifact, isMutating: isRejectingProjectArtifact } = useRejectProjectArtifactVersion(
+    const { trigger: approve, isMutating: isApproving } = useApproveProjectArtifactVersion(
         projectId,
         artifactKey,
         artifactVersion,
+        artifactVersionId,
     );
-
-    // User-scoped hooks (only triggered for intake chats)
-    const { trigger: approveUserArtifact, isMutating: isApprovingUserArtifact } = useApproveUserArtifactVersion(
+    const { trigger: reject, isMutating: isRejecting } = useRejectProjectArtifactVersion(
+        projectId,
         artifactKey,
         artifactVersion,
-    );
-    const { trigger: rejectUserArtifact, isMutating: isRejectingUserArtifact } = useRejectUserArtifactVersion(
-        artifactKey,
-        artifactVersion,
+        artifactVersionId,
     );
 
-    const isApproving = isApprovingProjectArtifact || isApprovingUserArtifact;
-    const isRejecting = isRejectingProjectArtifact || isRejectingUserArtifact;
     const isProcessing = isApproving || isRejecting || isLinkingToProject;
 
     const handleApprove = async () => {
         try {
             onProcessingChange?.(true);
-            const updated = isIntake ? await approveUserArtifact() : await approveProjectArtifact();
+            const updated = await approve();
 
             if (updated) {
                 updateArtifact(artifactId, updated, artifactVersion, { merge: false });
@@ -86,8 +76,7 @@ export function ArtifactApprovalBar({
     const handleReject = async () => {
         try {
             onProcessingChange?.(true);
-            // TODO: Remove the need for the reason
-            const updated = isIntake ? await rejectUserArtifact('rejected') : await rejectProjectArtifact('rejected');
+            const updated = await reject('rejected');
             if (updated) {
                 updateArtifact(artifactId, updated, artifactVersion, { merge: false });
                 // Clear pending changes only if no other artifacts are pending

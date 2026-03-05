@@ -352,6 +352,10 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         em!.persist(assistantMsg);
                     }
 
+                    // Flush assistant message before linking versions (FK requires row to exist)
+                    chat.active_agent_message_id = null;
+                    await em!.flush();
+
                     // Link created document versions to the assistant message
                     if (assistantMsg && createdVersionIds.length > 0) {
                         await em!
@@ -360,10 +364,6 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                             .where({ id: { $in: createdVersionIds } })
                             .execute();
                     }
-
-                    // Clear activeAgentMessageId
-                    chat.active_agent_message_id = null;
-                    await em!.flush();
 
                     // Push terminal done event
                     const doneEvent: StreamEvent = {

@@ -50,6 +50,8 @@ export async function assertClerkAuth(): Promise<ClerkUser> {
 /**
  * Returns UserEntity for API route handlers.
  * Use this when you need the full user entity with DB relations.
+ *
+ * TODO - flag whether to create user if missing
  */
 export async function assertAuth(): Promise<UserEntity> {
     const { userId } = await auth();

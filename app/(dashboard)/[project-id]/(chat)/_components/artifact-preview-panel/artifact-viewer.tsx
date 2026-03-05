@@ -206,6 +206,7 @@ export const ArtifactViewer = ({
                     artifactId={artifactId!}
                     artifactKey={artifactKey}
                     artifactVersion={version}
+                    artifactVersionId={artifactVersionId!}
                     onProcessingChange={setIsProcessingApproval}
                 />
             )}
