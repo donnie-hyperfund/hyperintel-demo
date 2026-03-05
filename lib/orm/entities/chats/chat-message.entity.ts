@@ -24,6 +24,9 @@ export class ChatMessageEntity extends IdCreatedColumns {
     @Property({ type: 'boolean', default: false })
     is_error?: boolean;
 
+    @Property({ type: 'boolean', default: false })
+    is_aborted?: boolean;
+
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
 
@@ -53,7 +56,7 @@ export class ChatMessageEntity extends IdCreatedColumns {
      */
     private redactBlocks(blocks: StreamBlock[], groups: string[]): StreamBlock[] {
         return blocks.map((b) => {
-            if (b.type === 'tool_call' && ['write_document', 'edit_document'].includes(b.toolName)) {
+            if (b.type === 'tool_call' && ['write_document', 'edit_document', 'patch_document'].includes(b.toolName)) {
                 return {
                     ...b,
                     content: 'REDACTED',

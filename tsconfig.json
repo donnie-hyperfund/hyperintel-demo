@@ -27,7 +27,8 @@
             "@/*": ["*"],
             "@common/*": ["common/*"],
             "@worker/*": ["workers/_common/*"],
-            "@supabase/supabase-js": ["workers/_common/vendor/stubs/supabase-js"]
+            "@supabase/supabase-js": ["workers/_common/vendor/stubs/supabase-js"],
+            "cloudflare:workers": ["common/common/local.do-mock"]
         },
         "baseUrl": ".",
         "rootDirs": [".", "common/", "common/orm"]

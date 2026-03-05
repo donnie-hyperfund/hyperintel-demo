@@ -91,6 +91,20 @@
 			"secret_name": "CF_ACCOUNT_ID"
 		}
 	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "USER_GATEWAY",
+				"class_name": "UserGateway",
+				"script_name": "hi-objects"
+			},
+			{
+				"name": "CHAT_STREAM_DO",
+				"class_name": "ChatStreamDO",
+				"script_name": "hi-objects"
+			}
+		]
+	},
 	"queues": {
 		"producers": [
 			{
@@ -183,6 +197,20 @@
 					"secret_name": "CF_ACCOUNT_ID"
 				}
 			],
+			"durable_objects": {
+				"bindings": [
+					{
+						"name": "USER_GATEWAY",
+						"class_name": "UserGateway",
+						"script_name": "hi-objects-dev"
+					},
+					{
+						"name": "CHAT_STREAM_DO",
+						"class_name": "ChatStreamDO",
+						"script_name": "hi-objects-dev"
+					}
+				]
+			},
 			"queues": {
 				"producers": [
 					{
@@ -276,6 +304,20 @@
 					"secret_name": "CF_ACCOUNT_ID"
 				}
 			],
+			"durable_objects": {
+				"bindings": [
+					{
+						"name": "USER_GATEWAY",
+						"class_name": "UserGateway",
+						"script_name": "hi-objects-experimental"
+					},
+					{
+						"name": "CHAT_STREAM_DO",
+						"class_name": "ChatStreamDO",
+						"script_name": "hi-objects-experimental"
+					}
+				]
+			},
 			"queues": {
 				"producers": [
 					{

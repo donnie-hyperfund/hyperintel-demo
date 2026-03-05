@@ -1,6 +1,7 @@
 export enum WORKERS_LOCAL_ENDPOINTS {
     ChatAction = '/api/chat/handler',
     IntakeAction = '/api/intake/handler',
+    AbortAction = '/api/chat/abort',
     SummarizeAction = '/api/chat/summarize',
     ApproveAction = '/api/chat/artifacts/approve',
     RejectAction = '/api/chat/artifacts/reject',
@@ -20,6 +21,7 @@ export enum WORKERS {
 export enum CHAT_EP {
     ChatAction = '/chat',
     IntakeAction = '/intake',
+    AbortAction = '/abort',
     SummarizeAction = '/summarize',
     ApproveAction = '/artifacts/approve',
     RejectAction = '/artifacts/reject',

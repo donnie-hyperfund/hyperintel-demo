@@ -5,6 +5,7 @@ import { HonoEnv, honoMiddlewareAuthedWithOrm, honoMiddlewareWithOrm } from '@wo
 import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
+import { ChatEntity } from '@/lib/orm/entities';
 import {
     ApproveArtifactActionSchema,
     ConfirmUploadSchema,
@@ -14,7 +15,12 @@ import {
     RejectArtifactActionSchema,
     UploadArtifactSchema,
 } from '@/lib/schema/artifact';
-import { SendChatActionSchema, SendIntakeChatActionSchema, SummarizeActionSchema } from '@/lib/schema/chat';
+import {
+    AbortActionSchema,
+    SendChatActionSchema,
+    SendIntakeChatActionSchema,
+    SummarizeActionSchema,
+} from '@/lib/schema/chat';
 import { ImportArtifactsActionSchema } from '@/lib/schema/project';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
 import { deleteArtifactHandler } from './artifact-deleter';
@@ -36,10 +42,40 @@ app.get('/health', honoMiddlewareWithOrm, async (c) => {
     const result = await em.execute('SELECT 1+1 AS result');
     return c.json({ status: 'healthy', db: result[0]?.result });
 });
+
+// Internal M2M endpoint — registered BEFORE honoMiddlewareAuthedWithOrm (no Clerk auth)
+app.post('/internal/broadcast', async (c) => {
+    const secret = await c.env.AUTH_SECRET.get();
+    if (c.req.header('Authorization') !== `Bearer ${secret}`) {
+        return c.json({ error: 'Unauthorized' }, 401);
+    }
+    const { userId, eventType, payload } = await c.req.json();
+    if (!userId || !eventType) return c.json({ error: 'Missing userId or eventType' }, 400);
+
+    const ugId = c.env.USER_GATEWAY.idFromName(userId);
+    const ugStub = c.env.USER_GATEWAY.get(ugId);
+    await (ugStub as any).broadcastToAll({ type: 'user_event', eventType, payload });
+    return c.json({ ok: true });
+});
+
 app.use('*', honoMiddlewareAuthedWithOrm);
 app.notFound((c) => c.json({ message: 'Not Found', ok: false }, 404));
 app.onError((err) => {
     return workerHonoOnError(err);
+});
+
+app.post('/abort', zValidator('json', AbortActionSchema), (c) => {
+    return wrapWorker(async () => {
+        const { chatId, agentMessageId } = c.req.valid('json');
+        // Ownership check — throws 404 if user doesn't own this chat
+        await c.var.em!.findOneOrFail(ChatEntity, {
+            id: chatId,
+            project: { user: { clerkId: c.var.user.userId } },
+        });
+        const streamDO = c.env.CHAT_STREAM_DO.get(c.env.CHAT_STREAM_DO.idFromName(agentMessageId));
+        await streamDO.abort(chatId);
+        return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+    });
 });
 
 app.post('/chat', zValidator('json', SendChatActionSchema), async (c) => {

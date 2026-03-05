@@ -73,6 +73,12 @@ export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps
                         Sorry, there was an error processing your request. Please try again.
                     </div>
                 )}
+
+                {message.isAborted && (
+                    <div className="mt-3 rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-2.5 text-sm text-blue-400/80">
+                        This response was stopped by the user.
+                    </div>
+                )}
             </div>
         </div>
     );

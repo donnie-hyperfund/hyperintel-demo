@@ -1,28 +1,26 @@
 import { runAgentStream } from '@common/ai/agent';
+import type { AgentStreamEvent } from '@common/ai/agent/types';
 import { AIParamsType, ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { getLangfusePrompt } from '@worker/vendor/langfuse-prompts';
-import { AsyncHandlebars, Handlebars } from 'handlebars-jle';
+import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
-import { Ctx } from './context';
+import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
+import type { StreamEvent } from '@/lib/schema/stream';
+import type { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
+import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
-import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
+import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
-import {
-    DEFAULT_LOCAL_PROMPTS_PATH,
-    getPromptContent,
-    parseLocalPromptEnv,
-    slugToLocalFile,
-} from './utils/prompt-loader';
-import { createEnqueue, createSSEStream, handleCommonStreamEvent, handleStreamError, loadChatHistory } from './utils/stream-utils';
+import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
+import { createEventCollector, handleCommonStreamEvent, loadChatHistory, wireAbort } from './utils/stream-utils';
 
 // ============================================================================
 // CONTEXT PREPROCESSING
@@ -66,6 +64,15 @@ export interface ChatHandlerOptions {
      * - string specifies custom path relative to project root
      */
     useLocalPrompts?: true | string;
+    /** Event tap — called with each StreamEvent during generation. For tests. */
+    onEvent?: (event: StreamEvent) => void;
+}
+
+export interface ChatActionResult {
+    userMessageId: string;
+    agentMessageId: string;
+    /** Resolves when generation completes. Present when onEvent is provided. */
+    generation?: Promise<void>;
 }
 
 // ============================================================================
@@ -177,274 +184,416 @@ async function buildSystemPrompt(
 }
 
 // ============================================================================
-// STREAM HANDLER
+// CHAT HANDLER — synchronous POST, async generation via waitUntil
 // ============================================================================
 
-export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, options: ChatHandlerOptions = {}) {
-    return createSSEStream(async (controller) => {
-        const { chatId, message } = data;
-        const { anthropic, langfuse, em } = ctx;
-        const requestStartedAt = new Date();
-        const enqueue = createEnqueue(controller);
+/**
+ * Chat action handler — saves user message, registers stream, returns IDs synchronously.
+ * Generation runs in ctx.waitUntil(), pushing events to ChatStream DO.
+ */
+export async function chatActionHandler(
+    data: SendChatActionDto,
+    ctx: Ctx,
+    options: ChatHandlerOptions = {},
+): Promise<ChatActionResult> {
+    const { chatId, message, tempId } = data;
+    const { em } = ctx;
+    const requestStartedAt = new Date();
 
-        try {
-            const chat = await em!.findOneOrFail(ChatEntity, {
-                id: chatId,
-                project: { user: { clerkId: ctx.user.userId } },
-            });
+    // Pre-generate IDs (Decision #36)
+    const userMessageId = crypto.randomUUID();
+    const agentMessageId = crypto.randomUUID();
 
-            if (!anthropic || !langfuse) {
-                throw new Error('Anthropic and Langfuse clients are required');
-            }
+    // Validate ownership
+    const chat = await em!.findOneOrFail(ChatEntity, {
+        id: chatId,
+        project: { user: { clerkId: ctx.user.userId } },
+    });
 
-            // Load history from database (shared helper)
-            const historyMessages = await loadChatHistory(em!, chatId);
-            const allMessages = [...historyMessages, { role: 'user' as const, content: message }];
+    // Save user message immediately (Decision #37)
+    const userMsg = em!.create(ChatMessageEntity, {
+        id: userMessageId,
+        chat: chatId,
+        role: 'user',
+        content: message,
+        created_at: requestStartedAt,
+    });
+    em!.persist(userMsg);
 
-            // Load previously loaded prompts from chat metadata (fallback to empty)
-            const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
+    // Set activeAgentMessageId on chat entity
+    chat.active_agent_message_id = agentMessageId;
+    await em!.flush();
 
-            // Create embedding queue adapter (uses native Queue in workers, HTTP in local)
-            const embeddingQueue = createEmbeddingQueueAdapter({
-                // Native Cloudflare Queue binding (available in workers)
-                queue: ctx.env.EMBEDDING_QUEUE,
-                // HTTP fallback for local development
-                httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
-                authSecret: process.env.AUTH_SECRET,
-            });
+    // Broadcast message_created to all subscribers
+    const ugId = ctx.env.USER_GATEWAY.idFromName(ctx.user.userId);
+    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+    const messagePayload: Record<string, unknown> = { message: userMsg.toJSON() };
+    if (tempId) {
+        messagePayload.tempId = tempId;
+    }
+    await ugStub.systemAction(`chat:${chatId}`, 'messageCreated', messagePayload);
 
-            // Track version IDs created during this turn - will be linked to assistant message after persist
-            const createdVersionIds: string[] = [];
+    // Register stream via UG → ChatTopicHandler → ChatStream DO init
+    // Pass userId so the handler can auto-subscribe the initiator to the ChatStream DO
+    await ugStub.systemAction(`chat:${chatId}`, 'registerStream', {
+        agentMessageId,
+        userId: ctx.user.userId,
+        userMessageId,
+    });
 
-            // Create combined agent context for all tool types
-            const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
-                // Prompt tools context
-                loadedPrompts: new Set<string>(savedPrompts),
-                // Document tools context
-                em: em!,
-                projectId: chat.project.id,
-                chatId: chat.id,
-                draftManager: new DraftManager(),
-                // Embedding queue adapter for async indexing
-                embeddingQueue,
-                createdVersionIds,
-            };
+    // Kick off generation in waitUntil — response returned before generation starts
+    const generationPromise = runGeneration({
+        data,
+        ctx,
+        options,
+        chat,
+        agentMessageId,
+        requestStartedAt,
+        ugStub,
+    });
 
-            // Resolve local prompts path from options, falling back to env var
-            const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
-            const localPath = localPromptsSetting
-                ? localPromptsSetting === true
-                    ? DEFAULT_LOCAL_PROMPTS_PATH
-                    : localPromptsSetting
-                : null;
+    if (ctx.eCtx?.waitUntil) {
+        ctx.eCtx.waitUntil(generationPromise);
+    }
 
-            // Get initial system prompt
-            const initialSystemPrompt = await buildSystemPrompt(
-                ctx,
-                agentCtx.loadedPrompts,
-                localPath,
-                WEB_SEARCH_GUIDANCE,
-            );
+    return {
+        userMessageId,
+        agentMessageId,
+        ...(options.onEvent && { generation: generationPromise }),
+    };
+}
 
-            // Determine inference params - use override if provided, otherwise default
-            const defaultInference: ParamsWithType = {
-                paramsType: AIParamsType.Anthropic,
-                params: { model: data.model ?? ANTHROPIC_MODELS.SONNET, thinking: true, thinkingBudget: 8000, searchEnabled: true },
-            };
-            const inferenceParams = options.overrideInference ?? defaultInference;
+// ============================================================================
+// GENERATION — runs in waitUntil, pushes events to ChatStream DO
+// ============================================================================
 
-            // Define tools and tool groups (used for agent and token estimation)
-            const allTools = [
-                ...pmaPromptTools,
-                ...createDocumentTools(),
-                ...createKnowledgeTools(),
-                ...createWebScrapeTools(),
-                ...createPhaseTransitionTools(),
-            ];
-            const toolGroups = [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup, WebScrapeToolGroup, PhaseTransitionToolGroup];
+interface GenerationParams {
+    data: SendChatActionDto;
+    ctx: Ctx;
+    options: ChatHandlerOptions;
+    chat: ChatEntity;
+    agentMessageId: string;
+    requestStartedAt: Date;
+    ugStub: UserGatewayStub;
+}
 
-            // Run the agent with streaming
-            const { stream, historyPromise } = runAgentStream(
-                agentCtx,
-                // @ ts-expect-error TODO: should allow passing context with only some providers available
-                ctx,
-                {
-                    ...inferenceParams,
-                    instructions: initialSystemPrompt,
-                    context: allMessages,
-                    // maxTokens: 4096 * 3,
-                    countReasoningAsContent: true,
-                    contentThreshold: 5,
-                },
-                allTools,
-                {
-                    toolGroups,
-                    terminalToolNames: ['generate_summary'],
-                    config: {
-                        maxToolCalls: 100,
-                        getSystemPrompt: async () =>
-                            buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath, WEB_SEARCH_GUIDANCE),
-                        statusUpdates: { enabled: true },
-                        preprocessContext,
-                        onTurnComplete: () => {
-                            if (agentCtx.draftManager.hasActive()) {
-                                return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
-                            }
-                            return null;
-                        },
+async function runGeneration(params: GenerationParams): Promise<void> {
+    const { data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub } = params;
+    const { chatId, message } = data;
+    const { anthropic, langfuse, em } = ctx;
+
+    // Get ChatStream DO stub — already initialized by registerStream above
+    const streamDO = ctx.env.CHAT_STREAM_DO.get(
+        ctx.env.CHAT_STREAM_DO.idFromName(agentMessageId),
+    ) as unknown as ChatStreamDOStub;
+
+    // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
+    const abortController = wireAbort(streamDO);
+
+    try {
+        if (!anthropic || !langfuse) {
+            throw new Error('Anthropic and Langfuse clients are required');
+        }
+
+        // Load history from database
+        const allMessages = await loadChatHistory(em!, chatId);
+        // const allMessages = [...historyMessages, { role: 'user' as const, content: message }];
+
+        // Load previously loaded prompts from chat metadata
+        const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
+
+        // Create embedding queue adapter
+        const embeddingQueue = createEmbeddingQueueAdapter({
+            queue: ctx.env.EMBEDDING_QUEUE,
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
+            authSecret: process.env.AUTH_SECRET,
+        });
+
+        // Track version IDs created during this turn
+        const createdVersionIds: string[] = [];
+
+        // Create combined agent context
+        const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
+            loadedPrompts: new Set<string>(savedPrompts),
+            em: em!,
+            projectId: chat.project!.id,
+            chatId: chat.id,
+            draftManager: new DraftManager(),
+            embeddingQueue,
+            createdVersionIds,
+            onVersionCreated: (event) => {
+                ugStub.broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event }).catch(console.error);
+            },
+        };
+
+        // Resolve local prompts path
+        const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
+        const localPath = localPromptsSetting
+            ? localPromptsSetting === true
+                ? DEFAULT_LOCAL_PROMPTS_PATH
+                : localPromptsSetting
+            : null;
+
+        // Get initial system prompt
+        const initialSystemPrompt = await buildSystemPrompt(
+            ctx,
+            agentCtx.loadedPrompts,
+            localPath,
+            WEB_SEARCH_GUIDANCE,
+        );
+
+        // Determine inference params
+        const defaultInference: ParamsWithType = {
+            paramsType: AIParamsType.Anthropic,
+            params: {
+                model: data.model ?? ANTHROPIC_MODELS.SONNET,
+                thinking: true,
+                thinkingBudget: 8000,
+                searchEnabled: true,
+            },
+        };
+        const inferenceParams = options.overrideInference ?? defaultInference;
+
+        // Define tools and tool groups
+        const allTools = [
+            ...pmaPromptTools,
+            ...createDocumentTools(),
+            ...createKnowledgeTools(),
+            ...createWebScrapeTools(),
+            ...createPhaseTransitionTools(),
+        ];
+        const toolGroups = [
+            PromptManagementToolGroup,
+            DocumentToolGroup,
+            KnowledgeSearchToolGroup,
+            WebScrapeToolGroup,
+            PhaseTransitionToolGroup,
+        ];
+
+        // Run the agent with streaming
+        const { stream, historyPromise } = runAgentStream(
+            agentCtx,
+            ctx,
+            {
+                ...inferenceParams,
+                instructions: initialSystemPrompt,
+                context: allMessages,
+                countReasoningAsContent: true,
+                contentThreshold: 5,
+            },
+            allTools,
+            {
+                toolGroups,
+                terminalToolNames: ['generate_summary'],
+                config: {
+                    maxToolCalls: 100,
+                    getSystemPrompt: async () =>
+                        buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath, WEB_SEARCH_GUIDANCE),
+                    statusUpdates: { enabled: true },
+                    preprocessContext,
+                    abortSignal: abortController.signal,
+                    onTurnComplete: () => {
+                        if (agentCtx.draftManager.hasActive()) {
+                            return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
+                        }
+                        return null;
                     },
                 },
-            );
+            },
+        );
 
-            // Stream events — common events handled by shared helper
-            const state = { wasTool: false };
-            let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
+        // Event collector for DO push (replaces SSE enqueue)
+        const collector = createEventCollector();
+        const state = { wasTool: false };
+        let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
 
-            // Document event handler for frontend streaming
-            const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) =>
-                enqueue(docEvent),
-            );
+        // Document event handler — pushes document events to DO
+        const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) => {
+            const se = docEvent as StreamEvent;
+            streamDO.push([se]).catch((err) => console.error('[chat-handler] doc event push failed:', err));
+            options.onEvent?.(se);
+        });
 
-            for await (const event of stream) {
-                // Let document handler process the event
-                await docEvents.handle(event);
+        // Stream loop — push events to ChatStream DO instead of SSE
+        for await (const event of stream) {
+            // Let document handler process the event
+            await docEvents.handle(event);
 
-                // Delegate common events to shared handler
-                if (handleCommonStreamEvent(enqueue, event, state)) continue;
-
-                // Chat-specific events
-                switch (event.type) {
-                    case 'done':
-                        // Store done event data - will be combined with done_ext
-                        pendingDoneEvent = {
-                            outputType: event.outputType,
-                            outputTool: event.outputTool,
-                            finalOutput: event.finalOutput,
-                        };
-                        break;
-
-                    case 'done_ext': {
-                        const isError = !!event.error;
-
-                        // Save user message with request start time (prevents timestamp collision with assistant)
-                        const userMsg = em!.create(ChatMessageEntity, {
-                            chat: chatId,
-                            role: 'user',
-                            content: message,
-                            created_at: requestStartedAt,
-                        });
-                        em!.persist(userMsg);
-
-                        // Save assistant reply with structured data
-                        const streamLog = event.streamLog;
-                        const assistantContent = streamLog.fullContent ?? '';
-                        let assistantMsg: ChatMessageEntity | null = null;
-                        if (isError || assistantContent || streamLog.blocks.length > 0) {
-                            const debugData: Record<string, unknown> = {};
-                            if (event.inferenceLog) debugData.inferenceLog = event.inferenceLog;
-                            if (isError) {
-                                debugData.error = serializeException(event.error!.raw);
-                                debugData.rawResponse = event.error!.rawResponse ?? null;
-                            }
-
-                            assistantMsg = em!.create(ChatMessageEntity, {
-                                chat: chatId,
-                                role: 'assistant',
-                                content: assistantContent,
-                                reasoning: streamLog.fullReasoning || null,
-                                blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
-                                ...(isError && {
-                                    is_error: true,
-                                    metadata: { error: event.error!.message },
-                                }),
-                                ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
-                            });
-                            em!.persist(assistantMsg);
-                        }
-
-                        // Link created document versions to the assistant message
-                        if (assistantMsg && createdVersionIds.length > 0) {
-                            await em!
-                                .createQueryBuilder(ArtifactVersionEntity)
-                                .update({ chat_message: assistantMsg.id })
-                                .where({ id: { $in: createdVersionIds } })
-                                .execute();
-                        }
-
-                        // Calculate token usage estimates
-                        // Historical messages + new user message
-                        let usedContextTokens = estimateContextTokens(allMessages);
-
-                        // Add this run's assistant response (text + reasoning + tool calls)
-                        if (assistantContent) {
-                            usedContextTokens += estimateTextTokens(assistantContent);
-                        }
-                        if (streamLog.fullReasoning) {
-                            usedContextTokens += estimateTextTokens(streamLog.fullReasoning);
-                        }
-                        // Tool call blocks contribute to context
-                        for (const block of streamLog.blocks) {
-                            if (block.type === 'tool_call') {
-                                // Estimate tool name + input + output
-                                usedContextTokens += estimateTextTokens(block.toolName);
-                                usedContextTokens += estimateTextTokens(
-                                    typeof block.toolInput === 'string' ? block.toolInput : JSON.stringify(block.toolInput),
-                                );
-                                if (block.toolOutput) {
-                                    usedContextTokens += estimateTextTokens(block.toolOutput);
-                                }
-                            }
-                        }
-
-                        // Estimate prompt tokens - get the current system prompt
-                        const currentSystemPrompt = await buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath);
-                        const usedPromptTokens = estimateTextTokens(currentSystemPrompt);
-
-                        // Estimate tool tokens (guidance in prompt + schemas)
-                        const toolTokens = estimateToolTokens(allTools, toolGroups);
-                        const usedPromptToolTokens = toolTokens.promptToolTokens;
-                        const usedToolDefTokens = toolTokens.toolDefTokens;
-
-                        const usedTokens = usedContextTokens + usedPromptTokens + usedToolDefTokens;
-                        const tokenBreakdown: TokenBreakdown = {
-                            context: usedContextTokens,
-                            prompt: usedPromptTokens,
-                            promptTool: usedPromptToolTokens,
-                            toolDef: usedToolDefTokens,
-                        };
-
-                        // Update chat metadata with loaded prompts
-                        chat.metadata = {
-                            ...chat.metadata,
-                            loadedPrompts: Array.from(agentCtx.loadedPrompts),
-                        };
-
-                        chat.token_usage = {
-                            tokenBreakdown,
-                            usedTokens,
-                        };
-
-                        await em!.flush();
-
-                        // Emit combined done event with token estimates
-                        enqueue({
-                            type: 'done',
-                            outputType: pendingDoneEvent?.outputType ?? 'text',
-                            outputTool: pendingDoneEvent?.outputTool,
-                            tokenBreakdown,
-                            usedTokens,
-                            ...(isError && { error: event.error!.message }),
-                        });
-                        enqueue('[DONE]');
-                        break;
-                    }
+            // Delegate common events to collector
+            if (handleCommonStreamEvent(collector.enqueue, event, state)) {
+                const events = collector.drain();
+                if (events.length > 0) {
+                    await streamDO.push(events);
+                    if (options.onEvent) events.forEach((e) => options.onEvent!(e));
                 }
+                continue;
             }
 
-            await historyPromise;
-            controller.close();
-        } catch (error: any) {
-            await handleStreamError(error, em!, chatId, message, enqueue, controller, requestStartedAt);
+            // Chat-specific events
+            switch (event.type) {
+                case 'done':
+                    pendingDoneEvent = {
+                        outputType: event.outputType,
+                        outputTool: event.outputTool,
+                        finalOutput: event.finalOutput,
+                    };
+                    break;
+
+                case 'done_ext': {
+                    const isError = !!event.error;
+                    const isAborted = !!event.aborted;
+                    const streamLog = event.streamLog;
+                    const assistantContent = streamLog.fullContent ?? '';
+
+                    // --- Persist agent message to DB (using pre-generated ID) ---
+                    let assistantMsg: ChatMessageEntity | null = null;
+                    if (isError || isAborted || assistantContent || streamLog.blocks.length > 0) {
+                        const debugData: Record<string, unknown> = {};
+                        if (event.inferenceLog) debugData.inferenceLog = event.inferenceLog;
+                        if (isError) {
+                            debugData.error = serializeException(event.error!.raw);
+                            debugData.rawResponse = event.error!.rawResponse ?? null;
+                        }
+
+                        assistantMsg = em!.create(ChatMessageEntity, {
+                            id: agentMessageId,
+                            chat: chatId,
+                            role: 'assistant',
+                            content: assistantContent,
+                            reasoning: streamLog.fullReasoning || null,
+                            blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
+                            ...(isError && {
+                                is_error: true,
+                                metadata: { error: event.error!.message },
+                            }),
+                            ...(isAborted && { is_aborted: true }),
+                            ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
+                        });
+                        em!.persist(assistantMsg);
+                    }
+
+                    // Link created document versions to the assistant message
+                    if (assistantMsg && createdVersionIds.length > 0) {
+                        await em!
+                            .createQueryBuilder(ArtifactVersionEntity)
+                            .update({ chat_message: assistantMsg.id })
+                            .where({ id: { $in: createdVersionIds } })
+                            .execute();
+                    }
+
+                    // Calculate token usage estimates
+                    let usedContextTokens = estimateContextTokens(allMessages);
+                    if (assistantContent) usedContextTokens += estimateTextTokens(assistantContent);
+                    if (streamLog.fullReasoning) usedContextTokens += estimateTextTokens(streamLog.fullReasoning);
+                    for (const block of streamLog.blocks) {
+                        if (block.type === 'tool_call') {
+                            usedContextTokens += estimateTextTokens(block.toolName);
+                            usedContextTokens += estimateTextTokens(
+                                typeof block.toolInput === 'string' ? block.toolInput : JSON.stringify(block.toolInput),
+                            );
+                            if (block.toolOutput) usedContextTokens += estimateTextTokens(block.toolOutput);
+                        }
+                    }
+
+                    const usedPromptTokens = estimateTextTokens(initialSystemPrompt);
+                    const toolTokens = estimateToolTokens(allTools, toolGroups);
+                    const usedTokens = usedContextTokens + usedPromptTokens + toolTokens.toolDefTokens;
+                    const tokenBreakdown: TokenBreakdown = {
+                        context: usedContextTokens,
+                        prompt: usedPromptTokens,
+                        promptTool: toolTokens.promptToolTokens,
+                        toolDef: toolTokens.toolDefTokens,
+                    };
+
+                    // Update chat metadata + clear activeAgentMessageId
+                    chat.metadata = {
+                        ...chat.metadata,
+                        loadedPrompts: Array.from(agentCtx.loadedPrompts),
+                    };
+                    chat.token_usage = { tokenBreakdown, usedTokens };
+                    chat.active_agent_message_id = null;
+
+                    await em!.flush();
+
+                    let hasPendingChanges = false;
+                    const phaseIndex = chat.phase_index;
+
+                    if (chat.project) {
+                        const artifacts = await em!.find(
+                            ArtifactEntity,
+                            { versions: { chat: chatId } },
+                            { populate: ['versions'] },
+                        );
+                        hasPendingChanges = artifacts.some((artifact) =>
+                            artifact.versions.getItems().some((v) => v.status === 'proposed'),
+                        );
+                    }
+
+                    // Push terminal done event to DO (subscriber gets it via broadcast)
+                    const doneEvent: StreamEvent = {
+                        type: 'done',
+                        tokenUsage: { tokenBreakdown, usedTokens },
+                        hasPendingChanges,
+                        phaseIndex,
+                        ...(isError && { error: event.error!.message }),
+                        ...(pendingDoneEvent?.outputType === 'tool' &&
+                            pendingDoneEvent.outputTool && {
+                                outputType: 'tool' as const,
+                                outputTool: pendingDoneEvent.outputTool,
+                            }),
+                    };
+                    await streamDO.push([doneEvent]);
+                    options.onEvent?.(doneEvent);
+                    break;
+                }
+                default:
+                    // TODO
+                    break;
+            }
         }
-    }, ctx);
+
+        await historyPromise;
+
+        // done() → persist (above) → finalize() → clearStream (Decision #20)
+        try {
+            await streamDO.done();
+            await streamDO.finalize();
+        } finally {
+            await ugStub.systemAction(`chat:${chatId}`, 'clearStream', {}).catch(() => {});
+        }
+    } catch (error: any) {
+        console.error('[chat-handler] generation error:', error?.message ?? error, error?.stack);
+
+        // Persist error state
+        try {
+            const existing = await em!.findOne(ChatMessageEntity, { id: agentMessageId });
+            if (!existing) {
+                const errorMsg = em!.create(ChatMessageEntity, {
+                    id: agentMessageId,
+                    chat: chatId,
+                    role: 'assistant',
+                    content: '',
+                    is_error: true,
+                    metadata: { error: error?.message || 'Unknown error' },
+                    debug_data: { error: serializeException(error) },
+                });
+                em!.persist(errorMsg);
+            }
+            chat.active_agent_message_id = null;
+            await em!.flush();
+        } catch (saveErr) {
+            console.error('[chat-handler] failed to save error state:', saveErr);
+        }
+
+        // Push error event + mark DO as errored
+        try {
+            await streamDO.push([{ type: 'error', error: error?.message || 'Unknown error' }]);
+            await streamDO.done();
+            await streamDO.finalize();
+        } catch {
+            /* DO might already be gone */
+        } finally {
+            await ugStub.systemAction(`chat:${chatId}`, 'clearStream', {}).catch(() => {});
+        }
+    }
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Send } from 'lucide-react';
+import { Loader2, Send, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
@@ -29,7 +29,8 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
         chatType,
         chatId,
         projectId,
-        state: { isGenerating, isSummarizing, isLoading, tokenUsage },
+        stopGeneration,
+        state: { isGenerating, isSummarizing, isLoading, tokenUsage, activeResponseId },
     } = useChatContext();
 
     const { files, removeFile, submitFiles, isSubmitting } = useFileUploadContext();
@@ -176,9 +177,33 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
 
                             <div className="flex items-end gap-2 ml-auto">
                                 {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
-                                <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
-                                    <Send className="size-4" />
-                                </Button>
+
+                                {isGenerating ? (
+                                    activeResponseId ? (
+                                        <Button
+                                            type="button"
+                                            onClick={stopGeneration}
+                                            className="shrink-0 bg-orange-800 hover:bg-orange-700 text-white border-orange-600/35"
+                                            size="icon"
+                                        >
+                                            <Square className="size-3.5 fill-current" />
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            type="button"
+                                            disabled
+                                            className="shrink-0"
+                                            size="icon"
+                                            variant="secondary"
+                                        >
+                                            <Loader2 className="size-4 animate-spin" />
+                                        </Button>
+                                    )
+                                ) : (
+                                    <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
+                                        <Send className="size-4" />
+                                    </Button>
+                                )}
                             </div>
                         </motion.div>
 

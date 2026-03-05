@@ -29,6 +29,9 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @OneToMany('ChatMessageEntity', (message: ChatMessageEntity) => message.chat)
     messages = new Collection<ChatMessageEntity>(this);
 
+    @Property({ type: 'text', nullable: true })
+    active_agent_message_id?: Nullable<string>;
+
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
 

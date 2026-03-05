@@ -1,4 +1,4 @@
-import { EntityManager, MikroORM, Options } from '@mikro-orm/postgresql';
+import { type CacheAdapter, EntityManager, MikroORM, Options } from '@mikro-orm/postgresql';
 import { cache } from 'react';
 import _ from 'underscore';
 import config from '@/mikro-orm.config';
@@ -10,6 +10,56 @@ declare global {
     var __ormPromise: Promise<MikroORM> | null | undefined;
     // eslint-disable-next-line no-var,@typescript-eslint/no-explicit-any
     var ormCleanups: any[] | undefined;
+    // eslint-disable-next-line no-var,@typescript-eslint/no-explicit-any
+    var __ormMetadataCache: Record<string, any> | undefined;
+}
+
+/**
+ * Cache adapter that re-keys metadata by entity `path` (source file path)
+ * so lookups by file path (which MikroORM uses internally) actually hit.
+ *
+ * `GeneratedCacheAdapter` expects file-path keys, but `getAll()` returns
+ * `ClassName-hash` keys — causing every lookup to miss and breaking the
+ * identity map (all rows collapse to one entity with PK=undefined).
+ *
+ * This adapter builds a path→metadata index on construction and handles
+ * both key formats transparently.
+ */
+class HmrMetadataCacheAdapter implements CacheAdapter {
+    private byPath = new Map<string, any>();
+    private byName = new Map<string, any>();
+
+    constructor(private options: { data: Record<string, any> }) {
+        for (const [key, meta] of Object.entries(options.data)) {
+            this.byName.set(key, meta);
+            // Index by source file path (stripping extension) for MikroORM's internal lookups
+            if (meta?.path) {
+                const normalized = meta.path.replace(/\.[jt]s$/, '');
+                this.byPath.set(normalized, meta);
+            }
+        }
+    }
+
+    get(name: string) {
+        const key = name.replace(/\.[jt]s$/, '');
+        return this.byPath.get(key) ?? this.byName.get(key) ?? undefined;
+    }
+
+    set(name: string, data: unknown, _origin: string) {
+        const key = name.replace(/\.[jt]s$/, '');
+        this.byPath.set(key, data);
+    }
+
+    remove(name: string) {
+        const key = name.replace(/\.[jt]s$/, '');
+        this.byPath.delete(key);
+        this.byName.delete(key);
+    }
+
+    clear() {
+        this.byPath.clear();
+        this.byName.clear();
+    }
 }
 
 // Fix to not leak connections on local dev server
@@ -52,15 +102,55 @@ export async function getOrm(
     } else {
         injectConfig = injectConfigOrRaw ?? {};
     }
+
     if (!globalThis.__ormPromise) {
         const useStatic = !!process.env.VERCEL_ENV;
-        const configToUse = useStatic ? staticConfig : config;
+        let configToUse = useStatic ? staticConfig : config;
+
+        // Survive Next.js HMR decorator-wipe by injecting cached metadata.
+        // Uses a custom adapter (not GeneratedCacheAdapter) that re-keys by
+        // source file path so identity map PK extraction works correctly.
+        if (process.env.NODE_ENV === 'development' && globalThis.__ormMetadataCache) {
+            configToUse = {
+                ...configToUse,
+                metadataCache: {
+                    enabled: true,
+                    adapter: HmrMetadataCacheAdapter,
+                    options: { data: globalThis.__ormMetadataCache },
+                },
+            };
+        }
+
         const myPromise = MikroORM.init({
             ...configToUse,
             ...injectConfig,
             // TODO env var, prevent on prod
             // debug: true,
         });
+
+        // Capture metadata on first successful boot.
+        // Strip live class/prototype refs so they don't overwrite fresh ones
+        // after HMR re-evaluates entity modules (same as MikroORM's own cache
+        // stripping in MetadataDiscovery before writing to disk).
+        if (process.env.NODE_ENV === 'development' && !globalThis.__ormMetadataCache) {
+            myPromise
+                .then((orm) => {
+                    if (!globalThis.__ormMetadataCache) {
+                        const live = orm.getMetadata().getAll();
+                        const cleaned: Record<string, any> = {};
+                        for (const [key, meta] of Object.entries(live)) {
+                            const { class: _cls, prototype: _proto, props: _props,
+                                referencingProperties: _refs, propertyOrder: _po,
+                                relations: _rels, concurrencyCheckKeys: _cck,
+                                checks: _chk, ...rest } = meta;
+                            cleaned[key] = rest;
+                        }
+                        globalThis.__ormMetadataCache = cleaned;
+                    }
+                })
+                .catch(console.error);
+        }
+
         globalThis.__ormPromise = myPromise;
 
         if (process.env.NODE_ENV === 'development') {

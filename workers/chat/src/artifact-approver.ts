@@ -9,6 +9,7 @@ import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/sc
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
+import type { UserGatewayStub } from './utils/do-stubs';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
@@ -178,6 +179,15 @@ export async function approveArtifactHandler(
         }
     }
 
+    // Broadcast artifact_version_updated to all user WS connections (fire-and-forget)
+    const ugId = ctx.env.USER_GATEWAY.idFromName(user.userId);
+    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+    ugStub.broadcastToAll({
+        type: 'user_event',
+        eventType: 'artifact_version_updated',
+        payload: { artifactId: version.artifact.id, versionId, version: version.version, status: 'approved' },
+    }).catch(console.error);
+
     return {
         success: true,
         version: version.version,
@@ -242,6 +252,15 @@ export async function rejectArtifactHandler(
     version.artifact.current_version = version;
 
     await em.flush();
+
+    // Broadcast artifact_version_updated to all user WS connections (fire-and-forget)
+    const ugId = ctx.env.USER_GATEWAY.idFromName(user.userId);
+    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+    ugStub.broadcastToAll({
+        type: 'user_event',
+        eventType: 'artifact_version_updated',
+        payload: { artifactId: version.artifact.id, versionId, version: version.version, status: 'rejected' },
+    }).catch(console.error);
 
     return {
         success: true,

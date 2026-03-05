@@ -36,10 +36,13 @@ queues:
 #   - binding: SOME_SERVICE
 #     entrypoint: SomeEntrypoint
 
-# durable_objects:
-#   - name: SOME_DO
-#     class_name: SomeClass
-#     script_name: services  # external, or local: true
+durable_objects:
+  - name: USER_GATEWAY
+    class_name: UserGateway
+    script_name: hi-objects
+  - name: CHAT_STREAM_DO
+    class_name: ChatStreamDO
+    script_name: hi-objects
 
 triggers:
   crons: ["0 * * * *"]
