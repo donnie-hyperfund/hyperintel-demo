@@ -5,7 +5,6 @@ import { useMemo } from 'react';
 import Markdown, { Components } from 'react-markdown';
 import rehypeExternalLinks from 'rehype-external-links';
 import rehypeKatex from 'rehype-katex';
-import rehypeMathjax from 'rehype-mathjax';
 import rehypeRaw from 'rehype-raw';
 import remarkBreaks from 'remark-breaks';
 import remarkDirective from 'remark-directive';
@@ -142,7 +141,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 remarkGfm,
                 remarkDirective,
                 remarkDirectivesHandler(directives),
-                [remarkMath, { singleDollarTextMath: false }],
+                remarkMath,
                 remarkFootnotesExtra,
                 remarkInlineLinks,
             ] as any[],
@@ -157,7 +156,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return baseRemarkPlugins;
     }, [baseRemarkPlugins, citations]);
 
-    const rehypePlugins = useMemo(() => [rehypeRaw, rehypeMathjax, rehypeKatex, rehypeExternalLinks] as any[], []);
+    const rehypePlugins = useMemo(() => [rehypeRaw, rehypeKatex, rehypeExternalLinks] as any[], []);
 
     if (preprocessedMarkdown.length > CHUNK_THRESHOLD) {
         return (
