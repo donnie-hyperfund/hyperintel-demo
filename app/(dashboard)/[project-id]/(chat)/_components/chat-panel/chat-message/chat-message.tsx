@@ -1,6 +1,7 @@
 'use client';
 
-import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { memo } from 'react';
+import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
 import type { Message } from '@/modules/chat/types';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
@@ -18,7 +19,7 @@ const chatDirectives = {
     upload: UploadDirective,
 };
 
-export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps) {
+export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessageProps) => {
     const { blocks, role, isStreaming } = message;
 
     if (role === 'user') {
@@ -82,4 +83,6 @@ export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps
             </div>
         </div>
     );
-}
+});
+
+ChatMessage.displayName = 'ChatMessage';
