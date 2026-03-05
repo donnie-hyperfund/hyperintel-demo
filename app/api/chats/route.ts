@@ -52,6 +52,7 @@ async function handleCreateChat(req: NextRequest, user: UserEntity): Promise<Nex
             project: projectId,
             user,
             phase: 'active',
+            phase_index: await em.count(ChatEntity, { project: projectId }),
             ...(title && { summary: title }),
         });
         await em.persistAndFlush(chat);
@@ -69,6 +70,7 @@ async function handleCreateChat(req: NextRequest, user: UserEntity): Promise<Nex
     const chat = em.create(ChatEntity, {
         type: 'intake',
         phase: 'active',
+        phase_index: 0,
         user,
         metadata: {
             framework,

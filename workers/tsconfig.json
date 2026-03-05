@@ -1,0 +1,40 @@
+{
+    "compilerOptions": {
+        "target": "es2021",
+        "lib": ["es2021"],
+        "jsx": "react-jsx",
+        "module": "es2022",
+        "moduleResolution": "Bundler",
+        "types": ["@cloudflare/workers-types/2023-07-01"],
+        "resolveJsonModule": true,
+        "allowJs": true,
+        "checkJs": false,
+        "noEmit": true,
+        "isolatedModules": true,
+        "allowSyntheticDefaultImports": true,
+        "forceConsistentCasingInFileNames": true,
+        "strict": true,
+        "skipLibCheck": true,
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true,
+        "useDefineForClassFields": false,
+        "baseUrl": "..",
+        "paths": {
+            "@/*": ["*"],
+            "@common/*": ["common/*"],
+            "@worker/*": ["workers/_common/*"],
+            "@supabase/supabase-js": ["workers/_common/vendor/stubs/supabase-js"]
+        }
+    },
+    "include": [
+        "chat/worker-configuration.d.ts",
+        "chat/src/**/*.ts",
+        "objects/worker-configuration.d.ts",
+        "objects/src/**/*.ts",
+        "embedding/worker-configuration.d.ts",
+        "embedding/src/**/*.ts",
+        "services/worker-configuration.d.ts",
+        "services/src/**/*.ts"
+    ],
+    "exclude": ["*/test"]
+}

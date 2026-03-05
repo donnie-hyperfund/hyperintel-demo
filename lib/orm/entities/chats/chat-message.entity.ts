@@ -54,7 +54,7 @@ export class ChatMessageEntity extends IdCreatedColumns {
      * Always unconditional — the real content lives on ArtifactVersionEntity
      * which handles is_internal visibility via its own toJSON().
      */
-    private redactBlocks(blocks: StreamBlock[], groups: string[]): StreamBlock[] {
+    private redactBlocks(blocks: StreamBlock[], groups?: string[]): StreamBlock[] {
         return blocks.map((b) => {
             if (b.type === 'tool_call' && ['write_document', 'edit_document', 'patch_document'].includes(b.toolName)) {
                 return {

@@ -1,38 +1,71 @@
 {
-    "compilerOptions": {
-        "types": ["vitest/globals"],
-        "lib": ["dom", "dom.iterable", "esnext"],
-        "sourceMap": true,
-        "allowJs": true,
-        "target": "ES6",
-        "skipLibCheck": true,
-        "strict": true,
-        "noEmit": true,
-        "esModuleInterop": true,
-        "module": "esnext",
-        "moduleResolution": "bundler",
-        "resolveJsonModule": true,
-        "isolatedModules": true,
-        "jsx": "react-jsx",
-        "incremental": false,
-        "experimentalDecorators": true,
-        "emitDecoratorMetadata": true,
-        "useDefineForClassFields": false,
-        "plugins": [
-            {
-                "name": "next"
-            }
-        ],
-        "paths": {
-            "@/*": ["*"],
-            "@common/*": ["common/*"],
-            "@worker/*": ["workers/_common/*"],
-            "@supabase/supabase-js": ["workers/_common/vendor/stubs/supabase-js"],
-            "cloudflare:workers": ["common/common/local.do-mock"]
-        },
-        "baseUrl": ".",
-        "rootDirs": [".", "common/", "common/orm"]
+  "compilerOptions": {
+    "types": [
+      "vitest/globals"
+    ],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "sourceMap": true,
+    "allowJs": true,
+    "target": "ES6",
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": false,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "*"
+      ],
+      "@common/*": [
+        "common/*"
+      ],
+      "@worker/*": [
+        "workers/_common/*"
+      ],
+      "@supabase/supabase-js": [
+        "workers/_common/vendor/stubs/supabase-js"
+      ],
+      "cloudflare:workers": [
+        "common/common/local.do-mock"
+      ]
     },
-    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
-    "exclude": ["node_modules"]
+    "baseUrl": ".",
+    "rootDirs": [
+      ".",
+      "common/",
+      "common/orm"
+    ]
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "tools",
+    "workers",
+    "tests",
+    ".next/dev/types",
+    "app/*local*"
+  ]
 }

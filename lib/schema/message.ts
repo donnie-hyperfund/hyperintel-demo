@@ -81,6 +81,14 @@ export const SearchStreamBlockSchema = BaseStreamBlockSchema.extend({
     serverToolInput: z.record(z.unknown()).optional(),
 });
 
+export const TerminalToolStreamBlockSchema = BaseStreamBlockSchema.extend({
+    type: z.literal('terminal_tool'),
+    content: z.string(),
+    toolName: z.string(),
+    toolInput: z.any(),
+    toolCallId: z.string(),
+});
+
 export const CitationStreamBlockSchema = BaseStreamBlockSchema.extend({
     type: z.literal('citation'),
     content: z.string(),
@@ -91,6 +99,7 @@ export const StreamBlockSchema = z.discriminatedUnion('type', [
     TextStreamBlockSchema,
     ReasoningStreamBlockSchema,
     ToolCallStreamBlockSchema,
+    TerminalToolStreamBlockSchema,
     SearchStreamBlockSchema,
     CitationStreamBlockSchema,
 ]);

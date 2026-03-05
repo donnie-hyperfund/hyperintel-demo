@@ -2,8 +2,9 @@ import { makeSecretMock } from '@common/common/local.helpers';
 import { MockCFWebSocket, MockDurableObjectNamespace } from '@common/common/local.do-mock';
 import { WebSocketServer } from 'ws';
 import { backendEnv } from '@/app/api/env';
-import { UserGateway } from '@/workers/objects/src/objects/user-gateway';
-import { ChatStreamDO } from '@/workers/objects/src/objects/chat-stream-do';
+// eslint-disable-next-line -- require() to avoid pulling worker files into root tsc
+const { UserGateway } = require('@/workers/objects/src/objects/user-gateway');
+const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do');
 
 /**
  * Mock env that matches the worker's Env type.

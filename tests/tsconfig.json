@@ -1,0 +1,9 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "noEmit": true,
+        "types": ["vitest/globals", "@cloudflare/workers-types/2023-07-01"]
+    },
+    "include": ["./**/*.ts", "../workers/chat/worker-configuration.d.ts"],
+    "exclude": []
+}

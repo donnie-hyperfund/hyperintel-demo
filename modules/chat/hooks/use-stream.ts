@@ -8,6 +8,8 @@ import type {
     ServerMessage,
     StreamEventMessage,
     StreamStartedMessage,
+    StreamStatusMessage,
+    SubscribeResponse,
     SubscribeResponseStreaming,
 } from '@/lib/schema/ws-protocol';
 import { ServerMsg } from '@/lib/schema/ws-protocol';

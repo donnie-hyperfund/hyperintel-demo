@@ -4,20 +4,11 @@ import type { StreamBlock } from '@/common/ai/agent/types';
 export type { StreamBlock } from '@/common/ai/agent/types';
 
 // ============================================================================
-// TOKEN USAGE
+// TOKEN USAGE (canonical definitions in chat.ts via Zod schemas)
 // ============================================================================
 
-export type TokenBreakdown = {
-    context: number;
-    prompt: number;
-    promptTool: number;
-    toolDef: number;
-};
-
-export type TokenUsage = {
-    usedTokens: number;
-    tokenBreakdown: TokenBreakdown;
-};
+import type { TokenBreakdown, TokenUsage } from './chat';
+export type { TokenBreakdown, TokenUsage };
 
 // ============================================================================
 // STREAM EVENT

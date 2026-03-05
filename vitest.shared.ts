@@ -1,6 +1,8 @@
 import dotenv from "dotenv";
 import path from "node:path";
-import { defineConfig, mergeConfig, type UserConfig } from "vitest/config";
+import { defineConfig, mergeConfig } from "vitest/config";
+// @ts-expect-error vitest v4 renamed UserConfig to TestUserConfig
+import type { UserConfig } from "vitest/config";
 
 dotenv.config({ path: ".env.test" });
 

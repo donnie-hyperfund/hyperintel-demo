@@ -78,8 +78,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
         Object.entries(directives).forEach(([directiveName, handler]) => {
             // Handle leaf and text directives (both use same element name)
-            const componentName = `directive-${directiveName}` as keyof Components;
-            components[componentName] = ((props: any) => {
+            const componentName = `directive-${directiveName}`;
+            (components as Record<string, any>)[componentName] = ((props: any) => {
                 const type = props['data-directive-type'] || 'leaf';
                 const name = props['data-directive-name'] || directiveName;
                 const label = props['data-directive-label'] || '';
@@ -103,8 +103,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             }) as any;
 
             // Handle container directives separately
-            const containerName = `directive-${directiveName}-container` as keyof Components;
-            components[containerName] = ((props: any) => {
+            const containerName = `directive-${directiveName}-container`;
+            (components as Record<string, any>)[containerName] = ((props: any) => {
                 const name = props['data-directive-name'] || directiveName;
                 const label = props['data-directive-label'] || '';
 
