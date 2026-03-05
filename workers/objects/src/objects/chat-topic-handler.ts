@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { ServerMsg } from '@/lib/schema/ws-protocol';
 import { StreamTopicHandler } from './stream-topic-handler';
 import type { ActionResult, SubscribeResponse } from './topic-handler';
@@ -115,12 +116,12 @@ export class ChatTopicHandler extends StreamTopicHandler {
                 } = RegisterStreamActionSchema.parse(payload);
                 // Initialize the ChatStream DO before storing mapping or broadcasting
                 const stub = this.getStreamStub(env, agentMessageId);
-                await stub.init(chatId, agentMessageId, userMessageId ?? '');
+                await stub.init(chatId, agentMessageId, userMessageId ?? '', 'chat', this.previewAlias ?? undefined);
                 // Auto-subscribe the initiating user so events reach them even if
                 // they subscribed to the UG topic before the stream started.
-                // UG DO name = userId (keyed via idFromName).
+                // UG DO name = userId (or userId@alias on dev preview branches).
                 if (userId) {
-                    await stub.subscribe(userId, userId);
+                    await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
                 }
                 // Store agentMessageId mapping and (if present) streamType
                 await this.storage.put(`${SK_PREFIX}${chatId}`, agentMessageId);

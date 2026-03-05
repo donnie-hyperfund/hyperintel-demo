@@ -15,6 +15,7 @@ import {
     type PresignUploadDto,
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from './context';
 import type { UserGatewayStub } from './utils/do-stubs';
 
@@ -190,7 +191,7 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
 
 /** Broadcast artifact version creation to user's WS connections */
 function broadcastArtifactCreated(ctx: Ctx, result: UpsertResult, normalizedKey: string) {
-    const ugId = ctx.env.USER_GATEWAY.idFromName(ctx.user.userId);
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, ctx.previewAlias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
     ugStub.broadcastToAll({
         type: 'user_event',

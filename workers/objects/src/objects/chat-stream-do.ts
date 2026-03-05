@@ -25,6 +25,7 @@ const SK_USER_MSG_ID = 'userMessageId';
 const SK_TEXT_BLOCK_ID = 'currentTextBlockId';
 const SK_REASONING_BLOCK_ID = 'currentReasoningBlockId';
 const SK_TOPIC_PREFIX = 'topicPrefix';
+const SK_PREVIEW_ALIAS = 'previewAlias';
 
 // ============================================================================
 // CHAT STREAM DO
@@ -51,6 +52,8 @@ export class ChatStreamDO extends DurableObject<Env> {
     private userMessageId = '';
     /** Topic prefix for UG broadcasts (e.g. 'chat' or 'intake') */
     private topicPrefix = 'chat';
+    /** Preview branch alias — used to resolve the correct DB on dev preview deploys */
+    private previewAlias: string | null = null;
     private currentTextBlockId: string | null = null;
     private currentReasoningBlockId: string | null = null;
 
@@ -75,6 +78,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             textBlockId,
             reasoningBlockId,
             topicPrefix,
+            previewAlias,
         ] = await Promise.all([
             this.ctx.storage.get<StreamBlock[]>(SK_BLOCKS),
             this.ctx.storage.get<[string, ActiveDocument][]>(SK_ACTIVE_DOCS),
@@ -86,6 +90,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             this.ctx.storage.get<string | null>(SK_TEXT_BLOCK_ID),
             this.ctx.storage.get<string | null>(SK_REASONING_BLOCK_ID),
             this.ctx.storage.get<string>(SK_TOPIC_PREFIX),
+            this.ctx.storage.get<string | null>(SK_PREVIEW_ALIAS),
         ]);
 
         if (blocks) this.blocks = blocks;
@@ -98,6 +103,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         if (textBlockId) this.currentTextBlockId = textBlockId;
         if (reasoningBlockId) this.currentReasoningBlockId = reasoningBlockId;
         if (topicPrefix) this.topicPrefix = topicPrefix;
+        if (previewAlias) this.previewAlias = previewAlias;
     }
 
     /** Persist all mutable state to storage */
@@ -113,6 +119,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             [SK_TEXT_BLOCK_ID]: this.currentTextBlockId,
             [SK_REASONING_BLOCK_ID]: this.currentReasoningBlockId,
             [SK_TOPIC_PREFIX]: this.topicPrefix,
+            [SK_PREVIEW_ALIAS]: this.previewAlias,
         });
     }
 
@@ -391,12 +398,19 @@ export class ChatStreamDO extends DurableObject<Env> {
      *
      * Called by ChatTopicHandler.registerStream() before broadcasting stream_started.
      */
-    async init(chatId: string, agentMessageId: string, userMessageId: string, topicPrefix = 'chat') {
+    async init(
+        chatId: string,
+        agentMessageId: string,
+        userMessageId: string,
+        topicPrefix = 'chat',
+        previewAlias?: string,
+    ) {
         await this.ensureLoaded();
         this.chatId = chatId;
         this.agentMessageId = agentMessageId;
         this.userMessageId = userMessageId;
         this.topicPrefix = topicPrefix;
+        this.previewAlias = previewAlias ?? null;
         this.status = 'idle';
         await this.persistState();
         // Start dead-man alarm — if no push() arrives, alarm fires and cleans up
@@ -588,7 +602,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         }
 
         try {
-            const sql = await createNeonSql(this.env);
+            const sql = await createNeonSql(this.env, this.previewAlias ?? undefined);
 
             // Save errored empty agent message (idempotent — skip if already exists)
             await sql`

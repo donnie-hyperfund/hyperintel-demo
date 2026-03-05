@@ -2,10 +2,12 @@ import { workerHonoOnError, wrapWorker } from '@common/common/common.helpers';
 import { zValidator } from '@hono/zod-validator';
 import { getCorsHonoMiddleware } from '@worker/cors.helpers';
 import { HonoEnv, honoMiddlewareAuthedWithOrm, honoMiddlewareWithOrm } from '@worker/hono.helpers';
+import { branchDoName, getPreviewAlias } from '@/workers/_common/util/preview-alias';
 import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import { ChatEntity } from '@/lib/orm/entities';
+import type { Ctx } from './context';
 import {
     ApproveArtifactActionSchema,
     ConfirmUploadSchema,
@@ -34,6 +36,11 @@ import { summarizeActionHandler } from './summarizer';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
 
+/** Build Ctx with preview alias resolved from the request (null on prod) */
+function ctxWithAlias(c: { env: Env; req: { raw: Request }; var: any }): Ctx {
+    return { ...c.var, previewAlias: getPreviewAlias(c.env as any, c.req.raw) };
+}
+
 app.use(prettyJSON());
 app.use(requestId());
 app.use('*', getCorsHonoMiddleware(['GET', 'POST']));
@@ -52,7 +59,8 @@ app.post('/internal/broadcast', async (c) => {
     const { userId, eventType, payload } = await c.req.json();
     if (!userId || !eventType) return c.json({ error: 'Missing userId or eventType' }, 400);
 
-    const ugId = c.env.USER_GATEWAY.idFromName(userId);
+    const alias = getPreviewAlias(c.env as any, c.req.raw);
+    const ugId = c.env.USER_GATEWAY.idFromName(branchDoName(userId, alias));
     const ugStub = c.env.USER_GATEWAY.get(ugId);
     await (ugStub as any).broadcastToAll({ type: 'user_event', eventType, payload });
     return c.json({ ok: true });
@@ -72,7 +80,8 @@ app.post('/abort', zValidator('json', AbortActionSchema), (c) => {
             id: chatId,
             project: { user: { clerkId: c.var.user.userId } },
         });
-        const streamDO = c.env.CHAT_STREAM_DO.get(c.env.CHAT_STREAM_DO.idFromName(agentMessageId));
+        const alias = getPreviewAlias(c.env as any, c.req.raw);
+        const streamDO = c.env.CHAT_STREAM_DO.get(c.env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, alias)));
         await streamDO.abort(chatId);
         return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
     });
@@ -80,31 +89,31 @@ app.post('/abort', zValidator('json', AbortActionSchema), (c) => {
 
 app.post('/chat', zValidator('json', SendChatActionSchema), async (c) => {
     return wrapWorker(async () => {
-        return await chatActionHandler(c.req.valid('json'), c.var);
+        return await chatActionHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
 app.post('/intake', zValidator('json', SendIntakeChatActionSchema), async (c) => {
     return wrapWorker(async () => {
-        return await intakeActionHandler(c.req.valid('json'), c.var);
+        return await intakeActionHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
 app.post('/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
     return wrapWorker(async () => {
-        return await summarizeActionHandler(c.req.valid('json'), c.var);
+        return await summarizeActionHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
 app.post('/artifacts/approve', zValidator('json', ApproveArtifactActionSchema), async (c) => {
     return wrapWorker(async () => {
-        return await approveArtifactHandler(c.req.valid('json'), c.var);
+        return await approveArtifactHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
 app.post('/artifacts/reject', zValidator('json', RejectArtifactActionSchema), async (c) => {
     return wrapWorker(async () => {
-        return await rejectArtifactHandler(c.req.valid('json'), c.var);
+        return await rejectArtifactHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
@@ -116,13 +125,13 @@ app.post('/artifacts/delete', zValidator('json', DeleteArtifactSchema), async (c
 
 app.post('/artifacts/import', zValidator('json', ImportArtifactsActionSchema), async (c) => {
     return wrapWorker(async () => {
-        return await importArtifactsHandler(c.req.valid('json'), c.var);
+        return await importArtifactsHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
 app.post('/artifacts/upload', zValidator('form', UploadArtifactSchema), async (c) => {
     return wrapWorker(async () => {
-        return await uploadArtifactHandler(c.req.valid('form'), c.var);
+        return await uploadArtifactHandler(c.req.valid('form'), ctxWithAlias(c));
     });
 });
 
@@ -140,7 +149,7 @@ app.post('/artifacts/upload/confirm', zValidator('json', ConfirmUploadSchema), a
 
 app.get('/artifacts/export', zValidator('query', ExportArtifactQuerySchema), async (c) => {
     return wrapWorker(async () => {
-        return await exportArtifactHandler(c.req.valid('query'), c.var);
+        return await exportArtifactHandler(c.req.valid('query'), ctxWithAlias(c));
     });
 });
 

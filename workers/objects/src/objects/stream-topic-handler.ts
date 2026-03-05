@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import createNeonSql from '@/workers/_common/vendor/neon';
 import type { StreamSnapshot } from './chat-stream-do';
 import type { ActionResult, SubscribeResponse, TopicHandler } from './topic-handler';
@@ -8,7 +9,13 @@ import type { ActionResult, SubscribeResponse, TopicHandler } from './topic-hand
 // ============================================================================
 
 export interface ChatStreamDOStub {
-    init(chatId: string, agentMessageId: string, userMessageId: string, topicPrefix?: string): Promise<void>;
+    init(
+        chatId: string,
+        agentMessageId: string,
+        userMessageId: string,
+        topicPrefix?: string,
+        previewAlias?: string,
+    ): Promise<void>;
 
     subscribe(userId: string, ugDoName: string): Promise<StreamSnapshot>;
     unsubscribe(userId: string): Promise<void>;
@@ -55,6 +62,8 @@ export abstract class StreamTopicHandler implements TopicHandler {
     private permissionCache = new Map<string, boolean>();
     /** Cached postgres client — avoids reconnecting per query */
     private sqlPromise: ReturnType<typeof createNeonSql> | null = null;
+    /** Preview branch alias — set by UG on dev, used for PREVIEW_DB_MAP KV resolution */
+    previewAlias: string | null = null;
 
     constructor(protected storage: DurableObjectStorage) {}
 
@@ -114,8 +123,8 @@ export abstract class StreamTopicHandler implements TopicHandler {
         // Active stream — try to subscribe to ChatStream DO
         try {
             const stub = this.getStreamStub(env, agentMessageId);
-            // UG DO name = userId (UG is keyed by userId via idFromName)
-            const snapshot = await stub.subscribe(userId, userId);
+            // UG DO name = userId (or userId@alias on dev preview branches)
+            const snapshot = await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
             return { status: 'streaming', agentMessageId, snapshot };
         } catch (err) {
             // ChatStream DO is gone (already finalized) — stale registry entry
@@ -176,7 +185,7 @@ export abstract class StreamTopicHandler implements TopicHandler {
 
     /** Get ChatStream DO stub from the local binding */
     protected getStreamStub(env: Env, agentMessageId: string): ChatStreamDOStub {
-        const id = env.CHAT_STREAM_DO.idFromName(agentMessageId);
+        const id = env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, this.previewAlias));
         return env.CHAT_STREAM_DO.get(id) as unknown as ChatStreamDOStub;
     }
 
@@ -196,7 +205,7 @@ export abstract class StreamTopicHandler implements TopicHandler {
     /** Get (or initialize) a postgres client for DB queries */
     protected getSql(env: Env) {
         if (!this.sqlPromise) {
-            this.sqlPromise = createNeonSql(env);
+            this.sqlPromise = createNeonSql(env, this.previewAlias ?? undefined);
         }
         return this.sqlPromise;
     }

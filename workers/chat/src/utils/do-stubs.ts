@@ -11,7 +11,7 @@
 import type { StreamEvent } from '@/lib/schema/stream';
 
 export interface UserGatewayStub {
-    systemAction(topic: string, action: string, payload: unknown): Promise<unknown>;
+    systemAction(topic: string, action: string, payload: unknown, previewAlias?: string): Promise<unknown>;
     broadcastToAll(message: unknown): Promise<void>;
 }
 

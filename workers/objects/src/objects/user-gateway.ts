@@ -1,9 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
 import { createClerkClient } from '@clerk/backend';
+import { PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
 import { ClientAction, ServerMsg, ClientMessageSchema, type ClientMessage } from '@/lib/schema/ws-protocol';
 import type { TopicHandler, ActionResult } from './topic-handler';
 import { ChatTopicHandler } from './chat-topic-handler';
 import { IntakeTopicHandler } from './intake-topic-handler';
+import { StreamTopicHandler } from './stream-topic-handler';
 
 // ---------------------------------------------------------------------------
 // Socket attachment — stored per-WebSocket, survives hibernation
@@ -32,6 +34,8 @@ type SocketAttachment = {
  */
 export class UserGateway extends DurableObject<Env> {
     private handlers = new Map<string, TopicHandler>();
+    /** Preview branch alias — propagated to topic handlers for DB resolution on dev */
+    private previewAlias: string | null = null;
 
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
@@ -50,6 +54,20 @@ export class UserGateway extends DurableObject<Env> {
         this.handlers.set(prefix, handler);
     }
 
+    /**
+     * Set the preview alias on the UG and all StreamTopicHandlers.
+     * Idempotent — only sets once (first caller wins, all branches isolated via @suffix).
+     */
+    private applyPreviewAlias(alias: string | null | undefined) {
+        if (!alias || this.previewAlias) return;
+        this.previewAlias = alias;
+        for (const handler of this.handlers.values()) {
+            if (handler instanceof StreamTopicHandler) {
+                handler.previewAlias = alias;
+            }
+        }
+    }
+
     // -----------------------------------------------------------------------
     // HTTP fetch — WebSocket upgrade entry point
     // -----------------------------------------------------------------------
@@ -59,6 +77,9 @@ export class UserGateway extends DurableObject<Env> {
         if (!upgradeHeader || upgradeHeader !== 'websocket') {
             return new Response('Expected WebSocket upgrade', { status: 426 });
         }
+
+        // Apply preview alias from header (set by services worker on dev)
+        this.applyPreviewAlias(request.headers.get(PREVIEW_ALIAS_HEADER));
 
         // Authenticate via Clerk
         const { userId, expiry, protocols } = await this.authenticateRequest(request);
@@ -169,7 +190,9 @@ export class UserGateway extends DurableObject<Env> {
     }
 
     /** Generic RPC for server→server actions routed to a handler */
-    async systemAction(topic: string, action: string, payload: unknown): Promise<unknown> {
+    async systemAction(topic: string, action: string, payload: unknown, previewAlias?: string): Promise<unknown> {
+        if (previewAlias) this.applyPreviewAlias(previewAlias);
+
         const { prefix, identifier } = this.parseTopic(topic);
         const handler = this.handlers.get(prefix);
         if (!handler) throw new Error(`No handler for prefix: ${prefix}`);

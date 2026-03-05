@@ -1,5 +1,6 @@
 import { createClerkClient } from '@clerk/backend';
 import { Hono } from 'hono';
+import { branchDoName, getPreviewAlias, PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -39,9 +40,17 @@ app.get('/ws', async (c) => {
         return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    const id = c.env.USER_GATEWAY.idFromName(auth.userId);
+    const alias = getPreviewAlias(c.env as any, c.req.raw);
+    const id = c.env.USER_GATEWAY.idFromName(branchDoName(auth.userId, alias));
     const stub = c.env.USER_GATEWAY.get(id);
-    return stub.fetch(c.req.raw);
+
+    // Forward preview alias header so UG can apply it for DB resolution
+    let fwdRequest = c.req.raw;
+    if (alias) {
+        fwdRequest = new Request(c.req.raw, { headers: new Headers(c.req.raw.headers) });
+        fwdRequest.headers.set(PREVIEW_ALIAS_HEADER, alias);
+    }
+    return stub.fetch(fwdRequest);
 });
 
 export default app;

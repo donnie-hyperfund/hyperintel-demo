@@ -7,6 +7,7 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
 import type { UserGatewayStub } from './utils/do-stubs';
@@ -180,7 +181,7 @@ export async function approveArtifactHandler(
     }
 
     // Broadcast artifact_version_updated to all user WS connections (fire-and-forget)
-    const ugId = ctx.env.USER_GATEWAY.idFromName(user.userId);
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
     ugStub.broadcastToAll({
         type: 'user_event',
@@ -254,7 +255,7 @@ export async function rejectArtifactHandler(
     await em.flush();
 
     // Broadcast artifact_version_updated to all user WS connections (fire-and-forget)
-    const ugId = ctx.env.USER_GATEWAY.idFromName(user.userId);
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
     ugStub.broadcastToAll({
         type: 'user_event',

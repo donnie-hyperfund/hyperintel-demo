@@ -21,6 +21,7 @@ import type { ChatHandlerOptions } from './chat-handler';
 import type { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, KnowledgeSearchToolGroup, type KnowledgeSearchContext } from './tools/knowledge-search';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
@@ -147,7 +148,8 @@ export async function intakeActionHandler(
     await em!.flush();
 
     // Get UserGateway stub for this user
-    const ugId = ctx.env.USER_GATEWAY.idFromName(ctx.user.userId);
+    const alias = ctx.previewAlias;
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
 
     // Broadcast message_created so other tabs can reconcile the user message
@@ -155,14 +157,14 @@ export async function intakeActionHandler(
     if (data.tempId) {
         messagePayload.tempId = data.tempId;
     }
-    await ugStub.systemAction(`intake:${chatId}`, 'messageCreated', messagePayload);
+    await ugStub.systemAction(`intake:${chatId}`, 'messageCreated', messagePayload, alias ?? undefined);
 
     // Register stream via UG → IntakeTopicHandler → ChatStream DO init
     await ugStub.systemAction(`intake:${chatId}`, 'registerStream', {
         agentMessageId,
         userId: ctx.user.userId,
         userMessageId,
-    });
+    }, alias ?? undefined);
 
     // Kick off generation in waitUntil — response returned before generation starts
     const generationPromise = runIntakeGeneration({
@@ -206,8 +208,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     const { anthropic, langfuse, em } = ctx;
 
     // Get ChatStream DO stub — already initialized by registerStream above
+    const alias = ctx.previewAlias;
     const streamDO = ctx.env.CHAT_STREAM_DO.get(
-        ctx.env.CHAT_STREAM_DO.idFromName(agentMessageId),
+        ctx.env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, alias)),
     ) as unknown as ChatStreamDOStub;
 
     // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal

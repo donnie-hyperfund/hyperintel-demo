@@ -17,6 +17,7 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
@@ -225,13 +226,14 @@ export async function chatActionHandler(
     await em!.flush();
 
     // Broadcast message_created to all subscribers
-    const ugId = ctx.env.USER_GATEWAY.idFromName(ctx.user.userId);
+    const alias = ctx.previewAlias;
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
     const messagePayload: Record<string, unknown> = { message: userMsg.toJSON() };
     if (tempId) {
         messagePayload.tempId = tempId;
     }
-    await ugStub.systemAction(`chat:${chatId}`, 'messageCreated', messagePayload);
+    await ugStub.systemAction(`chat:${chatId}`, 'messageCreated', messagePayload, alias ?? undefined);
 
     // Register stream via UG → ChatTopicHandler → ChatStream DO init
     // Pass userId so the handler can auto-subscribe the initiator to the ChatStream DO
@@ -239,7 +241,7 @@ export async function chatActionHandler(
         agentMessageId,
         userId: ctx.user.userId,
         userMessageId,
-    });
+    }, alias ?? undefined);
 
     // Kick off generation in waitUntil — response returned before generation starts
     const generationPromise = runGeneration({
@@ -283,8 +285,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
     const { anthropic, langfuse, em } = ctx;
 
     // Get ChatStream DO stub — already initialized by registerStream above
+    const alias = ctx.previewAlias;
     const streamDO = ctx.env.CHAT_STREAM_DO.get(
-        ctx.env.CHAT_STREAM_DO.idFromName(agentMessageId),
+        ctx.env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, alias)),
     ) as unknown as ChatStreamDOStub;
 
     // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal

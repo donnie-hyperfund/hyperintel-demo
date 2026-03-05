@@ -12,6 +12,7 @@ import { preprocessContext } from './chat-handler';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { approveVersion, listDocuments } from './tools/documents/document-service';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
@@ -103,14 +104,15 @@ export async function summarizeActionHandler(
     await em!.flush();
 
     // Register stream under chat:{chatId} topic with streamType: 'summary'
-    const ugId = ctx.env.USER_GATEWAY.idFromName(ctx.user.userId);
+    const alias = ctx.previewAlias;
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
     await ugStub.systemAction(`chat:${chatId}`, 'registerStream', {
         agentMessageId,
         userId: ctx.user.userId,
         streamType: 'summary',
         // summarizer does not have an initiating user message
-    });
+    }, alias ?? undefined);
 
     // Kick off generation in waitUntil  response returned before generation starts
     const generationPromise = runSummarizer({
@@ -148,8 +150,9 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
     const { em, anthropic } = ctx;
 
     // Get ChatStream DO stub  already initialized by registerStream above
+    const alias = ctx.previewAlias;
     const streamDO = ctx.env.CHAT_STREAM_DO.get(
-        ctx.env.CHAT_STREAM_DO.idFromName(agentMessageId),
+        ctx.env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, alias)),
     ) as unknown as ChatStreamDOStub;
 
     // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
