@@ -17,7 +17,7 @@ const openPanelMock = vi.fn();
 const createApiClientMock = vi.fn();
 const readStreamMock = vi.fn();
 
-let selectedModelMock = ANTHROPIC_MODELS.SONNET;
+let selectedModelMock = ANTHROPIC_MODELS.OPUS;
 let streamReaderOptions: {
     setIsLoading: (value: boolean) => void;
     onTerminalTool?: (toolName: string) => void;
@@ -132,7 +132,7 @@ function createSSEBody(payload: string): ReadableStream<Uint8Array> {
 
 describe('ChatProvider', () => {
     beforeEach(() => {
-        selectedModelMock = ANTHROPIC_MODELS.SONNET;
+        selectedModelMock = ANTHROPIC_MODELS.OPUS;
         fallbackMock = {};
         streamReaderOptions = null;
 
@@ -292,7 +292,7 @@ describe('ChatProvider', () => {
             {
                 message: 'hello world',
                 chatId: 'chat-1',
-                model: ANTHROPIC_MODELS.SONNET,
+                model: ANTHROPIC_MODELS.OPUS,
             },
             'token-abc',
         );
@@ -347,7 +347,7 @@ describe('ChatProvider', () => {
             {
                 message: 'intake message',
                 chatId: 'company-chat-1',
-                model: ANTHROPIC_MODELS.SONNET,
+                model: ANTHROPIC_MODELS.OPUS,
             },
             'token-abc',
         );

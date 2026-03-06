@@ -11,7 +11,8 @@ import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
-import { SwitchModelSelector } from './switch-model-selector';
+
+// import { SwitchModelSelector } from './switch-model-selector';
 
 type ChatMessageFormProps = {
     className?: string;
@@ -119,7 +120,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                 minHeight={24}
                             />
                             <div className="flex items-end gap-2 ml-auto">
-                                <SwitchModelSelector disabled={isBusy} />
+                                {/* <SwitchModelSelector disabled={isBusy} /> */} {/* NOTE: Hidden temporarily */}
                                 <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
                                     <Send className="size-4" />
                                 </Button>
