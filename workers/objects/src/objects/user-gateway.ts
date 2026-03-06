@@ -36,6 +36,7 @@ export class UserGateway extends DurableObject<Env> {
     private handlers = new Map<string, TopicHandler>();
     /** Preview branch alias — propagated to topic handlers for DB resolution on dev */
     private previewAlias: string | null = null;
+    private aliasLoaded = false;
 
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
@@ -44,6 +45,14 @@ export class UserGateway extends DurableObject<Env> {
         // Register topic handlers
         this.registerHandler('chat', new ChatTopicHandler(ctx.storage));
         this.registerHandler('intake', new IntakeTopicHandler(ctx.storage));
+    }
+
+    /** Restore previewAlias from storage after hibernation (lazy, once per wake) */
+    private async ensureAliasLoaded() {
+        if (this.aliasLoaded) return;
+        this.aliasLoaded = true;
+        const stored = await this.ctx.storage.get<string>('previewAlias');
+        if (stored) this.applyPreviewAlias(stored);
     }
 
     // -----------------------------------------------------------------------
@@ -61,6 +70,8 @@ export class UserGateway extends DurableObject<Env> {
     private applyPreviewAlias(alias: string | null | undefined) {
         if (!alias || this.previewAlias) return;
         this.previewAlias = alias;
+        // Persist so it survives hibernation
+        this.ctx.storage.put('previewAlias', alias);
         for (const handler of this.handlers.values()) {
             if (handler instanceof StreamTopicHandler) {
                 handler.previewAlias = alias;
@@ -137,6 +148,7 @@ export class UserGateway extends DurableObject<Env> {
             // Ignore "pong" (auto-response echo)
             if (message === 'pong') return;
 
+            await this.ensureAliasLoaded();
             const attachment = ws.deserializeAttachment() as SocketAttachment;
 
             // Session expiry check
@@ -198,6 +210,7 @@ export class UserGateway extends DurableObject<Env> {
 
     /** Generic RPC for server→server actions routed to a handler */
     async systemAction(topic: string, action: string, payload: unknown, previewAlias?: string): Promise<unknown> {
+        await this.ensureAliasLoaded();
         if (previewAlias) this.applyPreviewAlias(previewAlias);
 
         const { prefix, identifier } = this.parseTopic(topic);

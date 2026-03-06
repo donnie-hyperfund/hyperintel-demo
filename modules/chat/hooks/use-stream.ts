@@ -679,7 +679,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             if (event.error) setError(event.error);
                             if (event.outputType === 'tool' && event.outputTool) o.onTerminalTool?.(event.outputTool);
                             setDisplayStatus(null);
-                            setStatus('done');
+                            // Don't override aborted/error — stream_status is authoritative
+                            setStatus((prev) =>
+                                prev === 'aborted' || prev === 'error' ? prev : 'done',
+                            );
                             o.onDone?.('done', event);
                             break;
 

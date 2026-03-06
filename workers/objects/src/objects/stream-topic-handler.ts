@@ -59,7 +59,8 @@ export const STREAM_SK_PREFIX = 'stream:registry:';
  */
 export abstract class StreamTopicHandler implements TopicHandler {
     /** In-memory permission cache: `${userId}:${identifier}` → allowed */
-    private permissionCache = new Map<string, boolean>();
+    // TODO: re-enable once we confirm the forbidden bug is fixed — disabled to rule out stale cache as cause
+    // private permissionCache = new Map<string, boolean>();
     /** Cached postgres client — avoids reconnecting per query */
     private sqlPromise: ReturnType<typeof createNeonSql> | null = null;
     /** Preview branch alias — set by UG on dev, used for PREVIEW_DB_MAP KV resolution */
@@ -95,16 +96,19 @@ export abstract class StreamTopicHandler implements TopicHandler {
     // ========================================================================
 
     async canSubscribe(userId: string, identifier: string, env: Env): Promise<boolean> {
-        const cacheKey = `${userId}:${identifier}`;
-        const cached = this.permissionCache.get(cacheKey);
-        if (cached !== undefined) return cached;
+        // const cacheKey = `${userId}:${identifier}`;
+        // const cached = this.permissionCache.get(cacheKey);
+        // if (cached !== undefined) return cached;
 
         try {
             const allowed = await this.checkPermission(userId, identifier, env);
-            this.permissionCache.set(cacheKey, allowed);
+            if (!allowed) {
+                console.warn(`[${this.constructor.name}] canSubscribe DENIED: userId=${userId}, identifier=${identifier}, previewAlias=${this.previewAlias}`);
+            }
+            // this.permissionCache.set(cacheKey, allowed);
             return allowed;
         } catch (err) {
-            console.error(`${this.constructor.name}: permission check failed`, err);
+            console.error(`[${this.constructor.name}] canSubscribe ERROR: userId=${userId}, identifier=${identifier}, previewAlias=${this.previewAlias}`, err);
             return false;
         }
     }
