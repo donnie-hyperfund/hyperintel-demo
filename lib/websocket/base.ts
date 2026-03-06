@@ -83,6 +83,10 @@ export abstract class WebsocketClient {
     protected accessToken = '';
     protected isConnected = false;
 
+    /** Clerk getToken callback — injected by provider */
+    protected getTokenFn: (() => Promise<string | null>) | null = null;
+    private tokenRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
     /** Whether this client is currently connected and ready */
     get connected(): boolean {
         return this.isConnected;
@@ -200,6 +204,54 @@ export abstract class WebsocketClient {
         this.send({ action: ClientAction.UpdateSession, accessToken });
     }
 
+    /** Inject Clerk's getToken so we can proactively refresh the session */
+    setTokenProvider(fn: () => Promise<string | null>): void {
+        this.getTokenFn = fn;
+    }
+
+    // --- Token refresh ---
+
+    /**
+     * Schedule a proactive token refresh based on the server-reported expiry.
+     * Refreshes at ~75% of remaining TTL with jitter to avoid thundering herd.
+     */
+    protected scheduleTokenRefresh(expiresAtSec: number): void {
+        this.clearTokenRefresh();
+        const nowSec = Date.now() / 1000;
+        const ttlMs = (expiresAtSec - nowSec) * 1000;
+        // Refresh at 75% of remaining TTL, +-3s jitter
+        const refreshAt = ttlMs * 0.75 + (Math.random() - 0.5) * 6_000;
+        if (refreshAt <= 0) {
+            void this.doTokenRefresh();
+            return;
+        }
+        this.tokenRefreshTimer = setTimeout(() => void this.doTokenRefresh(), refreshAt);
+    }
+
+    protected clearTokenRefresh(): void {
+        if (this.tokenRefreshTimer !== null) {
+            clearTimeout(this.tokenRefreshTimer);
+            this.tokenRefreshTimer = null;
+        }
+    }
+
+    private async doTokenRefresh(): Promise<void> {
+        if (!this.getTokenFn || !this.isConnected) return;
+        try {
+            const token = await this.getTokenFn();
+            if (token && this.isConnected) {
+                this.updateSession(token);
+                // Decode new exp to schedule next refresh
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    if (payload.exp) this.scheduleTokenRefresh(payload.exp);
+                } catch {}
+            }
+        } catch (e) {
+            console.warn('WebsocketClient: token refresh failed', e);
+        }
+    }
+
     // --- Protected helpers for subclasses ---
 
     /** Drain pending queue. Uses shift() to avoid infinite loop (hyperfund bug #1). */
@@ -231,6 +283,11 @@ export abstract class WebsocketClient {
             }
         }
 
+        // Start proactive token refresh when hello includes session expiry
+        if (parsed.type === 'hello' && typeof parsed.sessionExpiresAt === 'number') {
+            this.scheduleTokenRefresh(parsed.sessionExpiresAt);
+        }
+
         // Always emit for topic/type-based listeners
         this.emit('message', parsed as ServerMessage & { rid?: string });
     }
@@ -246,6 +303,7 @@ export abstract class WebsocketClient {
     /** Called by subclass on socket close. */
     protected markDisconnected(clean: boolean): void {
         this.isConnected = false;
+        this.clearTokenRefresh();
         this.emit('disconnected', clean);
         // Inflight NOT rejected — they have their own timeouts and may resolve after reconnect.
     }

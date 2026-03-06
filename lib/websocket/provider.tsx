@@ -29,6 +29,7 @@ export function WebsocketProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         const client = clientRef.current!;
+        client.setTokenProvider(getToken);
         let cancelled = false;
 
         const connect = async () => {

@@ -186,6 +186,13 @@ export class UserGateway extends DurableObject<Env> {
 
     /** Forward a raw message to all WebSockets subscribed to a topic */
     async pushMessage(topic: string, message: unknown) {
+        const sockets = this.ctx.getWebSockets();
+        let matched = 0;
+        for (const ws of sockets) {
+            const att = ws.deserializeAttachment() as SocketAttachment | null;
+            if (att?.subscribedTopics.includes(topic)) matched++;
+        }
+        console.log(`[UG] pushMessage: topic=${topic}, sockets=${sockets.length}, matched=${matched}`);
         this.broadcastToTopic(topic, message);
     }
 
@@ -203,6 +210,8 @@ export class UserGateway extends DurableObject<Env> {
             this.env,
         );
         if (result?.broadcast) {
+            const sockets = this.ctx.getWebSockets();
+            console.log(`[UG] systemAction broadcast: topic=${topic}, action=${action}, sockets=${sockets.length}`);
             this.broadcastToTopic(topic, result.broadcast);
         }
         return result?.data;
@@ -395,9 +404,13 @@ export class UserGateway extends DurableObject<Env> {
     // Helpers
     // -----------------------------------------------------------------------
 
-    /** Close socket if its session has expired. Returns true if closed. */
+    /** Grace period (seconds) after JWT exp before force-closing the socket.
+     *  Gives the client time to send an update-session with a fresh token. */
+    private static readonly SESSION_GRACE_SECONDS = 30;
+
+    /** Close socket if its session has expired (with grace period). Returns true if closed. */
     private closeIfExpired(ws: WebSocket, attachment: SocketAttachment | null): boolean {
-        if (attachment?.sessionExpiry && Date.now() / 1000 > attachment.sessionExpiry) {
+        if (attachment?.sessionExpiry && Date.now() / 1000 > attachment.sessionExpiry + UserGateway.SESSION_GRACE_SECONDS) {
             try {
                 ws.send(JSON.stringify({ type: ServerMsg.Error, error: 'Session expired' }));
                 ws.close(4401, 'Session expired');

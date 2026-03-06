@@ -130,9 +130,17 @@ export class DirectWebsocketClient extends WebsocketClient {
         const delay = Math.min(base + jitter, RECONNECT_MAX_DELAY);
         this.reconnectAttempt++;
 
-        this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = setTimeout(async () => {
             this.reconnectTimer = null;
-            if (this.shouldConnect) this.attemptConnect();
+            if (!this.shouldConnect) return;
+            // Get a fresh token before reconnecting (don't reuse expired one)
+            if (this.getTokenFn) {
+                try {
+                    const fresh = await this.getTokenFn();
+                    if (fresh) this.accessToken = fresh;
+                } catch {}
+            }
+            this.attemptConnect();
         }, delay);
     }
 
@@ -161,6 +169,7 @@ export class DirectWebsocketClient extends WebsocketClient {
     // Bug #7 fix: disconnect cleans up all timers
     private clearTimers(): void {
         this.clearPing();
+        this.clearTokenRefresh();
         if (this.reconnectTimer !== null) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;

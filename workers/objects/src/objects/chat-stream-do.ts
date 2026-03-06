@@ -299,6 +299,9 @@ export class ChatStreamDO extends DurableObject<Env> {
     }
 
     private async broadcast(event: StreamEvent) {
+        if (this.subscribers.size === 0) {
+            console.warn(`[ChatStreamDO] broadcast: 0 subscribers, topic=${this.topic}, event=${event.type}`);
+        }
         const sends: Promise<void>[] = [];
         for (const [userId] of this.subscribers) {
             sends.push(
@@ -338,9 +341,11 @@ export class ChatStreamDO extends DurableObject<Env> {
             const ugStub = this.env.USER_GATEWAY.get(ugId) as DurableObjectStub & {
                 pushMessage(topic: string, message: unknown): Promise<void>;
             };
+            console.log(`[ChatStreamDO] sendToSubscriber: userId=${userId}, ugDoName=${ugDoName}, topic=${this.topic}`);
             await ugStub.pushMessage(this.topic, message);
+            console.log(`[ChatStreamDO] sendToSubscriber: pushMessage returned OK`);
         } catch (err) {
-            console.error(`ChatStreamDO: failed to push to subscriber ${userId}:`, err);
+            console.error(`[ChatStreamDO] sendToSubscriber FAILED: userId=${userId}, ugDoName=${ugDoName}, topic=${this.topic}`, err);
         }
     }
 
