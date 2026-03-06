@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Send, Square } from 'lucide-react';
+import { ArrowUp, Loader2, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
@@ -21,9 +21,10 @@ import { SwitchModelSelector } from './switch-model-selector';
 type ChatMessageFormProps = {
     className?: string;
     ref?: React.RefObject<HTMLDivElement | null>;
+    showGradientFade?: boolean;
 };
 
-const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
+const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessageFormProps) => {
     const {
         sendMessage,
         chatType,
@@ -109,17 +110,18 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
         <div ref={ref} className={className}>
             <AnimatePresence>
                 <form onSubmit={handleSubmit(onFormSubmit)} className="relative flex items-end justify-center px-4">
-                    {/* Background component*/}
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="absolute inset-0 pointer-events-none"
-                        style={{
-                            background: 'linear-gradient(to bottom, transparent 0px, var(--color-card) 2rem)',
-                        }}
-                    />
+                    {showGradientFade && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                                background: 'linear-gradient(to bottom, transparent 0px, var(--color-card) 2rem)',
+                            }}
+                        />
+                    )}
 
                     <div className="w-full max-w-3xl relative z-10">
                         <motion.div
@@ -168,8 +170,8 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                 onBlur={onBlur}
                                 onKeyDown={handleKeyDown}
                                 placeholder="Type your message..."
-                                className="w-full bg-transparent leading-6 outline-none placeholder:text-muted-foreground"
-                                maxHeight={364}
+                                className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground"
+                                maxHeight={384}
                                 minHeight={24}
                             />
 
@@ -183,7 +185,8 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                         <Button
                                             type="button"
                                             onClick={stopGeneration}
-                                            className="shrink-0 bg-orange-800 hover:bg-orange-700 text-white border-orange-600/35"
+                                            variant="unstyled"
+                                            className="bg-transparent hover:bg-accent text-white border border-neutral-500/35"
                                             size="icon"
                                         >
                                             <Square className="size-3.5 fill-current" />
@@ -201,7 +204,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                     )
                                 ) : (
                                     <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
-                                        <Send className="size-4" />
+                                        <ArrowUp className="size-5" />
                                     </Button>
                                 )}
                             </div>
