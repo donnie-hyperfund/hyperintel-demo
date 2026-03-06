@@ -2,27 +2,29 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
-import { serializeArtifactListKey } from '@/lib/api/client/fetchers/artifacts';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
-import { sendAction, summarize } from '@/lib/api/requests/worker/chat';
+import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
+import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
+import { intakeConfigMap } from '@/modules/chat/contants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { getArtifactVersion } from '@/modules/chat/providers/artifact-provider/utils';
+import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
-import type { ChatState, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
+import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
-export type ChatContextValue = {
+export type BaseChatContextValue = {
     state: ChatState;
     /** API client for chat operations */
     api: ApiClient;
-    /** Project ID */
-    projectId: string;
+    /** Chat type */
+    chatType: ChatType;
     /** Current chat ID */
     chatId: string | null;
     /** Pagination state for infinite scroll */
@@ -37,25 +39,51 @@ export type ChatContextValue = {
     stopGeneration: () => void;
     /** Set the current chat ID */
     setChatId: (chatId: string | null) => void;
-    /** Summarize the current chat and navigate to the new one */
+    /** Summarize the current chat and prepare the new phase */
     summarizeChat: () => void;
-    /** Whether the chat has any artifacts (documents created) */
-    hasArtifacts: boolean;
+    /** Navigate to the new phase chat (after summarization completes) */
+    navigateToNewPhase: () => void;
     /** Set hasPendingChanges to false (call after approve/reject) */
     clearPendingChanges: () => void;
+    /** Clear the pending phase transition flag (called after dialog handles it) */
+    clearPendingPhaseTransition: () => void;
 };
 
-const ChatContext = createContext<ChatContextValue | null>(null);
+type PhaseChatContextValue = BaseChatContextValue & {
+    chatType: 'phase';
+    projectId: string;
+};
+
+type CompanyStakeholderChatContextValue = BaseChatContextValue & {
+    chatType: 'company' | 'stakeholder';
+    projectId?: never;
+};
+
+type ChatContextValue<TChatType extends ChatType> = TChatType extends 'phase'
+    ? PhaseChatContextValue
+    : CompanyStakeholderChatContextValue;
+
+const ChatContext = createContext<ChatContextValue<ChatType> | null>(null);
 
 type ChatProviderProps = {
     children: ReactNode;
-    /** Project ID for API calls */
-    projectId: string;
+    /** Project ID for API calls (required for phase chats, omit for intake) */
+    projectId?: string;
+    /** Chat type — defaults to 'phase' */
+    chatType?: ChatType;
     /** Initial chat ID (optional - will create on first message if not provided) */
     initialChatId?: string;
     /** Initial messages to display */
     initialMessages?: Message[];
 };
+
+function buildContextValue(
+    chatType: ChatType,
+    projectId: string | undefined,
+    base: Omit<BaseChatContextValue, 'chatType'>,
+): ChatContextValue<ChatType> {
+    return chatType === 'phase' ? { ...base, chatType, projectId: projectId! } : { ...base, chatType };
+}
 
 /** Create a user message with a single text block */
 function createUserMessage(content: string): Message {
@@ -68,7 +96,13 @@ function createUserMessage(content: string): Message {
     };
 }
 
-export function ChatProvider({ children, projectId, initialChatId, initialMessages = [] }: ChatProviderProps) {
+export function ChatProvider({
+    children,
+    projectId,
+    chatType = 'phase',
+    initialChatId,
+    initialMessages = [],
+}: ChatProviderProps) {
     const artifactContext = useArtifactContext();
 
     const { openPanel } = useActivePanelContext();
@@ -82,13 +116,12 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
+    const { selectedModel } = useModelSelection();
     const skipNextLoad = useRef(false);
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
     const [state, setState] = useState<ChatState>(() => {
-        const cached = initialChatId
-            ? fallback?.[unstable_serialize(chatKeys.detail(projectId, initialChatId))]
-            : undefined;
+        const cached = initialChatId ? fallback?.[unstable_serialize(chatKeys.detail(projectId, initialChatId))] : undefined;
 
         return {
             messages: initialMessages,
@@ -100,6 +133,8 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             tokenUsage: cached?.token_usage ?? null,
             hasPendingChanges: cached?.has_pending_changes ?? false,
             phaseIndex: cached?.phase_index ?? null,
+            summaryNewChatId: null,
+            pendingPhaseTransition: false,
         };
     });
 
@@ -129,23 +164,23 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         }));
     }, []);
 
-    const revalidateArtifacts = useCallback(() => {
-        globalMutate(serializeArtifactListKey(projectId));
-    }, [globalMutate, projectId]);
-
-    const revalidateArtifactByKey = useCallback(
+    const revalidateArtifactByKeyAndVersion = useCallback(
         async (keyId: string, version: number) => {
-            globalMutate(serializeArtifactListKey(projectId));
+            if (projectId) {
+                globalMutate(serializeProjectArtifactListKey(projectId));
+            }
+
+            const fetcher = projectId
+                ? (v: number) => api.projectArtifacts.getByKey(projectId, keyId, v)
+                : (v: number) => api.artifacts.getByKey(keyId, v);
 
             try {
                 const allVersions = Array.from({ length: version }, (_, i) => version - i);
-                const results = await Promise.all(
-                    allVersions.map((v) => api.artifacts.getByKey(projectId, keyId, v).catch(() => null)),
-                );
+                const results = await Promise.all(allVersions.map((v) => fetcher(v).catch(() => null)));
 
                 for (const data of results) {
                     if (data) {
-                        artifactContext.updateArtifact(keyId, data, getArtifactVersion(data)?.version, {
+                        artifactContext.updateArtifact(keyId, data, getLatestArtifactVersion(data)?.version, {
                             merge: false,
                         });
                     }
@@ -154,7 +189,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 // SWR revalidation will still keep the list up to date
             }
         },
-        [globalMutate, projectId, artifactContext, api.artifacts],
+        [globalMutate, projectId, artifactContext, api.projectArtifacts, api.artifacts],
     );
 
     const onTokenUsage = useCallback((usage: TokenUsage) => {
@@ -169,6 +204,16 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         setState((prev) => ({ ...prev, hasPendingChanges: false }));
     }, []);
 
+    const clearPendingPhaseTransition = useCallback(() => {
+        setState((prev) => ({ ...prev, pendingPhaseTransition: false }));
+    }, []);
+
+    const onTerminalTool = useCallback((toolName: string) => {
+        if (toolName === 'generate_summary') {
+            setState((prev) => ({ ...prev, pendingPhaseTransition: true }));
+        }
+    }, []);
+
     const handleArtifactOpen = useCallback(
         (artifactId: string, version: number) => {
             openPanel({ panel: 'artifact-preview', artifactId, version });
@@ -179,7 +224,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
     const fetchArtifact = useCallback(
         async (artifactKey: string, version: number) => {
             try {
-                const artifact = await api.artifacts.getByKey(projectId, artifactKey, version);
+                const artifact = await api.artifacts.getByKey(artifactKey, version);
                 if (artifact) {
                     artifactContext.addArtifact(artifact, version);
                 }
@@ -197,12 +242,12 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         artifactContext,
         setMessages,
         setIsLoading,
-        onArtifactOpen: handleArtifactOpen,
-        onArtifactComplete: revalidateArtifacts,
-        onApproveDocument: revalidateArtifactByKey,
+        handleArtifactOpen,
+        revalidateArtifactByKeyAndVersion,
         onTokenUsage,
         fetchArtifact,
         onDocumentStart,
+        onTerminalTool,
     });
 
     /** Convert API message to internal Message format */
@@ -262,7 +307,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             console.error('Error loading messages:', error);
             setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
         }
-    }, [api, chatId, projectId, mapApiMessage]);
+    }, [api, chatId, mapApiMessage]);
 
     /** Load more (older) messages for infinite scroll */
     const loadMoreMessages = useCallback(async () => {
@@ -290,7 +335,7 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
             console.error('Error loading more messages:', error);
             setPagination((prev) => ({ ...prev, isLoadingMore: false }));
         }
-    }, [api, chatId, projectId, pagination.isLoadingMore, pagination.hasMore, pagination.page, mapApiMessage]);
+    }, [api, chatId, pagination.isLoadingMore, pagination.hasMore, pagination.page, mapApiMessage]);
 
     /** Send a message - creates chat if needed, handles streaming */
     const sendMessage = useCallback(
@@ -315,27 +360,53 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 // If no chatId, create a new chat first
                 let chatIdToUse = chatId;
                 if (!chatIdToUse) {
-                    const newChat = await api.chats.create(projectId);
-                    chatIdToUse = newChat.id;
+                    // TODO: Unify this when backend is updated
+                    if (chatType === 'phase') {
+                        if (!projectId) {
+                            throw new Error('Project ID is required for phase chats');
+                        }
 
-                    // Skip the message reload effect
-                    skipNextLoad.current = true;
-                    setChatId(chatIdToUse);
-                    setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
+                        // Phase chat — project-scoped creation
+                        const newChat = await api.chats.create(projectId);
+                        chatIdToUse = newChat.id;
 
-                    // Update URL without navigation using history API
-                    window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
+                        skipNextLoad.current = true;
+                        setChatId(chatIdToUse);
+                        setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
 
-                    insertChatToCache(cache, globalMutate, newChat);
+                        // Update URL without navigation using history API
+                        window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
+
+                        insertChatToCache(cache, globalMutate, newChat);
+                    } else {
+                        // Intake chat — unified creation
+                        const newChat = await api.chats.createIntake({
+                            framework: intakeConfigMap[chatType].framework,
+                            category: intakeConfigMap[chatType].category,
+                        });
+                        chatIdToUse = newChat.id;
+
+                        skipNextLoad.current = true;
+                        setChatId(chatIdToUse);
+
+                        const basePath =
+                            chatType === 'company' ? '/companies' : chatType === 'stakeholder' ? '/stakeholders' : null;
+                        if (basePath) {
+                            window.history.replaceState(null, '', `${basePath}/${chatIdToUse}`);
+                        }
+                    }
                 }
 
                 // Create abort controller for this request
                 abortControllerRef.current = new AbortController();
 
-                const response = await sendAction(
+                // TODO: Unify this when backend is updated
+                const send = chatType === 'phase' ? sendAction : sendIntakeAction;
+                const response = await send(
                     {
                         message: content,
                         chatId: chatIdToUse,
+                        model: selectedModel,
                     },
                     accessToken,
                 );
@@ -359,14 +430,26 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 abortControllerRef.current = null;
             }
         },
-        [api, cache, chatId, getToken, globalMutate, projectId, readStream, state.isGenerating],
+        [
+            api,
+            cache,
+            chatId,
+            getToken,
+            globalMutate,
+            chatType,
+            projectId,
+            readStream,
+            selectedModel,
+            state.isGenerating,
+        ],
     );
 
-    /** Summarize current chat and navigate to the new one */
+    /** Summarize current chat and store the new phase chat ID */
     const summarizeChat = useCallback(async () => {
-        if (!chatId || state.isSummarizing) return;
+        // Summarization is only for phase chats
+        if (chatType !== 'phase' || !chatId || state.isSummarizing) return;
 
-        setState((prev) => ({ ...prev, isSummarizing: true, error: null }));
+        setState((prev) => ({ ...prev, isSummarizing: true, summaryNewChatId: null, error: null }));
 
         try {
             const accessToken = (await getToken()) ?? '';
@@ -396,15 +479,17 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                     try {
                         const event = JSON.parse(jsonStr);
 
-                        // TODO: Uncomment this when backend is fixed
-                        // if (event.type === 'error') {
-                        //     setState((prev) => ({ ...prev, isSummarizing: false, error: new Error(event.error) }));
-                        //     return;
-                        // }
+                        if (event.type === 'error') {
+                            setState((prev) => ({ ...prev, isSummarizing: false, error: new Error(event.error) }));
+                            return;
+                        }
 
                         if (event.type === 'done' && event.newChatId) {
-                            setState((prev) => ({ ...prev, isSummarizing: false }));
-                            router.push(`/${projectId}/${event.newChatId}`);
+                            setState((prev) => ({
+                                ...prev,
+                                isSummarizing: false,
+                                summaryNewChatId: event.newChatId,
+                            }));
                             return;
                         }
                     } catch {
@@ -421,7 +506,13 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }
-    }, [chatId, getToken, projectId, router, state.isSummarizing]);
+    }, [chatId, getToken, chatType, state.isSummarizing]);
+
+    /** Navigate to the new phase chat after summarization */
+    const navigateToNewPhase = useCallback(() => {
+        if (!state.summaryNewChatId) return;
+        router.push(`/${projectId}/${state.summaryNewChatId}`);
+    }, [projectId, router, state.summaryNewChatId]);
 
     /** Stop the current generation */
     const stopGeneration = useCallback(() => {
@@ -439,12 +530,19 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
         }));
     }, []);
 
+    // Auto-load messages when an initial chat ID is provided
+    useEffect(() => {
+        if (initialChatId) {
+            loadMessages();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialChatId]);
+
     return (
         <ChatContext.Provider
-            value={{
+            value={buildContextValue(chatType, projectId, {
                 state,
                 api,
-                projectId,
                 chatId,
                 pagination,
                 loadMessages,
@@ -453,19 +551,18 @@ export function ChatProvider({ children, projectId, initialChatId, initialMessag
                 stopGeneration,
                 setChatId,
                 summarizeChat,
+                navigateToNewPhase,
                 clearPendingChanges,
-
-                // Computed values
-                hasArtifacts: Object.keys(artifactContext.artifacts).length > 0,
-            }}
+                clearPendingPhaseTransition,
+            })}
         >
             {children}
         </ChatContext.Provider>
     );
 }
 
-export function useChatContext(): ChatContextValue {
-    const context = useContext(ChatContext);
+export function useChatContext<TChatType extends ChatType>(): ChatContextValue<TChatType> {
+    const context = useContext(ChatContext) as ChatContextValue<TChatType> | null;
     if (!context) {
         throw new Error('useChatContext must be used within a ChatProvider');
     }

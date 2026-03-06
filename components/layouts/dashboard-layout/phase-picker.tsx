@@ -45,7 +45,7 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
         e.preventDefault();
         setOpen(false);
         window.dispatchEvent(new Event('new-phase'));
-        router.push(`/${projectId}`);
+        router.push(`/${projectId}?new=true`);
     };
 
     return (
@@ -54,7 +54,7 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
                 <button
                     type="button"
                     className={cn(
-                        'group flex items-center gap-1.5 text-sm rounded-md px-2 py-1 transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground',
+                        'group flex items-center gap-1.5 text-sm rounded-md px-2 py-1 transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground cursor-pointer',
                         isNewChat && 'text-neutral-500',
                     )}
                 >
@@ -98,7 +98,7 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
                 </div>
                 <div className="border-t border-border sticky bottom-0 bg-popover">
                     <Link
-                        href={`/${projectId}`}
+                        href={`/${projectId}?new=true`}
                         onClick={handleNewPhase}
                         className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >

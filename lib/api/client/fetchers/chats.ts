@@ -1,3 +1,4 @@
+import type { CreateIntakeChatBodyDto } from '@/lib/schema/chat';
 import type { ChatDto } from '@/lib/schema/message';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
@@ -10,7 +11,7 @@ const ENDPOINTS = {
 export const chatKeys = {
     all: ['chats'] as const,
     lists: () => [...chatKeys.all, 'list'] as const,
-    list: (projectId: string, params?: PaginationParams) => [...chatKeys.lists(), projectId, params] as const,
+    list: (projectId?: string, params?: PaginationParams) => [...chatKeys.lists(), projectId, params] as const,
     details: () => [...chatKeys.all, 'detail'] as const,
     detail: (projectId: string, chatId: string) => [...chatKeys.details(), projectId, chatId] as const,
 };
@@ -31,6 +32,11 @@ export function createChatApi(getToken: TokenGetter) {
 
         get: async (chatId: string) => {
             const { data } = await axios.get<ChatDto>(ENDPOINTS.byId(chatId));
+            return data;
+        },
+
+        createIntake: async (body: CreateIntakeChatBodyDto) => {
+            const { data } = await axios.post<ChatDto>(ENDPOINTS.root, body);
             return data;
         },
 

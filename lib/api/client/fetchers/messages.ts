@@ -10,11 +10,7 @@ const ENDPOINTS = {
 export const messageKeys = {
     all: ['messages'] as const,
     lists: () => [...messageKeys.all, 'list'] as const,
-    list: (projectId: string, chatId: string, params?: PaginationParams) =>
-        [...messageKeys.lists(), projectId, chatId, params] as const,
-    details: () => [...messageKeys.all, 'detail'] as const,
-    detail: (projectId: string, chatId: string, messageId: string) =>
-        [...messageKeys.details(), projectId, chatId, messageId] as const,
+    list: (chatId: string, params?: PaginationParams) => [...messageKeys.lists(), chatId, params] as const,
 };
 
 export function createMessageApi(getToken: TokenGetter) {

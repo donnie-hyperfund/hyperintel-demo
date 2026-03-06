@@ -2,6 +2,7 @@ import type { TokenGetter } from './axios';
 import { createArtifactApi } from './fetchers/artifacts';
 import { createChatApi } from './fetchers/chats';
 import { createMessageApi } from './fetchers/messages';
+import { createProjectArtifactApi } from './fetchers/project-artifacts';
 import { createProjectApi } from './fetchers/projects';
 
 export function createApiClient(getToken: TokenGetter) {
@@ -10,6 +11,7 @@ export function createApiClient(getToken: TokenGetter) {
         chats: createChatApi(getToken),
         messages: createMessageApi(getToken),
         artifacts: createArtifactApi(getToken),
+        projectArtifacts: createProjectArtifactApi(getToken),
     };
 }
 

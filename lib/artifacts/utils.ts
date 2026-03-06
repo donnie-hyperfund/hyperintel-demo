@@ -1,4 +1,24 @@
-import { ALLOWED_ARTIFACT_EXTENSIONS, MAX_ARTIFACT_UPLOAD_SIZE } from '@/lib/schema/artifact';
+import { ALLOWED_ARTIFACT_EXTENSIONS, type ArtifactDto, MAX_ARTIFACT_UPLOAD_SIZE } from '@/lib/schema/artifact';
+
+// ── Artifact DTO helpers ────────────────────────────────────────────────────
+
+export function getLatestArtifactVersion(artifact: ArtifactDto) {
+    return artifact.proposed_version ?? artifact.current_version;
+}
+
+export function getArtifactDocumentType(artifact: ArtifactDto) {
+    return getLatestArtifactVersion(artifact)?.document_type;
+}
+
+export function isApprovedArtifact(artifact: ArtifactDto) {
+    return getLatestArtifactVersion(artifact)?.status === 'approved';
+}
+
+/** Extract the source project name from a published artifact's metadata (Legacy DNA). */
+export function getSourceProjectName(artifact: ArtifactDto): string | undefined {
+    const publishedFrom = artifact.metadata?.publishedFrom as { projectName?: string } | undefined;
+    return publishedFrom?.projectName;
+}
 
 // ── Upload error codes (shared between FE & BE) ────────────────────────────
 

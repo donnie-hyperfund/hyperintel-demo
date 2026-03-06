@@ -1,9 +1,12 @@
 import { DashboardLayout } from '@/components/layouts/dashboard-layout';
+import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
 
-type LayoutProps = {
-    children: React.ReactNode;
-};
+type DashboardLayoutProps = LayoutProps<'/'>;
 
-export default function Layout({ children }: LayoutProps) {
-    return <DashboardLayout>{children}</DashboardLayout>;
+export default function Layout({ children }: DashboardLayoutProps) {
+    return (
+        <DashboardLayout>
+            <ModelSelectionProvider>{children}</ModelSelectionProvider>
+        </DashboardLayout>
+    );
 }

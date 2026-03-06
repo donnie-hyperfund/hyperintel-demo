@@ -2,18 +2,16 @@
  * Intake Handler — Company Profile (CPF) & Human Persona (HPF) flows
  *
  * Thin handler that reuses stream-utils for all the heavy lifting.
- * Only defines: intake-specific tool, system prompt builder, and chat lookup.
- * Includes document tools for generating artifacts (user-scoped).
+ * Only defines: system prompt builder and chat lookup.
+ * Uses document tools (begin_document → write_document → finalize_document) for artifact creation.
  */
 
 import { runAgentStream } from '@common/ai/agent';
-import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { serializeException } from '@/common/ai/utils';
-import type { EntityManager } from '@mikro-orm/core';
-import { z } from 'zod';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
@@ -25,58 +23,21 @@ import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } fro
 import { createEnqueue, createSSEStream, handleCommonStreamEvent, handleStreamError, loadChatHistory } from './utils/stream-utils';
 
 // ============================================================================
-// INTAKE TOOL — save_intake_result
-// ============================================================================
-
-interface IntakeToolsContext extends DocumentToolsContext {
-    chat: ChatEntity;
-}
-
-const IntakeToolGroup: AgentToolGroup = {
-    name: 'Intake Tools',
-    slug: 'intake_',
-    description: 'Tools for saving intake session results.',
-    tools: ['save_intake_result'],
-};
-
-const SaveIntakeResultParams = z.object({
-    title: z.string().min(1).describe('Title for the generated profile/persona.'),
-    content: z.string().min(1).describe('The full markdown content of the generated Company Profile or Human Persona.'),
-});
-
-function createIntakeTools() {
-    return [
-        {
-            name: 'save_intake_result' as const,
-            description: `Save the generated Company Profile or Human Persona as the final result of this intake session.
-
-Call this ONLY when you have gathered all necessary information and are ready to produce the final document.
-The content should be comprehensive, well-structured markdown.`,
-            parameters: SaveIntakeResultParams,
-            executor: async (input: z.infer<typeof SaveIntakeResultParams>, ctx: IntakeToolsContext) => {
-                const { chat, em } = ctx;
-                chat.metadata = {
-                    ...chat.metadata,
-                    result: {
-                        title: input.title,
-                        content: input.content,
-                        completedAt: new Date().toISOString(),
-                    },
-                };
-                await em.flush();
-                return {
-                    status: 'saved',
-                    title: input.title,
-                    message: `Successfully saved "${input.title}". The intake session is now complete.`,
-                };
-            },
-        },
-    ] as const;
-}
-
-// ============================================================================
 // SYSTEM PROMPT
 // ============================================================================
+
+const DOCUMENT_INSTRUCTIONS: Record<'cpf' | 'hpf', { documentType: string; namePattern: string; titlePattern: string }> = {
+    cpf: {
+        documentType: 'Company Profile',
+        namePattern: 'company-profile-[company-name-slug].md',
+        titlePattern: 'Company Profile: [Company Name]',
+    },
+    hpf: {
+        documentType: 'Human Persona',
+        namePattern: 'human-persona-[person-name-slug].md',
+        titlePattern: 'Human Persona: [Person Name] ([Category])',
+    },
+};
 
 async function buildIntakeSystemPrompt(
     ctx: Ctx,
@@ -91,16 +52,36 @@ async function buildIntakeSystemPrompt(
         throw new Error(`Failed to load intake system prompt: ${slug}`);
     }
 
+    let systemPrompt = promptContent;
+
+    // Append category context for HPF
     if (framework === 'hpf' && category) {
         const categoryDescriptions: Record<string, string> = {
             principal: 'Principal — HIAI internal leadership. Requires complete organizational map with high density.',
             champion: 'Champion — External strategic stakeholder. Focus on strategic priorities and decision patterns with high density.',
             collaborator: 'Collaborator — External operational contact. Focus on working preferences and communication style with standard density.',
         };
-        return `${promptContent}\n\n---\n\n## PERSONA CATEGORY\n\nThe user has selected: **${categoryDescriptions[category] || category}**\n\nAdapt your discovery depth and questions accordingly.`;
+        systemPrompt += `\n\n---\n\n## PERSONA CATEGORY\n\nThe user has selected: **${categoryDescriptions[category] || category}**\n\nAdapt your discovery depth and questions accordingly.`;
     }
 
-    return promptContent;
+    // Append document creation instructions
+    const docInfo = DOCUMENT_INSTRUCTIONS[framework];
+    systemPrompt += `\n\n---\n\n## DOCUMENT CREATION
+
+When you have gathered sufficient information, create the document using the document tools:
+
+1. Call \`begin_document\` with:
+   - \`name\`: \`${docInfo.namePattern}\` (lowercase, hyphens)
+   - \`title\`: \`${docInfo.titlePattern}\`
+   - \`mode\`: \`create\`
+   - \`is_internal\`: \`true\`
+   - \`document_type\`: \`${docInfo.documentType}\`
+
+2. Call \`write_document\` with the full content.
+
+3. Call \`finalize_document\` to save. You MUST call this or the content will be lost.`;
+
+    return systemPrompt;
 }
 
 // ============================================================================
@@ -138,8 +119,7 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
             // Track version IDs created during this turn
             const createdVersionIds: string[] = [];
 
-            const agentCtx: IntakeToolsContext = {
-                chat,
+            const agentCtx: DocumentToolsContext = {
                 em: em!,
                 userId,
                 chatId: chat.id,
@@ -157,12 +137,12 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
 
             const defaultInference: ParamsWithType = {
                 paramsType: AIParamsType.Anthropic,
-                params: { model: ANTHROPIC_MODELS.SONNET, thinking: false },
+                params: { model: data.model ?? ANTHROPIC_MODELS.SONNET, thinking: false },
             };
             const inferenceParams = options.overrideInference ?? defaultInference;
 
-            const allTools = [...createIntakeTools(), ...createDocumentTools()];
-            const toolGroups = [IntakeToolGroup, DocumentToolGroup];
+            const allTools = [...createDocumentTools()];
+            const toolGroups = [DocumentToolGroup];
 
             const { stream, historyPromise } = runAgentStream(
                 agentCtx,
@@ -180,6 +160,12 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
                     config: {
                         maxToolCalls: 10,
                         statusUpdates: { enabled: true },
+                        onTurnComplete: () => {
+                            if (agentCtx.draftManager.hasActive()) {
+                                return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
+                            }
+                            return null;
+                        },
                     },
                 },
             );
@@ -192,7 +178,7 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
             const docEvents = createDocumentEventHandler({ em: em! }, (docEvent) => enqueue(docEvent));
 
             for await (const event of stream) {
-                await docEvents.handle(event);
+                docEvents.handle(event);
 
                 if (handleCommonStreamEvent(enqueue, event, state)) continue;
 

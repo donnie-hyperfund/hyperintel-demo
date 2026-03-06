@@ -18,7 +18,11 @@ import { remarkCitations } from '@/components/ui/markdown-renderer/remark-citati
 import { remarkDirectivesHandler } from '@/components/ui/markdown-renderer/remark-directives-handler';
 import { useMarkdownComponents } from '@/components/ui/markdown-renderer/use-markdown-components';
 import { preprocessMarkdown } from '@/components/ui/markdown-renderer/utils';
+import { VirtualMarkdownRenderer } from '@/components/ui/markdown-renderer/virtual-markdown-renderer';
 import { cn } from '@/lib/utils';
+
+/** Content above this size (bytes) triggers chunked lazy rendering */
+const CHUNK_THRESHOLD = 100_000;
 
 const markdownVariants = cva('position-relative max-w-none', {
     variants: {
@@ -50,6 +54,8 @@ type MarkdownRendererProps = {
     directives?: Record<string, DirectiveHandler>;
     /** Custom component overrides. Merged with built-in components. */
     customComponents?: Partial<Components>;
+    /** External scroll container for virtual rendering (virtualizer observes this element) */
+    scrollContainerRef?: React.RefObject<HTMLElement | null>;
 } & VariantProps<typeof markdownVariants>;
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
@@ -59,6 +65,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     citations,
     directives,
     customComponents,
+    scrollContainerRef,
 }) => {
     const preprocessedMarkdown = useMemo(() => preprocessMarkdown(markdown), [markdown]);
     const builtInComponents = useMarkdownComponents({ id });
@@ -127,37 +134,46 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return { ...builtInComponents, ...directiveComponents, ...customComponents };
     }, [builtInComponents, directiveComponents, customComponents]);
 
-    // Build remark plugins array with optional citations plugin
+    // Base remark plugins (without citations — citations are added per-chunk in virtual path)
+    const baseRemarkPlugins = useMemo(
+        () =>
+            [
+                remarkBreaks,
+                remarkGfm,
+                remarkDirective,
+                remarkDirectivesHandler(directives),
+                [remarkMath, { singleDollarTextMath: false }],
+                remarkFootnotesExtra,
+                remarkInlineLinks,
+            ] as any[],
+        [directives],
+    );
+
+    // Full remark plugins with citations (for non-virtual path)
     const remarkPlugins = useMemo(() => {
-        const plugins: any[] = [
-            remarkBreaks,
-            remarkGfm,
-            remarkDirective, // Parse directive syntax
-            remarkDirectivesHandler(directives), // Must run after remarkDirective
-            [remarkMath, { singleDollarTextMath: false }],
-            remarkFootnotesExtra,
-            remarkInlineLinks,
-        ];
-
-        // Citations plugin must run last (before remark-rehype)
         if (citations && citations.length > 0) {
-            plugins.push(remarkCitations(citations));
+            return [...baseRemarkPlugins, remarkCitations(citations)];
         }
+        return baseRemarkPlugins;
+    }, [baseRemarkPlugins, citations]);
 
-        return plugins;
-    }, [citations, directives]);
+    const rehypePlugins = useMemo(() => [rehypeRaw, rehypeMathjax, rehypeKatex, rehypeExternalLinks] as any[], []);
 
-    // Build rehype plugins array
-    const rehypePlugins = useMemo(() => {
-        const plugins: any[] = [
-            rehypeRaw, // Parse HTML tags
-            rehypeMathjax,
-            rehypeKatex,
-            rehypeExternalLinks,
-        ];
-
-        return plugins;
-    }, []);
+    if (preprocessedMarkdown.length > CHUNK_THRESHOLD) {
+        return (
+            <div className={cn(markdownVariants({ variant }))}>
+                <VirtualMarkdownRenderer
+                    markdown={preprocessedMarkdown}
+                    overscan={10}
+                    citations={citations}
+                    baseRemarkPlugins={baseRemarkPlugins}
+                    rehypePlugins={rehypePlugins}
+                    components={components}
+                    scrollContainerRef={scrollContainerRef}
+                />
+            </div>
+        );
+    }
 
     return (
         <div className={cn(markdownVariants({ variant }))}>

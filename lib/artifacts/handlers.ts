@@ -1,4 +1,4 @@
-import { wrap } from '@mikro-orm/core';
+import { raw, wrap } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/knex';
 import { type NextRequest, NextResponse } from 'next/server';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
@@ -13,8 +13,12 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { GetArtifactQuerySchema, ListArtifactsQuerySchema } from '@/lib/schema/artifact';
+import { GetArtifactQuerySchema, ListArtifactsQuerySchema, ListUserResourcesQuerySchema } from '@/lib/schema/artifact';
 import { ImportArtifactsBodySchema } from '@/lib/schema/project';
+
+// ---------------------------------------------------------------------------
+// Project artifact handlers
+// ---------------------------------------------------------------------------
 
 /**
  * List project-scoped artifacts (paginated). Supports `?key=` for single lookup.
@@ -104,6 +108,11 @@ export async function handleListProjectArtifacts(
         })
         .orderBy({ 'a.created_at': 'DESC' });
 
+    // Exclude imported resources (they are shown via the project resources endpoint)
+    query.andWhere({
+        $or: [{ [raw("a.metadata->>'importedFrom'")]: null }, { [raw('a.metadata')]: null }],
+    });
+
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
         perPage: queryData.limit ?? 20,
@@ -124,6 +133,10 @@ export async function handleListProjectArtifacts(
         createPaginatedResponse(mappedNodes, totalCount, queryData.page ?? 1, queryData.limit ?? 20),
     );
 }
+
+// ---------------------------------------------------------------------------
+// Unified artifact router
+// ---------------------------------------------------------------------------
 
 export async function handleGetArtifacts(req: NextRequest, user: UserEntity): Promise<NextResponse> {
     const { searchParams } = new URL(req.url);
@@ -163,6 +176,10 @@ export async function handleIntakeArtifacts(_req: NextRequest, user: UserEntity)
 
     return NextResponse.json(mapped);
 }
+
+// ---------------------------------------------------------------------------
+// Single artifact handlers
+// ---------------------------------------------------------------------------
 
 const ARTIFACT_ERRORS = {
     NOT_FOUND: () =>
@@ -245,23 +262,36 @@ export async function handleDeleteArtifact(artifactId: string, user: UserEntity)
     return NextResponse.json({ success: true, message: 'Artifact deleted' });
 }
 
-export async function handleImportArtifacts(req: NextRequest, user: UserEntity): Promise<NextResponse> {
+// ---------------------------------------------------------------------------
+// Import artifacts
+// ---------------------------------------------------------------------------
+
+/**
+ * Import artifacts into a project.
+ *
+ * `projectId` can come from the route param (project-scoped route) or from
+ * the request body (unified route).
+ */
+export async function handleImportArtifacts(
+    req: NextRequest,
+    user: UserEntity,
+    projectId?: string,
+): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const body = await req.json();
     const bodyData = validatePayload(ImportArtifactsBodySchema, body);
     if (bodyData instanceof NextResponse) return bodyData;
 
-    const { projectId, artifactIds } = bodyData;
+    const resolvedProjectId = projectId ?? bodyData.projectId;
 
     // Verify project ownership
-    const project = await em.findOne(ProjectEntity, { id: projectId, user: user.id });
+    const project = await em.findOne(ProjectEntity, { id: resolvedProjectId, user: user.id });
     if (!project) {
         return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
     }
 
-    // Import artifacts
-    const result = await importArtifactsToProject(em, user.id, projectId, artifactIds);
+    const result = await importArtifactsToProject(em, user.id, resolvedProjectId, bodyData.artifactIds);
 
     // Queue embeddings for imported artifacts (fire-and-forget)
     if (result.imported > 0) {
@@ -278,7 +308,7 @@ export async function handleImportArtifacts(req: NextRequest, user: UserEntity):
                 embeddingQueue
                     .send({
                         type: 'index_artifact_version',
-                        projectId,
+                        projectId: resolvedProjectId,
                         versionId: d.newVersionId!,
                         content: d.content!,
                         documentName: d.key,
@@ -294,4 +324,160 @@ export async function handleImportArtifacts(req: NextRequest, user: UserEntity):
     const responseDetails = result.details.map(({ content: _content, ...rest }) => rest);
 
     return NextResponse.json({ ...result, details: responseDetails });
+}
+
+// ---------------------------------------------------------------------------
+// Resource handlers (user-scoped & project-scoped)
+// ---------------------------------------------------------------------------
+
+export async function handleListResources(
+    req: NextRequest,
+    user: UserEntity,
+    projectId?: string,
+): Promise<NextResponse> {
+    const { em } = await getOrm();
+    const { searchParams } = new URL(req.url);
+
+    const queryData = validatePayload(ListUserResourcesQuerySchema, {
+        page: searchParams.get('page') ?? undefined,
+        limit: searchParams.get('limit') ?? undefined,
+        documentType: searchParams.get('documentType') ?? undefined,
+        approvedOnly: searchParams.get('approvedOnly') ?? undefined,
+    });
+
+    if (queryData instanceof NextResponse) return queryData;
+
+    const { page, limit, documentType, approvedOnly } = queryData;
+
+    const query = em.createQueryBuilder(ArtifactEntity, 'a').select('a.*');
+
+    if (projectId) {
+        // Project-scoped: imported resources only
+        query
+            .leftJoin('a.project', 'p')
+            .leftJoinAndSelect('a.current_version', 'cv')
+            .where({
+                'p.id': projectId,
+                'p.user': user.id,
+                [raw("a.metadata->>'importedFrom'")]: { $ne: null },
+                $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+            });
+    } else {
+        // User-scoped: global resources
+        const where: Record<string, unknown> = { user: user.id, project: null };
+        if (documentType?.length) {
+            where.current_version = { document_type: { $in: documentType } };
+        }
+        if (approvedOnly) {
+            where['cv.status'] = 'approved';
+        }
+        query.leftJoinAndSelect('a.current_version', 'cv').where(where);
+    }
+
+    query.orderBy({ 'cv.document_type': 'ASC', 'a.created_at': 'DESC' });
+
+    const { nodes, totalCount } = await getPaginatedResult(query, { page, perPage: limit });
+
+    const artifactIds = nodes.map((a: ArtifactEntity) => a.id);
+    const proposedMap = await loadVersionsForArtifacts(em, artifactIds, 'proposed');
+
+    const data = nodes.map((a: ArtifactEntity) => ({
+        ...wrap(a).toJSON(),
+        proposed_version: proposedMap.get(a.id) ? wrap(proposedMap.get(a.id)!).toJSON() : undefined,
+    }));
+
+    return NextResponse.json(createPaginatedResponse(data, totalCount, page, limit));
+}
+
+export async function handleGetResourceByKey(req: NextRequest, key: string, user: UserEntity): Promise<NextResponse> {
+    const { em } = await getOrm();
+    const { searchParams } = new URL(req.url);
+
+    const queryData = validatePayload(GetArtifactQuerySchema, {
+        version: searchParams.get('version') ?? undefined,
+    });
+
+    if (queryData instanceof NextResponse) return queryData;
+
+    const normalizedKey = normalizeArtifactKey(key);
+
+    const artifact = await em
+        .createQueryBuilder(ArtifactEntity, 'a')
+        .select('a.*')
+        .leftJoinAndSelect('a.current_version', 'cv')
+        .where({
+            'a.key': normalizedKey,
+            'a.user': user.id,
+            $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+        })
+        .getSingleResult();
+
+    if (!artifact) {
+        return NextResponse.json({ error: 'Resource not found', code: 'RESOURCE_NOT_FOUND' }, { status: 404 });
+    }
+
+    if (queryData.version !== undefined) {
+        const requestedVersion = await em.findOne(ArtifactVersionEntity, {
+            artifact: artifact.id,
+            version: queryData.version,
+        });
+        if (!requestedVersion) {
+            return NextResponse.json({ error: 'Version not found', code: 'VERSION_NOT_FOUND' }, { status: 404 });
+        }
+
+        const previousVersion =
+            queryData.version > 1
+                ? await em.findOne(ArtifactVersionEntity, {
+                      artifact: artifact.id,
+                      version: queryData.version - 1,
+                  })
+                : null;
+
+        return NextResponse.json({
+            ...wrap(artifact).toJSON(),
+            current_version: previousVersion ? wrap(previousVersion).toJSON() : undefined,
+            proposed_version: wrap(requestedVersion).toJSON(),
+        });
+    }
+
+    const proposedVersion = await em.findOne(ArtifactVersionEntity, {
+        artifact: artifact.id,
+        status: 'proposed',
+    });
+
+    return NextResponse.json({
+        ...wrap(artifact).toJSON(),
+        proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
+    });
+}
+
+export async function handleRemoveProjectResource(
+    projectId: string,
+    artifactId: string,
+    user: UserEntity,
+): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const artifact = await em
+        .createQueryBuilder(ArtifactEntity, 'a')
+        .select('a.*')
+        .leftJoin('a.project', 'p')
+        .where({
+            'a.id': artifactId,
+            'p.id': projectId,
+            'p.user': user.id,
+            [raw("a.metadata->>'importedFrom'")]: { $ne: null },
+        })
+        .getSingleResult();
+
+    if (!artifact) {
+        return NextResponse.json({ message: 'Resource not found', code: 'RESOURCE_NOT_FOUND' }, { status: 404 });
+    }
+
+    await em.transactional(async (txEm) => {
+        await txEm.nativeDelete(ArtifactVersionEntity, { artifact: artifact.id });
+        await txEm.nativeDelete(ArtifactEntity, { id: artifact.id });
+    });
+
+    return NextResponse.json({ success: true, message: 'Resource removed from project' });
 }

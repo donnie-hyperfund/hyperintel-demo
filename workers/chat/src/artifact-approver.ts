@@ -1,10 +1,12 @@
-import { runInferenceNoStream, AIParamsType } from '@common/ai/inference/run-inference';
+import { AIParamsType, runInferenceNoStream } from '@common/ai/inference/run-inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types/models';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
+import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
+import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
@@ -12,11 +14,7 @@ import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader'
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
 
-async function generateYAMLForArtifact(
-    content: string,
-    messages: ChatMessageEntity[],
-    ctx: Ctx,
-): Promise<string> {
+async function generateYAMLForArtifact(content: string, messages: ChatMessageEntity[], ctx: Ctx): Promise<string> {
     const localPath = resolveLocalPromptPath();
     const systemPrompt = await getPromptContent(ctx, YAML_PROMPT_SLUG, localPath);
     if (!systemPrompt) {
@@ -75,10 +73,11 @@ export async function approveArtifactHandler(
         .leftJoinAndSelect('v.artifact', 'a')
         .leftJoinAndSelect('v.chat', 'c')
         .leftJoinAndSelect('a.project', 'p')
-        .leftJoinAndSelect('p.user', 'u')
+        .leftJoinAndSelect('p.user', 'pu')
+        .leftJoinAndSelect('a.user', 'au')
         .where({
             'v.id': versionId,
-            'u.clerkId': user.userId,
+            $or: [{ 'pu.clerkId': user.userId }, { 'au.clerkId': user.userId }],
         })
         .getSingleResult();
 
@@ -104,11 +103,7 @@ export async function approveArtifactHandler(
     }
 
     // Classify document to determine if AI-readable YAML should be generated
-    const isInternalDocument = await shouldGenerateAiContent(
-        ctx,
-        version.artifact.key,
-        version.artifact.title,
-    );
+    const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.artifact.title);
 
     console.log('[approveArtifact] Document classification:', {
         documentKey: version.artifact.key,
@@ -139,14 +134,32 @@ export async function approveArtifactHandler(
         console.log('[approveArtifact] Skipping YAML generation for client deliverable:', version.artifact.key);
     }
 
+    const project = version.artifact.project;
+    const projectUser = project?.user;
+
     version.status = 'approved';
     version.status_changed_at = new Date();
-    version.status_changed_by = version.artifact.project.user.id;
+    version.status_changed_by = projectUser?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
 
     await em.flush();
 
-    if (ctx.env.EMBEDDING_QUEUE) {
+    // Publish publishable document types to user scope for cross-project availability
+    if (PUBLISHABLE_DOCUMENT_TYPES.includes(version.document_type) && project && projectUser) {
+        try {
+            const publishResult = await publishArtifactToUserScope(em, {
+                sourceVersion: version,
+                userId: projectUser.id,
+                projectId: project.id,
+                projectName: project.name,
+            });
+            console.log('[approveArtifact] Published to user scope:', publishResult);
+        } catch (err) {
+            console.error('[approveArtifact] Publish to user scope failed (non-fatal):', err);
+        }
+    }
+
+    if (ctx.env.EMBEDDING_QUEUE && project) {
         try {
             const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
 
@@ -154,7 +167,7 @@ export async function approveArtifactHandler(
             // For client deliverables: index original content (no AI-readable version)
             await embeddingQueue.send({
                 type: 'index_artifact_version',
-                projectId: version.artifact.project.id,
+                projectId: project.id,
                 versionId: version.id,
                 content: isInternalDocument && yamlContent ? yamlContent : version.content,
                 documentName: version.artifact.key,
@@ -191,11 +204,13 @@ export async function rejectArtifactHandler(
         .createQueryBuilder(ArtifactVersionEntity, 'v')
         .select('v.*')
         .leftJoinAndSelect('v.artifact', 'a')
+        .leftJoinAndSelect('v.chat', 'c')
         .leftJoinAndSelect('a.project', 'p')
-        .leftJoinAndSelect('p.user', 'u')
+        .leftJoinAndSelect('p.user', 'pu')
+        .leftJoinAndSelect('a.user', 'au')
         .where({
             'v.id': versionId,
-            'u.clerkId': user.userId,
+            $or: [{ 'pu.clerkId': user.userId }, { 'au.clerkId': user.userId }],
         })
         .getSingleResult();
 
@@ -223,7 +238,7 @@ export async function rejectArtifactHandler(
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
-    version.status_changed_by = version.artifact.project.user.id;
+    version.status_changed_by = version.artifact.project?.user?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
 
     await em.flush();

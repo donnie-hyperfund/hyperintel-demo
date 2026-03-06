@@ -9,9 +9,10 @@ import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { sortChatsByCreatedAt } from '@/lib/phases';
 import { ChatItem, ChatItemSkeleton } from './chat-item';
 
+type ChatListParams = PageParams<'/[project-id]'>;
+
 export const ChatList = () => {
-    const params = useParams();
-    const projectId = params?.['project-id'] as string | undefined;
+    const { 'project-id': projectId } = useParams<ChatListParams>();
 
     const { data, error, isLoading } = useFetchChats(projectId);
     const chats = sortChatsByCreatedAt(data?.data ?? []);

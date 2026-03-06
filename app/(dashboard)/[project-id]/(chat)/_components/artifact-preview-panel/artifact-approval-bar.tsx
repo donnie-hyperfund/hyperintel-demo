@@ -3,9 +3,16 @@
 import { Check, Loader2, X as XIcon } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { useApproveArtifactVersion, useRejectArtifactVersion } from '@/lib/api/client/hooks/use-artifacts';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
+import { useApproveUserArtifactVersion, useRejectUserArtifactVersion } from '@/lib/api/client/hooks/use-artifacts';
+import {
+    useApproveProjectArtifactVersion,
+    useRejectProjectArtifactVersion,
+} from '@/lib/api/client/hooks/use-project-artifacts';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { isIntakeChat } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+
+type ArtifactApprovalBarParams = PageParams<'/[project-id]'>;
 
 type ArtifactApprovalBarProps = {
     artifactId: string;
@@ -21,25 +28,34 @@ export function ArtifactApprovalBar({
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
     const { updateArtifact, artifacts } = useArtifactContext();
-    const { clearPendingChanges } = useChatContext();
+    const { clearPendingChanges, chatType } = useChatContext();
+    const isIntake = isIntakeChat(chatType);
 
-    const params = useParams();
-    const projectId = params?.['project-id'] as string;
+    const { 'project-id': projectId } = useParams<ArtifactApprovalBarParams>();
 
-    const { trigger: approve, isMutating: isApproving } = useApproveArtifactVersion(
+    // Project-scoped hooks (only triggered for phase chats)
+    const { trigger: approveProjectArtifact, isMutating: isApprovingProjectArtifact } =
+        useApproveProjectArtifactVersion(projectId, artifactKey, artifactVersion);
+    const { trigger: rejectProjectArtifact, isMutating: isRejectingProjectArtifact } = useRejectProjectArtifactVersion(
         projectId,
         artifactKey,
         artifactVersion,
     );
-    const { trigger: reject, isMutating: isRejecting } = useRejectArtifactVersion(
-        projectId,
+
+    // User-scoped hooks (only triggered for intake chats)
+    const { trigger: approveUserArtifact, isMutating: isApprovingUserArtifact } = useApproveUserArtifactVersion(
+        artifactKey,
+        artifactVersion,
+    );
+    const { trigger: rejectUserArtifact, isMutating: isRejectingUserArtifact } = useRejectUserArtifactVersion(
         artifactKey,
         artifactVersion,
     );
 
+    const isApproving = isApprovingProjectArtifact || isApprovingUserArtifact;
+    const isRejecting = isRejectingProjectArtifact || isRejectingUserArtifact;
     const isProcessing = isApproving || isRejecting;
 
-    // Check if there are other pending artifacts (excluding the current one)
     const hasOtherPendingArtifacts = () => {
         return Object.values(artifacts).some((versions) =>
             Object.values(versions).some(
@@ -51,7 +67,8 @@ export function ArtifactApprovalBar({
     const handleApprove = async () => {
         try {
             onProcessingChange?.(true);
-            const updated = await approve();
+            const updated = isIntake ? await approveUserArtifact() : await approveProjectArtifact();
+
             if (updated) {
                 updateArtifact(artifactId, updated, artifactVersion, { merge: false });
                 // Clear pending changes only if no other artifacts are pending
@@ -70,7 +87,7 @@ export function ArtifactApprovalBar({
         try {
             onProcessingChange?.(true);
             // TODO: Remove the need for the reason
-            const updated = await reject('rejected');
+            const updated = isIntake ? await rejectUserArtifact('rejected') : await rejectProjectArtifact('rejected');
             if (updated) {
                 updateArtifact(artifactId, updated, artifactVersion, { merge: false });
                 // Clear pending changes only if no other artifacts are pending

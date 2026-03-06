@@ -1,16 +1,14 @@
 import { ChatModule } from '@/modules/chat/providers/chat-module';
-import ChatInterface from '../_components/chat-interface';
+import PhaseChatInterface from '../_components/phase-chat-interface';
 
-type ChatPageProps = {
-    params: Promise<{ 'project-id': string; chatId: string }>;
-};
+type ChatPageProps = PageProps<'/[project-id]/[chatId]'>;
 
 export default async function ChatPage({ params }: ChatPageProps) {
     const { chatId, 'project-id': projectId } = await params;
 
     return (
         <ChatModule key={chatId} projectId={projectId} initialChatId={chatId}>
-            <ChatInterface />
+            <PhaseChatInterface />
         </ChatModule>
     );
 }

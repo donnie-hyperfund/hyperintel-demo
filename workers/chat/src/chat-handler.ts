@@ -14,6 +14,7 @@ import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, Draf
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
+import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createDocumentEventHandler } from './utils/document-events';
 import {
     DEFAULT_LOCAL_PROMPTS_PATH,
@@ -28,13 +29,13 @@ import { createEnqueue, createSSEStream, handleCommonStreamEvent, handleStreamEr
 // ============================================================================
 
 /** Regex for document directives injected by finalize_document */
-const DOCUMENT_DIRECTIVE_REGEX = /::document\[[^\]]+\]\{[^}]+\}/g;
+export const DOCUMENT_DIRECTIVE_REGEX = /::document\[[^\]]+\]\{[^}]+\}/g;
 
 /**
  * Preprocess context messages before sending to inference.
  * Strips injected content (like document directives) that the model shouldn't see.
  */
-function preprocessContext(messages: any[]): any[] {
+export function preprocessContext(messages: any[]): any[] {
     return messages.map((msg) => {
         // Only process assistant messages with blocks
         if (msg.role !== 'assistant' || !msg.blocks) return msg;
@@ -248,7 +249,7 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
             // Determine inference params - use override if provided, otherwise default
             const defaultInference: ParamsWithType = {
                 paramsType: AIParamsType.Anthropic,
-                params: { model: ANTHROPIC_MODELS.SONNET, thinking: true, thinkingBudget: 8000, searchEnabled: true },
+                params: { model: data.model ?? ANTHROPIC_MODELS.SONNET, thinking: true, thinkingBudget: 8000, searchEnabled: true },
             };
             const inferenceParams = options.overrideInference ?? defaultInference;
 
@@ -258,8 +259,9 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
                 ...createDocumentTools(),
                 ...createKnowledgeTools(),
                 ...createWebScrapeTools(),
+                ...createPhaseTransitionTools(),
             ];
-            const toolGroups = [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup, WebScrapeToolGroup];
+            const toolGroups = [PromptManagementToolGroup, DocumentToolGroup, KnowledgeSearchToolGroup, WebScrapeToolGroup, PhaseTransitionToolGroup];
 
             // Run the agent with streaming
             const { stream, historyPromise } = runAgentStream(
@@ -277,6 +279,7 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
                 allTools,
                 {
                     toolGroups,
+                    terminalToolNames: ['generate_summary'],
                     config: {
                         maxToolCalls: 20,
                         getSystemPrompt: async () =>

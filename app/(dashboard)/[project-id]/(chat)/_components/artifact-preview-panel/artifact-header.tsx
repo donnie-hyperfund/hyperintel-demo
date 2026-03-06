@@ -1,22 +1,25 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
-import { formatDistanceToNow } from 'date-fns';
-import { ArrowLeft, Check, Copy, Download, FileText, FileUp, Loader2, X } from 'lucide-react';
+import { format, formatDistanceToNow } from 'date-fns';
+import { enUS } from 'date-fns/locale';
+import { ArrowLeft, Check, Copy, Download, FileUp, Loader2, X } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import { exportArtifact } from '@/lib/api/requests/worker/chat';
-import type { VersionStatus } from '@/lib/schema/artifact';
-import { VersionStatusBadge } from '../version-status-badge';
+import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
+import { getDocumentTypeIcon } from '@/modules/artifacts/utils';
 
 type ArtifactHeaderProps = {
     title: string;
     content: string;
     version?: number;
     status?: VersionStatus;
+    documentType?: DocumentType;
     isUploaded?: boolean;
     isInternal?: boolean;
     artifactVersionId?: string;
@@ -25,6 +28,8 @@ type ArtifactHeaderProps = {
     onCloseAction?: () => void;
     /** Slot for extra action buttons (e.g. delete) rendered before the close button */
     actions?: ReactNode;
+    /** Whether the content is being streamed */
+    isStreaming?: boolean;
 };
 
 export function ArtifactHeader({
@@ -32,6 +37,7 @@ export function ArtifactHeader({
     content,
     version,
     status,
+    documentType,
     isUploaded,
     isInternal,
     artifactVersionId,
@@ -39,14 +45,20 @@ export function ArtifactHeader({
     updatedAt,
     onCloseAction,
     actions,
+    isStreaming,
 }: ArtifactHeaderProps) {
     const { getToken } = useAuth();
     const [copied, setCopied] = useState(false);
     const [downloaded, setDownloaded] = useState(false);
     const [exporting, setExporting] = useState(false);
 
+    const Icon = getDocumentTypeIcon(documentType);
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : undefined;
+    const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;
+
+    const shouldDisplayCopyButton = !!content && !isStreaming;
+    const shouldDisplayDownloadButton = !!content && !isStreaming;
 
     const handleCopy = async () => {
         await navigator.clipboard.writeText(content);
@@ -109,18 +121,20 @@ export function ArtifactHeader({
                     </Button>
                 )}
                 <div className="flex gap-3 items-center">
-                    <FileText className="size-5 shrink-0 text-neutral-500 mt-0.5" />
+                    <Icon className="size-5 shrink-0 text-neutral-500 mt-0.5" />
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                            <span className="line-clamp-1 text-sm font-medium">{title}</span>
+                            <span title={title} className="line-clamp-1 text-sm font-medium">
+                                {title}
+                            </span>
                             <VersionStatusBadge status={status} isUploaded={isUploaded} />
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
                             <span>v{version}</span>
-                            {timeAgo && (
+                            {timeAgo && updatedAtFormatted && (
                                 <>
                                     <span>·</span>
-                                    <span>{timeAgo}</span>
+                                    <span title={updatedAtFormatted}>{timeAgo}</span>
                                 </>
                             )}
                         </div>
@@ -129,23 +143,31 @@ export function ArtifactHeader({
             </div>
 
             <div className="flex items-center gap-1">
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" onClick={handleCopy} disabled={!content}>
-                            {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{copied ? 'Copied!' : 'Copy content'}</TooltipContent>
-                </Tooltip>
+                {shouldDisplayCopyButton && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" onClick={handleCopy} disabled={!content}>
+                                {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{copied ? 'Copied!' : 'Copy content'}</TooltipContent>
+                    </Tooltip>
+                )}
 
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" onClick={handleDownload} disabled={!content}>
-                            {downloaded ? <Check className="size-4 text-green-500" /> : <Download className="size-4" />}
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{downloaded ? 'Downloaded!' : 'Download'}</TooltipContent>
-                </Tooltip>
+                {shouldDisplayDownloadButton && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" onClick={handleDownload} disabled={!content}>
+                                {downloaded ? (
+                                    <Check className="size-4 text-green-500" />
+                                ) : (
+                                    <Download className="size-4" />
+                                )}
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{downloaded ? 'Downloaded!' : 'Download'}</TooltipContent>
+                    </Tooltip>
+                )}
 
                 {canExportDocx && (
                     <Tooltip>

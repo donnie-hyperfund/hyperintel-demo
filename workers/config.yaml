@@ -57,6 +57,12 @@ vars:
     dev: "https://dev-app.hprntl.ai/"
 
 
+# Default KV namespaces included in EVERY worker
+default_kv_namespaces:
+  - binding: PREVIEW_DB_MAP
+    id:
+      dev: "1e9db27be0384a5b8da2244b4051b784"
+
 # Default vars included in EVERY worker
 default_vars:
   - CLERK_PUBLISHABLE_KEY
@@ -106,6 +112,8 @@ package_scripts:
 wrangler_defaults:
   compatibility_flags: ["nodejs_compat"]
   compatibility_date: "2025-04-29"
+  workers_dev: true
+  preview_urls: true
   observability:
     enabled: true
 

@@ -2,18 +2,18 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { cva } from 'class-variance-authority';
-import { FileText } from 'lucide-react';
 
 import { useCallback, useEffect, useRef } from 'react';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import { cn } from '@/lib/utils';
+import { DEFAULT_DOCUMENT_TYPE_ICON } from '@/modules/artifacts/constants';
+import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { getDocumentTypeIcon, isDocumentType } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useArtifactContext } from '@/modules/chat/providers/artifact-provider';
-import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
 
 const indicatorVariants = cva(
-    'group w-full max-w-[400px] flex items-center gap-4 rounded-3 border p-4 my-4 text-left transition-colors disabled:cursor-default disabled:opacity-50 bg-gradient-to-br',
+    'group w-full max-w-[400px] flex items-center gap-4 rounded-3 border p-4 my-4 text-left transition-colors disabled:cursor-default disabled:opacity-50 bg-gradient-to-br cursor-pointer',
     {
         variants: {
             state: {
@@ -31,16 +31,17 @@ const indicatorVariants = cva(
 type ArtifactIndicatorProps = {
     documentName: string;
     documentVersion: number;
+    documentType: string;
     className?: string;
 };
 
-export function ArtifactIndicator({ documentName, documentVersion, className }: ArtifactIndicatorProps) {
-    const { projectId } = useChatContext();
+export function ArtifactIndicator({ documentName, documentVersion, documentType, className }: ArtifactIndicatorProps) {
     const { getToken } = useAuth();
 
     const { panelState, openPanel, closePanel } = useActivePanelContext();
     const { getArtifact, addArtifact, updateArtifact } = useArtifactContext();
     const { target: scrollTarget, markFound, clear: clearScrollTarget } = useScrollTargetContext();
+    const Icon = isDocumentType(documentType) ? getDocumentTypeIcon(documentType) : DEFAULT_DOCUMENT_TYPE_ICON;
 
     const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -60,14 +61,12 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
             return;
         }
 
-        if (!projectId) return;
-
         addArtifact({ id: documentName, key: documentName, title: documentName, isLoading: true }, documentVersion);
         openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
 
         try {
             const api = createArtifactApi(getToken);
-            const fetchedArtifact = await api.getByKey(projectId, documentName, documentVersion);
+            const fetchedArtifact = await api.getByKey(documentName, documentVersion);
 
             if (fetchedArtifact) {
                 updateArtifact(
@@ -89,7 +88,7 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
             console.error('Failed to fetch artifact:', error);
             updateArtifact(documentName, { isLoading: false }, documentVersion);
         }
-    }, [documentName, documentVersion, artifact, projectId, getToken, addArtifact, updateArtifact, openPanel]);
+    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, openPanel]);
 
     const handleClick = () => {
         if (isSelected) {
@@ -143,16 +142,17 @@ export function ArtifactIndicator({ documentName, documentVersion, className }: 
             type="button"
             onClick={handleClick}
             disabled={isLoading}
+            title={documentName}
             className={cn(
                 indicatorVariants({ state: isSelected ? 'selected' : 'default' }),
                 isScrollTarget && 'artifact-scroll-highlight',
                 className,
             )}
         >
-            <FileText className="size-6 shrink-0 text-neutral-500" />
+            <Icon className="size-6 shrink-0 text-neutral-500" />
 
             <div className="min-w-0 flex-1">
-                <span className="text-sm font-medium truncate">{documentName}</span>
+                <span className="text-sm font-medium line-clamp-1">{documentName}</span>
                 <div className="mt-0.5 text-xs text-neutral-500">v{documentVersion}</div>
             </div>
         </button>

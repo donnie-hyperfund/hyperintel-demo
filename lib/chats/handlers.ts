@@ -442,6 +442,7 @@ export async function handleListChatArtifacts(
     const queryData = validatePayload(ListArtifactsQuerySchema, {
         page: searchParams.get('page') ?? undefined,
         limit: searchParams.get('limit') ?? undefined,
+        document_type: searchParams.get('document_type') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
@@ -452,17 +453,22 @@ export async function handleListChatArtifacts(
         .leftJoin('a.versions', 'v')
         .leftJoinAndSelect('a.current_version', 'cv');
 
+    const versionFilter: Record<string, unknown> = { 'v.chat': chatId };
+    if (queryData.document_type) {
+        versionFilter['v.document_type'] = queryData.document_type;
+    }
+
     if (projectId) {
         qb.leftJoin('a.project', 'p')
             .where({
-                'v.chat': chatId,
+                ...versionFilter,
                 'p.id': projectId,
                 'p.user': user.id,
                 $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
             });
     } else {
         qb.where({
-            'v.chat': chatId,
+            ...versionFilter,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
         });
     }

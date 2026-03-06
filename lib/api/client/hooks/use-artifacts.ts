@@ -1,56 +1,43 @@
 import { useAuth } from '@clerk/nextjs';
-import { useRef, useState } from 'react';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
-import { toast } from '@/hooks/use-toast';
-import {
-    artifactKeys,
-    createArtifactApi,
-    getArtifactListInfiniteKey,
-    serializeArtifactListKey,
-} from '@/lib/api/client/fetchers/artifacts';
-import type {
-    InfinitePaginationParams,
-    PaginatedResponse,
-    PaginationParams,
-    UploadStatus,
-} from '@/lib/api/client/types';
-import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
-import { isKnownUploadError, UploadValidationError, validateArtifactFile } from '@/lib/artifacts/utils';
-import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
-import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
+import { artifactKeys, createArtifactApi, getArtifactListInfiniteKey } from '@/lib/api/client/fetchers/artifacts';
+import { resourceKeys } from '@/lib/api/client/fetchers/resources';
+import type { InfinitePaginationParams, PaginatedResponse, PaginationParams } from '@/lib/api/client/types';
+import { approveArtifact, rejectArtifact } from '@/lib/api/requests/worker/chat';
+import type { ArtifactDto, DocumentType } from '@/lib/schema/artifact';
 
 export function useFetchArtifacts(
-    projectId: string | undefined,
+    documentType: DocumentType | undefined,
     params?: PaginationParams,
     config?: SWRConfiguration<PaginatedResponse<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
 
     return useSWR<PaginatedResponse<ArtifactDto>>(
-        projectId ? artifactKeys.list(projectId, params) : null,
+        documentType ? artifactKeys.list(documentType, params) : null,
         () => {
-            if (!projectId) throw new Error('Project ID is required');
-            return createArtifactApi(getToken).list(projectId, params);
+            if (!documentType) throw new Error('Document type is required');
+            return createArtifactApi(getToken).list(documentType, params);
         },
         { revalidateOnFocus: false, ...config },
     );
 }
 
 export function useFetchArtifactsInfinite(
-    projectId: string | undefined,
+    documentType: DocumentType | undefined,
     params: InfinitePaginationParams = { limit: 20 },
     config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
 
     const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
-        getArtifactListInfiniteKey(projectId, params.limit),
+        getArtifactListInfiniteKey(documentType, params.limit),
         (key) => {
-            if (!projectId) throw new Error('Project ID is required');
+            if (!documentType) throw new Error('Document type is required');
             const params = key[key.length - 1] as PaginationParams;
-            return createArtifactApi(getToken).list(projectId, params);
+            return createArtifactApi(getToken).list(documentType, params);
         },
         { revalidateOnFocus: false, ...config },
     );
@@ -61,49 +48,21 @@ export function useFetchArtifactsInfinite(
     return { ...result, hasNextPage };
 }
 
-export function useFetchArtifact(
-    projectId: string | undefined,
-    artifactId: string | undefined,
-    config?: SWRConfiguration<ArtifactDto>,
-) {
-    const { getToken } = useAuth();
-
-    return useSWR<ArtifactDto>(
-        projectId && artifactId ? artifactKeys.detail(projectId, artifactId) : null,
-        () => {
-            if (!projectId || !artifactId) throw new Error('Project ID and Artifact ID are required');
-            return createArtifactApi(getToken).get(projectId, artifactId);
-        },
-        { revalidateOnFocus: false, ...config },
-    );
+function invalidateUserArtifactCaches(globalMutate: ReturnType<typeof useSWRConfig>['mutate']) {
+    globalMutate((key) => Array.isArray(key) && key[0] === artifactKeys.all[0]);
+    globalMutate((key) => Array.isArray(key) && key[0] === resourceKeys.all[0]);
 }
 
-export function useFetchArtifactByKey(
-    projectId: string | undefined,
-    key: string | undefined,
-    config?: SWRConfiguration<ArtifactDto>,
-) {
-    const { getToken } = useAuth();
-
-    return useSWR<ArtifactDto>(
-        projectId && key ? artifactKeys.byKey(projectId, key) : null,
-        () => {
-            if (!projectId || !key) throw new Error('Project ID and key are required');
-            return createArtifactApi(getToken).getByKey(projectId, key);
-        },
-        { revalidateOnFocus: false, ...config },
-    );
-}
-
-export function useApproveArtifactVersion(projectId: string, artifactKey: string, artifactVersion: number) {
+/** Approve a proposed version on a user-scoped artifact (intake chats). */
+export function useApproveUserArtifactVersion(artifactKey: string, artifactVersion: number) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[]>(
-        [...artifactKeys.byKey(projectId, artifactKey)],
+    return useSWRMutation<ArtifactDto, Error, readonly string[]>(
+        [...artifactKeys.all, 'approve', artifactKey, String(artifactVersion)],
         async () => {
             const api = createArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
+            const artifact = await api.getByKey(artifactKey, artifactVersion);
             if (!artifact.proposed_version) throw new Error('No proposed version');
 
             const token = await getToken();
@@ -115,21 +74,22 @@ export function useApproveArtifactVersion(projectId: string, artifactKey: string
                 throw new Error(error.message || 'Failed to approve artifact');
             }
 
-            globalMutate(serializeArtifactListKey(projectId));
-            return api.getByKey(projectId, artifactKey, artifactVersion);
+            invalidateUserArtifactCaches(globalMutate);
+            return api.getByKey(artifactKey, artifactVersion);
         },
     );
 }
 
-export function useRejectArtifactVersion(projectId: string, artifactKey: string, artifactVersion: number) {
+/** Reject a proposed version on a user-scoped artifact (intake chats). */
+export function useRejectUserArtifactVersion(artifactKey: string, artifactVersion: number) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[], string>(
-        [...artifactKeys.byKey(projectId, artifactKey)],
+    return useSWRMutation<ArtifactDto, Error, readonly string[], string>(
+        [...artifactKeys.all, 'reject', artifactKey, String(artifactVersion)],
         async (_, { arg: reason }) => {
             const api = createArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
+            const artifact = await api.getByKey(artifactKey, artifactVersion);
             if (!artifact.proposed_version) throw new Error('No proposed version');
 
             const token = await getToken();
@@ -141,96 +101,17 @@ export function useRejectArtifactVersion(projectId: string, artifactKey: string,
                 throw new Error(error.message || 'Failed to reject artifact');
             }
 
-            globalMutate(serializeArtifactListKey(projectId));
-            return api.getByKey(projectId, artifactKey, artifactVersion);
+            invalidateUserArtifactCaches(globalMutate);
+            return api.getByKey(artifactKey, artifactVersion);
         },
     );
 }
 
-export function useDeleteArtifact(projectId: string, artifactKey: string) {
+export function useDeleteArtifact(artifactId: string) {
     const { getToken } = useAuth();
-    const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<{ success: true; message: string }, Error, readonly (string | undefined)[]>(
-        [...artifactKeys.byKey(projectId, artifactKey), 'delete'],
-        async () => {
-            const api = createArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey);
-            const result = await api.delete(projectId, artifact.id);
-            globalMutate(serializeArtifactListKey(projectId));
-            return result;
-        },
+    return useSWRMutation<{ success: true; message: string }, Error, readonly string[]>(
+        [...artifactKeys.all, artifactId, 'delete'],
+        () => createArtifactApi(getToken).delete(artifactId),
     );
-}
-
-export function useUploadArtifact(projectId: string, chatId: string | null) {
-    const { getToken } = useAuth();
-    const { mutate: globalMutate } = useSWRConfig();
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const [status, setStatus] = useState<UploadStatus>('idle');
-    const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    const uploadKey = projectId ? [...artifactKeys.all, 'upload', projectId, chatId ?? 'project'] : null;
-
-    const mutation = useSWRMutation<UploadArtifactResponseDto, Error, string[] | null, File>(
-        uploadKey,
-        async (_, { arg: file }) => {
-            const validation = validateArtifactFile(file);
-            if (validation) throw new UploadValidationError(validation.code, validation.message);
-
-            const token = await getToken();
-            if (!token) throw new Error('Not authenticated');
-
-            const response = await uploadArtifact({ file, projectId, chatId }, token);
-            if (!response.ok) {
-                const error = await response.json();
-                // Only trust messages with codes we control — everything else is opaque
-                if (isKnownUploadError(error.code)) {
-                    throw new UploadValidationError(error.code, error.message);
-                }
-                throw new Error(error.message || 'Upload failed');
-            }
-
-            globalMutate(serializeArtifactListKey(projectId));
-            return response.json();
-        },
-    );
-
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        try {
-            setStatus('uploading');
-            const result = await mutation.trigger(file);
-
-            if (result) {
-                setStatus('success');
-                successTimeoutRef.current = setTimeout(() => setStatus('idle'), 1000);
-                toast({
-                    title:
-                        result.action === 'new_version'
-                            ? `Uploaded as v${result.version} of "${result.key}"`
-                            : `Uploaded "${result.key}"`,
-                });
-            }
-        } catch (err) {
-            setStatus('idle');
-            console.error('Upload failed:', err);
-
-            toast({
-                title: err instanceof UploadValidationError ? err.message : 'Something went wrong. Please try again.',
-                variant: 'destructive',
-            });
-        } finally {
-            if (fileInputRef.current) fileInputRef.current.value = '';
-        }
-    };
-
-    return {
-        fileInputRef,
-        handleFileChange,
-        status,
-        accept: ALLOWED_ARTIFACT_EXTENSIONS.join(','),
-    };
 }
