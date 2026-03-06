@@ -13,6 +13,8 @@ export type { ActiveDocument, DocumentEdit, StreamEvent, StreamSnapshot, StreamS
 const DEAD_MAN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const ABORT_WAIT_TIMEOUT_MS = 60_000; // 60 seconds
 const TOOL_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+/** How often to flush state to storage during streaming (crash-recovery only). */
+const PERSIST_INTERVAL_MS = 1_000;
 
 // Storage keys
 const SK_BLOCKS = 'blocks';
@@ -61,6 +63,11 @@ export class ChatStreamDO extends DurableObject<Env> {
     private abortResolve: ((value: 'abort' | 'done') => void) | null = null;
     private approvalResolvers = new Map<string, (approved: boolean) => void>();
     private initialized = false;
+    private lastPersistTime = 0;
+
+    // --- Reorder buffer for fire-and-forget push (in-memory only) ---
+    private nextExpectedSeq = 0;
+    private pendingBatches = new Map<number, StreamEvent[]>();
 
     /** Lazy-load state from storage on first RPC call */
     private async ensureLoaded() {
@@ -354,27 +361,42 @@ export class ChatStreamDO extends DurableObject<Env> {
     // ========================================================================
 
     /**
-     * Push stream events — apply to state, broadcast to subscribers, reset dead-man alarm.
+     * Push stream events with a sequence number for reorder-safe fire-and-forget delivery.
+     * Out-of-order batches are buffered until all preceding sequences arrive.
      */
-    async push(events: StreamEvent[]) {
+    async push(events: StreamEvent[], seq: number) {
         await this.ensureLoaded();
 
         if (this.status === 'idle') {
             this.status = 'streaming';
         }
 
-        for (const event of events) {
-            this.applyEvent(event);
+        // Duplicate / already-processed — ignore
+        if (seq < this.nextExpectedSeq) return;
+
+        // Buffer this batch
+        this.pendingBatches.set(seq, events);
+
+        // Drain consecutive batches in order
+        while (this.pendingBatches.has(this.nextExpectedSeq)) {
+            const batch = this.pendingBatches.get(this.nextExpectedSeq)!;
+            this.pendingBatches.delete(this.nextExpectedSeq);
+            this.nextExpectedSeq++;
+
+            for (const event of batch) {
+                this.applyEvent(event);
+            }
+            for (const event of batch) {
+                await this.broadcast(event);
+            }
         }
 
-        await this.persistState();
-
-        // Reset dead-man's switch
-        await this.ctx.storage.setAlarm(Date.now() + DEAD_MAN_TIMEOUT_MS);
-
-        // Broadcast each event to live subscribers
-        for (const event of events) {
-            await this.broadcast(event);
+        // Persist + alarm on a throttled schedule (crash-recovery only)
+        const now = Date.now();
+        if (now - this.lastPersistTime >= PERSIST_INTERVAL_MS) {
+            await this.persistState();
+            await this.ctx.storage.setAlarm(now + DEAD_MAN_TIMEOUT_MS);
+            this.lastPersistTime = now;
         }
     }
 
@@ -417,6 +439,8 @@ export class ChatStreamDO extends DurableObject<Env> {
         this.topicPrefix = topicPrefix;
         this.previewAlias = previewAlias ?? null;
         this.status = 'idle';
+        this.nextExpectedSeq = 0;
+        this.pendingBatches.clear();
         await this.persistState();
         // Start dead-man alarm — if no push() arrives, alarm fires and cleans up
         await this.ctx.storage.setAlarm(Date.now() + DEAD_MAN_TIMEOUT_MS);

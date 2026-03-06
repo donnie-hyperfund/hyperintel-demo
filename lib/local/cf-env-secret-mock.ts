@@ -65,6 +65,12 @@ export function ensureDevWsServer() {
     (globalThis as any)[WS_KEY] = wss;
 
     wss.on('connection', (rawWs, req) => {
+        // Disable Nagle's algorithm — on local, all DO calls are in-process (no network
+        // latency between push→broadcast→ws.send), so multiple frames queue in the same
+        // event loop tick. Without noDelay, TCP coalesces them into a single segment and
+        // the browser receives a batch instead of smooth token-by-token delivery.
+        (rawWs as any)._socket?.setNoDelay?.(true);
+
         // Extract real Clerk userId from JWT in Sec-WebSocket-Protocol header
         let userId = 'dev-user-1';
         const protocols = req.headers['sec-websocket-protocol']?.toString() ?? '';

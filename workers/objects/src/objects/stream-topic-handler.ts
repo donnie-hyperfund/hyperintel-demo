@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import createNeonSql from '@/workers/_common/vendor/neon';
-import type { StreamSnapshot } from './chat-stream-do';
+import type { StreamEvent, StreamSnapshot } from './chat-stream-do';
 import type { ActionResult, SubscribeResponse, TopicHandler } from './topic-handler';
 
 // ============================================================================
@@ -17,6 +17,8 @@ export interface ChatStreamDOStub {
         previewAlias?: string,
     ): Promise<void>;
 
+    /** Push events with a sequence number for reorder-safe fire-and-forget delivery. */
+    push(events: StreamEvent[], seq: number): Promise<void>;
     subscribe(userId: string, ugDoName: string): Promise<StreamSnapshot>;
     unsubscribe(userId: string): Promise<void>;
     abort(): Promise<void>;

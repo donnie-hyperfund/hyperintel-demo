@@ -410,26 +410,42 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         const state = { wasTool: false };
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
 
-        // Document event handler — pushes document events to DO
+        // Track in-flight DO pushes so we can drain before terminal events
+        let pushSeq = 0;
+        const inflightPushes: Promise<void>[] = [];
+        const fireAndForgetPush = (events: StreamEvent[]) => {
+            const p = streamDO.push(events, pushSeq++).catch((err) => console.error('[chat-handler] push failed:', err));
+            inflightPushes.push(p);
+        };
+
+        // Document events queue — batched into the main push instead of separate RPCs
+        const pendingDocEvents: StreamEvent[] = [];
         const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) => {
             const se = docEvent as StreamEvent;
-            streamDO.push([se]).catch((err) => console.error('[chat-handler] doc event push failed:', err));
+            pendingDocEvents.push(se);
             options.onEvent?.(se);
         });
 
         // Stream loop — push events to ChatStream DO instead of SSE
         for await (const event of stream) {
-            // Let document handler process the event
+            // Let document handler process the event (queues doc events locally)
             await docEvents.handle(event);
 
             // Delegate common events to collector
             if (handleCommonStreamEvent(collector.enqueue, event, state)) {
                 const events = collector.drain();
-                if (events.length > 0) {
-                    await streamDO.push(events);
+                // Combine queued doc events + main events into a single push
+                const combined = [...pendingDocEvents.splice(0), ...events];
+                if (combined.length > 0) {
+                    fireAndForgetPush(combined);
                     if (options.onEvent) events.forEach((e) => options.onEvent!(e));
                 }
                 continue;
+            }
+
+            // Flush any doc events that weren't paired with a main event
+            if (pendingDocEvents.length > 0) {
+                fireAndForgetPush(pendingDocEvents.splice(0));
             }
 
             // Chat-specific events
@@ -546,7 +562,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                 outputTool: pendingDoneEvent.outputTool,
                             }),
                     };
-                    await streamDO.push([doneEvent]);
+                    // Drain all in-flight pushes before terminal event
+                    await Promise.allSettled(inflightPushes);
+                    await streamDO.push([doneEvent], pushSeq++);
                     options.onEvent?.(doneEvent);
                     break;
                 }
@@ -591,7 +609,8 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
         // Push error event + mark DO as errored
         try {
-            await streamDO.push([{ type: 'error', error: error?.message || 'Unknown error' }]);
+            await Promise.allSettled(inflightPushes);
+            await streamDO.push([{ type: 'error', error: error?.message || 'Unknown error' }], pushSeq++);
             await streamDO.done();
             await streamDO.finalize();
         } catch {
