@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
+import { TokenDrip, chunkText } from '@/lib/token-drip';
 import type { ActiveDocument, StreamBlock, StreamEvent, StreamStatus, TokenUsage } from '@/lib/schema/stream';
 import type {
     ChatMessageCreatedMessage,
@@ -133,6 +134,48 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const stateRef = useRef<StreamingState>(createStreamingState());
     const documentQueueRef = useRef<AsyncEventQueue<{ type: string; payload: any }> | null>(null);
 
+    // ---- Token drips (adaptive rAF — proportional drain + TPS tracking) ----
+
+    // Text / reasoning drip
+    type DripItem = { blockId: string; text: string; blockType: 'text' | 'reasoning' };
+    const applyDrip = (item: DripItem) => {
+        const s = stateRef.current;
+        let idx = s.blocks.findIndex((b) => b.id === item.blockId);
+        if (idx === -1) {
+            s.blocks.push({ id: item.blockId, type: item.blockType, content: '' });
+            idx = s.blocks.length - 1;
+        }
+        if (s.blocks[idx].type === item.blockType) {
+            s.blocks[idx] = { ...s.blocks[idx], content: s.blocks[idx].content + item.text } as StreamBlock;
+        }
+    };
+    const dripRef = useRef(
+        new TokenDrip<DripItem>(applyDrip, () => setBlocks([...stateRef.current.blocks])),
+    );
+    const enqueueDrip = (blockId: string, text: string, blockType: 'text' | 'reasoning') => {
+        const chunks = chunkText(text);
+        if (chunks.length === 1) {
+            dripRef.current.enqueue({ blockId, text: chunks[0], blockType });
+        } else {
+            dripRef.current.enqueue(chunks.map((t) => ({ blockId, text: t, blockType })));
+        }
+    };
+
+    // Document delta drip (same adaptive smoothing for artifact content)
+    type DocDripItem = { name: string; content: string };
+    const applyDocDrip = (item: DocDripItem) => {
+        const s = stateRef.current;
+        const o = optsRef.current;
+        const doc = s.streamingDocs.get(item.name);
+        if (doc) {
+            doc.content += item.content;
+            o.artifactContext?.updateArtifact(doc.artifactId, { proposed_version: { content: doc.content } }, doc.version);
+        }
+    };
+    const docDripRef = useRef(
+        new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()),
+    );
+
     // Flush mutable state to React state (rAF-coalesced for rapid deltas)
     const flushRaf = useRef(0);
     const flush = () => {
@@ -172,6 +215,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
      * status='done' with stale (incomplete) blocks for one render cycle.
      */
     const flushSync = () => {
+        dripRef.current.drain();
+        docDripRef.current.drain();
         if (flushRaf.current) {
             cancelAnimationFrame(flushRaf.current);
             flushRaf.current = 0;
@@ -293,16 +338,20 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             }
 
             case 'document_delta': {
-                const doc = s.streamingDocs.get(payload.name);
-                if (doc) {
-                    doc.content += payload.content;
-                    ac?.updateArtifact(doc.artifactId, { proposed_version: { content: doc.content } }, doc.version);
-                    flushActiveDocuments();
+                if (s.streamingDocs.has(payload.name)) {
+                    const chunks = chunkText(payload.content);
+                    if (chunks.length === 1) {
+                        docDripRef.current.enqueue({ name: payload.name, content: chunks[0] });
+                    } else {
+                        docDripRef.current.enqueue(chunks.map((c) => ({ name: payload.name, content: c })));
+                    }
                 }
                 break;
             }
 
             case 'document_edit': {
+                // Flush pending drip deltas before applying edits
+                docDripRef.current.drain();
                 const doc = s.streamingDocs.get(payload.name);
                 if (doc && payload.edits) {
                     let content = doc.content;
@@ -333,6 +382,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             }
 
             case 'document_complete': {
+                // Flush pending drip deltas before marking complete
+                docDripRef.current.drain();
                 const doc = s.streamingDocs.get(payload.name);
                 if (!doc) break;
 
@@ -369,6 +420,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
         // Reset all state for new topic
         stateRef.current = createStreamingState();
+        dripRef.current.dispose();
+        docDripRef.current.dispose();
         documentQueueRef.current = new AsyncEventQueue(handleDocumentEvent);
         setBlocks([]);
         setActiveDocuments([]);
@@ -502,18 +555,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             if (s.currentTextBlockId !== blockIdToUse) {
                                 s.currentTextBlockId = blockIdToUse;
                             }
-                            let idx = s.blocks.findIndex((b) => b.id === blockIdToUse);
-                            if (idx === -1) {
-                                s.blocks.push({ id: blockIdToUse, type: 'text', content: '' });
-                                idx = s.blocks.length - 1;
-                            }
-                            if (s.blocks[idx].type === 'text') {
-                                s.blocks[idx] = {
-                                    ...s.blocks[idx],
-                                    content: s.blocks[idx].content + event.text,
-                                } as StreamBlock;
-                            }
-                            flush();
+                            enqueueDrip(blockIdToUse, event.text, 'text');
                             break;
                         }
 
@@ -535,18 +577,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             if (s.currentReasoningBlockId !== blockIdToUse) {
                                 s.currentReasoningBlockId = blockIdToUse;
                             }
-                            let idx = s.blocks.findIndex((b) => b.id === blockIdToUse);
-                            if (idx === -1) {
-                                s.blocks.push({ id: blockIdToUse, type: 'reasoning', content: '' });
-                                idx = s.blocks.length - 1;
-                            }
-                            if (s.blocks[idx].type === 'reasoning') {
-                                s.blocks[idx] = {
-                                    ...s.blocks[idx],
-                                    content: s.blocks[idx].content + text,
-                                } as StreamBlock;
-                                flush();
-                            }
+                            enqueueDrip(blockIdToUse, text, 'reasoning');
                             break;
                         }
                         case 'reasoning_done': {
@@ -739,6 +770,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             ws.off('message', onMessage);
             ws.off('connected', onConnected);
             unsub();
+            dripRef.current.dispose();
+            docDripRef.current.dispose();
             if (flushRaf.current) cancelAnimationFrame(flushRaf.current);
             if (flushDocsRaf.current) cancelAnimationFrame(flushDocsRaf.current);
         };
