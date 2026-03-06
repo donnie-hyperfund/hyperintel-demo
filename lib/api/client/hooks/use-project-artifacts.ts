@@ -1,7 +1,7 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRef, useState } from 'react';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
-import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
+import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { toast } from '@/hooks/use-toast';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
@@ -24,6 +24,7 @@ import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/reque
 import { isKnownUploadError, UploadValidationError, validateArtifactFile } from '@/lib/artifacts/utils';
 import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
+import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
 export function useFetchProjectArtifacts(
     projectId: string | undefined,
@@ -50,7 +51,7 @@ export function useFetchProjectArtifactsInfinite(
     const { getToken } = useAuth();
     const { limit, ...filters } = params;
 
-    const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
+    return useSWRInfinitePaginated<ArtifactDto>(
         getProjectArtifactListInfiniteKey(projectId, limit, filters),
         (key) => {
             if (!projectId) throw new Error('Project ID is required');
@@ -59,11 +60,6 @@ export function useFetchProjectArtifactsInfinite(
         },
         { revalidateOnFocus: false, ...config },
     );
-
-    const lastPage = result.data?.[result.data.length - 1];
-    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
-
-    return { ...result, hasNextPage };
 }
 
 export function useFetchProjectArtifact(

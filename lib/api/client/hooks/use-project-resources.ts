@@ -1,14 +1,15 @@
 import { useAuth } from '@clerk/nextjs';
 import { useMemo } from 'react';
-import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
+import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import {
     createProjectResourceApi,
     getProjectResourceListInfiniteKey,
     type ProjectResourceListParams,
 } from '@/lib/api/client/fetchers/project-resources';
 import type { InfinitePaginationParams, PaginatedResponse } from '@/lib/api/client/types';
-import { isApprovedArtifact } from '@/lib/artifacts/utils';
+import { getArtifactDocumentType, isApprovedArtifact } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
+import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
 export function useFetchProjectResources(
     projectId: string,
@@ -17,7 +18,7 @@ export function useFetchProjectResources(
 ) {
     const { getToken } = useAuth();
 
-    const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
+    const result = useSWRInfinitePaginated<ArtifactDto>(
         getProjectResourceListInfiniteKey(projectId, params.limit),
         (key) => {
             const pageParams = key[key.length - 1] as ProjectResourceListParams;
@@ -26,13 +27,23 @@ export function useFetchProjectResources(
         { revalidateOnFocus: false, ...config },
     );
 
-    const lastPage = result.data?.[result.data.length - 1];
-    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
-
     const allItems = useMemo(() => {
         if (!result.data) return [];
         return result.data.flatMap((page) => page.data).filter(isApprovedArtifact);
     }, [result.data]);
 
-    return { ...result, allItems, hasNextPage };
+    const { companies, stakeholders, legacyDna } = useMemo(
+        () => ({
+            companies: allItems.filter(
+                (a) => getArtifactDocumentType(a) === 'Company Profile' && isApprovedArtifact(a),
+            ),
+            stakeholders: allItems.filter(
+                (a) => getArtifactDocumentType(a) === 'Human Persona' && isApprovedArtifact(a),
+            ),
+            legacyDna: allItems.filter((a) => getArtifactDocumentType(a) === 'Legacy DNA' && isApprovedArtifact(a)),
+        }),
+        [allItems],
+    );
+
+    return { ...result, allItems, companies, stakeholders, legacyDna };
 }
