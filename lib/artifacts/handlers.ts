@@ -154,19 +154,48 @@ export async function handleGetArtifacts(req: NextRequest, user: UserEntity): Pr
     return handleIntakeArtifacts(req, user);
 }
 
-export async function handleIntakeArtifacts(_req: NextRequest, user: UserEntity): Promise<NextResponse> {
+export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
+    const { searchParams } = new URL(req.url);
 
-    const artifacts = await em.find(
-        ArtifactEntity,
-        { user: user.id, project: null },
-        { orderBy: { created_at: 'DESC' } },
-    );
+    const queryData = validatePayload(ListArtifactsQuerySchema, {
+        page: searchParams.get('page') ?? undefined,
+        limit: searchParams.get('limit') ?? undefined,
+        document_type: searchParams.get('document_type') ?? undefined,
+    });
 
-    const artifactIds = artifacts.map((a) => a.id);
+    if (queryData instanceof NextResponse) return queryData;
+
+    const query = em
+        .createQueryBuilder(ArtifactEntity, 'a')
+        .select('a.*')
+        .leftJoinAndSelect('a.current_version', 'cv')
+        .where({ 'a.user': user.id, 'a.project': null })
+        .orderBy({ 'a.created_at': 'DESC' });
+
+    // Filter by document_type through versions (an artifact may have the type on any version)
+    if (queryData.document_type) {
+        const matchingVersions = await em.find(
+            ArtifactVersionEntity,
+            { document_type: queryData.document_type, artifact: { user: user.id, project: null } },
+            { fields: ['artifact'], populate: ['artifact'] },
+        );
+        const matchingArtifactIds = [...new Set(matchingVersions.map((v) => v.artifact.id))];
+        if (matchingArtifactIds.length === 0) {
+            return NextResponse.json(createPaginatedResponse([], 0, queryData.page ?? 1, queryData.limit ?? 20));
+        }
+        query.andWhere({ 'a.id': { $in: matchingArtifactIds } });
+    }
+
+    const page = queryData.page ?? 1;
+    const limit = queryData.limit ?? 20;
+
+    const { nodes, totalCount } = await getPaginatedResult(query, { page, perPage: limit });
+
+    const artifactIds = nodes.map((a: ArtifactEntity) => a.id);
     const latestByArtifact = await loadVersionsForArtifacts(em, artifactIds);
 
-    const mapped = artifacts.map((artifact) => {
+    const mappedNodes = nodes.map((artifact: ArtifactEntity) => {
         const latest = latestByArtifact.get(artifact.id);
         return {
             ...wrap(artifact).toJSON(),
@@ -174,7 +203,7 @@ export async function handleIntakeArtifacts(_req: NextRequest, user: UserEntity)
         };
     });
 
-    return NextResponse.json(mapped);
+    return NextResponse.json(createPaginatedResponse(mappedNodes, totalCount, page, limit));
 }
 
 // ---------------------------------------------------------------------------
