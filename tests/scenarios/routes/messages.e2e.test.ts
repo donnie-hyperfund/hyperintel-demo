@@ -18,7 +18,7 @@ beforeAll(async () => {
 	const userA = em.create(UserEntity, { email: "messages-a@t.com", emailConfirmed: true, clerkId: CLERK_ID_A });
 	const userB = em.create(UserEntity, { email: "messages-b@t.com", emailConfirmed: true, clerkId: CLERK_ID_B });
 	const project = em.create(ProjectEntity, { name: "Msg Project", user: userA });
-	const chat = em.create(ChatEntity, { phase: "chat", project, user: userA });
+	const chat = em.create(ChatEntity, { phase: "chat", phase_index: 0, project, user: userA });
 	await em.persistAndFlush([userA, userB, project, chat]);
 	projectId = project.id;
 	chatId = chat.id;

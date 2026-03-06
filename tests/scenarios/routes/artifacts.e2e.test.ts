@@ -24,24 +24,24 @@ beforeAll(async () => {
 	const userA = em.create(UserEntity, { email: "artifacts-a@t.com", emailConfirmed: true, clerkId: CLERK_ID_A });
 	const userB = em.create(UserEntity, { email: "artifacts-b@t.com", emailConfirmed: true, clerkId: CLERK_ID_B });
 	const project = em.create(ProjectEntity, { name: "Art Project", user: userA });
-	const chat = em.create(ChatEntity, { phase: "chat", project, user: userA });
+	const chat = em.create(ChatEntity, { phase: "chat", phase_index: 0, project, user: userA });
 
 	// Uploaded artifact (can be deleted)
-	const uploaded = em.create(ArtifactEntity, { key: "uploaded.md", title: "Uploaded", version: 1, project, user: userA });
+	const uploaded = em.create(ArtifactEntity, { key: "uploaded.md", title: "Uploaded", version: 1, project, user: userA, current_version: null! });
 	const uv1 = em.create(ArtifactVersionEntity, {
 		artifact: uploaded, version: 1, content: "uploaded content", status: "approved", chat, is_uploaded: true,
 	});
 	uploaded.current_version = uv1;
 
 	// AI-generated artifact (cannot be deleted via API)
-	const aiArt = em.create(ArtifactEntity, { key: "ai-doc.md", title: "AI Doc", version: 1, project, user: userA });
+	const aiArt = em.create(ArtifactEntity, { key: "ai-doc.md", title: "AI Doc", version: 1, project, user: userA, current_version: null! });
 	const av1 = em.create(ArtifactVersionEntity, {
 		artifact: aiArt, version: 1, content: "ai content", status: "approved", chat, is_uploaded: false,
 	});
 	aiArt.current_version = av1;
 
 	// Intake artifact (no project)
-	const intake = em.create(ArtifactEntity, { key: "intake.md", title: "Intake", version: 1, user: userA });
+	const intake = em.create(ArtifactEntity, { key: "intake.md", title: "Intake", version: 1, user: userA, current_version: null! });
 	const iv1 = em.create(ArtifactVersionEntity, {
 		artifact: intake, version: 1, content: "intake content", status: "proposed",
 	});
@@ -67,9 +67,10 @@ describe("artifact list dispatcher", () => {
 		const { GET } = await import("@/app/api/artifacts/route");
 		const { status, body } = await callRoute(GET, "/api/artifacts");
 		expect(status).toBe(200);
-		expect(Array.isArray(body)).toBe(true);
-		expect(body.some((a: any) => a.id === intakeArtifactId)).toBe(true);
-		expect(body.some((a: any) => a.id === uploadedArtifactId)).toBe(false);
+		expect(body.data).toBeDefined();
+		expect(body.pagination).toBeDefined();
+		expect(body.data.some((a: any) => a.id === intakeArtifactId)).toBe(true);
+		expect(body.data.some((a: any) => a.id === uploadedArtifactId)).toBe(false);
 	});
 
 	it("GET /api/artifacts?projectId= — returns project artifacts", async () => {
@@ -171,6 +172,6 @@ describe("artifact ownership", () => {
 		const { GET } = await import("@/app/api/artifacts/route");
 		const { status, body } = await callRoute(GET, "/api/artifacts");
 		expect(status).toBe(200);
-		expect(body.length).toBe(0);
+		expect(body.data.length).toBe(0);
 	});
 });
