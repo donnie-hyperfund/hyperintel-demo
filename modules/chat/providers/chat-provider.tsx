@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
+import { ANTHROPIC_MODELS } from '@/common/ai/types';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
@@ -15,7 +16,7 @@ import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provi
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/contants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
+// import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
@@ -116,7 +117,7 @@ export function ChatProvider({
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
-    const { selectedModel } = useModelSelection();
+    // const { selectedModel } = useModelSelection();
     const skipNextLoad = useRef(false);
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
@@ -406,7 +407,8 @@ export function ChatProvider({
                     {
                         message: content,
                         chatId: chatIdToUse,
-                        model: selectedModel,
+                        //model: selectedModel, // NOTE: Hidden temporarily
+                        model: ANTHROPIC_MODELS.OPUS, // NOTE: Default model for production
                     },
                     accessToken,
                 );
@@ -439,7 +441,7 @@ export function ChatProvider({
             chatType,
             projectId,
             readStream,
-            selectedModel,
+            //selectedModel, // NOTE: Hidden temporarily
             state.isGenerating,
         ],
     );
