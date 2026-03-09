@@ -51,7 +51,7 @@ export function ResourceList() {
             <div className="flex flex-1 items-center justify-center">
                 <EmptyState
                     icon={Building2}
-                    title="Failed to load resources"
+                    title="Failed to load Project Intel"
                     error={error.message || 'An unexpected error occurred.'}
                 />
             </div>
@@ -65,8 +65,8 @@ export function ResourceList() {
             <div className="flex flex-1 items-center justify-center">
                 <EmptyState
                     icon={Building2}
-                    title="No resources linked"
-                    description="Link existing resources to make them available in this project."
+                    title="Project Intel is empty"
+                    description="Upload files to add to Project Intel."
                 />
             </div>
         );
