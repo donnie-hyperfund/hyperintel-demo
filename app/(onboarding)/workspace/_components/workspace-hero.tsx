@@ -20,10 +20,10 @@ export function WorkspaceHero() {
                     Workspace
                 </div>
                 <div className="space-y-3">
-                    <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Your workspace</h1>
+                    <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Launch Pad</h1>
                     <p className="max-w-3xl text-neutral-400 text-sm leading-relaxed md:text-base">
-                        Create new projects, build company profiles, or map stakeholder personas. Profiles are saved as
-                        reusable resources you can import into any project.
+                        Launch a new project, build a company profile, or create a stakeholder persona. Everything you
+                        create is saved and reusable across all your projects.
                     </p>
                 </div>
             </motion.div>
