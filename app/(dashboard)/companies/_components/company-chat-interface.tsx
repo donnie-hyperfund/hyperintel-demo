@@ -20,8 +20,8 @@ export function CompanyChatInterface({ title }: CompanyChatInterfaceProps) {
                     HeaderComponent={
                         <DashboardHeader title={title} parent={{ label: 'Companies', href: '/companies' }} />
                     }
-                    emptyTitle="Ready to build organizational intelligence?"
-                    emptySubtitle="Tell us about the company and we'll create a comprehensive profile."
+                    emptyTitle="Let’s build a new company profile."
+                    emptySubtitle="Tell us about the company or upload supporting documents. We’ll take it from there."
                 />
             }
             RightPaneComponent={
