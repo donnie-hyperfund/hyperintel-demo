@@ -437,40 +437,75 @@ export function ChatProvider({
     // Route to the active stream based on chat type
     const stream = chatType === 'phase' ? chatStream : intakeStream;
 
+    // Ref to latest stream values so rAF callbacks read fresh data
+    const streamRef = useRef(stream);
+    streamRef.current = stream;
+    const syncRaf = useRef(0);
+
     // Sync stream blocks → state.messages (streaming assistant message).
-    // Creates or updates the streaming message while the stream is active,
-    // AND on the terminal transition (done/error/aborted) to capture final blocks.
-    // Note: summary streams (stream.streamType === 'summary') do not create a streaming message bubble.
+    // Uses rAF coalescing so rapid WS-driven dependency changes produce at most
+    // one setState per animation frame (~16ms), avoiding double-renders.
+    // Terminal transitions (done/error/aborted) flush immediately for consistency.
     useEffect(() => {
         if (!stream.agentMessageId) return;
-        if (stream.streamType === 'summary') return; // summary handled via isSummarizing state
+        if (stream.streamType === 'summary') return;
 
         const isActive = stream.status === 'streaming';
         const isTerminal = stream.status === 'done' || stream.status === 'error' || stream.status === 'aborted';
         if (!isActive && !isTerminal) return;
 
-        setState((prev) => {
-            const msgId = stream.agentMessageId!;
-            const streamMsg: Message = {
-                id: msgId,
-                role: 'assistant',
-                blocks: stream.blocks,
-                isStreaming: isActive,
-                ...(isActive && stream.displayStatus && { status: stream.displayStatus }),
-                ...(stream.status === 'error' && { isError: true }),
-                ...(stream.status === 'aborted' && { isAborted: true }),
-            };
+        const syncToMessages = (s: typeof stream) => {
+            const active = s.status === 'streaming';
+            setState((prev) => {
+                const msgId = s.agentMessageId!;
+                const streamMsg: Message = {
+                    id: msgId,
+                    role: 'assistant',
+                    blocks: s.blocks,
+                    isStreaming: active,
+                    ...(active && s.displayStatus && { status: s.displayStatus }),
+                    ...(s.status === 'error' && { isError: true }),
+                    ...(s.status === 'aborted' && { isAborted: true }),
+                };
 
-            const exists = prev.messages.some((m) => m.id === msgId);
-            return {
-                ...prev,
-                isGenerating: isActive,
-                messages: exists
-                    ? prev.messages.map((m) => (m.id === msgId ? streamMsg : m))
-                    : [...prev.messages, streamMsg],
-            };
-        });
+                const exists = prev.messages.some((m) => m.id === msgId);
+                return {
+                    ...prev,
+                    isGenerating: active,
+                    messages: exists
+                        ? prev.messages.map((m) => (m.id === msgId ? streamMsg : m))
+                        : [...prev.messages, streamMsg],
+                };
+            });
+        };
+
+        if (isTerminal) {
+            if (syncRaf.current) {
+                cancelAnimationFrame(syncRaf.current);
+                syncRaf.current = 0;
+            }
+            syncToMessages(stream);
+            return;
+        }
+
+        // Coalesce active-streaming updates: at most one setState per animation frame
+        if (!syncRaf.current) {
+            syncRaf.current = requestAnimationFrame(() => {
+                syncRaf.current = 0;
+                const s = streamRef.current;
+                if (s.agentMessageId && s.status === 'streaming') {
+                    syncToMessages(s);
+                }
+            });
+        }
     }, [stream.blocks, stream.agentMessageId, stream.status, stream.displayStatus, stream.streamType]);
+
+    useEffect(
+        () => () => {
+            if (syncRaf.current) cancelAnimationFrame(syncRaf.current);
+        },
+        [],
+    );
 
     // Page-load recovery: if we subscribe mid-summary, stream.streamType is set from the
     // subscribe_response snapshot — enter summarizing mode without waiting for stream_started.
