@@ -149,8 +149,8 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         return (
             <EmptyState
                 icon={FileText}
-                title="Failed to load deliverables"
-                error={error instanceof Error ? error.message : 'An error occurred while loading deliverables.'}
+                title="Failed to load artifacts"
+                error={error instanceof Error ? error.message : 'An error occurred while loading artifacts.'}
             />
         );
     }
@@ -171,8 +171,12 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         return (
             <EmptyState
                 icon={FileText}
-                title={hasActiveFilters ? 'No deliverables match these filters' : 'No deliverables yet'}
-                description={hasActiveFilters ? undefined : 'Deliverables created during your phases will appear here.'}
+                title={hasActiveFilters ? 'No artifacts match these filters' : 'No artifacts yet'}
+                description={
+                    hasActiveFilters
+                        ? undefined
+                        : 'Artifacts will appear here as they are generated throughout the project journey.'
+                }
             />
         );
     }

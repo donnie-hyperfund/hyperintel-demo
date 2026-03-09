@@ -19,7 +19,7 @@ export type ProjectArtifactFilters = {
 export const EMPTY_FILTERS: ProjectArtifactFilters = { visibility: [], status: [], chatIds: [] };
 
 const VISIBILITY_OPTIONS: { value: VisibilityFilter; label: string }[] = [
-    { value: 'client', label: 'Client deliverables' },
+    { value: 'client', label: 'Client artifacts' },
     { value: 'internal', label: 'System-only' },
 ];
 
@@ -77,7 +77,7 @@ export function ProjectArtifactFilterDropdown({ filters, onChange }: ProjectArti
                         </Button>
                     </PopoverTrigger>
                 </TooltipTrigger>
-                <TooltipContent>Filter deliverables</TooltipContent>
+                <TooltipContent>Filter artifacts</TooltipContent>
             </Tooltip>
 
             <PopoverContent align="end" className="w-56 p-0">
