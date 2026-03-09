@@ -31,18 +31,14 @@ export function useFetchProjectResources(
 
     const allItems = useMemo(() => {
         if (!result.data) return [];
-        return result.data.flatMap((page) => page.data);
+        return result.data.flatMap((page) => page.data).filter(isApprovedArtifact);
     }, [result.data]);
 
     const { companies, stakeholders, legacyDna } = useMemo(
         () => ({
-            companies: allItems.filter(
-                (a) => getArtifactDocumentType(a) === 'Company Profile' && isApprovedArtifact(a),
-            ),
-            stakeholders: allItems.filter(
-                (a) => getArtifactDocumentType(a) === 'Human Persona' && isApprovedArtifact(a),
-            ),
-            legacyDna: allItems.filter((a) => getArtifactDocumentType(a) === 'Legacy DNA' && isApprovedArtifact(a)),
+            companies: allItems.filter((a) => getArtifactDocumentType(a) === 'Company Profile'),
+            stakeholders: allItems.filter((a) => getArtifactDocumentType(a) === 'Human Persona'),
+            legacyDna: allItems.filter((a) => getArtifactDocumentType(a) === 'Legacy DNA'),
         }),
         [allItems],
     );
