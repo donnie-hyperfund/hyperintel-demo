@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useRouter } from 'nextjs-toploader/app';
 import { Button } from '@/components/ui/button';
 
-const ROOT_PAGES = new Set(['/workspace']);
+const ROOT_PAGES = new Set(['/launch-pad']);
 
 export function OnboardingBackButton() {
     const pathname = usePathname();
