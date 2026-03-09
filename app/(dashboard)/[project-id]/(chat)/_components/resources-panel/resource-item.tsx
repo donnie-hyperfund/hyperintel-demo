@@ -1,31 +1,17 @@
 import { Loader2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { getArtifactDocumentType } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
+import { cn } from '@/lib/utils';
 import { ArtifactListItem } from '@/modules/artifacts/components/artifact-list-item';
 
-type ResourceSectionProps = {
-    title: string;
-    artifacts: ArtifactDto[];
-    onRemove?: (artifactId: string) => Promise<void>;
+const borderColorByType: Record<string, string> = {
+    'Company Profile': 'border-l-emerald-500',
+    'Human Persona': 'border-l-blue-500',
 };
 
-export function ResourceSection({ title, artifacts, onRemove }: ResourceSectionProps) {
-    if (artifacts.length === 0) return null;
-
-    return (
-        <div className="space-y-2">
-            <h3 className="text-xs font-medium uppercase tracking-wider text-neutral-500">{title}</h3>
-            <div className="space-y-2">
-                {artifacts.map((artifact) => (
-                    <ResourceItem key={artifact.id} artifact={artifact} onRemove={onRemove} />
-                ))}
-            </div>
-        </div>
-    );
-}
-
-function ResourceItem({
+export function ResourceItem({
     artifact,
     onRemove,
 }: {
@@ -33,6 +19,8 @@ function ResourceItem({
     onRemove?: (artifactId: string) => Promise<void>;
 }) {
     const [isRemoving, setIsRemoving] = useState(false);
+    const docType = getArtifactDocumentType(artifact);
+    const borderClass = (docType && borderColorByType[docType]) ?? 'border-l-transparent';
 
     const handleRemove = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -46,7 +34,7 @@ function ResourceItem({
     };
 
     return (
-        <div className="group relative">
+        <div className={cn('group relative rounded-lg border-l-2', borderClass)}>
             <ArtifactListItem size="sm" artifact={artifact} shouldDisplayVersionInfo={false} />
             {onRemove && (
                 <Button
