@@ -20,8 +20,8 @@ export function StakeholderChatInterface({ title }: StakeholderChatInterfaceProp
                     HeaderComponent={
                         <DashboardHeader title={title} parent={{ label: 'Stakeholders', href: '/stakeholders' }} />
                     }
-                    emptyTitle="Ready to map a stakeholder?"
-                    emptySubtitle="Tell us who you'd like to profile and we'll gather the intelligence."
+                    emptyTitle="Let’s build a new stakeholder persona."
+                    emptySubtitle="Tell us about the stakeholder or upload supporting documents. We’ll take it from there."
                 />
             }
             RightPaneComponent={
