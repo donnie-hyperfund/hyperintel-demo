@@ -1,5 +1,6 @@
 import type { ClientMessage, ServerMessage } from '@/lib/schema/ws-protocol';
 import { ClientAction } from '@/lib/schema/ws-protocol';
+import { emitDevHook } from '@/lib/dev-hooks-stub';
 
 // ============================================================================
 // TYPED EVENT EMITTER (inline — no external dependency)
@@ -104,6 +105,7 @@ export abstract class WebsocketClient {
 
     /** Fire-and-forget send. Queues if disconnected. */
     send(message: ClientMessage): void {
+        emitDevHook('ws:send', { direction: 'send', event: message.action, data: message });
         const data = JSON.stringify(message);
         if (this.isConnected) {
             this.sendRaw(data);
@@ -271,6 +273,12 @@ export abstract class WebsocketClient {
 
     /** Process parsed server message: resolve matching inflight, emit 'message'. */
     protected handleServerMessage(parsed: Record<string, unknown>): void {
+        emitDevHook('ws:message', {
+            direction: 'recv',
+            event: (parsed.type as string) ?? 'unknown',
+            data: parsed,
+        });
+
         // Resolve inflight callback if rid matches
         const rid = parsed.rid as string | undefined;
         if (rid && this.inflight.has(rid)) {
@@ -298,6 +306,7 @@ export abstract class WebsocketClient {
         this.resubscribeAll();
         this.drainPending();
         this.emit('connected');
+        emitDevHook('ws:connected', {});
     }
 
     /** Called by subclass on socket close. */
@@ -305,6 +314,7 @@ export abstract class WebsocketClient {
         this.isConnected = false;
         this.clearTokenRefresh();
         this.emit('disconnected', clean);
+        emitDevHook('ws:close', { code: clean ? 1000 : 1006, reason: clean ? 'clean disconnect' : 'abnormal close' });
         // Inflight NOT rejected — they have their own timeouts and may resolve after reconnect.
     }
 }

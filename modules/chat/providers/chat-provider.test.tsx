@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 
-import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { ChatProvider, useChatContext } from './chat-provider';
@@ -16,7 +15,12 @@ const summarizeMock = vi.fn();
 const openPanelMock = vi.fn();
 const createApiClientMock = vi.fn();
 
-let selectedModelMock = ANTHROPIC_MODELS.SONNET;
+let selectedModelMock = 'sonnet';
+let streamReaderOptions: {
+    setIsLoading: (value: boolean) => void;
+    onTerminalTool?: (toolName: string) => void;
+    onDocumentStart?: () => void;
+} | null = null;
 let fallbackMock: Record<string, unknown> = {};
 
 const cacheMock = new Map();
@@ -149,7 +153,7 @@ function mockResponse(body: unknown = {}, opts: { ok?: boolean; status?: number 
 
 describe('ChatProvider', () => {
     beforeEach(() => {
-        selectedModelMock = ANTHROPIC_MODELS.SONNET;
+        selectedModelMock = 'sonnet';
         fallbackMock = {};
 
         getTokenMock.mockReset();
@@ -304,8 +308,8 @@ describe('ChatProvider', () => {
             expect.objectContaining({
                 message: 'hello world',
                 chatId: 'chat-1',
-                model: ANTHROPIC_MODELS.SONNET,
-            }),
+                model: 'sonnet',
+            },
             'token-abc',
         );
         expect(result.current.chatId).toBe('chat-1');
@@ -356,8 +360,8 @@ describe('ChatProvider', () => {
             expect.objectContaining({
                 message: 'intake message',
                 chatId: 'company-chat-1',
-                model: ANTHROPIC_MODELS.SONNET,
-            }),
+                model: 'sonnet',
+            },
             'token-abc',
         );
         expect(result.current.chatId).toBe('company-chat-1');

@@ -1,11 +1,10 @@
-import { ANTHROPIC_MODELS } from '@common/ai/types';
 import z from 'zod';
 
 export const SendChatActionSchema = z.object({
     /** User message content. `null` = nudge (trigger generation on last injected system event). */
     message: z.string().nullable(),
     chatId: z.string().uuid(),
-    model: z.nativeEnum(ANTHROPIC_MODELS).optional(),
+    model: z.string().optional(),
     tempId: z.string().uuid('tempId must be a valid UUID').optional(),
 });
 

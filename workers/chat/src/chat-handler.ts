@@ -1,7 +1,8 @@
 import { runAgentStream } from '@common/ai/agent';
 import type { AgentStreamEvent } from '@common/ai/agent/types';
-import { AIParamsType, ParamsWithType } from '@common/ai/inference';
-import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import type { ParamsWithType } from '@common/ai/inference';
+import { COMMON_MODELS } from '@common/ai/types';
+import { resolvePreset, DEFAULT_PRESET_ID } from '@/lib/presets';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
@@ -417,15 +418,15 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             WEB_SEARCH_GUIDANCE,
         );
 
-        // Determine inference params
+        // Determine inference params via preset resolution
+        const presetId = data.model ?? DEFAULT_PRESET_ID;
+        const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
+        if (!resolved) {
+            throw new Error(`Preset '${presetId}' is not available`);
+        }
         const defaultInference: ParamsWithType = {
-            paramsType: AIParamsType.Anthropic,
-            params: {
-                model: data.model ?? ANTHROPIC_MODELS.SONNET,
-                thinking: true,
-                thinkingBudget: 8000,
-                searchEnabled: true,
-            },
+            ...resolved,
+            params: { ...resolved.params, searchEnabled: true },
         };
         const inferenceParams = options.overrideInference ?? defaultInference;
 

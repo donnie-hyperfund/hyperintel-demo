@@ -6,8 +6,8 @@
  */
 
 import { runAgentStream } from '@common/ai/agent';
-import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
-import { ANTHROPIC_MODELS } from '@common/ai/types';
+import type { ParamsWithType } from '@common/ai/inference';
+import { resolvePreset, DEFAULT_PRESET_ID } from '@/lib/presets';
 import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -312,9 +312,14 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
 
+        const presetId = data.model ?? DEFAULT_PRESET_ID;
+        const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
+        if (!resolved) {
+            throw new Error(`Preset '${presetId}' is not available`);
+        }
         const defaultInference: ParamsWithType = {
-            paramsType: AIParamsType.Anthropic,
-            params: { model: data.model ?? ANTHROPIC_MODELS.SONNET, thinking: false },
+            ...resolved,
+            params: { ...resolved.params, thinking: false },
         };
         const inferenceParams = options.overrideInference ?? defaultInference;
 
