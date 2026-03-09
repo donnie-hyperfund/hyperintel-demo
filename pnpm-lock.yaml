@@ -266,9 +266,6 @@ importers:
       rehype-katex:
         specifier: ^7.0.1
         version: 7.0.1
-      rehype-mathjax:
-        specifier: ^7.1.0
-        version: 7.1.0
       rehype-raw:
         specifier: ^7.0.0
         version: 7.0.0
@@ -3275,9 +3272,6 @@ packages:
   '@types/katex@0.16.8':
     resolution: {integrity: sha512-trgaNyfU+Xh2Tc+ABIb44a5AYUpicB3uwirOioeOkNPPbmgRNtcWyDeeFRzjPZENO9Vq8gvVqfhaaXWLlevVwg==}
 
-  '@types/mathjax@0.0.40':
-    resolution: {integrity: sha512-rHusx08LCg92WJxrsM3SPjvLTSvK5C+gealtSuhKbEOcUZfWlwigaFoPLf6Dfxhg4oryN5qP9Sj7zOQ4HYXINw==}
-
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
 
@@ -3416,10 +3410,6 @@ packages:
 
   '@webassemblyjs/wast-printer@1.14.1':
     resolution: {integrity: sha512-kPSSXE6De1XOR820C90RIo2ogvZG+c3KiHzqUoO/F34Y2shGzesfqv7o57xrxovZJH/MetF5UjroJ/R/3isoiw==}
-
-  '@xmldom/xmldom@0.9.8':
-    resolution: {integrity: sha512-p96FSY54r+WJ50FIOsCOjyj/wavs8921hG5+kVMmZgKcvIKxMXHTrjNJvRgWa/zuX3B6t2lijLNFaOyuxUH+2A==}
-    engines: {node: '>=14.6'}
 
   '@xtuc/ieee754@1.2.0':
     resolution: {integrity: sha512-DX8nKgqcGwsc0eJSqYt5lwP4DH5FlHnmuWWBRy7X0NcaGR0ZtuyeESgMwTYVEtxmsNGY+qit4QYT/MIYTOTPeA==}
@@ -4781,10 +4771,6 @@ packages:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
-  mathjax-full@3.2.2:
-    resolution: {integrity: sha512-+LfG9Fik+OuI8SLwsiR02IVdjcnRCy5MufYLi0C3TdMT56L/pjB0alMVGgoWJF8pN9Rc7FESycZB9BMNWIid5w==}
-    deprecated: Version 4 replaces this package with the scoped package @mathjax/src
-
   mdast-util-definitions@6.0.0:
     resolution: {integrity: sha512-scTllyX6pnYNZH/AIp/0ePz6s4cZtARxImwoPJ7kS42n+MnVsI4XbnG6d4ibehRIldYMWM2LD7ImQblVhUejVQ==}
 
@@ -4869,9 +4855,6 @@ packages:
   merge2@1.4.1:
     resolution: {integrity: sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg==}
     engines: {node: '>= 8'}
-
-  mhchemparser@4.2.1:
-    resolution: {integrity: sha512-kYmyrCirqJf3zZ9t/0wGgRZ4/ZJw//VwaRVGA75C4nhE60vtnIzhl9J9ndkX/h6hxSN7pjg/cE0VxbnNM+bnDQ==}
 
   micromark-core-commonmark@2.0.3:
     resolution: {integrity: sha512-RDBrHEMSxVFLg6xvnXmb1Ayr2WzLAWjeSATAoxwKYJV94TeNavgoIdA0a9ytzDSVzBy2YKFK+emCPOEibLeCrg==}
@@ -5006,9 +4989,6 @@ packages:
 
   minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
-
-  mj-context-menu@0.6.1:
-    resolution: {integrity: sha512-7NO5s6n10TIV96d4g2uDpG7ZDpIhMh0QNfGdJw/W47JswFcosz457wqz/b5sAKvl12sxINGFCn80NZHKwxQEXA==}
 
   mkdirp@0.5.6:
     resolution: {integrity: sha512-FP+p8RB8OWpF3YZBCrP5gtADmtXApB5AMLn+vdyA+PyxCjrCs00mjyUozssO33cwDeT3wNGdLxJ5M//YqtHAJw==}
@@ -5512,9 +5492,6 @@ packages:
   rehype-katex@7.0.1:
     resolution: {integrity: sha512-OiM2wrZ/wuhKkigASodFoo8wimG3H12LWQaH8qSPVJn9apWKFSH3YOCtbKpBorTVw/eI7cuT21XBbvwEswbIOA==}
 
-  rehype-mathjax@7.1.0:
-    resolution: {integrity: sha512-mJHNpoqCC5UZ24OKx0wNjlzV18qeJz/Q/LtEjxXzt8vqrZ1Z3GxQnVrHcF5/PogcXUK8cWwJ4U/LWOQWEiABHw==}
-
   rehype-parse@9.0.1:
     resolution: {integrity: sha512-ksCzCD0Fgfh7trPDxr2rSylbwq9iYDkSn8TCDmEJ49ljEUBxDVCzCHv7QNzZOfODanX4+bWQ4WZqLCRWYLfhag==}
 
@@ -5724,10 +5701,6 @@ packages:
 
   space-separated-tokens@2.0.2:
     resolution: {integrity: sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==}
-
-  speech-rule-engine@4.1.2:
-    resolution: {integrity: sha512-S6ji+flMEga+1QU79NDbwZ8Ivf0S/MpupQQiIC0rTpU/ZTKgcajijJJb1OcByBQDjrXCN1/DJtGz4ZJeBMPGJw==}
-    hasBin: true
 
   split2@4.2.0:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
@@ -6269,9 +6242,6 @@ packages:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
     hasBin: true
-
-  wicked-good-xpath@1.3.0:
-    resolution: {integrity: sha512-Gd9+TUn5nXdwj/hFsPVx5cuHHiF5Bwuc30jZ4+ronF1qHK5O7HD0sgmXWSEgwKquT3ClLoKPVbO6qGwVwLzvAw==}
 
   wordwrap@1.0.0:
     resolution: {integrity: sha512-gvVzJFlPycKc5dZN4yPkP8w7Dc37BtP1yczEneOb4uq34pXZcvrtRTmWV8W+Ume+XCxKgbjM+nevkyFPMybd4Q==}
@@ -9701,8 +9671,6 @@ snapshots:
 
   '@types/katex@0.16.8': {}
 
-  '@types/mathjax@0.0.40': {}
-
   '@types/mdast@4.0.4':
     dependencies:
       '@types/unist': 3.0.3
@@ -9876,8 +9844,6 @@ snapshots:
     dependencies:
       '@webassemblyjs/ast': 1.14.1
       '@xtuc/long': 4.2.2
-
-  '@xmldom/xmldom@0.9.8': {}
 
   '@xtuc/ieee754@1.2.0': {}
 
@@ -11210,13 +11176,6 @@ snapshots:
 
   math-intrinsics@1.1.0: {}
 
-  mathjax-full@3.2.2:
-    dependencies:
-      esm: 3.2.25
-      mhchemparser: 4.2.1
-      mj-context-menu: 0.6.1
-      speech-rule-engine: 4.1.2
-
   mdast-util-definitions@6.0.0:
     dependencies:
       '@types/mdast': 4.0.4
@@ -11422,8 +11381,6 @@ snapshots:
   merge-stream@2.0.0: {}
 
   merge2@1.4.1: {}
-
-  mhchemparser@4.2.1: {}
 
   micromark-core-commonmark@2.0.3:
     dependencies:
@@ -11680,8 +11637,6 @@ snapshots:
   minimalistic-assert@1.0.1: {}
 
   minimist@1.2.8: {}
-
-  mj-context-menu@0.6.1: {}
 
   mkdirp@0.5.6:
     dependencies:
@@ -12187,17 +12142,6 @@ snapshots:
       unist-util-visit-parents: 6.0.2
       vfile: 6.0.3
 
-  rehype-mathjax@7.1.0:
-    dependencies:
-      '@types/hast': 3.0.4
-      '@types/mathjax': 0.0.40
-      hast-util-to-text: 4.0.2
-      hastscript: 9.0.1
-      mathjax-full: 3.2.2
-      unified: 11.0.5
-      unist-util-visit-parents: 6.0.2
-      vfile: 6.0.3
-
   rehype-parse@9.0.1:
     dependencies:
       '@types/hast': 3.0.4
@@ -12536,12 +12480,6 @@ snapshots:
   source-map@0.6.1: {}
 
   space-separated-tokens@2.0.2: {}
-
-  speech-rule-engine@4.1.2:
-    dependencies:
-      '@xmldom/xmldom': 0.9.8
-      commander: 13.1.0
-      wicked-good-xpath: 1.3.0
 
   split2@4.2.0: {}
 
@@ -13069,8 +13007,6 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
-
-  wicked-good-xpath@1.3.0: {}
 
   wordwrap@1.0.0: {}
 
