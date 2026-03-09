@@ -94,8 +94,10 @@ export function LinkResourceDialog() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Link to Project Intel</DialogTitle>
-                    <DialogDescription>Select resources to add to Project Intel.</DialogDescription>
+                    <DialogTitle>Add Project Intel</DialogTitle>
+                    <DialogDescription>
+                        Link an existing company profile or persona, or create a new one.
+                    </DialogDescription>
                 </DialogHeader>
 
                 <div className="max-h-80 overflow-y-auto space-y-4 py-2">
@@ -108,8 +110,8 @@ export function LinkResourceDialog() {
                     ) : totalAvailable === 0 ? (
                         <EmptyState
                             icon={Building2}
-                            title="All resources linked"
-                            description="All your available resources are already added to Project Intel."
+                            title="All Project Intel linked"
+                            description="All available profiles and personas are already linked to this project."
                         />
                     ) : (
                         <>
@@ -147,10 +149,10 @@ export function LinkResourceDialog() {
                         {isImporting ? (
                             <>
                                 <Loader2 className="size-4 animate-spin" />
-                                Linking...
+                                Adding...
                             </>
                         ) : (
-                            `Link ${selectedIds.length || ''} resource${selectedIds.length !== 1 ? 's' : ''}`
+                            `Add Project Intel`
                         )}
                     </Button>
                 </DialogFooter>
