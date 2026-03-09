@@ -70,11 +70,11 @@ export function LinkResourceDialog() {
             }
 
             await mutateProjectResources();
-            toast({ title: `${selectedIds.length} resource(s) linked to project.` });
+            toast({ title: `${selectedIds.length} resource(s) added to Project Intel.` });
             setSelectedIds([]);
             setOpen(false);
         } catch {
-            toast({ title: 'Failed to link resources.', variant: 'destructive' });
+            toast({ title: 'Failed to add to Project Intel.', variant: 'destructive' });
         } finally {
             setIsImporting(false);
         }
@@ -94,8 +94,8 @@ export function LinkResourceDialog() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Link resources</DialogTitle>
-                    <DialogDescription>Select resources to add to this project.</DialogDescription>
+                    <DialogTitle>Link to Project Intel</DialogTitle>
+                    <DialogDescription>Select resources to add to Project Intel.</DialogDescription>
                 </DialogHeader>
 
                 <div className="max-h-80 overflow-y-auto space-y-4 py-2">
@@ -109,7 +109,7 @@ export function LinkResourceDialog() {
                         <EmptyState
                             icon={Building2}
                             title="All resources linked"
-                            description="All your available resources are already linked to this project."
+                            description="All your available resources are already added to Project Intel."
                         />
                     ) : (
                         <>
