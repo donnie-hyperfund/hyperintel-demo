@@ -19,7 +19,7 @@ export function StartOptionsGrid() {
     const options: StartOption[] = [
         {
             title: 'New project',
-            description: 'Create a delivery workspace for phases, chats, and outputs.',
+            description: "Start a new project. Let's go!",
             href: '/projects/new',
             listHref: '/projects',
             cta: 'Start project',
@@ -34,7 +34,7 @@ export function StartOptionsGrid() {
         },
         {
             title: 'Company profile',
-            description: 'Build reusable organizational intelligence about a company.',
+            description: 'Build a company profile. Create once, deploy across any project.',
             href: '/companies/new',
             listHref: '/companies',
             cta: 'New company profile',
@@ -51,7 +51,7 @@ export function StartOptionsGrid() {
         },
         {
             title: 'Stakeholder persona',
-            description: 'Map stakeholders, motivations, and likely decision patterns.',
+            description: 'Create a new persona. Create once, deploy across any project.',
             href: '/stakeholders/new',
             listHref: '/stakeholders',
             cta: 'New stakeholder persona',
