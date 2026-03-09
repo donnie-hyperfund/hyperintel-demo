@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 import { DashboardSidebarFooter } from './dashboard-sidebar-footer';
 
 const navItems = [
-    { icon: LayoutDashboard, label: 'Workspace', href: '/workspace' },
+    { icon: LayoutDashboard, label: 'Launch Pad', href: '/launch-pad' },
     { icon: FileCode, label: 'Projects', href: '/projects' },
     { icon: Building, label: 'Companies', href: '/companies' },
     { icon: Users, label: 'Stakeholders', href: '/stakeholders' },
@@ -44,7 +44,7 @@ export function DashboardSidebar() {
             >
                 {isExpanded ? (
                     <>
-                        <Link href="/workspace" className="overflow-visible w-full">
+                        <Link href="/launch-pad" className="overflow-visible w-full">
                             <div className="w-[143px] h-[28px] flex items-center justify-center overflow-visible">
                                 <Image src="/logo.svg" alt="HYPERINTEL" width={143} height={28} className="shrink-0" />
                             </div>
@@ -63,8 +63,8 @@ export function DashboardSidebar() {
                             {navItems.map((item) => {
                                 const Icon = item.icon;
                                 const isActive =
-                                    item.href === '/workspace'
-                                        ? pathname === '/workspace'
+                                    item.href === '/launch-pad'
+                                        ? pathname === '/launch-pad'
                                         : pathname?.startsWith(item.href);
 
                                 return (
