@@ -7,7 +7,7 @@ import {
     useApproveProjectArtifactVersion,
     useRejectProjectArtifactVersion,
 } from '@/lib/api/client/hooks/use-project-artifacts';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 
@@ -26,7 +26,7 @@ export function ArtifactApprovalBar({
     artifactVersionId,
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
-    const { updateArtifact } = useArtifactContext();
+    const { updateArtifact } = useArtifactActions();
     const { clearPendingChanges, chatType, hasOtherPendingArtifacts } = useChatContext();
     const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
     const isIntake = chatType !== 'phase';

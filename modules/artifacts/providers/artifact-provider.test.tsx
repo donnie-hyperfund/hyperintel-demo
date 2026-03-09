@@ -101,13 +101,13 @@ describe('ArtifactProvider', () => {
 
     it('ignores updates for missing artifacts', () => {
         const { result } = renderHook(() => useArtifactContext(), { wrapper });
-        const before = result.current.artifacts;
+        const before = result.current.getStore();
 
         act(() => {
             result.current.updateArtifact('missing-artifact', { isStreaming: true });
         });
 
-        expect(result.current.artifacts).toBe(before);
+        expect(result.current.getStore()).toBe(before);
     });
 
     it('does not rewrite state when artifact content and streaming flags are unchanged', () => {
@@ -117,7 +117,7 @@ describe('ArtifactProvider', () => {
         act(() => {
             result.current.addArtifact(artifact);
         });
-        const firstStore = result.current.artifacts;
+        const firstStore = result.current.getStore();
 
         act(() => {
             result.current.addArtifact({
@@ -127,6 +127,6 @@ describe('ArtifactProvider', () => {
             });
         });
 
-        expect(result.current.artifacts).toBe(firstStore);
+        expect(result.current.getStore()).toBe(firstStore);
     });
 });

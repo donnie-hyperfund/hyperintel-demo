@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useRef, useSyncExternalStore } from 'react';
 import type { ArtifactVersionDto } from '@/lib/schema/artifact';
 import type { Artifact } from '../../chat/types';
 import { getLatestArtifactContent } from '../utils';
@@ -19,8 +19,8 @@ export type ArtifactStore = Record<string, Record<string, Artifact>>;
 export type VersionKey = 'latest' | number;
 
 export type ArtifactContextValue = {
-    artifacts: ArtifactStore;
     getArtifact: (id: string, version?: VersionKey) => Artifact | null;
+    getStore: () => ArtifactStore;
     addArtifact: (artifact: Artifact, version?: VersionKey) => void;
     updateArtifact: (
         id: string,
@@ -28,6 +28,7 @@ export type ArtifactContextValue = {
         version?: VersionKey,
         options?: UpdateArtifactOptions,
     ) => void;
+    subscribe: (callback: () => void) => () => void;
 };
 
 const ArtifactContext = createContext<ArtifactContextValue | null>(null);
@@ -37,19 +38,31 @@ type ArtifactProviderProps = {
 };
 
 export function ArtifactProvider({ children }: ArtifactProviderProps) {
-    const [artifacts, setArtifacts] = useState<ArtifactStore>({});
+    const storeRef = useRef<ArtifactStore>({});
+    const subscribersRef = useRef(new Set<() => void>());
 
-    const getArtifact = useCallback(
-        (id: string, version: VersionKey = 'latest'): Artifact | null => {
-            return artifacts[id]?.[String(version)] ?? null;
-        },
-        [artifacts],
-    );
+    const emit = useCallback(() => {
+        for (const cb of subscribersRef.current) cb();
+    }, []);
 
-    const addArtifact = useCallback((artifact: Artifact, version: VersionKey = 'latest') => {
-        const versionKey = String(version);
+    const subscribe = useCallback((callback: () => void) => {
+        subscribersRef.current.add(callback);
+        return () => {
+            subscribersRef.current.delete(callback);
+        };
+    }, []);
 
-        setArtifacts((prev) => {
+    const getStore = useCallback(() => storeRef.current, []);
+
+    const getArtifact = useCallback((id: string, version: VersionKey = 'latest'): Artifact | null => {
+        return storeRef.current[id]?.[String(version)] ?? null;
+    }, []);
+
+    const addArtifact = useCallback(
+        (artifact: Artifact, version: VersionKey = 'latest') => {
+            const versionKey = String(version);
+            const prev = storeRef.current;
+
             const existing = prev[artifact.id]?.[versionKey];
             const newContent = getLatestArtifactContent(artifact);
             const existingContent = existing ? getLatestArtifactContent(existing) : '';
@@ -59,18 +72,20 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
                 existing?.isStreaming === artifact.isStreaming &&
                 existing?.isUpdating === artifact.isUpdating
             ) {
-                return prev;
+                return;
             }
 
-            return {
+            storeRef.current = {
                 ...prev,
                 [artifact.id]: {
                     ...prev[artifact.id],
                     [versionKey]: artifact,
                 },
             };
-        });
-    }, []);
+            emit();
+        },
+        [emit],
+    );
 
     const updateArtifact = useCallback(
         (
@@ -80,65 +95,81 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
             options: UpdateArtifactOptions = { merge: true },
         ) => {
             const versionKey = String(version);
-            setArtifacts((prev) => {
-                const existing = prev[id]?.[versionKey];
-                if (!existing) return prev;
+            const prev = storeRef.current;
+            const existing = prev[id]?.[versionKey];
+            if (!existing) return;
 
-                if (options.merge) {
-                    const merged: Artifact = { ...existing, ...updates } as Artifact;
-                    // Deep merge version objects so callers can pass partial version updates
-                    if (updates.proposed_version && existing.proposed_version) {
-                        merged.proposed_version = {
-                            ...existing.proposed_version,
-                            ...updates.proposed_version,
-                        } as ArtifactVersionDto;
-                    }
-                    if (updates.current_version && existing.current_version) {
-                        merged.current_version = {
-                            ...existing.current_version,
-                            ...updates.current_version,
-                        } as ArtifactVersionDto;
-                    }
-
-                    return {
-                        ...prev,
-                        [id]: {
-                            ...prev[id],
-                            [versionKey]: merged,
-                        },
-                    };
+            let updated: Artifact;
+            if (options.merge) {
+                updated = { ...existing, ...updates } as Artifact;
+                if (updates.proposed_version && existing.proposed_version) {
+                    updated.proposed_version = {
+                        ...existing.proposed_version,
+                        ...updates.proposed_version,
+                    } as ArtifactVersionDto;
                 }
+                if (updates.current_version && existing.current_version) {
+                    updated.current_version = {
+                        ...existing.current_version,
+                        ...updates.current_version,
+                    } as ArtifactVersionDto;
+                }
+            } else {
+                updated = updates as Artifact;
+            }
 
-                return {
-                    ...prev,
-                    [id]: {
-                        ...prev[id],
-                        [versionKey]: updates as Artifact,
-                    },
-                };
-            });
+            storeRef.current = {
+                ...prev,
+                [id]: {
+                    ...prev[id],
+                    [versionKey]: updated,
+                },
+            };
+            emit();
         },
-        [],
+        [emit],
     );
 
-    return (
-        <ArtifactContext.Provider
-            value={{
-                artifacts,
-                getArtifact,
-                addArtifact,
-                updateArtifact,
-            }}
-        >
-            {children}
-        </ArtifactContext.Provider>
-    );
+    // Stable context value — created once, never changes reference
+    const api = useRef<ArtifactContextValue>({
+        getArtifact,
+        getStore,
+        addArtifact,
+        updateArtifact,
+        subscribe,
+    }).current;
+
+    return <ArtifactContext.Provider value={api}>{children}</ArtifactContext.Provider>;
 }
 
+// ---------------------------------------------------------------------------
+// Hooks
+// ---------------------------------------------------------------------------
+
+/** Raw access to the stable artifact store API. Prefer the higher-level hooks below. */
 export function useArtifactContext(): ArtifactContextValue {
     const context = useContext(ArtifactContext);
     if (!context) {
         throw new Error('useArtifacts must be used within an ArtifactProvider');
     }
     return context;
+}
+
+/** Subscribe to a single artifact — only re-renders when that specific artifact reference changes. */
+export function useArtifact(id: string, version: VersionKey = 'latest'): Artifact | null {
+    const { subscribe, getArtifact } = useArtifactContext();
+    const getSnapshot = useCallback(() => getArtifact(id, version), [getArtifact, id, version]);
+    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/** Subscribe to the full artifact store — re-renders on any artifact change. */
+export function useArtifactStore(): ArtifactStore {
+    const { subscribe, getStore } = useArtifactContext();
+    return useSyncExternalStore(subscribe, getStore, getStore);
+}
+
+/** Stable action references that never cause re-renders. */
+export function useArtifactActions() {
+    const { addArtifact, updateArtifact, getArtifact, getStore } = useArtifactContext();
+    return { addArtifact, updateArtifact, getArtifact, getStore };
 }
