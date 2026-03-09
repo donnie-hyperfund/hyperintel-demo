@@ -58,7 +58,7 @@ export function useFetchChat(
     const { getToken } = useAuth();
 
     return useSWR<ChatDto>(
-        projectId && chatId ? chatKeys.detail(projectId, chatId) : null,
+        chatId ? chatKeys.detail(chatId) : null,
         () => {
             if (!projectId || !chatId) throw new Error('Project ID and Chat ID are required');
             return createChatApi(getToken).get(chatId);
@@ -67,10 +67,10 @@ export function useFetchChat(
     );
 }
 
-export function useDeleteChat(projectId: string, chatId: string) {
+export function useDeleteChat(chatId: string) {
     const { getToken } = useAuth();
 
-    return useSWRMutation<{ message: string }, Error, readonly string[]>([...chatKeys.detail(projectId, chatId)], () =>
+    return useSWRMutation<{ message: string }, Error, readonly string[]>([...chatKeys.detail(chatId)], () =>
         createChatApi(getToken).delete(chatId),
     );
 }

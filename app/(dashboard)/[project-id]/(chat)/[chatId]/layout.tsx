@@ -13,7 +13,7 @@ export default async function ChatLayout({ children, params }: ChatLayoutProps) 
     const fallback: Record<string, unknown> = {};
 
     if (chat) {
-        fallback[unstable_serialize(chatKeys.detail(projectId, chatId))] = chat;
+        fallback[unstable_serialize(chatKeys.detail(chatId))] = chat;
     }
 
     return <SWRConfig value={{ fallback }}>{children}</SWRConfig>;

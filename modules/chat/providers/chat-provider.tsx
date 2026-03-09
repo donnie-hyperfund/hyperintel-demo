@@ -121,7 +121,7 @@ export function ChatProvider({
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
     const [state, setState] = useState<ChatState>(() => {
-        const cached = initialChatId ? fallback?.[unstable_serialize(chatKeys.detail(projectId, initialChatId))] : undefined;
+        const cached = initialChatId ? fallback?.[unstable_serialize(chatKeys.detail(initialChatId))] : undefined;
 
         return {
             messages: initialMessages,

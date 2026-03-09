@@ -13,7 +13,7 @@ export const chatKeys = {
     lists: () => [...chatKeys.all, 'list'] as const,
     list: (projectId?: string, params?: PaginationParams) => [...chatKeys.lists(), projectId, params] as const,
     details: () => [...chatKeys.all, 'detail'] as const,
-    detail: (projectId: string, chatId: string) => [...chatKeys.details(), projectId, chatId] as const,
+    detail: (chatId: string) => [...chatKeys.details(), chatId] as const,
 };
 
 export function createChatApi(getToken: TokenGetter) {
