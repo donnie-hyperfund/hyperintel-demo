@@ -85,7 +85,7 @@ export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps
                         <p className="text-sm whitespace-pre-wrap">{textContent}</p>
                     ))}
 
-                {isStreaming && blocks.length === 0 && <TypingIndicator />}
+                {isStreaming && !textContent && thinkingBlocks.length === 0 && <TypingIndicator />}
 
                 {message.isError && (
                     <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
