@@ -2,7 +2,7 @@
 
 import { useAuth } from '@clerk/nextjs';
 import type { LucideIcon } from 'lucide-react';
-import { Building, Building2, Dna, Loader2, Plus, Users } from 'lucide-react';
+import { Building, Building2, Dna, Link, Loader2, Users } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -89,7 +89,7 @@ export function LinkResourceDialog() {
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogTrigger asChild>
                 <Button variant="ghost" size="icon" className="size-7">
-                    <Plus className="size-4" />
+                    <Link className="size-4" />
                 </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">

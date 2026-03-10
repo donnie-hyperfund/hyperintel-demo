@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LinkResourceDialog } from './link-resource-dialog';
 import { ResourceList } from './resource-list';
+import { UploadResource } from './upload-resource';
 
 interface ResourcesPanelProps {
     onClose: () => void;
@@ -15,6 +16,7 @@ export default function ResourcesPanel({ onClose }: ResourcesPanelProps) {
             <div className="flex items-center justify-between px-4 h-14 border-b border-border shrink-0">
                 <h2 className="text-sm font-medium">Project Intel</h2>
                 <div className="flex items-center gap-1">
+                    <UploadResource />
                     <LinkResourceDialog />
                     <Button variant="ghost" size="icon" className="size-7" onClick={onClose}>
                         <X className="size-4" />

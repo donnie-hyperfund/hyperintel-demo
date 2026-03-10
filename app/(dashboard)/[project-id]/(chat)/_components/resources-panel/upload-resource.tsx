@@ -18,7 +18,7 @@ function getUploadTooltip(status: UploadStatus) {
     return 'Upload document';
 }
 
-export function ProjectArtifactUploadDocument() {
+export function UploadResource() {
     const { chatId, projectId } = useChatContext<'phase'>();
 
     const { fileInputRef, handleFileChange, status, accept } = useUploadProjectArtifact(projectId, chatId);
