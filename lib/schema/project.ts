@@ -31,6 +31,7 @@ export const ProjectDtoSchema = z.object({
 export type ProjectDto = z.infer<typeof ProjectDtoSchema>;
 
 export const ImportArtifactsBodySchema = z.object({
+    projectId: z.string().uuid(),
     artifactIds: z.array(z.string().uuid()).min(1, 'At least one artifact is required').max(50),
 });
 export type ImportArtifactsBodyDto = z.infer<typeof ImportArtifactsBodySchema>;

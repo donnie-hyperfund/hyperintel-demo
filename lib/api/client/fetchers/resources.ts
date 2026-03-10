@@ -4,6 +4,7 @@ import type { PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
     root: '/api/resources',
+    byKey: (key: string) => `/api/resources/${key}`,
 } as const;
 
 export type ResourceListParams = PaginationParams & {
@@ -28,6 +29,15 @@ export function createResourceApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 
     return {
+        getByKey: async (key: string, version?: number) => {
+            const params: Record<string, string | number> = {};
+            if (version !== undefined) {
+                params.version = version;
+            }
+            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.byKey(key), params));
+            return data;
+        },
+
         list: async (params?: ResourceListParams) => {
             const { documentType, approvedOnly, ...pagination } = params ?? {};
             const query: Record<string, string | number | undefined> = {

@@ -18,10 +18,12 @@ import { validatePayload } from '@/lib/api/validation';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { ListArtifactsQuerySchema } from '@/lib/schema/artifact';
-import { type ChatDocumentSummaryDto, type ChatDto, type ChatMessageDto, ListChatsQuerySchema, ListMessagesQuerySchema } from '@/lib/schema/message';
+import { CreateUnifiedChatBodySchema } from '@/lib/schema/chat';
+import { type ChatDocumentSummaryDto, type ChatDto, type ChatMessageDto, CreateMessageBodySchema, ListChatsQuerySchema, ListMessagesQuerySchema } from '@/lib/schema/message';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,6 +64,67 @@ export async function verifyChatAccess(
 // ---------------------------------------------------------------------------
 // Chat handlers
 // ---------------------------------------------------------------------------
+
+export async function handleCreateChat(req: NextRequest, user: UserEntity): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const json = await req.json();
+    const bodyData = validatePayload(CreateUnifiedChatBodySchema, json);
+
+    if (bodyData instanceof NextResponse) return bodyData;
+
+    const { projectId, framework, category, title } = bodyData;
+
+    // Must specify either projectId (phase chat) or framework (intake chat)
+    if (!projectId && !framework) {
+        return NextResponse.json(
+            { error: 'Either projectId or framework is required', code: 'BAD_REQUEST' },
+            { status: 400 },
+        );
+    }
+
+    // Validate: category required for hpf
+    if (framework === 'hpf' && !category) {
+        return NextResponse.json(
+            { error: 'Category is required for Human Persona Framework', code: 'BAD_REQUEST' },
+            { status: 400 },
+        );
+    }
+
+    if (projectId) {
+        // Project chat
+        const project = await em.findOne(ProjectEntity, { id: projectId, user: user.id });
+        if (!project) {
+            return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
+        }
+
+        const chat = em.create(ChatEntity, {
+            project: projectId,
+            user,
+            phase: 'active',
+            ...(title && { summary: title }),
+        });
+        await em.persistAndFlush(chat);
+
+        const chatDto: ChatDto = wrap(chat).toJSON();
+        return NextResponse.json(chatDto, { status: 201 });
+    }
+
+    // Intake chat
+    const chat = em.create(ChatEntity, {
+        type: 'intake',
+        phase: 'active',
+        user,
+        metadata: {
+            framework,
+            ...(category && { category }),
+        },
+    });
+    await em.persistAndFlush(chat);
+
+    const chatDto: ChatDto = wrap(chat).toJSON();
+    return NextResponse.json(chatDto, { status: 201 });
+}
 
 /**
  * Get a single chat with message count, first message, and document summaries.
@@ -270,6 +333,91 @@ export async function handleGetMessages(
     return NextResponse.json(
         createPaginatedResponse(mappedNodes, totalCount, queryData.page ?? 1, queryData.limit ?? 20),
     );
+}
+
+/**
+ * Create a message in a chat. Auto-creates the chat if it doesn't exist
+ * and a projectId is resolvable (from the body or the existing chat entity).
+ */
+export async function handleCreateMessage(
+    req: NextRequest,
+    chatId: string,
+    user: UserEntity,
+    projectId?: string,
+): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const body = await req.json();
+    const bodyData = validatePayload(CreateMessageBodySchema, body);
+    if (bodyData instanceof NextResponse) return bodyData;
+
+    const { content, role, metadata } = bodyData;
+
+    const result = await em.transactional(async (em) => {
+        let chat = await verifyChatAccess(em, chatId, user.id, projectId);
+
+        if (!chat) {
+            // Auto-create chat if projectId is available
+            const resolvedProjectId = projectId ?? (body.projectId as string | undefined);
+            if (!resolvedProjectId) return null;
+
+            const project = await em.findOne(ProjectEntity, { id: resolvedProjectId, user: { id: user.id } });
+            if (!project) return null;
+
+            chat = em.create(ChatEntity, {
+                id: chatId,
+                project,
+                phase: 'chat',
+                phase_index: await em.count(ChatEntity, { project: resolvedProjectId }),
+            });
+            await em.persistAndFlush(chat);
+        }
+
+        const message = em.create(ChatMessageEntity, {
+            content,
+            role,
+            chat,
+            metadata: metadata ?? null,
+        });
+        await em.persistAndFlush(message);
+
+        const dto: ChatMessageDto = wrap(message).toJSON();
+        return dto;
+    });
+
+    if (!result) return chatNotFound();
+
+    return NextResponse.json(result, { status: 201 });
+}
+
+/**
+ * Get a single message by ID (ownership verified through chat).
+ */
+export async function handleGetMessage(
+    chatId: string,
+    messageId: string,
+    user: UserEntity,
+): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const message = await em
+        .createQueryBuilder(ChatMessageEntity, 'm')
+        .select('m.*')
+        .leftJoinAndSelect('m.chat', 'c')
+        .leftJoin('c.project', 'p')
+        .where({
+            'm.id': messageId,
+            'c.id': chatId,
+            $or: [{ 'c.user': user.id }, { 'p.user': user.id }],
+        })
+        .getSingleResult();
+
+    if (!message) {
+        return NextResponse.json({ error: 'Message not found', code: 'MESSAGE_NOT_FOUND' }, { status: 404 });
+    }
+
+    const dto: ChatMessageDto = wrap(message).toJSON();
+    return NextResponse.json(dto);
 }
 
 // ---------------------------------------------------------------------------
