@@ -7,5 +7,6 @@ app.get('/health', (c) => c.json({ status: 'healthy' }));
 
 export { UserGateway } from './objects/user-gateway';
 export { ChatStreamDO } from './objects/chat-stream-do';
+export { GenerationProxyDO } from './objects/generation-proxy-do';
 
 export default app;

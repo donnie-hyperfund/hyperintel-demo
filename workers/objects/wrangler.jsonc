@@ -55,6 +55,10 @@
 			{
 				"name": "CHAT_STREAM_DO",
 				"class_name": "ChatStreamDO"
+			},
+			{
+				"name": "GENERATION_PROXY",
+				"class_name": "GenerationProxyDO"
 			}
 		]
 	},
@@ -64,6 +68,12 @@
 			"new_sqlite_classes": [
 				"UserGateway",
 				"ChatStreamDO"
+			]
+		},
+		{
+			"tag": "v2_generation_proxy",
+			"new_sqlite_classes": [
+				"GenerationProxyDO"
 			]
 		}
 	],
@@ -100,6 +110,10 @@
 					{
 						"name": "CHAT_STREAM_DO",
 						"class_name": "ChatStreamDO"
+					},
+					{
+						"name": "GENERATION_PROXY",
+						"class_name": "GenerationProxyDO"
 					}
 				]
 			},
@@ -142,6 +156,10 @@
 					{
 						"name": "CHAT_STREAM_DO",
 						"class_name": "ChatStreamDO"
+					},
+					{
+						"name": "GENERATION_PROXY",
+						"class_name": "GenerationProxyDO"
 					}
 				]
 			},

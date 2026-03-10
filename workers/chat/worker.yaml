@@ -43,6 +43,9 @@ durable_objects:
   - name: CHAT_STREAM_DO
     class_name: ChatStreamDO
     script_name: hi-objects
+  - name: GENERATION_PROXY
+    class_name: GenerationProxyDO
+    script_name: hi-objects
 
 triggers:
   crons: ["0 * * * *"]

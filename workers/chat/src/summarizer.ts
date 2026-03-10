@@ -16,10 +16,12 @@ import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
-import { createEventCollector, handleCommonStreamEvent, wireAbort } from './utils/stream-utils';
+import { createEnqueue, createEventCollector, createSSEStream, handleCommonStreamEvent, wireAbort } from './utils/stream-utils';
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
+    /** Event tap — called with each StreamEvent during generation. For tests. */
+    onEvent?: (event: StreamEvent) => void;
 }
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
@@ -71,23 +73,25 @@ async function getSummarizerPrompt(ctx: Ctx): Promise<string> {
 }
 
 // ============================================================================
-// SUMMARIZE ACTION HANDLER  synchronous POST, async generation via waitUntil
+// SUMMARIZE ACTION HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
 // ============================================================================
 
 export interface SummarizeActionResult {
     agentMessageId: string;
+    /** Resolves when generation completes. Present when onEvent is provided. */
+    generation?: Promise<void>;
 }
 
 /**
- * Summarize action handler  registers stream under chat:{chatId} topic,
- * returns agentMessageId synchronously. Generation runs in ctx.waitUntil(),
- * pushing standard StreamEvent[] to ChatStreamDO via the existing chat topic.
+ * Summarize action handler — registers stream under chat:{chatId} topic.
+ * Returns SSE stream: first event = IDs, then generation runs inline.
+ * In test mode (options.onEvent), returns SummarizeActionResult directly.
  */
 export async function summarizeActionHandler(
     data: SummarizeActionDto,
     ctx: Ctx,
     options: SummarizerOptions = {},
-): Promise<SummarizeActionResult> {
+): Promise<SummarizeActionResult | ReadableStream> {
     const { chatId } = data;
     const { em } = ctx;
 
@@ -114,25 +118,30 @@ export async function summarizeActionHandler(
         // summarizer does not have an initiating user message
     }, alias ?? undefined);
 
-    // Kick off generation in waitUntil  response returned before generation starts
-    const generationPromise = runSummarizer({
-        data,
-        ctx,
-        options,
-        chat,
-        agentMessageId,
-        ugStub,
-    });
-
-    if (ctx.eCtx?.waitUntil) {
-        ctx.eCtx.waitUntil(generationPromise);
+    // --- Test mode: keep existing direct-call behavior ---
+    if (options.onEvent) {
+        const generationPromise = runSummarizer({
+            data, ctx, options, chat, agentMessageId, ugStub,
+        });
+        return { agentMessageId, generation: generationPromise };
     }
 
-    return { agentMessageId };
+    // --- Production mode: return SSE stream (kept alive by GenerationProxyDO) ---
+    return createSSEStream(async (controller) => {
+        const enqueue = createEnqueue(controller);
+
+        // First event: IDs (read by GenerationProxyDO, returned to frontend)
+        enqueue({ type: 'ids', agentMessageId });
+
+        // Run generation inline — Worker stays alive because the DO reads this stream
+        await runSummarizer({ data, ctx, options, chat, agentMessageId, ugStub });
+
+        try { controller.close(); } catch { /* already closed */ }
+    }, ctx);
 }
 
 // ============================================================================
-// GENERATION  runs in waitUntil, pushes events to ChatStream DO
+// GENERATION — runs inline in SSE stream, pushes events to ChatStream DO
 // ============================================================================
 
 interface SummarizerParams {
@@ -157,6 +166,10 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
 
     // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
     const abortController = wireAbort(streamDO);
+
+    // Track in-flight DO pushes — hoisted for catch block access
+    let pushSeq = 0;
+    const inflightPushes: Promise<void>[] = [];
 
     try {
         if (!anthropic) {
@@ -275,9 +288,6 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const state = { wasTool: false };
         let summaryContent = '';
 
-        // Track in-flight DO pushes so we can drain before terminal events
-        let pushSeq = 0;
-        const inflightPushes: Promise<void>[] = [];
         const fireAndForgetPush = (events: StreamEvent[]) => {
             const p = streamDO.push(events, pushSeq++).catch((err) => console.error('[summarizer] push failed:', err));
             inflightPushes.push(p);

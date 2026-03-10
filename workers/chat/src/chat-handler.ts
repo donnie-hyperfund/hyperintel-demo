@@ -21,7 +21,7 @@ import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
-import { createEventCollector, handleCommonStreamEvent, loadChatHistory, wireAbort } from './utils/stream-utils';
+import { createEnqueue, createEventCollector, createSSEStream, handleCommonStreamEvent, loadChatHistory, wireAbort } from './utils/stream-utils';
 
 // ============================================================================
 // CONTEXT PREPROCESSING
@@ -185,18 +185,19 @@ async function buildSystemPrompt(
 }
 
 // ============================================================================
-// CHAT HANDLER — synchronous POST, async generation via waitUntil
+// CHAT HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
 // ============================================================================
 
 /**
- * Chat action handler — saves user message, registers stream, returns IDs synchronously.
- * Generation runs in ctx.waitUntil(), pushing events to ChatStream DO.
+ * Chat action handler — saves user message, registers stream.
+ * Returns SSE stream: first event = IDs, then generation runs inline.
+ * In test mode (options.onEvent), returns ChatActionResult directly.
  */
 export async function chatActionHandler(
     data: SendChatActionDto,
     ctx: Ctx,
     options: ChatHandlerOptions = {},
-): Promise<ChatActionResult> {
+): Promise<ChatActionResult | ReadableStream> {
     const { chatId, message, tempId } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
@@ -243,30 +244,30 @@ export async function chatActionHandler(
         userMessageId,
     }, alias ?? undefined);
 
-    // Kick off generation in waitUntil — response returned before generation starts
-    const generationPromise = runGeneration({
-        data,
-        ctx,
-        options,
-        chat,
-        agentMessageId,
-        requestStartedAt,
-        ugStub,
-    });
-
-    if (ctx.eCtx?.waitUntil) {
-        ctx.eCtx.waitUntil(generationPromise);
+    // --- Test mode: keep existing direct-call behavior ---
+    if (options.onEvent) {
+        const generationPromise = runGeneration({
+            data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub,
+        });
+        return { userMessageId, agentMessageId, generation: generationPromise };
     }
 
-    return {
-        userMessageId,
-        agentMessageId,
-        ...(options.onEvent && { generation: generationPromise }),
-    };
+    // --- Production mode: return SSE stream (kept alive by GenerationProxyDO) ---
+    return createSSEStream(async (controller) => {
+        const enqueue = createEnqueue(controller);
+
+        // First event: IDs (read by GenerationProxyDO, returned to frontend)
+        enqueue({ type: 'ids', userMessageId, agentMessageId });
+
+        // Run generation inline — Worker stays alive because the DO reads this stream
+        await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+
+        try { controller.close(); } catch { /* already closed */ }
+    }, ctx);
 }
 
 // ============================================================================
-// GENERATION — runs in waitUntil, pushes events to ChatStream DO
+// GENERATION — runs inline in SSE stream, pushes events to ChatStream DO
 // ============================================================================
 
 interface GenerationParams {
@@ -292,6 +293,10 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
     // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
     const abortController = wireAbort(streamDO);
+
+    // Track in-flight DO pushes — hoisted for catch block access
+    let pushSeq = 0;
+    const inflightPushes: Promise<void>[] = [];
 
     try {
         if (!anthropic || !langfuse) {
@@ -410,9 +415,6 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         const state = { wasTool: false };
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
 
-        // Track in-flight DO pushes so we can drain before terminal events
-        let pushSeq = 0;
-        const inflightPushes: Promise<void>[] = [];
         const fireAndForgetPush = (events: StreamEvent[]) => {
             const p = streamDO.push(events, pushSeq++).catch((err) => console.error('[chat-handler] push failed:', err));
             inflightPushes.push(p);

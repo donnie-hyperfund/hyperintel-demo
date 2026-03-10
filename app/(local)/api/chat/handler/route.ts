@@ -20,7 +20,8 @@ export async function POST(req: NextRequest) {
     }
 
     const ctx = await initNextjsWorkerContext({ skipAI: false });
-    const result = await chatActionHandler(parsed.data, ctx);
+    // Pass no-op onEvent to get direct result (not SSE stream — no proxy DO locally)
+    const result = await chatActionHandler(parsed.data, ctx, { onEvent: () => {} });
 
     return NextResponse.json(result);
 }

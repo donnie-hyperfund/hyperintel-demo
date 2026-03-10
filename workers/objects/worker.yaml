@@ -12,9 +12,15 @@ durable_objects:
   - name: CHAT_STREAM_DO
     class_name: ChatStreamDO
     local: true
+  - name: GENERATION_PROXY
+    class_name: GenerationProxyDO
+    local: true
 
 migrations:
   - tag: v1_initial
     new_sqlite_classes:
       - UserGateway
       - ChatStreamDO
+  - tag: v2_generation_proxy
+    new_sqlite_classes:
+      - GenerationProxyDO

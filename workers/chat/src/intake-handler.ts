@@ -1,11 +1,8 @@
 /**
  * Intake Handler — Company Profile (CPF) & Human Persona (HPF) flows
  *
- * Migrated to the broker pattern (Task 13):
- * - Returns { agentMessageId } synchronously
- * - Saves user message + sets active_agent_message_id before waitUntil
- * - Pushes StreamEvent[] to ChatStreamDO via waitUntil
- * - No SSE — events delivered via UserGateway WS subscription to 'intake:{chatId}'
+ * Returns SSE stream: first event = IDs, then generation runs inline.
+ * Kept alive by GenerationProxyDO. Events delivered via UserGateway WS.
  */
 
 import { runAgentStream } from '@common/ai/agent';
@@ -25,7 +22,7 @@ import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
-import { createEventCollector, handleCommonStreamEvent, loadChatHistory, wireAbort } from './utils/stream-utils';
+import { createEnqueue, createEventCollector, createSSEStream, handleCommonStreamEvent, loadChatHistory, wireAbort } from './utils/stream-utils';
 
 // ============================================================================
 // SYSTEM PROMPT
@@ -95,7 +92,7 @@ When you have gathered sufficient information, create the document using the doc
 }
 
 // ============================================================================
-// INTAKE HANDLER — synchronous POST, async generation via waitUntil
+// INTAKE HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
 // ============================================================================
 
 export interface IntakeActionResult {
@@ -106,14 +103,15 @@ export interface IntakeActionResult {
 }
 
 /**
- * Intake action handler — saves user message, registers stream, returns IDs synchronously.
- * Generation runs in ctx.waitUntil(), pushing events to ChatStream DO.
+ * Intake action handler — saves user message, registers stream.
+ * Returns SSE stream: first event = IDs, then generation runs inline.
+ * In test mode (options.onEvent), returns IntakeActionResult directly.
  */
 export async function intakeActionHandler(
     data: SendIntakeChatActionDto,
     ctx: Ctx,
     options: ChatHandlerOptions = {},
-): Promise<IntakeActionResult> {
+): Promise<IntakeActionResult | ReadableStream> {
     const { chatId, message } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
@@ -133,7 +131,7 @@ export async function intakeActionHandler(
         { populate: ['user'] },
     );
 
-    // Save user message immediately (before waitUntil)
+    // Save user message immediately
     const userMsg = em!.create(ChatMessageEntity, {
         id: userMessageId,
         chat: chatId,
@@ -166,30 +164,30 @@ export async function intakeActionHandler(
         userMessageId,
     }, alias ?? undefined);
 
-    // Kick off generation in waitUntil — response returned before generation starts
-    const generationPromise = runIntakeGeneration({
-        data,
-        ctx,
-        options,
-        chat,
-        agentMessageId,
-        requestStartedAt,
-        ugStub,
-    });
-
-    if (ctx.eCtx?.waitUntil) {
-        ctx.eCtx.waitUntil(generationPromise);
+    // --- Test mode: keep existing direct-call behavior ---
+    if (options.onEvent) {
+        const generationPromise = runIntakeGeneration({
+            data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub,
+        });
+        return { userMessageId, agentMessageId, generation: generationPromise };
     }
 
-    return {
-        userMessageId,
-        agentMessageId,
-        ...(options.onEvent && { generation: generationPromise }),
-    };
+    // --- Production mode: return SSE stream (kept alive by GenerationProxyDO) ---
+    return createSSEStream(async (controller) => {
+        const enqueue = createEnqueue(controller);
+
+        // First event: IDs (read by GenerationProxyDO, returned to frontend)
+        enqueue({ type: 'ids', userMessageId, agentMessageId });
+
+        // Run generation inline — Worker stays alive because the DO reads this stream
+        await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+
+        try { controller.close(); } catch { /* already closed */ }
+    }, ctx);
 }
 
 // ============================================================================
-// GENERATION — runs in waitUntil, pushes events to ChatStream DO
+// GENERATION — runs inline in SSE stream, pushes events to ChatStream DO
 // ============================================================================
 
 interface IntakeGenerationParams {
@@ -215,6 +213,10 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
     // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
     const abortController = wireAbort(streamDO);
+
+    // Track in-flight DO pushes — hoisted for catch block access
+    let pushSeq = 0;
+    const inflightPushes: Promise<void>[] = [];
 
     try {
         if (!anthropic || !langfuse) {
@@ -296,9 +298,6 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         const state = { wasTool: false };
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string } | null = null;
 
-        // Track in-flight DO pushes so we can drain before terminal events
-        let pushSeq = 0;
-        const inflightPushes: Promise<void>[] = [];
         const fireAndForgetPush = (events: StreamEvent[]) => {
             const p = streamDO.push(events, pushSeq++).catch((err) => console.error('[intake-handler] push failed:', err));
             inflightPushes.push(p);

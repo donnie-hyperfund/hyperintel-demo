@@ -87,21 +87,76 @@ app.post('/abort', zValidator('json', AbortActionSchema), (c) => {
     });
 });
 
-app.post('/chat', zValidator('json', SendChatActionSchema), async (c) => {
+// ── SSE stream endpoints (called by GenerationProxyDO, not by clients directly) ──
+
+app.post('/stream/chat', zValidator('json', SendChatActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await chatActionHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
-app.post('/intake', zValidator('json', SendIntakeChatActionSchema), async (c) => {
+app.post('/stream/intake', zValidator('json', SendIntakeChatActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await intakeActionHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
-app.post('/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
+app.post('/stream/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await summarizeActionHandler(c.req.valid('json'), ctxWithAlias(c));
+    });
+});
+
+// ── Public proxy endpoints — thin wrappers that delegate to GenerationProxyDO ──
+
+function buildStreamUrl(req: Request, path: string): string {
+    const url = new URL(req.url);
+    return `${url.origin}/stream${path}`;
+}
+
+type GenerationProxyDOStub = DurableObjectStub & {
+    run(url: string, body: string, authHeader: string): Promise<unknown>;
+};
+
+app.post('/chat', zValidator('json', SendChatActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        const proxyDO = c.env.GENERATION_PROXY.get(
+            c.env.GENERATION_PROXY.newUniqueId(),
+        ) as unknown as GenerationProxyDOStub;
+
+        const streamUrl = buildStreamUrl(c.req.raw, '/chat');
+        const body = JSON.stringify(c.req.valid('json'));
+        const authHeader = c.req.header('Authorization') ?? '';
+
+        return await proxyDO.run(streamUrl, body, authHeader);
+    });
+});
+
+app.post('/intake', zValidator('json', SendIntakeChatActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        const proxyDO = c.env.GENERATION_PROXY.get(
+            c.env.GENERATION_PROXY.newUniqueId(),
+        ) as unknown as GenerationProxyDOStub;
+
+        const streamUrl = buildStreamUrl(c.req.raw, '/intake');
+        const body = JSON.stringify(c.req.valid('json'));
+        const authHeader = c.req.header('Authorization') ?? '';
+
+        return await proxyDO.run(streamUrl, body, authHeader);
+    });
+});
+
+app.post('/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        const proxyDO = c.env.GENERATION_PROXY.get(
+            c.env.GENERATION_PROXY.newUniqueId(),
+        ) as unknown as GenerationProxyDOStub;
+
+        const streamUrl = buildStreamUrl(c.req.raw, '/summarize');
+        const body = JSON.stringify(c.req.valid('json'));
+        const authHeader = c.req.header('Authorization') ?? '';
+
+        return await proxyDO.run(streamUrl, body, authHeader);
     });
 });
 

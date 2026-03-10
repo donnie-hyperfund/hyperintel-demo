@@ -16,7 +16,7 @@ export interface UserGatewayStub {
 }
 
 export interface ChatStreamDOStub {
-    push(events: StreamEvent[]): Promise<void>;
+    push(events: StreamEvent[], seq: number): Promise<void>;
     done(): Promise<void>;
     abort(chatId?: string): Promise<void>;
     abortWait(): Promise<'abort' | 'timeout' | 'done'>;

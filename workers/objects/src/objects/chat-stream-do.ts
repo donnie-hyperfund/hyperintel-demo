@@ -305,7 +305,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         return `${this.topicPrefix}:${this.chatId}`;
     }
 
-    private async broadcast(event: StreamEvent) {
+    private async broadcast(event: StreamEvent, _seq?: number) {
         if (this.subscribers.size === 0) {
             console.warn(`[ChatStreamDO] broadcast: 0 subscribers, topic=${this.topic}, event=${event.type}`);
         }
@@ -317,6 +317,7 @@ export class ChatStreamDO extends DurableObject<Env> {
                     type: 'stream_event',
                     agentMessageId: this.agentMessageId,
                     event,
+                    ...(_seq !== undefined && { _seq }),
                 }),
             );
         }
@@ -380,6 +381,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         // Drain consecutive batches in order
         while (this.pendingBatches.has(this.nextExpectedSeq)) {
             const batch = this.pendingBatches.get(this.nextExpectedSeq)!;
+            const drainedSeq = this.nextExpectedSeq;
             this.pendingBatches.delete(this.nextExpectedSeq);
             this.nextExpectedSeq++;
 
@@ -387,7 +389,7 @@ export class ChatStreamDO extends DurableObject<Env> {
                 this.applyEvent(event);
             }
             for (const event of batch) {
-                await this.broadcast(event);
+                await this.broadcast(event, drainedSeq);
             }
         }
 
