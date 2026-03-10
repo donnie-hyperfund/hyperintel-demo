@@ -7,6 +7,7 @@ import { useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
+import { IS_DEV } from '@/lib/config';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
@@ -119,7 +120,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                 minHeight={24}
                             />
                             <div className="flex items-end gap-2 ml-auto">
-                                <SwitchModelSelector disabled={isBusy} />
+                                {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
                                 <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
                                     <Send className="size-4" />
                                 </Button>
