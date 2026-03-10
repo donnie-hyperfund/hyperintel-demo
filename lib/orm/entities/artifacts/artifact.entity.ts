@@ -2,6 +2,7 @@ import { Collection, Entity, ManyToOne, OneToMany, OneToOne, Opt, Property } fro
 import type { Nullable } from '@/common/orm/utils';
 import type { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
+import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 
@@ -21,6 +22,10 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
 
     @ManyToOne(() => 'UserEntity', { fieldName: 'user_id', nullable: true, serializer: (user) => user?.id })
     user?: Nullable<UserEntity>;
+
+    /** Chat scope — for intake uploads (artifacts scoped to a specific chat) */
+    @ManyToOne(() => 'ChatEntity', { fieldName: 'chat_id', nullable: true, serializer: (chat) => chat?.id })
+    chat?: Nullable<ChatEntity>;
 
     @OneToOne(() => 'ArtifactVersionEntity', { fieldName: 'current_version_id', eager: true, nullable: true })
     current_version!: ArtifactVersionEntity;

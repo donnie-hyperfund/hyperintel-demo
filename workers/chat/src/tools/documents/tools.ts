@@ -486,8 +486,8 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     // Only clear draft after successful persist
                     draftManager.discard();
 
-                    // Queue embedding job for the new version (fire-and-forget, project-scoped only)
-                    if (embeddingQueue && ctx.projectId) {
+                    // Queue embedding job for the new version (fire-and-forget)
+                    if (embeddingQueue && (ctx.projectId || ctx.chatId)) {
                         // Classify document to determine if AI-readable content should be generated
                         const generateAiContent = rCtx
                             ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
@@ -502,6 +502,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             .send({
                                 type: 'index_artifact_version',
                                 projectId: ctx.projectId ?? null,
+                                chatId: ctx.chatId ?? null,
                                 versionId: result.versionId,
                                 content: draft.content,
                                 documentName: draft.name,

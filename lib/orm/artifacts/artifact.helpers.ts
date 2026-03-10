@@ -1,10 +1,13 @@
 import { embedTexts } from '@common/ai/embeddings';
 import { chunkContent } from '@common/ai/utils/chunking';
+import type { Nullable } from '@/common/orm/utils';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type { OpenRouter } from '@openrouter/sdk';
 import type OpenAI from 'openai';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
-import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import type { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import type { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 
 export interface ArtifactVersionLike {
     id: string;
@@ -13,8 +16,9 @@ export interface ArtifactVersionLike {
 
 export interface ArtifactEmbeddingEntityConstructor {
     new (): {
-        artifact_version: any;
-        project: any;
+        artifact_version: ArtifactVersionEntity;
+        project?: Nullable<ProjectEntity>;
+        chat?: Nullable<ChatEntity>;
         chunk_index: number;
         chunk_content: string;
         start_line: number;
@@ -28,15 +32,25 @@ function escapeSqlString(str: string): string {
     return str.replace(/'/g, "''");
 }
 
+export interface IndexArtifactVersionScope {
+    projectId?: string | null;
+    chatId?: string | null;
+}
+
 export async function indexArtifactVersion(
     openaiClient: OpenAI,
     openrouterClient: OpenRouter,
     em: EntityManager,
     artifactVersion: ArtifactVersionLike,
-    projectId: string,
+    projectIdOrScope: string | IndexArtifactVersionScope,
     EmbeddingEntity: ArtifactEmbeddingEntityConstructor,
     is_ai_content: boolean,
 ): Promise<{ indexed: number; deleted: number }> {
+    // Support both legacy string projectId and new scope object
+    const scope: IndexArtifactVersionScope = typeof projectIdOrScope === 'string'
+        ? { projectId: projectIdOrScope }
+        : projectIdOrScope;
+
     const deleted = await em.nativeDelete(EmbeddingEntity, {
         artifact_version: artifactVersion.id,
     });
@@ -49,6 +63,9 @@ export async function indexArtifactVersion(
     const chunkTexts = chunks.map((c) => c.content);
     const embeddingVectors = await embedTexts(openaiClient, chunkTexts);
 
+    const projectVal = scope.projectId ? `'${scope.projectId}'` : 'NULL';
+    const chatVal = scope.chatId ? `'${scope.chatId}'` : 'NULL';
+
     // Use raw SQL INSERT with direct interpolation (parameterized queries don't work in this environment)
     const conn = em.getConnection();
     for (let i = 0; i < chunks.length; i++) {
@@ -58,8 +75,8 @@ export async function indexArtifactVersion(
         const escapedContent = escapeSqlString(chunk.content);
 
         await conn.execute(
-            `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chunk_index, chunk_content, start_line, end_line, embedding, is_ai_content)
-             VALUES ('${artifactVersion.id}', '${projectId}', ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector, ${is_ai_content})`,
+            `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chat_id, chunk_index, chunk_content, start_line, end_line, embedding, is_ai_content)
+             VALUES ('${artifactVersion.id}', ${projectVal}, ${chatVal}, ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector, ${is_ai_content})`,
         );
     }
 
