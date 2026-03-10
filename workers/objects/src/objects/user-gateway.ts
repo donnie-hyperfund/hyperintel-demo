@@ -208,6 +208,25 @@ export class UserGateway extends DurableObject<Env> {
         this.broadcastToTopic(topic, message);
     }
 
+    /**
+     * Forward multiple messages atomically to all WebSockets subscribed to a topic.
+     * All messages are sent synchronously via ws.send() within a single RPC call,
+     * guaranteeing ordered delivery without interleaving from concurrent callers.
+     */
+    async pushMessages(topic: string, messages: unknown[]) {
+        const sockets = this.ctx.getWebSockets();
+        for (const ws of sockets) {
+            const att = ws.deserializeAttachment() as SocketAttachment | null;
+            if (!att?.subscribedTopics.includes(topic)) continue;
+            if (this.closeIfExpired(ws, att)) continue;
+            for (const msg of messages) {
+                try {
+                    ws.send(JSON.stringify(msg));
+                } catch {}
+            }
+        }
+    }
+
     /** Generic RPC for server→server actions routed to a handler */
     async systemAction(topic: string, action: string, payload: unknown, previewAlias?: string): Promise<unknown> {
         await this.ensureAliasLoaded();

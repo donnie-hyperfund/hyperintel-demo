@@ -69,6 +69,12 @@ export class ChatStreamDO extends DurableObject<Env> {
     private nextExpectedSeq = 0;
     private pendingBatches = new Map<number, StreamEvent[]>();
 
+    // --- Broadcast queue — serializes delivery, prevents interleaving ---
+    private broadcastQueue: unknown[][] = [];
+    private isBroadcasting = false;
+    /** Monotonic counter — included as `_seq` in every WS message for ordering verification */
+    private broadcastSeq = 0;
+
     /** Lazy-load state from storage on first RPC call */
     private async ensureLoaded() {
         if (this.initialized) return;
@@ -305,56 +311,84 @@ export class ChatStreamDO extends DurableObject<Env> {
         return `${this.topicPrefix}:${this.chatId}`;
     }
 
-    private async broadcast(event: StreamEvent, _seq?: number) {
-        if (this.subscribers.size === 0) {
-            console.warn(`[ChatStreamDO] broadcast: 0 subscribers, topic=${this.topic}, event=${event.type}`);
+    /**
+     * Queue messages for broadcast and kick off the serial drain.
+     * Callers don't await — push() returns immediately (no stutter).
+     *
+     * The drain loop merges ALL queued messages before each RPC, so events
+     * that accumulate during the round-trip are coalesced into one batch.
+     */
+    private queueBroadcast(messages: unknown[]) {
+        this.broadcastQueue.push(messages);
+        this.drainBroadcastQueue();
+    }
+
+    /**
+     * Serial drain — only one instance runs at a time (JS mutex via `isBroadcasting`).
+     *
+     * On each iteration: merge ALL currently queued message arrays → send ONE
+     * awaited RPC per subscriber → loop. The await opens the input gate, letting
+     * concurrent push() calls queue more events. Those events are merged into
+     * the next iteration's RPC — natural coalescing, minimal round-trips.
+     *
+     * Ordering guarantee: the mutex ensures only one drain runs, and each RPC
+     * is awaited before the next. UG's pushMessages uses synchronous ws.send(),
+     * so events within a single RPC are atomic and ordered.
+     */
+    private async drainBroadcastQueue() {
+        if (this.isBroadcasting) return;
+        this.isBroadcasting = true;
+        try {
+            while (this.broadcastQueue.length > 0) {
+                // Merge all currently queued batches into one
+                const merged: unknown[] = [];
+                while (this.broadcastQueue.length > 0) {
+                    merged.push(...this.broadcastQueue.shift()!);
+                }
+                await this.sendBatchToSubscribers(merged);
+            }
+        } finally {
+            this.isBroadcasting = false;
         }
+    }
+
+    /**
+     * Send a merged batch of messages to all subscribers via UG's pushMessages.
+     * Each subscriber gets one awaited RPC with all messages (atomic delivery).
+     */
+    private async sendBatchToSubscribers(messages: unknown[]) {
+        if (this.subscribers.size === 0) return;
         const sends: Promise<void>[] = [];
         for (const [userId] of this.subscribers) {
-            sends.push(
-                this.sendToSubscriber(userId, {
-                    topic: this.topic,
-                    type: 'stream_event',
-                    agentMessageId: this.agentMessageId,
-                    event,
-                    ...(_seq !== undefined && { _seq }),
-                }),
-            );
+            sends.push(this.sendToUG(userId, messages));
         }
         await Promise.allSettled(sends);
     }
 
-    private async broadcastStatus(status: StreamStatus) {
-        const sends: Promise<void>[] = [];
-        for (const [userId] of this.subscribers) {
-            sends.push(
-                this.sendToSubscriber(userId, {
-                    topic: this.topic,
-                    type: 'stream_status',
-                    status,
-                    agentMessageId: this.agentMessageId,
-                }),
-            );
-        }
-        await Promise.allSettled(sends);
-    }
-
-    /** Send a pre-formatted message to a subscriber via UG's pushMessage (raw passthrough). */
-    private async sendToSubscriber(userId: string, message: unknown): Promise<void> {
+    /** Send messages to a single subscriber's UserGateway (awaited). */
+    private async sendToUG(userId: string, messages: unknown[]): Promise<void> {
         const ugDoName = this.subscribers.get(userId);
         if (!ugDoName) return;
-
         try {
             const ugId = this.env.USER_GATEWAY.idFromName(ugDoName);
             const ugStub = this.env.USER_GATEWAY.get(ugId) as DurableObjectStub & {
-                pushMessage(topic: string, message: unknown): Promise<void>;
+                pushMessages(topic: string, messages: unknown[]): Promise<void>;
             };
-            console.log(`[ChatStreamDO] sendToSubscriber: userId=${userId}, ugDoName=${ugDoName}, topic=${this.topic}`);
-            await ugStub.pushMessage(this.topic, message);
-            console.log(`[ChatStreamDO] sendToSubscriber: pushMessage returned OK`);
+            await ugStub.pushMessages(this.topic, messages);
         } catch (err) {
-            console.error(`[ChatStreamDO] sendToSubscriber FAILED: userId=${userId}, ugDoName=${ugDoName}, topic=${this.topic}`, err);
+            console.error(`[ChatStreamDO] sendToUG FAILED: userId=${userId}`, err);
         }
+    }
+
+    /** Queue a stream_status message for broadcast. */
+    private broadcastStatus(status: StreamStatus) {
+        this.queueBroadcast([{
+            topic: this.topic,
+            type: 'stream_status',
+            status,
+            agentMessageId: this.agentMessageId,
+            _seq: this.broadcastSeq++,
+        }]);
     }
 
     // ========================================================================
@@ -364,6 +398,9 @@ export class ChatStreamDO extends DurableObject<Env> {
     /**
      * Push stream events with a sequence number for reorder-safe fire-and-forget delivery.
      * Out-of-order batches are buffered until all preceding sequences arrive.
+     *
+     * Broadcasts are queued and drained serially (mutex + merged batches) to prevent
+     * interleaving when concurrent push() calls enter via the open input gate.
      */
     async push(events: StreamEvent[], seq: number) {
         await this.ensureLoaded();
@@ -378,19 +415,29 @@ export class ChatStreamDO extends DurableObject<Env> {
         // Buffer this batch
         this.pendingBatches.set(seq, events);
 
-        // Drain consecutive batches in order
+        // Drain consecutive batches in order — apply synchronously, queue for broadcast
+        const allDrained: StreamEvent[] = [];
         while (this.pendingBatches.has(this.nextExpectedSeq)) {
             const batch = this.pendingBatches.get(this.nextExpectedSeq)!;
-            const drainedSeq = this.nextExpectedSeq;
             this.pendingBatches.delete(this.nextExpectedSeq);
             this.nextExpectedSeq++;
 
             for (const event of batch) {
                 this.applyEvent(event);
             }
-            for (const event of batch) {
-                await this.broadcast(event, drainedSeq);
-            }
+            allDrained.push(...batch);
+        }
+
+        // Queue for serial broadcast — each event tagged with _seq for client-side verification
+        if (allDrained.length > 0) {
+            const messages = allDrained.map((event) => ({
+                topic: this.topic,
+                type: 'stream_event',
+                agentMessageId: this.agentMessageId,
+                event,
+                _seq: this.broadcastSeq++,
+            }));
+            this.queueBroadcast(messages);
         }
 
         // Persist + alarm on a throttled schedule (crash-recovery only)
@@ -404,6 +451,7 @@ export class ChatStreamDO extends DurableObject<Env> {
 
     /**
      * Mark stream as done, broadcast terminal status.
+     * Awaits drain so status is delivered before the handler calls finalize().
      */
     async done() {
         await this.ensureLoaded();
@@ -418,7 +466,8 @@ export class ChatStreamDO extends DurableObject<Env> {
         this.abortResolve?.('done');
         this.abortResolve = null;
         await this.persistState();
-        await this.broadcastStatus('done');
+        this.broadcastStatus('done');
+        await this.drainBroadcastQueue();
     }
 
     /**
@@ -443,6 +492,9 @@ export class ChatStreamDO extends DurableObject<Env> {
         this.status = 'idle';
         this.nextExpectedSeq = 0;
         this.pendingBatches.clear();
+        this.broadcastQueue = [];
+        this.isBroadcasting = false;
+        this.broadcastSeq = 0;
         await this.persistState();
         // Start dead-man alarm — if no push() arrives, alarm fires and cleans up
         await this.ctx.storage.setAlarm(Date.now() + DEAD_MAN_TIMEOUT_MS);
@@ -461,7 +513,8 @@ export class ChatStreamDO extends DurableObject<Env> {
         this.abortResolve?.('abort');
         this.abortResolve = null;
         await this.persistState();
-        await this.broadcastStatus('aborted');
+        this.broadcastStatus('aborted');
+        await this.drainBroadcastQueue();
     }
 
     /**
@@ -540,7 +593,8 @@ export class ChatStreamDO extends DurableObject<Env> {
         this.status = 'pending_approval';
         await this.persistState();
         // TODO: broadcast tool info (toolCallId, tool, input) so client knows which tool needs approval
-        await this.broadcastStatus('pending_approval');
+        this.broadcastStatus('pending_approval');
+        await this.drainBroadcastQueue();
     }
 
     /**
@@ -555,7 +609,8 @@ export class ChatStreamDO extends DurableObject<Env> {
         }
         this.status = 'streaming';
         await this.persistState();
-        await this.broadcastStatus('streaming');
+        this.broadcastStatus('streaming');
+        await this.drainBroadcastQueue();
     }
 
     /**
@@ -570,7 +625,8 @@ export class ChatStreamDO extends DurableObject<Env> {
         }
         this.status = 'aborted';
         await this.persistState();
-        await this.broadcastStatus('aborted');
+        this.broadcastStatus('aborted');
+        await this.drainBroadcastQueue();
     }
 
     /**
@@ -609,7 +665,8 @@ export class ChatStreamDO extends DurableObject<Env> {
             console.error(`ChatStreamDO: dead-man alarm fired for ${this.agentMessageId}, status was ${this.status}`);
             this.status = 'error';
             await this.persistState();
-            await this.broadcastStatus('error');
+            this.broadcastStatus('error');
+            await this.drainBroadcastQueue();
             // DB cleanup: save errored placeholder message + clear activeAgentMessageId
             await this.dbCleanup();
             // Self-destruct after broadcasting error and DB cleanup

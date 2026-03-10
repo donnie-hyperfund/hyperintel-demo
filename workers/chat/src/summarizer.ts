@@ -1,7 +1,6 @@
 ﻿import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types';
-import { serializeException } from '@common/ai/utils';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -16,7 +15,7 @@ import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
-import { createEnqueue, createEventCollector, createSSEStream, handleCommonStreamEvent, wireAbort } from './utils/stream-utils';
+import { cleanupStreamDO, createEnqueue, createEventCollector, createPusher, createSSEStream, handleCommonStreamEvent, wireAbort } from './utils/stream-utils';
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
@@ -167,9 +166,8 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
     // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
     const abortController = wireAbort(streamDO);
 
-    // Track in-flight DO pushes — hoisted for catch block access
-    let pushSeq = 0;
-    const inflightPushes: Promise<void>[] = [];
+    // Fire-and-forget pusher — hoisted for catch block access
+    const pusher = createPusher(streamDO, 'summarizer');
 
     try {
         if (!anthropic) {
@@ -288,10 +286,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const state = { wasTool: false };
         let summaryContent = '';
 
-        const fireAndForgetPush = (events: StreamEvent[]) => {
-            const p = streamDO.push(events, pushSeq++).catch((err) => console.error('[summarizer] push failed:', err));
-            inflightPushes.push(p);
-        };
+        const fireAndForgetPush = pusher.push;
 
         // Document events queue — batched into the main push instead of separate RPCs
         const pendingDocEvents: StreamEvent[] = [];
@@ -385,8 +380,8 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
 
         // Push terminal done event with newChatId
         // Ordering: push done  streamDO.done()  clear entity  finalize()  clearStream (Decision #20)
-        await Promise.allSettled(inflightPushes);
-        await streamDO.push([{ type: 'done', newChatId: newChat.id }], pushSeq++);
+        await pusher.waitAll();
+        await streamDO.push([{ type: 'done', newChatId: newChat.id }], pusher.seq);
 
         try {
             await streamDO.done();
@@ -397,7 +392,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
     } catch (error: any) {
         console.error('[summarizer] generation error:', error?.message ?? error, error?.stack);
 
-        // Clear active_agent_message_id on error
+        // Clear active_agent_message_id on error (summarizer has no agent message to persist)
         try {
             chat.active_agent_message_id = null;
             await em!.flush();
@@ -405,17 +400,6 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             console.error('[summarizer] failed to clear active_agent_message_id:', saveErr);
         }
 
-        // Push error event + mark DO as errored
-        try {
-            await Promise.allSettled(inflightPushes);
-            const serialized = serializeException(error);
-            await streamDO.push([{ type: 'error', error: serialized.message || 'Summarization failed' }], pushSeq++);
-            await streamDO.done();
-            await streamDO.finalize();
-        } catch {
-            /* DO might already be gone */
-        } finally {
-            await ugStub.systemAction(`chat:${chatId}`, 'clearStream', {}).catch(() => {});
-        }
+        await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
     }
 }

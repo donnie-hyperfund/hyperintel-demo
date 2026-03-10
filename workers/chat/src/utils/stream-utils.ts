@@ -171,6 +171,99 @@ export function handleCommonStreamEvent(
 }
 
 // ============================================================================
+// FIRE-AND-FORGET PUSHER
+// ============================================================================
+
+export interface Pusher {
+    /** Fire-and-forget push to ChatStreamDO with auto-incrementing seq. */
+    push: (events: StreamEvent[]) => void;
+    /** Await all in-flight pushes (call before terminal events). */
+    waitAll: () => Promise<void>;
+    /** Current sequence number (for the final awaited push of the terminal event). */
+    get seq(): number;
+}
+
+/**
+ * Factory for the fire-and-forget push pattern used by all handlers.
+ * Encapsulates pushSeq counter + inflightPushes tracking.
+ */
+export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher {
+    let pushSeq = 0;
+    const inflightPushes: Promise<void>[] = [];
+    return {
+        push: (events: StreamEvent[]) => {
+            const p = streamDO.push(events, pushSeq++).catch((err) =>
+                console.error(`[${label}] push failed:`, err),
+            );
+            inflightPushes.push(p);
+        },
+        waitAll: () => Promise.allSettled(inflightPushes).then(() => {}),
+        get seq() { return pushSeq++; },
+    };
+}
+
+// ============================================================================
+// ERROR CLEANUP HELPERS
+// ============================================================================
+
+/**
+ * Persist an error agent message row if one doesn't already exist.
+ * Used by chat-handler and intake-handler catch blocks.
+ * Summarizer skips this (no agent message to persist on error).
+ */
+export async function persistErrorMessage(
+    em: any,
+    chatId: string,
+    agentMessageId: string,
+    chat: { active_agent_message_id: string | null },
+    error: any,
+    label: string,
+) {
+    try {
+        const existing = await em.findOne(ChatMessageEntity, { id: agentMessageId });
+        if (!existing) {
+            const errorMsg = em.create(ChatMessageEntity, {
+                id: agentMessageId,
+                chat: chatId,
+                role: 'assistant',
+                content: '',
+                is_error: true,
+                metadata: { error: error?.message || 'Unknown error' },
+                debug_data: { error: serializeException(error) },
+            });
+            em.persist(errorMsg);
+        }
+        chat.active_agent_message_id = null;
+        await em.flush();
+    } catch (saveErr) {
+        console.error(`[${label}] failed to save error state:`, saveErr);
+    }
+}
+
+/**
+ * Error epilogue: drain inflight pushes, push error event, done+finalize, clearStream.
+ * Shared by all three handlers' catch blocks.
+ */
+export async function cleanupStreamDO(
+    pusher: Pusher,
+    streamDO: ChatStreamDOStub,
+    ugStub: UserGatewayStub,
+    topic: string,
+    error: any,
+) {
+    try {
+        await pusher.waitAll();
+        await streamDO.push([{ type: 'error', error: error?.message || 'Unknown error' }], pusher.seq);
+        await streamDO.done();
+        await streamDO.finalize();
+    } catch {
+        /* DO might already be gone */
+    } finally {
+        await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
+    }
+}
+
+// ============================================================================
 // DO PUSH HELPER
 // ============================================================================
 

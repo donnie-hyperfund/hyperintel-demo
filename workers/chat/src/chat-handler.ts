@@ -21,7 +21,7 @@ import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
-import { createEnqueue, createEventCollector, createSSEStream, handleCommonStreamEvent, loadChatHistory, wireAbort } from './utils/stream-utils';
+import { cleanupStreamDO, createEnqueue, createEventCollector, createPusher, createSSEStream, handleCommonStreamEvent, loadChatHistory, persistErrorMessage, wireAbort } from './utils/stream-utils';
 
 // ============================================================================
 // CONTEXT PREPROCESSING
@@ -294,9 +294,8 @@ async function runGeneration(params: GenerationParams): Promise<void> {
     // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
     const abortController = wireAbort(streamDO);
 
-    // Track in-flight DO pushes — hoisted for catch block access
-    let pushSeq = 0;
-    const inflightPushes: Promise<void>[] = [];
+    // Fire-and-forget pusher — hoisted for catch block access
+    const pusher = createPusher(streamDO, 'chat-handler');
 
     try {
         if (!anthropic || !langfuse) {
@@ -415,10 +414,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         const state = { wasTool: false };
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
 
-        const fireAndForgetPush = (events: StreamEvent[]) => {
-            const p = streamDO.push(events, pushSeq++).catch((err) => console.error('[chat-handler] push failed:', err));
-            inflightPushes.push(p);
-        };
+        const fireAndForgetPush = pusher.push;
 
         // Document events queue — batched into the main push instead of separate RPCs
         const pendingDocEvents: StreamEvent[] = [];
@@ -565,8 +561,8 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                             }),
                     };
                     // Drain all in-flight pushes before terminal event
-                    await Promise.allSettled(inflightPushes);
-                    await streamDO.push([doneEvent], pushSeq++);
+                    await pusher.waitAll();
+                    await streamDO.push([doneEvent], pusher.seq);
                     options.onEvent?.(doneEvent);
                     break;
                 }
@@ -587,38 +583,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         }
     } catch (error: any) {
         console.error('[chat-handler] generation error:', error?.message ?? error, error?.stack);
-
-        // Persist error state
-        try {
-            const existing = await em!.findOne(ChatMessageEntity, { id: agentMessageId });
-            if (!existing) {
-                const errorMsg = em!.create(ChatMessageEntity, {
-                    id: agentMessageId,
-                    chat: chatId,
-                    role: 'assistant',
-                    content: '',
-                    is_error: true,
-                    metadata: { error: error?.message || 'Unknown error' },
-                    debug_data: { error: serializeException(error) },
-                });
-                em!.persist(errorMsg);
-            }
-            chat.active_agent_message_id = null;
-            await em!.flush();
-        } catch (saveErr) {
-            console.error('[chat-handler] failed to save error state:', saveErr);
-        }
-
-        // Push error event + mark DO as errored
-        try {
-            await Promise.allSettled(inflightPushes);
-            await streamDO.push([{ type: 'error', error: error?.message || 'Unknown error' }], pushSeq++);
-            await streamDO.done();
-            await streamDO.finalize();
-        } catch {
-            /* DO might already be gone */
-        } finally {
-            await ugStub.systemAction(`chat:${chatId}`, 'clearStream', {}).catch(() => {});
-        }
+        await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'chat-handler');
+        await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
     }
 }
