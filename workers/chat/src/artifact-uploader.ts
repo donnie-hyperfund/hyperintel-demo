@@ -3,7 +3,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { ExtractionQueueAdapter } from '@common/queue/extraction-queue.adapter';
 import { PublicError } from '@common/common/error.helpers';
-import { normalizeArtifactKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
+import { normalizeUploadedFileKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
@@ -201,7 +201,7 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
     }
 
     const title = titleInput || file.name.replace(/\.[^.]+$/, '');
-    const normalizedKey = normalizeArtifactKey(file.name);
+    const normalizedKey = normalizeUploadedFileKey(file.name);
 
     await resolveScope(em, user, projectId, chatId);
 
@@ -235,7 +235,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
 
     const mimeType = MIME_TYPES[ext] ?? 'application/octet-stream';
     const title = titleInput || filename.replace(/\.[^.]+$/, '');
-    const normalizedKey = normalizeArtifactKey(filename);
+    const normalizedKey = normalizeUploadedFileKey(filename);
 
     await resolveScope(em, user, projectId, chatId);
 

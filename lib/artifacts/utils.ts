@@ -50,12 +50,13 @@ export class UploadValidationError extends Error {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/**
- * Normalize artifact key — preserves original extension for binary files,
- * ensures .md for text files.
- */
 export function normalizeArtifactKey(key: string): string {
     const trimmed = key.trim();
+    return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
+}
+
+export function normalizeUploadedFileKey(filename: string): string {
+    const trimmed = filename.trim();
     const ext = trimmed.slice(trimmed.lastIndexOf('.')).toLowerCase();
     if (isBinaryArtifactExtension(ext)) return trimmed;
     return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
