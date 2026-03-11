@@ -21,6 +21,7 @@ import { importArtifactsHandler } from './artifact-importer';
 import { uploadArtifactHandler, presignUploadHandler, confirmUploadHandler } from './artifact-uploader';
 import { chatActionHandler } from './chat-handler';
 import { intakeActionHandler } from './intake-handler';
+import { cleanupStaleUploads } from './cleanup';
 import { summarizeActionHandler } from './summarizer';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
@@ -103,4 +104,9 @@ app.get('/', (c) => {
     return c.json({ status: 'ok', worker: 'chat', userId: c.var.user.userId });
 });
 
-export default app;
+export default {
+    fetch: app.fetch,
+    async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+        ctx.waitUntil(cleanupStaleUploads(env));
+    },
+};

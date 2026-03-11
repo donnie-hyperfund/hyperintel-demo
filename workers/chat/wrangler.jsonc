@@ -103,6 +103,11 @@
 			}
 		]
 	},
+	"triggers": {
+		"crons": [
+			"0 * * * *"
+		]
+	},
 	"r2_buckets": [
 		{
 			"binding": "ARTIFACTS_BUCKET",
