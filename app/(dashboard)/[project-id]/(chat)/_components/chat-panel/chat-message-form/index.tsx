@@ -10,7 +10,10 @@ import { Button } from '@/components/ui/button';
 import { IS_DEV } from '@/lib/config';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { useFileDropContext } from '@/modules/chat/providers/file-drop-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
+import { AttachFileButton } from './attach-file-button';
+import { FilePreviewItem } from './file-preview-item';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 import { SwitchModelSelector } from './switch-model-selector';
 
@@ -24,6 +27,8 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
         sendMessage,
         state: { isGenerating, isSummarizing, isLoading, tokenUsage },
     } = useChatContext();
+
+    const { files, removeFile, clearFiles } = useFileDropContext();
 
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
@@ -41,15 +46,25 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
     });
 
     const message = watch('message');
-    const hasContent = message && message.trim().length > 0;
+    const hasContent = (message && message.trim().length > 0) || files.length > 0;
     const isBusy = isGenerating || isSummarizing || isLoading;
     const isDisabled = !hasContent || isBusy;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
-        if (!data.message.trim()) return;
-        reset({ message: '' });
-        textareaRef.current?.updateTextareaHeight();
-        await sendMessage(data.message);
+        if (!data.message.trim() && files.length === 0) return;
+
+        // Mock file upload if files are attached
+        if (files.length > 0) {
+            clearFiles();
+        }
+
+        if (data.message.trim()) {
+            reset({ message: '' });
+            textareaRef.current?.updateTextareaHeight();
+            await sendMessage(data.message);
+        } else {
+            reset({ message: '' });
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -105,6 +120,28 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                 errors.message && 'border-red-400 ring-red-500/20 dark:ring-red-500/40',
                             )}
                         >
+                            {files.length > 0 && (
+                                <div className="relative max-h-48 overflow-y-clip mb-5">
+                                    <div className="grid grid-cols-2 w-full relative flex-wrap gap-3 max-h-48 overflow-y-scroll pb-2">
+                                        {files.map((f, i) => (
+                                            <FilePreviewItem
+                                                key={`${f.name}-${f.size}`}
+                                                file={f}
+                                                onRemove={() => removeFile(i)}
+                                            />
+                                        ))}
+                                    </div>
+
+                                    <div
+                                        className="absolute top-46 left-0 right-0 h-2"
+                                        style={{
+                                            background:
+                                                'linear-gradient(to bottom, transparent 0px, var(--color-neutral-800))',
+                                        }}
+                                    />
+                                </div>
+                            )}
+
                             <AutoExpandingTextarea
                                 name={name}
                                 ref={mergedRef}
@@ -115,10 +152,13 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                 onBlur={onBlur}
                                 onKeyDown={handleKeyDown}
                                 placeholder="Type your message..."
-                                className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground"
-                                maxHeight={144}
+                                className="w-full bg-transparent leading-6 outline-none placeholder:text-muted-foreground"
+                                maxHeight={364}
                                 minHeight={24}
                             />
+
+                            <AttachFileButton />
+
                             <div className="flex items-end gap-2 ml-auto">
                                 {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
                                 <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
