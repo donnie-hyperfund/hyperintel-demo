@@ -1,7 +1,7 @@
 import type { SqlEntityManager } from '@mikro-orm/knex';
-import { initInferredContext } from '@/workers/_common/context.helpers';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { initInferredContext } from '@/workers/_common/context.helpers';
 
 const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 const BATCH_SIZE = 100;
