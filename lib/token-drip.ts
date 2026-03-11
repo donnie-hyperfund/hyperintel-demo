@@ -1,14 +1,14 @@
 /**
- * Adaptive rAF-based drip queue with TPS tracking.
+ * rAF-based drip queue for smooth streaming output.
  *
- * Tracks average tokens-per-second over a sliding window (default 5s) and
- * drips items at that rate — producing smooth, steady output regardless of
- * how bursty the backend delivery is.
+ * Tokens arrive from WebSocket in bursts. Without smoothing, the UI shows
+ * [fast dump] → [pause] → [fast dump]. This queue absorbs bursts and drips
+ * items at a steady 1-per-frame rate (~60/sec), producing a smooth typewriter
+ * effect regardless of backend delivery timing.
  *
- * Fallback behaviour:
- *  - Cold start (no TPS data yet): proportional drain (35% of queue/frame)
- *  - Queue growing past soft cap: proportional boost on top of TPS rate
- *  - Queue over hard cap: force-drain excess immediately
+ * When the queue grows deep (fast model or slow consumer), the drip rate
+ * ramps up proportionally to prevent falling behind. A hard cap force-drains
+ * excess to bound latency.
  *
  * @example
  * ```ts
@@ -21,16 +21,18 @@
  * drip.dispose();
  * ```
  */
+
 /**
  * Split a text delta into word-boundary chunks when it exceeds a character
- * threshold. Keeps TPS tracking accurate and prevents dumping a whole
- * sentence in one drip frame. Short deltas pass through untouched.
+ * threshold. Prevents dumping a whole sentence in one drip frame.
+ * Short deltas pass through untouched.
  */
 const CHUNK_THRESHOLD = 8;
 export function chunkText(text: string): string[] {
 	if (text.length <= CHUNK_THRESHOLD) return [text];
 	// Split at word boundaries (whitespace→non-whitespace transitions).
-	// Uses unicode-aware flag so \s and \S handle surrogate pairs correctly.
+	// Zero-width split — no characters consumed, nothing can be dropped.
+	// Unicode-aware flag so \s and \S handle surrogate pairs correctly.
 	const chunks = text.split(/(?<=\s)(?=\S)/u);
 	return chunks.length > 1 ? chunks : [text];
 }
@@ -51,10 +53,10 @@ export class TokenDrip<T> {
 		private opts: {
 			/** Sliding window for TPS calculation in ms (default 5000). */
 			tpsWindow?: number;
-			/** Hard queue cap — force-drains excess (default 60). */
+			/** Hard queue cap — force-drains excess (default 80). */
 			maxQueue?: number;
-			/** Queue depth above which proportional boost kicks in (default 15). */
-			softCap?: number;
+			/** Minimum elapsed time before trusting TPS (default 1000ms). */
+			tpsMinElapsed?: number;
 		} = {},
 	) {}
 
@@ -85,6 +87,7 @@ export class TokenDrip<T> {
 	private computeTPS(): number {
 		const now = performance.now();
 		const windowMs = this.opts.tpsWindow ?? 5000;
+		const minElapsed = this.opts.tpsMinElapsed ?? 1000;
 		const cutoff = now - windowMs;
 
 		// Prune old entries
@@ -96,7 +99,8 @@ export class TokenDrip<T> {
 
 		const total = this.arrivals.reduce((sum, a) => sum + a.count, 0);
 		const elapsed = now - this.arrivals[0].time;
-		if (elapsed < 100) return 0; // too little time to estimate
+		// Don't trust TPS until we have enough data to average out bursts
+		if (elapsed < minElapsed) return 0;
 
 		return (total / elapsed) * 1000;
 	}
@@ -108,14 +112,15 @@ export class TokenDrip<T> {
 			return;
 		}
 
-		const maxQ = this.opts.maxQueue ?? 60;
-		const softCap = this.opts.softCap ?? 15;
+		const maxQ = this.opts.maxQueue ?? 80;
 
 		let count: number;
 
+		const softCap = Math.floor(maxQ / 2);
+
 		if (q.length > maxQ) {
-			// Hard cap — force-drain excess to prevent runaway lag
-			count = q.length - Math.floor(maxQ / 2);
+			// Hard cap — force-drain excess to bound latency
+			count = q.length - softCap;
 			this.budget = 0;
 		} else {
 			const tps = this.computeTPS();
@@ -125,14 +130,18 @@ export class TokenDrip<T> {
 				this.budget += tps / 60; // items per frame at 60fps
 				count = Math.floor(this.budget);
 				this.budget -= count;
-
-				// If queue growing beyond soft cap, proportionally boost
-				if (q.length > softCap) {
-					count += Math.ceil((q.length - softCap) * 0.3);
-				}
 			} else {
-				// Cold start — proportional fallback
-				count = Math.max(1, Math.ceil(q.length * 0.35));
+				// Cold start (< 1s of data) — drip 1 item/frame
+				count = 1;
+			}
+
+			// Soft cap: scale up drain as queue grows to prevent overflow.
+			// Ensures queue can never silently creep to hard cap, even during
+			// cold start or if TPS underestimates a fast model.
+			if (q.length > softCap) {
+				const excess = q.length - softCap;
+				const boost = 1 + Math.floor(excess / 10);
+				count = Math.max(count, 1 + boost);
 			}
 		}
 
@@ -163,7 +172,7 @@ export class TokenDrip<T> {
 		return this.queue.length;
 	}
 
-	/** Cancel animation, discard queue, and reset TPS tracking (for unmount / topic change). */
+	/** Cancel animation, discard queue, and reset state (for unmount / topic change). */
 	dispose(): void {
 		if (this.rafId) {
 			cancelAnimationFrame(this.rafId);
