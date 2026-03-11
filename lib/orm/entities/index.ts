@@ -1,5 +1,6 @@
 export * from './artifacts/artifact.entity';
 export * from './artifacts/artifact-embedding.entity';
+export * from './artifacts/artifact-file.entity';
 export * from './artifacts/artifact-version.entity';
 export * from './chats/chat.entity';
 export * from './chats/chat-message.entity';

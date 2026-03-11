@@ -1,8 +1,8 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { ExtractionQueueAdapter } from '@common/queue/extraction-queue.adapter';
-import { PublicError } from '@common/common/error.helpers';
 import { normalizeUploadedFileKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
@@ -10,10 +10,10 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import {
-    type UploadArtifactDto,
-    type PresignUploadDto,
     type ConfirmUploadDto,
     isBinaryArtifactExtension,
+    type PresignUploadDto,
+    type UploadArtifactDto,
 } from '@/lib/schema/artifact';
 import type { Ctx } from './context';
 
@@ -39,14 +39,17 @@ function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-artifacts-dev' : 'hi-artifacts';
 }
 
-function createS3Client(env: Env): S3Client {
+async function createS3Client(env: Env): Promise<S3Client> {
+    const [accountId, accessKeyId, secretAccessKey] = await Promise.all([
+        env.CF_ACCOUNT_ID.get(),
+        env.R2_ACCESS_KEY_ID.get(),
+        env.R2_SECRET_ACCESS_KEY.get(),
+    ]);
+
     return new S3Client({
         region: 'auto',
-        endpoint: `https://${env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-        credentials: {
-            accessKeyId: String(env.R2_ACCESS_KEY_ID),
-            secretAccessKey: String(env.R2_SECRET_ACCESS_KEY),
-        },
+        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+        credentials: { accessKeyId, secretAccessKey },
     });
 }
 
@@ -197,7 +200,10 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
 
     const content = await file.text();
     if (!content.trim()) {
-        throw new PublicError(400, { message: 'The uploaded file has no content', code: UPLOAD_ERROR_CODES.EMPTY_FILE });
+        throw new PublicError(400, {
+            message: 'The uploaded file has no content',
+            code: UPLOAD_ERROR_CODES.EMPTY_FILE,
+        });
     }
 
     const title = titleInput || file.name.replace(/\.[^.]+$/, '');
@@ -262,7 +268,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     await em.flush();
 
     // Generate presigned PUT URL
-    const s3 = createS3Client(ctx.env);
+    const s3 = await createS3Client(ctx.env);
     const command = new PutObjectCommand({
         Bucket: getBucketName(ctx.env),
         Key: storageKey,
@@ -309,7 +315,9 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
     artifactFile.status = 'uploaded';
     await em.flush();
 
-    const version = await em.findOneOrFail(ArtifactVersionEntity, versionId, { populate: ['artifact.project', 'artifact.chat'] });
+    const version = await em.findOneOrFail(ArtifactVersionEntity, versionId, {
+        populate: ['artifact.project', 'artifact.chat'],
+    });
 
     if (ctx.env.EXTRACTION_QUEUE) {
         try {
