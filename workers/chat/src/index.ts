@@ -13,13 +13,14 @@ import {
     RejectArtifactActionSchema,
     UploadArtifactSchema,
 } from '@/lib/schema/artifact';
-import { SendChatActionSchema, SummarizeActionSchema, SendIntakeChatActionSchema} from '@/lib/schema/chat';
+import { SendChatActionSchema, SendIntakeChatActionSchema, SummarizeActionSchema } from '@/lib/schema/chat';
 import { ImportArtifactsActionSchema } from '@/lib/schema/project';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
 import { exportArtifactHandler } from './artifact-exporter';
 import { importArtifactsHandler } from './artifact-importer';
-import { uploadArtifactHandler, presignUploadHandler, confirmUploadHandler } from './artifact-uploader';
+import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './artifact-uploader';
 import { chatActionHandler } from './chat-handler';
+import { cleanupStaleUploads } from './cleanup';
 import { intakeActionHandler } from './intake-handler';
 import { summarizeActionHandler } from './summarizer';
 
@@ -103,4 +104,9 @@ app.get('/', (c) => {
     return c.json({ status: 'ok', worker: 'chat', userId: c.var.user.userId });
 });
 
-export default app;
+export default {
+    fetch: app.fetch,
+    async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+        ctx.waitUntil(cleanupStaleUploads(env));
+    },
+};

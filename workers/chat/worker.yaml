@@ -41,5 +41,5 @@ queues:
 #     class_name: SomeClass
 #     script_name: services  # external, or local: true
 
-# triggers:
-#   crons: ["0 * * * *"]
+triggers:
+  crons: ["0 * * * *"]
