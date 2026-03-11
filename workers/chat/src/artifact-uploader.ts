@@ -39,14 +39,17 @@ function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-artifacts-dev' : 'hi-artifacts';
 }
 
-function createS3Client(env: Env): S3Client {
+async function createS3Client(env: Env): Promise<S3Client> {
+    const [accountId, accessKeyId, secretAccessKey] = await Promise.all([
+        env.CF_ACCOUNT_ID.get(),
+        env.R2_ACCESS_KEY_ID.get(),
+        env.R2_SECRET_ACCESS_KEY.get(),
+    ]);
+
     return new S3Client({
         region: 'auto',
-        endpoint: `https://${env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-        credentials: {
-            accessKeyId: String(env.R2_ACCESS_KEY_ID),
-            secretAccessKey: String(env.R2_SECRET_ACCESS_KEY),
-        },
+        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+        credentials: { accessKeyId, secretAccessKey },
     });
 }
 
@@ -262,7 +265,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     await em.flush();
 
     // Generate presigned PUT URL
-    const s3 = createS3Client(ctx.env);
+    const s3 = await createS3Client(ctx.env);
     const command = new PutObjectCommand({
         Bucket: getBucketName(ctx.env),
         Key: storageKey,
