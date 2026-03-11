@@ -1,7 +1,9 @@
 'use client';
 
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
+import { formatFileSize } from '@/lib/files';
 import type { Message } from '@/modules/chat/types';
 import { ArtifactIndicator } from '../../artifact-indicator';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
@@ -33,8 +35,20 @@ const documentDirective: DirectiveHandler = ({ type, label, attributes, children
     );
 };
 
+const uploadDirective: DirectiveHandler = ({ label, attributes }) => {
+    const size = Number(attributes.size);
+    return (
+        <div className="flex items-center gap-3 rounded-3 bg-neutral-700/40 px-3 py-2">
+            <FileTypeIcon filename={label} size={20} className="shrink-0" />
+            <span className="truncate text-sm">{label}</span>
+            {size > 0 && <span className="text-muted-foreground shrink-0 text-xs">{formatFileSize(size)}</span>}
+        </div>
+    );
+};
+
 const chatDirectives = {
     document: documentDirective,
+    upload: uploadDirective,
 };
 
 export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps) {
@@ -49,7 +63,7 @@ export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps
             <div className="max-w-[90%] min-w-0 rounded-4 py-3 px-4 bg-neutral-800 text-foreground justify-self-end">
                 <div className="min-w-0">
                     {renderMarkdown ? (
-                        <MarkdownRenderer markdown={text} variant="message" />
+                        <MarkdownRenderer markdown={text} variant="message" directives={chatDirectives} />
                     ) : (
                         <p className="text-sm whitespace-pre-wrap">{text}</p>
                     )}

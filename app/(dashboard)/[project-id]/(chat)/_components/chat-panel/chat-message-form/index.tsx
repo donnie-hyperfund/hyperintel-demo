@@ -5,6 +5,7 @@ import { Send } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
+import { useParams } from 'next/navigation';
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { IS_DEV } from '@/lib/config';
@@ -25,10 +26,11 @@ type ChatMessageFormProps = {
 const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
     const {
         sendMessage,
+        chatId,
         state: { isGenerating, isSummarizing, isLoading, tokenUsage },
     } = useChatContext();
 
-    const { files, removeFile, clearFiles } = useFileDropContext();
+    const { files, removeFile, submitFiles, isSubmitting } = useFileDropContext();
 
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
@@ -46,24 +48,31 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
     });
 
     const message = watch('message');
-    const hasContent = (message && message.trim().length > 0) || files.length > 0;
-    const isBusy = isGenerating || isSummarizing || isLoading;
+    const hasContent = (message && message.trim().length > 0);
+    const isBusy = isGenerating || isSummarizing || isLoading || isSubmitting;
     const isDisabled = !hasContent || isBusy;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
         if (!data.message.trim() && files.length === 0) return;
 
-        // Mock file upload if files are attached
-        if (files.length > 0) {
-            clearFiles();
+        // Capture file names before submitFiles clears them
+        const uploadedFiles = files.map((entry) => entry.file);
+
+        if (uploadedFiles.length > 0) {
+            await submitFiles({ chatId: chatId ?? undefined });
         }
 
-        if (data.message.trim()) {
-            reset({ message: '' });
-            textareaRef.current?.updateTextareaHeight();
-            await sendMessage(data.message);
-        } else {
-            reset({ message: '' });
+        const fileDirective = uploadedFiles.length > 0
+            ? uploadedFiles.map((f) => `::upload[${f.name}]{size=${f.size}}`).join('\n')
+            : '';
+
+        const message = [fileDirective, data.message.trim()].filter(Boolean).join('\n\n');
+
+        reset({ message: '' });
+        textareaRef.current?.updateTextareaHeight();
+
+        if (message) {
+            await sendMessage(message);
         }
     };
 
@@ -116,17 +125,18 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                             transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
                             onClick={handleContainerClick}
                             className={cn(
-                                'relative flex flex-wrap items-end gap-2 rounded-5 border border-neutral-700 p-5 shadow-lg shadow-black/15 bg-neutral-800',
+                                'relative flex flex-wrap items-end gap-3 rounded-5 border border-neutral-700 p-5 shadow-lg shadow-black/15 bg-neutral-800',
                                 errors.message && 'border-red-400 ring-red-500/20 dark:ring-red-500/40',
                             )}
                         >
                             {files.length > 0 && (
-                                <div className="relative max-h-48 overflow-y-clip mb-5">
-                                    <div className="grid grid-cols-2 w-full relative flex-wrap gap-3 max-h-48 overflow-y-scroll pb-2">
-                                        {files.map((f, i) => (
+                                <div className="relative w-full max-h-48 overflow-y-clip mb-1">
+                                    <div className="grid grid-cols-2 w-full relative flex-wrap gap-3 max-h-48 overflow-y-auto pb-2">
+                                        {files.map((entry, i) => (
                                             <FilePreviewItem
-                                                key={`${f.name}-${f.size}`}
-                                                file={f}
+                                                key={`${entry.file.name}-${entry.file.size}`}
+                                                file={entry.file}
+                                                status={entry.status}
                                                 onRemove={() => removeFile(i)}
                                             />
                                         ))}

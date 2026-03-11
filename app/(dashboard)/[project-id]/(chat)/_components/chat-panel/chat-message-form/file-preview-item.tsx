@@ -1,13 +1,15 @@
-import { X } from 'lucide-react';
+import { Check, Loader2, X } from 'lucide-react';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { formatFileSize, getFileExtension } from '@/lib/files';
+import type { FileEntryStatus } from '@/modules/chat/providers/file-drop-provider';
 
 type FilePreviewItemProps = {
     file: File;
-    onRemove: () => void;
+    status?: FileEntryStatus;
+    onRemove?: () => void;
 };
 
-export function FilePreviewItem({ file, onRemove }: FilePreviewItemProps) {
+export function FilePreviewItem({ file, status, onRemove }: FilePreviewItemProps) {
     return (
         <div className="flex min-w-0 items-center gap-4 rounded-3 bg-neutral-700/50 px-4 py-2.5">
             <FileTypeIcon filename={file.name} size={24} className="shrink-0" />
@@ -18,16 +20,22 @@ export function FilePreviewItem({ file, onRemove }: FilePreviewItemProps) {
                 </p>
             </div>
 
-            <button
-                type="button"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onRemove();
-                }}
-                className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer transition-colors"
-            >
-                <X className="size-5" />
-            </button>
+            {status === 'uploading' ? (
+                <Loader2 className="text-muted-foreground size-4 shrink-0 animate-spin" />
+            ) : status === 'ready' ? (
+                <Check className="text-green-500 size-4 shrink-0" />
+            ) : status === 'pending' ? (
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onRemove?.();
+                    }}
+                    className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer transition-colors"
+                >
+                    <X className="size-5" />
+                </button>
+            ) : null}
         </div>
     );
 }

@@ -7,17 +7,19 @@ import { PhaseHeader } from '@/components/layouts/dashboard-layout/phase-header'
 import { ResizablePanelWrapper } from '@/components/layouts/panel-wrapper/resizable-panel-wrapper';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { FileDropProvider } from '@/modules/chat/providers/file-drop-provider';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import ChatPanel from './chat-panel';
 
 export default function PhaseChatInterface() {
     const { panelState, closePanel } = useActivePanelContext();
+    const { chatId } = useChatContext();
 
     const activePanel = panelState?.panel;
 
     return (
         <ResizablePanelWrapper
             LeftPaneComponent={
-                <FileDropProvider>
+                <FileDropProvider scope={{ chatId: chatId ?? undefined }}>
                     <ChatPanel
                         HeaderComponent={<PhaseHeader />}
                         emptyTitle="What would you like your team to work on?"
