@@ -44,13 +44,13 @@ export function UploadResource() {
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <Tooltip>
-                <TooltipTrigger asChild>
-                    <DialogTrigger asChild>
+                <DialogTrigger>
+                    <TooltipTrigger asChild>
                         <Button variant="ghost" size="icon" className="size-7">
                             <Upload className="size-4" />
                         </Button>
-                    </DialogTrigger>
-                </TooltipTrigger>
+                    </TooltipTrigger>
+                </DialogTrigger>
                 <TooltipContent>Upload document</TooltipContent>
             </Tooltip>
 
