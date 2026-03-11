@@ -42,4 +42,4 @@ queues:
 #     script_name: services  # external, or local: true
 
 triggers:
-  crons: ["*/15 * * * *"]
+  crons: ["0 * * * *"]

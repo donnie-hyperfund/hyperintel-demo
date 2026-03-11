@@ -3,7 +3,7 @@ import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.e
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { initInferredContext } from '@/workers/_common/context.helpers';
 
-const STALE_THRESHOLD_MS = 30 * 60 * 1000;
+const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 const BATCH_SIZE = 100;
 
 async function processBatch(em: SqlEntityManager, env: Env, cutoff: Date): Promise<number> {
