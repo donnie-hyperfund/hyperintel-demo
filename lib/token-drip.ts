@@ -29,11 +29,10 @@
 const CHUNK_THRESHOLD = 8;
 export function chunkText(text: string): string[] {
 	if (text.length <= CHUNK_THRESHOLD) return [text];
-	const chunks: string[] = [];
-	const re = /\S+\s*/g;
-	let m: RegExpExecArray | null;
-	while ((m = re.exec(text)) !== null) chunks.push(m[0]);
-	return chunks.length > 0 ? chunks : [text];
+	// Split at word boundaries (whitespace→non-whitespace transitions).
+	// Uses unicode-aware flag so \s and \S handle surrogate pairs correctly.
+	const chunks = text.split(/(?<=\s)(?=\S)/u);
+	return chunks.length > 1 ? chunks : [text];
 }
 
 export class TokenDrip<T> {
