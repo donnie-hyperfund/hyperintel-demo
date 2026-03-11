@@ -116,6 +116,8 @@ type ArtifactVersionEventPayload = {
     artifactName?: string;
     versionId?: string;
     version?: number;
+    action?: string;
+    previousStatus?: string;
     status?: string;
     nextStatus?: 'approved' | 'rejected';
 };
@@ -453,7 +455,7 @@ export function ChatProvider({
         (payload: ArtifactVersionEventPayload): string | null => {
             if (!payload.artifactId) return null;
 
-            for (const [storedKey, versions] of Object.entries(artifactContext.artifacts)) {
+            for (const [storedKey, versions] of Object.entries(artifactContext.getStore())) {
                 for (const artifact of Object.values(versions)) {
                     if (artifact.id === payload.artifactId) {
                         return artifact.key || storedKey;
@@ -463,7 +465,7 @@ export function ChatProvider({
 
             return null;
         },
-        [artifactContext.artifacts],
+        [artifactContext],
     );
 
     const upsertSyncedArtifact = useCallback(

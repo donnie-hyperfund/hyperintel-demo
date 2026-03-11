@@ -104,6 +104,7 @@ export async function approveArtifactHandler(
         });
     }
 
+    const previousStatus = version.status;
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
 
@@ -117,6 +118,8 @@ export async function approveArtifactHandler(
                 artifactName: version.artifact.key,
                 versionId,
                 version: version.version,
+                action: 'approve',
+                previousStatus,
                 nextStatus: 'approved',
             },
         })
@@ -208,6 +211,8 @@ export async function approveArtifactHandler(
                 artifactName: version.artifact.key,
                 versionId,
                 version: version.version,
+                action: 'approved',
+                previousStatus,
                 status: 'approved',
             },
         })
@@ -270,6 +275,7 @@ export async function rejectArtifactHandler(
         });
     }
 
+    const previousStatus = version.status;
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
 
@@ -283,6 +289,8 @@ export async function rejectArtifactHandler(
                 artifactName: version.artifact.key,
                 versionId,
                 version: version.version,
+                action: 'reject',
+                previousStatus,
                 nextStatus: 'rejected',
             },
         })
@@ -306,6 +314,8 @@ export async function rejectArtifactHandler(
                 artifactName: version.artifact.key,
                 versionId,
                 version: version.version,
+                action: 'rejected',
+                previousStatus,
                 status: 'rejected',
             },
         })
