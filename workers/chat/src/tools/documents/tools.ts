@@ -63,7 +63,7 @@ export interface DocumentToolsContext {
 /** Derive DocumentScope from context. */
 function getScope(ctx: DocumentToolsContext): DocumentScope {
     if (ctx.projectId) return { projectId: ctx.projectId };
-    if (ctx.userId) return { userId: ctx.userId };
+    if (ctx.userId) return { userId: ctx.userId, chatId: ctx.chatId };
     throw new Error('DocumentToolsContext requires either projectId or userId');
 }
 
