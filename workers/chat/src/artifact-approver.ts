@@ -104,6 +104,24 @@ export async function approveArtifactHandler(
         });
     }
 
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
+    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+
+    // Broadcast start of status transition so other tabs can render busy state.
+    ugStub
+        .broadcastToAll({
+            type: 'user_event',
+            eventType: 'artifact_version_update_started',
+            payload: {
+                artifactId: version.artifact.id,
+                artifactName: version.artifact.key,
+                versionId,
+                version: version.version,
+                nextStatus: 'approved',
+            },
+        })
+        .catch(console.error);
+
     // Classify document to determine if AI-readable YAML should be generated
     const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.artifact.title);
 
@@ -181,13 +199,19 @@ export async function approveArtifactHandler(
     }
 
     // Broadcast artifact_version_updated to all user WS connections (fire-and-forget)
-    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
-    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    ugStub.broadcastToAll({
-        type: 'user_event',
-        eventType: 'artifact_version_updated',
-        payload: { artifactId: version.artifact.id, versionId, version: version.version, status: 'approved' },
-    }).catch(console.error);
+    ugStub
+        .broadcastToAll({
+            type: 'user_event',
+            eventType: 'artifact_version_updated',
+            payload: {
+                artifactId: version.artifact.id,
+                artifactName: version.artifact.key,
+                versionId,
+                version: version.version,
+                status: 'approved',
+            },
+        })
+        .catch(console.error);
 
     return {
         success: true,
@@ -246,6 +270,24 @@ export async function rejectArtifactHandler(
         });
     }
 
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
+    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+
+    // Broadcast start of status transition so other tabs can render busy state.
+    ugStub
+        .broadcastToAll({
+            type: 'user_event',
+            eventType: 'artifact_version_update_started',
+            payload: {
+                artifactId: version.artifact.id,
+                artifactName: version.artifact.key,
+                versionId,
+                version: version.version,
+                nextStatus: 'rejected',
+            },
+        })
+        .catch(console.error);
+
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
@@ -255,13 +297,19 @@ export async function rejectArtifactHandler(
     await em.flush();
 
     // Broadcast artifact_version_updated to all user WS connections (fire-and-forget)
-    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
-    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    ugStub.broadcastToAll({
-        type: 'user_event',
-        eventType: 'artifact_version_updated',
-        payload: { artifactId: version.artifact.id, versionId, version: version.version, status: 'rejected' },
-    }).catch(console.error);
+    ugStub
+        .broadcastToAll({
+            type: 'user_event',
+            eventType: 'artifact_version_updated',
+            payload: {
+                artifactId: version.artifact.id,
+                artifactName: version.artifact.key,
+                versionId,
+                version: version.version,
+                status: 'rejected',
+            },
+        })
+        .catch(console.error);
 
     return {
         success: true,

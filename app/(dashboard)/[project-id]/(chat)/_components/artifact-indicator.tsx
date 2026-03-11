@@ -42,6 +42,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
 
     const { panelState, openPanel, closePanel } = useActivePanelContext();
     const { addArtifact, updateArtifact } = useArtifactActions();
+    const { projectId } = useChatContext();
     const { target: scrollTarget, markFound, clear: clearScrollTarget } = useScrollTargetContext();
     const Icon = isDocumentType(documentType) ? getDocumentTypeIcon(documentType) : DEFAULT_DOCUMENT_TYPE_ICON;
     const { projectId } = useChatContext();
@@ -92,7 +93,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
             console.error('Failed to fetch artifact:', error);
             updateArtifact(documentName, { isLoading: false }, documentVersion);
         }
-    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, openPanel]);
+    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, openPanel, projectId]);
 
     const handleClick = () => {
         if (isSelected) {

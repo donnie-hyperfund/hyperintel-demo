@@ -20,6 +20,7 @@ import { useModelSelection } from '@/modules/chat/providers/model-selection-prov
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { useChatStream } from '../hooks/use-chat-stream';
 import { useStream } from '../hooks/use-stream';
+import { useUserEvents } from '../hooks/use-user-events';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock } from '../types';
 
 export type BaseChatContextValue = {
@@ -110,6 +111,15 @@ function createUserMessage(content: string): Message {
     };
 }
 
+type ArtifactVersionEventPayload = {
+    artifactId?: string;
+    artifactName?: string;
+    versionId?: string;
+    version?: number;
+    status?: string;
+    nextStatus?: 'approved' | 'rejected';
+};
+
 export function ChatProvider({
     children,
     projectId,
@@ -120,7 +130,9 @@ export function ChatProvider({
 }: ChatProviderProps) {
     const artifactContext = useArtifactActions();
 
-    const { openPanel } = useActivePanelContext();
+    const { openPanel, closePanel, panelState } = useActivePanelContext();
+    const panelStateRef = useRef(panelState);
+    panelStateRef.current = panelState;
     const { getToken } = useAuth();
     const { isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
 
@@ -436,6 +448,129 @@ export function ChatProvider({
 
     // Route to the active stream based on chat type
     const stream = chatType === 'phase' ? chatStream : intakeStream;
+
+    const resolveStoredArtifactKeyById = useCallback(
+        (payload: ArtifactVersionEventPayload): string | null => {
+            if (!payload.artifactId) return null;
+
+            for (const [storedKey, versions] of Object.entries(artifactContext.artifacts)) {
+                for (const artifact of Object.values(versions)) {
+                    if (artifact.id === payload.artifactId) {
+                        return artifact.key || storedKey;
+                    }
+                }
+            }
+
+            return null;
+        },
+        [artifactContext.artifacts],
+    );
+
+    const upsertSyncedArtifact = useCallback(
+        (
+            artifactFromApi: Awaited<ReturnType<typeof api.artifacts.getByKey>>,
+            fallbackKey?: string,
+            fallbackVersion?: number,
+        ) => {
+            const artifactKey = artifactFromApi.key || fallbackKey;
+            if (!artifactKey) return;
+
+            const version = fallbackVersion ?? getLatestArtifactVersion(artifactFromApi)?.version;
+            if (version === undefined) return;
+
+            const nextArtifact = {
+                ...artifactFromApi,
+                id: artifactKey,
+                key: artifactKey,
+            };
+
+            if (artifactContext.getArtifact(artifactKey, version)) {
+                artifactContext.updateArtifact(artifactKey, nextArtifact, version, { merge: false });
+            } else {
+                artifactContext.addArtifact(nextArtifact, version);
+            }
+        },
+        [artifactContext],
+    );
+
+    useUserEvents(
+        useCallback(
+            (eventType, payload) => {
+                if (eventType !== 'artifact_version_updated' && eventType !== 'artifact_version_update_started') return;
+                if (!payload || typeof payload !== 'object') return;
+
+                const eventPayload = payload as ArtifactVersionEventPayload;
+                const artifactKey = eventPayload.artifactName || resolveStoredArtifactKeyById(eventPayload);
+                const requestedVersion = typeof eventPayload.version === 'number' ? eventPayload.version : undefined;
+
+                if (eventType === 'artifact_version_update_started') {
+                    if (!artifactKey || requestedVersion === undefined) return;
+                    if (!artifactContext.getArtifact(artifactKey, requestedVersion)) return;
+                    artifactContext.updateArtifact(artifactKey, { isUpdating: true }, requestedVersion);
+                    return;
+                }
+
+                if (artifactKey) {
+                    const sync = projectId
+                        ? api.projectArtifacts.getByKey(projectId, artifactKey, requestedVersion)
+                        : api.artifacts.getByKey(artifactKey, requestedVersion);
+
+                    void sync
+                        .then((artifact) => upsertSyncedArtifact(artifact, artifactKey, requestedVersion))
+                        .catch(() => {
+                            if (requestedVersion !== undefined) {
+                                artifactContext.updateArtifact(artifactKey, { isUpdating: false }, requestedVersion);
+                            }
+                        });
+                    return;
+                }
+
+                // Backward compatibility for older payload shape that only carries artifactId.
+                if (projectId && eventPayload.artifactId) {
+                    void api.projectArtifacts
+                        .get(projectId, eventPayload.artifactId)
+                        .then((artifact) => upsertSyncedArtifact(artifact, artifact.key, requestedVersion))
+                        .catch(() => {
+                            // Can't clear isUpdating here — we don't have the artifact key.
+                        });
+                }
+            },
+            [
+                api.artifacts,
+                api.projectArtifacts,
+                artifactContext,
+                projectId,
+                resolveStoredArtifactKeyById,
+                upsertSyncedArtifact,
+            ],
+        ),
+    );
+
+    const cleanupTransientArtifacts = useCallback(
+        (docs: Array<{ name: string; pendingVersion: number }>) => {
+            if (docs.length === 0) return;
+
+            const transientVersions = new Set(docs.map((d) => `${d.name}:${d.pendingVersion}`));
+            for (const doc of docs) {
+                artifactContext.removeArtifact(doc.name, doc.pendingVersion);
+            }
+
+            const currentPanel = panelStateRef.current;
+            if (
+                currentPanel?.panel === 'artifact-preview' &&
+                transientVersions.has(`${currentPanel.artifactId}:${currentPanel.version}`)
+            ) {
+                closePanel();
+            }
+        },
+        [artifactContext, closePanel],
+    );
+
+    // If stream aborts (also from another tab), remove transient unsaved artifacts.
+    useEffect(() => {
+        if (stream.status !== 'aborted') return;
+        cleanupTransientArtifacts(stream.activeDocuments);
+    }, [stream.status, stream.activeDocuments, cleanupTransientArtifacts]);
 
     // Ref to latest stream values so rAF callbacks read fresh data
     const streamRef = useRef(stream);
@@ -782,6 +917,8 @@ export function ChatProvider({
 
     /** Stop the current generation */
     const stopGeneration = useCallback(async () => {
+        cleanupTransientArtifacts(stream.activeDocuments);
+
         // Server-side abort via HTTP → ChatStreamDO.abort()
         if (state.activeResponseId && chatId) {
             const accessToken = (await getToken()) ?? '';
@@ -799,7 +936,7 @@ export function ChatProvider({
             ),
             isGenerating: false,
         }));
-    }, [chatId, getToken, state.activeResponseId, stream]);
+    }, [chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
 
     return (
         <ChatContext.Provider
