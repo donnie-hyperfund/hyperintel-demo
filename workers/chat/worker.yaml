@@ -9,12 +9,22 @@ secrets:
   - LANGFUSE_SECRET_KEY
   - AUTH_SECRET
   - FIRECRAWL_API_KEY
+  - R2_ACCESS_KEY_ID
+  - R2_SECRET_ACCESS_KEY
+  - CF_ACCOUNT_ID
 
-# Queue producer for embedding jobs
+r2_buckets:
+  - binding: ARTIFACTS_BUCKET
+    bucket_name:
+      production: hi-artifacts
+      dev: hi-artifacts-dev
+
 queues:
   producers:
     - binding: EMBEDDING_QUEUE
       queue: hi-embedding-queue
+    - binding: EXTRACTION_QUEUE
+      queue: hi-extraction-queue
 
 # vars:
 #   - SOME_VAR

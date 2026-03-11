@@ -1,16 +1,22 @@
 import { Entity, Index, ManyToOne, Property } from '@mikro-orm/core';
+import type { Nullable } from '@/common/orm/utils';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
+import type { ChatEntity } from '../chats/chat.entity';
 import type { ProjectEntity } from '../projects/project.entity';
 import type { ArtifactVersionEntity } from './artifact-version.entity';
 
 @Entity({ tableName: 'artifact_embeddings' })
 @Index({ properties: ['project', 'artifact_version'] })
+@Index({ properties: ['chat', 'artifact_version'] })
 export class ArtifactEmbeddingEntity extends IdCreatedColumns {
     @ManyToOne(() => 'ArtifactVersionEntity', { fieldName: 'artifact_version_id' })
     artifact_version!: ArtifactVersionEntity;
 
-    @ManyToOne(() => 'ProjectEntity', { fieldName: 'project_id' })
-    project!: ProjectEntity;
+    @ManyToOne(() => 'ProjectEntity', { fieldName: 'project_id', nullable: true })
+    project?: Nullable<ProjectEntity>;
+
+    @ManyToOne(() => 'ChatEntity', { fieldName: 'chat_id', nullable: true })
+    chat?: Nullable<ChatEntity>;
 
     @Property({ type: 'int' })
     chunk_index!: number;

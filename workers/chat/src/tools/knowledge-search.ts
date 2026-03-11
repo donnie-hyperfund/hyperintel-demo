@@ -12,7 +12,10 @@ function escapeSqlString(str: string): string {
 
 export interface KnowledgeSearchContext {
     em: EntityManager;
-    projectId: string;
+    /** Project scope — for project chats */
+    projectId?: string;
+    /** Chat scope — for intake chats */
+    chatId?: string;
 }
 
 type SearchResult = {
@@ -24,9 +27,14 @@ type SearchResult = {
     similarity: number;
 };
 
+interface SearchScope {
+    projectId?: string;
+    chatId?: string;
+}
+
 async function searchKnowledge(
     query: string,
-    projectId: string,
+    scope: SearchScope,
     client: OpenAI,
     em: EntityManager,
     limit: number,
@@ -34,7 +42,18 @@ async function searchKnowledge(
 ): Promise<SearchResult[]> {
     const [queryEmbedding] = await embedTexts(client, [query]);
     const embeddingStr = `[${queryEmbedding.join(',')}]`;
-    const escapedProjectId = escapeSqlString(projectId);
+
+    // Build scope filter: project-scoped OR chat-scoped
+    let scopeFilter: string;
+    if (scope.projectId) {
+        const escapedProjectId = escapeSqlString(scope.projectId);
+        scopeFilter = `ae.project_id = '${escapedProjectId}'`;
+    } else if (scope.chatId) {
+        const escapedChatId = escapeSqlString(scope.chatId);
+        scopeFilter = `ae.chat_id = '${escapedChatId}'`;
+    } else {
+        return [];
+    }
 
     // Use direct interpolation - parameterized queries don't work in CF Workers environment
     const results = (await em.getConnection().execute(
@@ -49,9 +68,8 @@ async function searchKnowledge(
         FROM artifact_embeddings ae
         JOIN artifact_versions av ON ae.artifact_version_id = av.id
         JOIN artifacts a ON av.artifact_id = a.id
-        WHERE ae.project_id = '${escapedProjectId}'
+        WHERE ${scopeFilter}
           AND av.status = 'approved'
-          AND ae.is_ai_content = true
           AND a.current_version_id = av.id
           AND 1 - (ae.embedding <=> '${embeddingStr}'::vector) >= ${minSimilarity}
         ORDER BY ae.embedding <=> '${embeddingStr}'::vector
@@ -110,7 +128,7 @@ export function createKnowledgeTools() {
         {
             name: 'search_knowledge' as const,
             description:
-                'Search project knowledge base using semantic similarity. Use this to find relevant information from previously created documents and artifacts. MUST be called at the start of every new conversation/phase/stage to gather context.',
+                'Search knowledge base using semantic similarity. Use this to find relevant information from previously created or uploaded documents and artifacts. MUST be called at the start of every new conversation/phase/stage to gather context.',
             parameters: SearchKnowledgeParams,
             executor: async (
                 input: { query: string; limit?: number },
@@ -121,9 +139,14 @@ export function createKnowledgeTools() {
                     return 'Semantic search is not available - OpenAI client not configured.';
                 }
 
-                const { query, limit = 5 } = input;
+                if (!ctx.projectId && !ctx.chatId) {
+                    return 'No search scope available — neither project nor chat context set.';
+                }
 
-                const results = await searchKnowledge(query, ctx.projectId, eCtx.openai, ctx.em, limit, 0.3);
+                const { query, limit = 5 } = input;
+                const scope: SearchScope = { projectId: ctx.projectId, chatId: ctx.chatId };
+
+                const results = await searchKnowledge(query, scope, eCtx.openai, ctx.em, limit, 0.3);
 
                 return formatSearchResults(results);
             },
