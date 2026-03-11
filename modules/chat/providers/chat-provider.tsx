@@ -12,7 +12,7 @@ import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/proje
 import { abort, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
@@ -118,7 +118,7 @@ export function ChatProvider({
     initialMessages = [],
     chatRouteBuilder,
 }: ChatProviderProps) {
-    const artifactContext = useArtifactContext();
+    const artifactContext = useArtifactActions();
 
     const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();

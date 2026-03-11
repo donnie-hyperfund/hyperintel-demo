@@ -146,8 +146,7 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
 // Hooks
 // ---------------------------------------------------------------------------
 
-/** Raw access to the stable artifact store API. Prefer the higher-level hooks below. */
-export function useArtifactContext(): ArtifactContextValue {
+function useArtifactContext(): ArtifactContextValue {
     const context = useContext(ArtifactContext);
     if (!context) {
         throw new Error('useArtifacts must be used within an ArtifactProvider');
