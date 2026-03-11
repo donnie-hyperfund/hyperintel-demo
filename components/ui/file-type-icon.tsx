@@ -20,7 +20,7 @@ export function FileTypeIcon({ filename, size = 20, className }: FileTypeIconPro
     const src = EXTENSION_ICONS[ext];
 
     if (!src) {
-        return <div className={cn(className, 'bg-neutral-600 rounded')} style={{ width: size, height: size }} />;
+        return <div className={cn(className, 'bg-neutral-600 rounded-4')} style={{ width: size, height: size }} />;
     }
 
     return (

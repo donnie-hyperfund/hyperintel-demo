@@ -1,7 +1,7 @@
 'use client';
 
-import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
+import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
 import { formatFileSize } from '@/lib/files';
 import type { Message } from '@/modules/chat/types';
@@ -38,10 +38,12 @@ const documentDirective: DirectiveHandler = ({ type, label, attributes, children
 const uploadDirective: DirectiveHandler = ({ label, attributes }) => {
     const size = Number(attributes.size);
     return (
-        <div className="flex items-center gap-3 rounded-3 bg-neutral-700/40 px-3 py-2">
-            <FileTypeIcon filename={label} size={20} className="shrink-0" />
-            <span className="truncate text-sm">{label}</span>
-            {size > 0 && <span className="text-muted-foreground shrink-0 text-xs">{formatFileSize(size)}</span>}
+        <div className="mb-2 flex">
+            <div className="flex items-center gap-3 rounded-3 bg-neutral-700/40 p-2">
+                <FileTypeIcon filename={label} size={28} className="mb-0! mt-0!" />
+                <span className="truncate text-sm">{label}</span>
+                {size > 0 && <span className="text-muted-foreground shrink-0 text-xs">{formatFileSize(size)}</span>}
+            </div>
         </div>
     );
 };

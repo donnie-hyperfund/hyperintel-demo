@@ -55,7 +55,6 @@ export function FileDropProvider({ children, scope }: FileDropProviderProps) {
     const startEagerUpload = useCallback(
         async (file: File, index: number) => {
             const ext = `.${file.name.split('.').pop()?.toLowerCase()}`;
-            if (!isBinaryArtifactExtension(ext)) return;
 
             updateEntry(index, { status: 'uploading' });
 
@@ -63,32 +62,46 @@ export function FileDropProvider({ children, scope }: FileDropProviderProps) {
                 const token = await getToken();
                 if (!token) throw new Error('Not authenticated');
 
-                const presignRes = await presignUpload(
-                    {
-                        filename: file.name,
-                        fileSize: file.size,
-                        ...scope,
-                    },
-                    token,
-                );
+                if (isBinaryArtifactExtension(ext)) {
+                    const presignRes = await presignUpload(
+                        {
+                            filename: file.name,
+                            fileSize: file.size,
+                            ...scope,
+                        },
+                        token,
+                    );
 
-                if (!presignRes.ok) {
-                    const err = await presignRes.json();
-                    throw new Error(err.message || 'Presign failed');
+                    if (!presignRes.ok) {
+                        const err = await presignRes.json();
+                        throw new Error(err.message || 'Presign failed');
+                    }
+
+                    const presignData: PresignUploadResponseDto = await presignRes.json();
+
+                    const mimeType = BINARY_MIME_TYPES[ext] ?? 'application/octet-stream';
+                    const putRes = await fetch(presignData.uploadUrl, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': mimeType },
+                        body: file,
+                    });
+
+                    if (!putRes.ok) throw new Error('Upload to storage failed');
+
+                    updateEntry(index, { status: 'ready', presignData });
+                } else {
+                    const res = await uploadArtifact(
+                        { file, ...scope },
+                        token,
+                    );
+
+                    if (!res.ok) {
+                        const err = await res.json();
+                        throw new Error(err.message || 'Upload failed');
+                    }
+
+                    updateEntry(index, { status: 'ready' });
                 }
-
-                const presignData: PresignUploadResponseDto = await presignRes.json();
-
-                const mimeType = BINARY_MIME_TYPES[ext] ?? 'application/octet-stream';
-                const putRes = await fetch(presignData.uploadUrl, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': mimeType },
-                    body: file,
-                });
-
-                if (!putRes.ok) throw new Error('Upload to storage failed');
-
-                updateEntry(index, { status: 'ready', presignData });
             } catch (err) {
                 updateEntry(index, { status: 'error' });
                 toast({
@@ -183,14 +196,12 @@ export function FileDropProvider({ children, scope }: FileDropProviderProps) {
                                 throw new Error(err.message || 'Confirm failed');
                             }
                         } else {
-                            // Text file — single POST
-                            const res = await uploadArtifact(
-                                { file: entry.file, ...submitScope },
-                                token,
-                            );
-                            if (!res.ok) {
-                                const err = await res.json();
-                                throw new Error(err.message || 'Upload failed');
+                            // Text file — already uploaded eagerly
+                            if (entry.status === 'uploading') {
+                                await waitForStatus(entry.file, 'ready');
+                            }
+                            if (entry.status === 'error') {
+                                throw new Error(`Upload failed for "${entry.file.name}"`);
                             }
                         }
                     }),

@@ -1,23 +1,32 @@
 import { FileText, Loader2, Upload, X } from 'lucide-react';
 import { useCallback, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { DropZone } from '@/components/ui/drop-zone';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
+import { useUploadProjectArtifact } from '@/lib/api/client/hooks/use-project-artifacts';
 import { formatFileSize } from '@/lib/files';
 import { ALLOWED_ARTIFACT_EXTENSIONS, MAX_ARTIFACT_UPLOAD_SIZE } from '@/lib/schema/artifact';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
+
+type UploadResourceParams = PageParams<'/[project-id]'>;
 
 const ACCEPT_MAP = Object.fromEntries(ALLOWED_ARTIFACT_EXTENSIONS.map((ext) => [`application/${ext.slice(1)}`, [ext]]));
 
 export function UploadResource() {
+    const { 'project-id': projectId } = useParams<UploadResourceParams>();
+    const { chatId } = useChatContext();
+    const { handleFileChange, status, fileInputRef } = useUploadProjectArtifact(projectId, chatId);
+
     const [open, setOpen] = useState(false);
     const [file, setFile] = useState<File | null>(null);
-    const [isUploading, setIsUploading] = useState(false);
+
+    const isUploading = status === 'uploading';
 
     const resetState = useCallback(() => {
         setFile(null);
-        setIsUploading(false);
     }, []);
 
     const handleOpenChange = useCallback(
@@ -29,17 +38,18 @@ export function UploadResource() {
     );
 
     const handleUpload = useCallback(async () => {
-        if (!file) return;
+        if (!file || !fileInputRef.current) return;
 
-        setIsUploading(true);
+        // Populate the hidden input so handleFileChange can read it
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        fileInputRef.current.files = dataTransfer.files;
 
-        // Mock upload — simulate network delay
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await handleFileChange({ target: fileInputRef.current } as React.ChangeEvent<HTMLInputElement>);
 
-        toast({ title: `Uploaded "${file.name}"` });
         setOpen(false);
         resetState();
-    }, [file, resetState]);
+    }, [file, fileInputRef, handleFileChange, resetState]);
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -55,6 +65,7 @@ export function UploadResource() {
             </Tooltip>
 
             <DialogContent className="sm:max-w-lg">
+                <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
                 <DialogHeader>
                     <DialogTitle>Upload Resource</DialogTitle>
                 </DialogHeader>
