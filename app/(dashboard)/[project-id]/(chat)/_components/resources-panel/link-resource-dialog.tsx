@@ -2,8 +2,7 @@
 
 import { useAuth } from '@clerk/nextjs';
 import type { LucideIcon } from 'lucide-react';
-import { Building, Building2, Dna, FilePlus2, Link, Loader2, Users } from 'lucide-react';
-import NextLink from 'next/link';
+import { Building, Building2, Dna, Link, Loader2, Users } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -16,12 +15,6 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
@@ -30,6 +23,7 @@ import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
 import { importArtifacts } from '@/lib/api/requests/worker/projects';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { NewResourceDropdown } from './new-resource-dropdown';
 
 type LinkResourceDialogParams = PageParams<'/[project-id]'>;
 
@@ -159,7 +153,13 @@ export function LinkResourceDialog() {
                 </div>
 
                 <DialogFooter className="sm:justify-between">
-                    <NewResourceDropdown />
+                    <NewResourceDropdown
+                        projectId={projectId}
+                        onNavigate={() => {
+                            setSelectedIds([]);
+                            setOpen(false);
+                        }}
+                    />
                     <Button
                         onClick={handleImport}
                         disabled={selectedIds.length === 0 || isImporting}
@@ -212,32 +212,5 @@ function SelectableSection({
                 ))}
             </div>
         </div>
-    );
-}
-
-function NewResourceDropdown() {
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button variant="soft">
-                    New resource
-                    <FilePlus2 className="size-4" />
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-                <DropdownMenuItem asChild>
-                    <NextLink href="/companies/new">
-                        <Building className="size-4" />
-                        New company
-                    </NextLink>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                    <NextLink href="/stakeholders/new">
-                        <Users className="size-4" />
-                        New stakeholder
-                    </NextLink>
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
     );
 }

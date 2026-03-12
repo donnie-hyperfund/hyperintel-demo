@@ -122,7 +122,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
 
         // Clear scroll target when the CSS highlight animation actually finishes
         const handleAnimationEnd = (e: AnimationEvent) => {
-            if (e.animationName === 'artifact-scroll-highlight') {
+            if (e.animationName === 'highlight-pulse') {
                 clearScrollTarget();
             }
         };
@@ -145,7 +145,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
             title={documentName}
             className={cn(
                 indicatorVariants({ state: isSelected ? 'selected' : 'default' }),
-                isScrollTarget && 'artifact-scroll-highlight',
+                isScrollTarget && 'highlight-pulse',
                 className,
             )}
         >

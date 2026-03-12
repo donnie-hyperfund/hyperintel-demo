@@ -10,6 +10,7 @@ import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
 import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
+import { SEARCH_PARAMS } from '@/lib/search-params';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
 import { getArtifactChatId } from '@/modules/artifacts/utils';
@@ -96,8 +97,8 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         (targetChatId: string, artifactKey: string, artifactVersion: number) => {
             if (!projectId) return;
             const search = new URLSearchParams({
-                scrollArtifactKey: artifactKey,
-                scrollArtifactVersion: String(artifactVersion),
+                [SEARCH_PARAMS.SCROLL_ARTIFACT_KEY]: artifactKey,
+                [SEARCH_PARAMS.SCROLL_ARTIFACT_VERSION]: String(artifactVersion),
             });
             router.push(`/${projectId}/${targetChatId}?${search}`);
         },

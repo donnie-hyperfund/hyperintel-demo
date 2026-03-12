@@ -1,5 +1,5 @@
 import { Loader2, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { type Ref, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { getArtifactDocumentType } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
@@ -14,9 +14,13 @@ const borderColorByType: Record<string, string> = {
 export function ResourceItem({
     artifact,
     onRemove,
+    isHighlighted = false,
+    itemRef,
 }: {
     artifact: ArtifactDto;
     onRemove?: (artifactId: string) => Promise<void>;
+    isHighlighted?: boolean;
+    itemRef?: Ref<HTMLDivElement>;
 }) {
     const [isRemoving, setIsRemoving] = useState(false);
     const docType = getArtifactDocumentType(artifact);
@@ -34,7 +38,10 @@ export function ResourceItem({
     };
 
     return (
-        <div className={cn('group relative rounded-lg border-l-2', borderClass)}>
+        <div
+            ref={itemRef}
+            className={cn('group relative rounded-lg border-l-2', borderClass, isHighlighted && 'highlight-pulse')}
+        >
             <ArtifactListItem size="sm" artifact={artifact} shouldDisplayVersionInfo={false} />
             {onRemove && (
                 <Button
