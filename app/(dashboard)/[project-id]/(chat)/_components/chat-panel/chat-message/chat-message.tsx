@@ -1,12 +1,11 @@
 'use client';
 
-import { FileTypeIcon } from '@/components/ui/file-type-icon';
-import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
-import { formatFileSize } from '@/lib/files';
 import type { Message } from '@/modules/chat/types';
-import { ArtifactIndicator } from '../../artifact-indicator';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
+import { DocumentDirective } from './document-directive';
+import { UploadDirective } from './file-directive';
 import { MessageThinkingBlock } from './message-thinking-block';
 
 type ChatMessageProps = {
@@ -14,43 +13,9 @@ type ChatMessageProps = {
     renderMarkdown?: boolean;
 };
 
-const documentDirective: DirectiveHandler = ({ type, label, attributes, children }) => {
-    const version = Number(attributes.version);
-
-    if (type === 'container') {
-        return (
-            <div>
-                <ArtifactIndicator
-                    documentName={label}
-                    documentVersion={version}
-                    documentType={attributes['document-type']}
-                />
-                {children}
-            </div>
-        );
-    }
-
-    return (
-        <ArtifactIndicator documentName={label} documentVersion={version} documentType={attributes['document-type']} />
-    );
-};
-
-const uploadDirective: DirectiveHandler = ({ label, attributes }) => {
-    const size = Number(attributes.size);
-    return (
-        <div className="mb-2 flex">
-            <div className="flex items-center gap-3 rounded-3 bg-neutral-700/40 p-2">
-                <FileTypeIcon filename={label} size={28} className="mb-0! mt-0!" />
-                <span className="truncate text-sm">{label}</span>
-                {size > 0 && <span className="text-muted-foreground shrink-0 text-xs">{formatFileSize(size)}</span>}
-            </div>
-        </div>
-    );
-};
-
 const chatDirectives = {
-    document: documentDirective,
-    upload: uploadDirective,
+    document: DocumentDirective,
+    upload: UploadDirective,
 };
 
 export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps) {

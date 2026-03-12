@@ -15,7 +15,7 @@ type ChatPanelProps = {
 };
 
 export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }: ChatPanelProps) {
-    const { chatId } = useChatContext();
+    const { chatId, projectId } = useChatContext();
     const isEmpty = !chatId;
 
     const conversationRef = useRef<HTMLDivElement>(null);
@@ -45,7 +45,7 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
     }, [isEmpty]);
 
     return (
-        <FileUploadProvider scope={{ chatId: chatId ?? undefined }}>
+        <FileUploadProvider scope={{ projectId, chatId: chatId ?? undefined }}>
             <ChatPanelContent
                 isEmpty={isEmpty}
                 HeaderComponent={HeaderComponent}

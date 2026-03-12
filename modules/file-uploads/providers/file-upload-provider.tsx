@@ -2,7 +2,9 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from 'react';
+import { useSWRConfig } from 'swr';
 import { toast } from '@/hooks/use-toast';
+import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
 import { confirmUpload, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
 import { isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
@@ -43,6 +45,13 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
     const filesRef = useRef(files);
     filesRef.current = files;
     const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
+
+    const invalidateResources = useCallback(() => {
+        if (scope?.projectId) {
+            globalMutate(serializeProjectResourceListKey(scope.projectId));
+        }
+    }, [globalMutate, scope?.projectId]);
 
     const updateEntry = useCallback((index: number, update: Partial<FileEntry>) => {
         setFiles((prev) => prev.map((entry, i) => (i === index ? { ...entry, ...update } : entry)));
@@ -94,6 +103,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                     }
 
                     updateEntry(index, { status: 'ready' });
+                    invalidateResources();
                 }
             } catch (err) {
                 setFiles((prev) => prev.filter((_, i) => i !== index));
@@ -104,7 +114,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                 });
             }
         },
-        [getToken, scope, updateEntry],
+        [getToken, scope, updateEntry, invalidateResources],
     );
 
     const addFiles = useCallback(
@@ -190,6 +200,11 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                     }),
                 );
 
+                const succeeded = results.some((r) => r.status === 'fulfilled');
+                if (succeeded) {
+                    invalidateResources();
+                }
+
                 const failed = results.filter((r) => r.status === 'rejected');
                 if (failed.length > 0) {
                     const reason = (failed[0] as PromiseRejectedResult).reason;
@@ -217,7 +232,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                 setIsSubmitting(false);
             }
         },
-        [getToken, waitForStatus],
+        [getToken, waitForStatus, invalidateResources],
     );
 
     return (

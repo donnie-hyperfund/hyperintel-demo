@@ -128,8 +128,6 @@ export const uploadArtifact = (
 ) => {
     const body = toFormData(data);
 
-    console.log(frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS, frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE);
-
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.UploadAction);
         return fetch(workerUrl, {
