@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { useHighlightResourceParam } from '@/hooks/use-highlight-resource-param';
 import { createProjectResourceApi } from '@/lib/api/client/fetchers/project-resources';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
+import { deleteArtifact } from '@/lib/api/requests/worker/chat';
 import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { ResourceItem } from './resource-item';
 
@@ -34,10 +35,16 @@ export function ResourceList() {
 
     const handleRemove = useCallback(
         async (artifactId: string) => {
-            await createProjectResourceApi(getToken).remove(projectId, artifactId);
+            const artifact = allItems.find((a) => a.id === artifactId);
+            if (artifact?.current_version?.is_uploaded) {
+                const token = await getToken();
+                if (token) await deleteArtifact({ artifactId }, token);
+            } else {
+                await createProjectResourceApi(getToken).remove(projectId, artifactId);
+            }
             await mutate();
         },
-        [getToken, projectId, mutate],
+        [getToken, projectId, mutate, allItems],
     );
 
     if (isLoading && size === 1) {

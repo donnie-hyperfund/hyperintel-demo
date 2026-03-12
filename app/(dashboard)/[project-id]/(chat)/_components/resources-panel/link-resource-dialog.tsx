@@ -34,7 +34,11 @@ export function LinkResourceDialog() {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isImporting, setIsImporting] = useState(false);
 
-    const { companies, stakeholders, legacyDna, isLoading } = useFetchResources({ limit: 20, approvedOnly: true });
+    const { companies, stakeholders, legacyDna, isLoading } = useFetchResources({
+        limit: 20,
+        approvedOnly: true,
+        documentType: ['Company Profile', 'Human Persona', 'Legacy DNA'],
+    });
     const { allItems: projectResources, mutate: mutateProjectResources } = useFetchProjectResources(projectId);
 
     const alreadyLinkedKeys = useMemo(() => new Set(projectResources.map((a) => a.key)), [projectResources]);
