@@ -20,7 +20,7 @@ export function FilePreviewItem({ file, status, onRemove }: FilePreviewItemProps
                 </p>
             </div>
 
-            {status === 'uploading' ? (
+            {status === 'uploading' || status === 'processing' ? (
                 <Loader2 className="text-muted-foreground size-4 shrink-0 animate-spin" />
             ) : (
                 <button

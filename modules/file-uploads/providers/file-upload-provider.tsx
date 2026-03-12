@@ -5,7 +5,7 @@ import { createContext, type ReactNode, useCallback, useContext, useRef, useStat
 import { useSWRConfig } from 'swr';
 import { toast } from '@/hooks/use-toast';
 import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
-import { confirmUpload, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
+import { confirmUpload, deleteArtifact, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
 import { isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
 
@@ -15,7 +15,7 @@ const BINARY_MIME_TYPES: Record<string, string> = {
     '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 };
 
-export type FileEntryStatus = 'pending' | 'uploading' | 'ready';
+export type FileEntryStatus = 'pending' | 'uploading' | 'processing' | 'ready';
 
 export type FileEntry = {
     file: File;
@@ -28,7 +28,7 @@ export type FileUploadContextValue = {
     addFiles: (files: File[]) => void;
     removeFile: (index: number) => void;
     clearFiles: () => void;
-    submitFiles: (scope: { projectId?: string; chatId?: string }) => Promise<void>;
+    submitFiles: () => Promise<void>;
     isSubmitting: boolean;
 };
 
@@ -56,6 +56,43 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
     const updateEntry = useCallback((index: number, update: Partial<FileEntry>) => {
         setFiles((prev) => prev.map((entry, i) => (i === index ? { ...entry, ...update } : entry)));
     }, []);
+
+    const pollFileStatus = useCallback(
+        async (fileId: string, index: number) => {
+            const poll = async () => {
+                const token = await getToken();
+                if (!token) return;
+
+                const res = await fetch(`/api/artifacts/files/status?fileIds=${fileId}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (!res.ok) return;
+
+                const data: { files: { fileId: string; status: string }[] } = await res.json();
+                const fileStatus = data.files.find((f) => f.fileId === fileId)?.status;
+
+                if (fileStatus === 'processed') {
+                    updateEntry(index, { status: 'ready' });
+                    invalidateResources();
+                    return;
+                }
+
+                if (fileStatus === 'error') {
+                    setFiles((prev) => prev.filter((_, i) => i !== index));
+                    toast({
+                        title: 'File processing failed',
+                        variant: 'destructive',
+                    });
+                    return;
+                }
+
+                setTimeout(poll, 2000);
+            };
+
+            await poll();
+        },
+        [getToken, updateEntry, invalidateResources],
+    );
 
     const startEagerUpload = useCallback(
         async (file: File, index: number) => {
@@ -93,7 +130,17 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
 
                     if (!putRes.ok) throw new Error('Upload to storage failed');
 
-                    updateEntry(index, { status: 'ready', presignData });
+                    const confirmRes = await confirmUpload(
+                        { fileId: presignData.fileId, versionId: presignData.versionId },
+                        token,
+                    );
+                    if (!confirmRes.ok) {
+                        const err = await confirmRes.json();
+                        throw new Error(err.message || 'Confirm failed');
+                    }
+
+                    updateEntry(index, { status: 'processing', presignData });
+                    pollFileStatus(presignData.fileId, index);
                 } else {
                     const res = await uploadArtifact({ file, ...scope }, token);
 
@@ -114,7 +161,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                 });
             }
         },
-        [getToken, scope, updateEntry, invalidateResources],
+        [getToken, scope, updateEntry, invalidateResources, pollFileStatus],
     );
 
     const addFiles = useCallback(
@@ -145,9 +192,24 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
         [startEagerUpload],
     );
 
-    const removeFile = useCallback((index: number) => {
-        setFiles((prev) => prev.filter((_, i) => i !== index));
-    }, []);
+    const removeFile = useCallback(
+        (index: number) => {
+            const entry = filesRef.current[index];
+
+            // Delete the artifact from the backend if it was uploaded
+            if (entry?.presignData) {
+                getToken().then((token) => {
+                    if (token) {
+                        deleteArtifact({ artifactId: entry.presignData!.artifactId }, token);
+                        invalidateResources();
+                    }
+                });
+            }
+
+            setFiles((prev) => prev.filter((_, i) => i !== index));
+        },
+        [getToken, invalidateResources],
+    );
 
     const clearFiles = useCallback(() => {
         setFiles([]);
@@ -166,74 +228,31 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
         });
     }, []);
 
-    const submitFiles = useCallback(
-        async (submitScope: { projectId?: string; chatId?: string }) => {
-            setIsSubmitting(true);
-            try {
-                const token = await getToken();
-                if (!token) throw new Error('Not authenticated');
+    const submitFiles = useCallback(async () => {
+        setIsSubmitting(true);
+        try {
+            const current = filesRef.current;
 
-                const current = filesRef.current;
-                const results = await Promise.allSettled(
-                    current.map(async (entry) => {
-                        const ext = `.${entry.file.name.split('.').pop()?.toLowerCase()}`;
+            // Wait for all in-flight uploads/processing to finish
+            await Promise.all(
+                current.map((entry) => {
+                    if (entry.status !== 'ready') {
+                        return waitForStatus(entry.file, 'ready');
+                    }
+                }),
+            );
 
-                        // Wait for eager upload if still in progress
-                        if (entry.status === 'uploading') {
-                            await waitForStatus(entry.file, 'ready');
-                        }
-
-                        if (isBinaryArtifactExtension(ext)) {
-                            if (!entry.presignData) {
-                                throw new Error(`Missing presign data for "${entry.file.name}"`);
-                            }
-
-                            const confirmRes = await confirmUpload(
-                                { fileId: entry.presignData.fileId, versionId: entry.presignData.versionId },
-                                token,
-                            );
-                            if (!confirmRes.ok) {
-                                const err = await confirmRes.json();
-                                throw new Error(err.message || 'Confirm failed');
-                            }
-                        }
-                    }),
-                );
-
-                const succeeded = results.some((r) => r.status === 'fulfilled');
-                if (succeeded) {
-                    invalidateResources();
-                }
-
-                const failed = results.filter((r) => r.status === 'rejected');
-                if (failed.length > 0) {
-                    const reason = (failed[0] as PromiseRejectedResult).reason;
-                    toast({
-                        title: `${failed.length} file(s) failed to upload`,
-                        description: reason instanceof Error ? reason.message : undefined,
-                        variant: 'destructive',
-                    });
-                }
-
-                // Remove successful entries, keep failed ones
-                setFiles((prev) =>
-                    prev.filter((_, i) => {
-                        const result = results[i];
-                        return result && result.status === 'rejected';
-                    }),
-                );
-            } catch (err) {
-                toast({
-                    title: 'Upload failed',
-                    description: err instanceof Error ? err.message : undefined,
-                    variant: 'destructive',
-                });
-            } finally {
-                setIsSubmitting(false);
-            }
-        },
-        [getToken, waitForStatus, invalidateResources],
-    );
+            setFiles([]);
+        } catch (err) {
+            toast({
+                title: 'Upload failed',
+                description: err instanceof Error ? err.message : undefined,
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, [waitForStatus]);
 
     return (
         <FileUploadContext.Provider value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting }}>
