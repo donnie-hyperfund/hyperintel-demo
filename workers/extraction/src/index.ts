@@ -93,6 +93,8 @@ async function extractViaRustWorker(fileBytes: ArrayBuffer, filetype: Filetype, 
  * Extract text from PDF.
  * TODO: integrate browser-renderer worker from other project.
  */
+// biome-ignore lint/suspicious/useAwait: will use await when implemented
+// biome-ignore lint/correctness/noUnusedVariables: placeholder for upcoming PDF extraction
 async function extractPdf(_fileBytes: ArrayBuffer, _env: Env): Promise<string> {
     throw new Error('PDF extraction not yet implemented — pending browser-renderer worker');
 }
@@ -101,6 +103,7 @@ async function extractPdf(_fileBytes: ArrayBuffer, _env: Env): Promise<string> {
 // MESSAGE PROCESSING
 // ============================================================================
 
+// biome-ignore lint/suspicious/useAwait: delegates to async processExtraction
 async function processMessage(
     message: ExtractionQueueMessage,
     ctx: ExtractionContext,
