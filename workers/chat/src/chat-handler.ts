@@ -23,6 +23,7 @@ import {
     slugToLocalFile,
 } from './utils/prompt-loader';
 import { createEnqueue, createSSEStream, handleCommonStreamEvent, handleStreamError, loadChatHistory } from './utils/stream-utils';
+import { safetyCheck } from './safety/guard';
 
 // ============================================================================
 // CONTEXT PREPROCESSING
@@ -197,8 +198,49 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
                 throw new Error('Anthropic and Langfuse clients are required');
             }
 
-            // Load history from database (shared helper)
-            const historyMessages = await loadChatHistory(em!, chatId);
+            // Run safety check in parallel with history loading (doesn't slow happy path)
+            const [historyMessages, safetyVerdict] = await Promise.all([
+                loadChatHistory(em!, chatId),
+                safetyCheck(ctx, message),
+            ]);
+
+            // Block message if safety guard flagged it
+            if (safetyVerdict?.blocked) {
+                console.log('[chat-handler] Message blocked by safety guard:', safetyVerdict);
+
+                // Save user message (redacted) + rejection response
+                const userMsg = em!.create(ChatMessageEntity, {
+                    chat: chatId,
+                    role: 'user',
+                    content: message,
+                    created_at: requestStartedAt,
+                    debug_data: { safetyVerdict },
+                });
+                const assistantMsg = em!.create(ChatMessageEntity, {
+                    chat: chatId,
+                    role: 'assistant',
+                    content: 'Sorry, our safety system rejected your message. If you think that was a mistake, please rephrase it or contact support.',
+                    metadata: { safetyBlocked: true },
+                });
+                em!.persist(userMsg);
+                em!.persist(assistantMsg);
+                await em!.flush();
+
+                enqueue({ type: 'delta', content: assistantMsg.content });
+                enqueue({ type: 'done', outputType: 'text' });
+                enqueue('[DONE]');
+                controller.close();
+                return;
+            }
+
+            // Log suspicious (but not blocked) messages for monitoring
+            if (safetyVerdict && safetyVerdict.score > 0.5) {
+                console.warn('[chat-handler] Suspicious message (not blocked):', {
+                    score: safetyVerdict.score,
+                    reason: safetyVerdict.reason,
+                });
+            }
+
             const allMessages = [...historyMessages, { role: 'user' as const, content: message }];
 
             // Load previously loaded prompts from chat metadata (fallback to empty)
