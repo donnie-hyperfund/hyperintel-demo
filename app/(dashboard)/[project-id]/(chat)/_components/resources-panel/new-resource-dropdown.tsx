@@ -1,7 +1,6 @@
 'use client';
 
 import { Building, FilePlus2, Users } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,14 +14,13 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 type NewResourceDropdownProps = {
     projectId: string;
-    onNavigate: () => void;
+    onNavigate: (path: string) => void;
 };
 
 export function NewResourceDropdown({ projectId, onNavigate }: NewResourceDropdownProps) {
-    const router = useRouter();
     const { chatId } = useChatContext();
 
-    const handleNavigate = useCallback(
+    const handleSelect = useCallback(
         (resourceType: 'company' | 'stakeholder') => {
             const query = buildProjectOriginQuery({
                 origin: 'project',
@@ -30,10 +28,10 @@ export function NewResourceDropdown({ projectId, onNavigate }: NewResourceDropdo
                 ...(chatId && { sourceChatId: chatId }),
             });
 
-            onNavigate();
-            router.push(`/${resourceType === 'company' ? 'companies' : 'stakeholders'}/new?${query}`);
+            const path = `/${resourceType === 'company' ? 'companies' : 'stakeholders'}/new?${query}`;
+            onNavigate(path);
         },
-        [chatId, onNavigate, projectId, router],
+        [chatId, onNavigate, projectId],
     );
 
     return (
@@ -45,11 +43,11 @@ export function NewResourceDropdown({ projectId, onNavigate }: NewResourceDropdo
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-                <DropdownMenuItem onSelect={() => handleNavigate('company')}>
+                <DropdownMenuItem onSelect={() => handleSelect('company')}>
                     <Building className="size-4" />
                     New company
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => handleNavigate('stakeholder')}>
+                <DropdownMenuItem onSelect={() => handleSelect('stakeholder')}>
                     <Users className="size-4" />
                     New stakeholder
                 </DropdownMenuItem>

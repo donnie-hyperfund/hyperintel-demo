@@ -3,8 +3,8 @@
 import { useAuth } from '@clerk/nextjs';
 import type { LucideIcon } from 'lucide-react';
 import { Building, Building2, Dna, Link, Loader2, Users } from 'lucide-react';
-import { useParams } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -30,9 +30,19 @@ type LinkResourceDialogParams = PageParams<'/[project-id]'>;
 export function LinkResourceDialog() {
     const { 'project-id': projectId } = useParams<LinkResourceDialogParams>();
     const { getToken } = useAuth();
+    const router = useRouter();
     const [open, setOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isImporting, setIsImporting] = useState(false);
+    const pendingNavRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (!open && pendingNavRef.current) {
+            const path = pendingNavRef.current;
+            pendingNavRef.current = null;
+            router.push(path);
+        }
+    }, [open, router]);
 
     const { companies, stakeholders, legacyDna, isLoading } = useFetchResources({
         limit: 20,
@@ -159,7 +169,8 @@ export function LinkResourceDialog() {
                 <DialogFooter className="sm:justify-between">
                     <NewResourceDropdown
                         projectId={projectId}
-                        onNavigate={() => {
+                        onNavigate={(path) => {
+                            pendingNavRef.current = path;
                             setSelectedIds([]);
                             setOpen(false);
                         }}
