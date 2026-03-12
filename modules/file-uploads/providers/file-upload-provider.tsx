@@ -1,13 +1,11 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
-import { Upload } from 'lucide-react';
 import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { confirmUpload, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
-import { ALLOWED_ARTIFACT_EXTENSIONS, isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
-import { cn } from '@/lib/utils';
+import { isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
 
 const BINARY_MIME_TYPES: Record<string, string> = {
     '.pdf': 'application/pdf',
@@ -15,7 +13,7 @@ const BINARY_MIME_TYPES: Record<string, string> = {
     '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 };
 
-export type FileEntryStatus = 'pending' | 'uploading' | 'ready' | 'error';
+export type FileEntryStatus = 'pending' | 'uploading' | 'ready';
 
 export type FileEntry = {
     file: File;
@@ -23,7 +21,7 @@ export type FileEntry = {
     presignData?: PresignUploadResponseDto;
 };
 
-export type FileDropContextValue = {
+export type FileUploadContextValue = {
     files: FileEntry[];
     addFiles: (files: File[]) => void;
     removeFile: (index: number) => void;
@@ -32,18 +30,16 @@ export type FileDropContextValue = {
     isSubmitting: boolean;
 };
 
-const FileDropContext = createContext<FileDropContextValue | null>(null);
+const FileUploadContext = createContext<FileUploadContextValue | null>(null);
 
-type FileDropProviderProps = {
+type FileUploadProviderProps = {
     children: ReactNode;
     scope?: { projectId?: string; chatId?: string };
 };
 
-export function FileDropProvider({ children, scope }: FileDropProviderProps) {
+export function FileUploadProvider({ children, scope }: FileUploadProviderProps) {
     const [files, setFiles] = useState<FileEntry[]>([]);
-    const [isDragging, setIsDragging] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const dragCounterRef = useRef(0);
     const filesRef = useRef(files);
     filesRef.current = files;
     const { getToken } = useAuth();
@@ -90,10 +86,7 @@ export function FileDropProvider({ children, scope }: FileDropProviderProps) {
 
                     updateEntry(index, { status: 'ready', presignData });
                 } else {
-                    const res = await uploadArtifact(
-                        { file, ...scope },
-                        token,
-                    );
+                    const res = await uploadArtifact({ file, ...scope }, token);
 
                     if (!res.ok) {
                         const err = await res.json();
@@ -103,7 +96,7 @@ export function FileDropProvider({ children, scope }: FileDropProviderProps) {
                     updateEntry(index, { status: 'ready' });
                 }
             } catch (err) {
-                updateEntry(index, { status: 'error' });
+                setFiles((prev) => prev.filter((_, i) => i !== index));
                 toast({
                     title: `Failed to upload "${file.name}"`,
                     description: err instanceof Error ? err.message : undefined,
@@ -155,7 +148,7 @@ export function FileDropProvider({ children, scope }: FileDropProviderProps) {
         return new Promise((resolve, reject) => {
             const check = () => {
                 const entry = filesRef.current.find((e) => e.file === file);
-                if (!entry || entry.status === 'error') return reject(new Error('Upload failed'));
+                if (!entry) return reject(new Error('Upload failed'));
                 if (entry.status === target) return resolve();
                 setTimeout(check, 200);
             };
@@ -175,14 +168,12 @@ export function FileDropProvider({ children, scope }: FileDropProviderProps) {
                     current.map(async (entry) => {
                         const ext = `.${entry.file.name.split('.').pop()?.toLowerCase()}`;
 
+                        // Wait for eager upload if still in progress
+                        if (entry.status === 'uploading') {
+                            await waitForStatus(entry.file, 'ready');
+                        }
+
                         if (isBinaryArtifactExtension(ext)) {
-                            // Wait for eager upload if still in progress
-                            if (entry.status === 'uploading') {
-                                await waitForStatus(entry.file, 'ready');
-                            }
-                            if (entry.status === 'error') {
-                                throw new Error(`Upload failed for "${entry.file.name}"`);
-                            }
                             if (!entry.presignData) {
                                 throw new Error(`Missing presign data for "${entry.file.name}"`);
                             }
@@ -194,14 +185,6 @@ export function FileDropProvider({ children, scope }: FileDropProviderProps) {
                             if (!confirmRes.ok) {
                                 const err = await confirmRes.json();
                                 throw new Error(err.message || 'Confirm failed');
-                            }
-                        } else {
-                            // Text file — already uploaded eagerly
-                            if (entry.status === 'uploading') {
-                                await waitForStatus(entry.file, 'ready');
-                            }
-                            if (entry.status === 'error') {
-                                throw new Error(`Upload failed for "${entry.file.name}"`);
                             }
                         }
                     }),
@@ -237,79 +220,17 @@ export function FileDropProvider({ children, scope }: FileDropProviderProps) {
         [getToken, waitForStatus],
     );
 
-    const handleDragEnter = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        dragCounterRef.current += 1;
-        if (dragCounterRef.current === 1) setIsDragging(true);
-    }, []);
-
-    const handleDragLeave = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        dragCounterRef.current -= 1;
-        if (dragCounterRef.current === 0) setIsDragging(false);
-    }, []);
-
-    const handleDragOver = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-    }, []);
-
-    const handleDrop = useCallback(
-        (e: React.DragEvent) => {
-            e.preventDefault();
-            dragCounterRef.current = 0;
-            setIsDragging(false);
-
-            const dropped = Array.from(e.dataTransfer.files);
-            if (dropped.length === 0) return;
-            addFiles(dropped);
-        },
-        [addFiles],
-    );
-
     return (
-        <FileDropContext.Provider value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting }}>
-            <div
-                className="relative h-full"
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-            >
-                {children}
-                <DropOverlay visible={isDragging} />
-            </div>
-        </FileDropContext.Provider>
+        <FileUploadContext.Provider value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting }}>
+            {children}
+        </FileUploadContext.Provider>
     );
 }
 
-export function useFileDropContext(): FileDropContextValue {
-    const context = useContext(FileDropContext);
+export function useFileUploadContext(): FileUploadContextValue {
+    const context = useContext(FileUploadContext);
     if (!context) {
-        throw new Error('useFileDropContext must be used within a FileDropProvider');
+        throw new Error('useFileUploadContext must be used within a FileUploadProvider');
     }
     return context;
-}
-
-function DropOverlay({ visible }: { visible: boolean }) {
-    return (
-        <div
-            className={cn(
-                'pointer-events-none absolute inset-0 z-50 flex items-center justify-center transition-opacity duration-200',
-                visible ? 'opacity-100' : 'opacity-0',
-            )}
-        >
-            <div className="absolute inset-0 border-2 border-dashed border-primary/60 bg-[#151815]/90 backdrop-blur-[2px] shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.15)]" />
-            <div className="relative flex flex-col items-center gap-4">
-                <div className="flex size-14 items-center justify-center rounded-full bg-[#192819]/80">
-                    <Upload className="size-7 text-primary" />
-                </div>
-                <div className="text-center">
-                    <p className="text-base font-medium">Drop files to upload</p>
-                    <p className="text-muted-foreground mt-1 text-sm">
-                        Accepted formats: {ALLOWED_ARTIFACT_EXTENSIONS.join(', ')}
-                    </p>
-                </div>
-            </div>
-        </div>
-    );
 }

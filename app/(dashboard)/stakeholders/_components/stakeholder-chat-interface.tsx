@@ -5,8 +5,6 @@ import ChatPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-pa
 import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
 import { ResizablePanelWrapper } from '@/components/layouts/panel-wrapper/resizable-panel-wrapper';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { FileDropProvider } from '@/modules/chat/providers/file-drop-provider';
 
 type StakeholderChatInterfaceProps = {
     title: string;
@@ -14,20 +12,17 @@ type StakeholderChatInterfaceProps = {
 
 export function StakeholderChatInterface({ title }: StakeholderChatInterfaceProps) {
     const { panelState, closePanel } = useActivePanelContext();
-    const { chatId } = useChatContext();
 
     return (
         <ResizablePanelWrapper
             LeftPaneComponent={
-                <FileDropProvider scope={{ chatId: chatId ?? undefined }}>
-                    <ChatPanel
-                        HeaderComponent={
-                            <DashboardHeader title={title} parent={{ label: 'Stakeholders', href: '/stakeholders' }} />
-                        }
-                        emptyTitle="Let’s build a new stakeholder persona."
-                        emptySubtitle="Tell us about the stakeholder or upload supporting documents. We’ll take it from there."
-                    />
-                </FileDropProvider>
+                <ChatPanel
+                    HeaderComponent={
+                        <DashboardHeader title={title} parent={{ label: 'Stakeholders', href: '/stakeholders' }} />
+                    }
+                    emptyTitle="Let’s build a new stakeholder persona."
+                    emptySubtitle="Tell us about the stakeholder or upload supporting documents. We’ll take it from there."
+                />
             }
             RightPaneComponent={
                 panelState?.panel === 'artifact-preview' && (
