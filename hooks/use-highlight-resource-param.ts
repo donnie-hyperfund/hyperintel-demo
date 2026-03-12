@@ -21,14 +21,9 @@ export function useHighlightResourceParam<T extends ItemWithKey>(allItems: T[]) 
         itemRefs.current[id] = element;
     }, []);
 
+    // Consume the search param and activate the highlight
     useEffect(() => {
-        if (!highlightResource) {
-            appliedKeyRef.current = null;
-            setHighlightedKey(null);
-            return;
-        }
-
-        if (appliedKeyRef.current === highlightResource) return;
+        if (!highlightResource || appliedKeyRef.current === highlightResource) return;
 
         const item = allItems.find((a) => a.key === highlightResource);
         if (!item) return;
@@ -40,19 +35,30 @@ export function useHighlightResourceParam<T extends ItemWithKey>(allItems: T[]) 
         setHighlightedKey(highlightResource);
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-        // Clean the param from the URL after consuming it
         const params = new URLSearchParams(searchParams.toString());
         params.delete(SEARCH_PARAMS.HIGHLIGHT_RESOURCE);
         const query = params.toString();
         router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-
-        const timeout = window.setTimeout(
-            () => setHighlightedKey((current) => (current === highlightResource ? null : current)),
-            4000,
-        );
-
-        return () => window.clearTimeout(timeout);
     }, [allItems, highlightResource, searchParams, router, pathname]);
+
+    // Clear highlight when the CSS animation actually finishes
+    useEffect(() => {
+        if (!highlightedKey) return;
+
+        const item = allItems.find((a) => a.key === highlightedKey);
+        const element = item ? itemRefs.current[item.id] : null;
+        if (!element) return;
+
+        const handleAnimationEnd = (e: AnimationEvent) => {
+            if (e.animationName === 'highlight-pulse') {
+                setHighlightedKey(null);
+                appliedKeyRef.current = null;
+            }
+        };
+        element.addEventListener('animationend', handleAnimationEnd);
+
+        return () => element.removeEventListener('animationend', handleAnimationEnd);
+    }, [highlightedKey, allItems]);
 
     return { highlightedKey, registerRef } as const;
 }
