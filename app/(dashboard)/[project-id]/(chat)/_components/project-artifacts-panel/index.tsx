@@ -9,7 +9,6 @@ import {
     type ProjectArtifactFilters,
 } from './project-artifact-filter-dropdown';
 import { ProjectArtifactList } from './project-artifact-list';
-import { ProjectArtifactUploadDocument } from './project-artifact-upload-document';
 
 type ProjectArtifactsPanelProps = {
     onClose: () => void;
@@ -27,7 +26,6 @@ export default function ProjectArtifactsPanel({ onClose }: ProjectArtifactsPanel
             <div className="flex items-center justify-between px-4 h-14 border-b border-border shrink-0">
                 <h2 className="text-sm font-medium">Artifacts</h2>
                 <div className="flex items-center gap-1">
-                    <ProjectArtifactUploadDocument />
                     <ProjectArtifactFilterDropdown filters={filters} onChange={handleFilterChange} />
                     <Button variant="ghost" size="icon" className="size-7" onClick={onClose}>
                         <X className="size-4" />

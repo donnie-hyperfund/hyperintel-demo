@@ -2,7 +2,8 @@
 
 import { useAuth } from '@clerk/nextjs';
 import type { LucideIcon } from 'lucide-react';
-import { Building, Building2, Dna, Loader2, Plus, Users } from 'lucide-react';
+import { Building, Building2, Dna, FilePlus2, Link, Loader2, Users } from 'lucide-react';
+import NextLink from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,14 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
 import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
@@ -87,12 +95,21 @@ export function LinkResourceDialog() {
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-7">
-                    <Plus className="size-4" />
-                </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <Tooltip>
+                <DialogTrigger>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="size-7">
+                            <Link className="size-4" />
+                        </Button>
+                    </TooltipTrigger>
+                </DialogTrigger>
+                <TooltipContent>Link resource</TooltipContent>
+            </Tooltip>
+
+            <DialogContent
+                className="sm:max-w-xl flex max-h-140 h-full flex-col"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+            >
                 <DialogHeader>
                     <DialogTitle>Add Project Intel</DialogTitle>
                     <DialogDescription>
@@ -100,15 +117,16 @@ export function LinkResourceDialog() {
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="max-h-80 overflow-y-auto space-y-4 py-2">
+                <div className="flex flex-1 flex-col overflow-y-auto space-y-4 py-2">
                     {isLoading ? (
-                        <div className="space-y-2">
+                        <div className="flex flex-1 items-center justify-center space-y-2">
                             {Array.from({ length: 3 }).map((_, i) => (
                                 <ArtifactListItemSkeleton key={i} size="sm" />
                             ))}
                         </div>
                     ) : totalAvailable === 0 ? (
                         <EmptyState
+                            className="flex-1"
                             icon={Building2}
                             title="All Project Intel linked"
                             description="All available profiles and personas are already linked to this project."
@@ -140,7 +158,8 @@ export function LinkResourceDialog() {
                     )}
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="sm:justify-between">
+                    <NewResourceDropdown />
                     <Button
                         onClick={handleImport}
                         disabled={selectedIds.length === 0 || isImporting}
@@ -193,5 +212,32 @@ function SelectableSection({
                 ))}
             </div>
         </div>
+    );
+}
+
+function NewResourceDropdown() {
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button variant="soft">
+                    New resource
+                    <FilePlus2 className="size-4" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+                <DropdownMenuItem asChild>
+                    <NextLink href="/companies/new">
+                        <Building className="size-4" />
+                        New company
+                    </NextLink>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                    <NextLink href="/stakeholders/new">
+                        <Users className="size-4" />
+                        New stakeholder
+                    </NextLink>
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
     );
 }
