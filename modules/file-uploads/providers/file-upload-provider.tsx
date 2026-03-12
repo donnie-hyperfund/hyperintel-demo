@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
-import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useSWRConfig } from 'swr';
 import { toast } from '@/hooks/use-toast';
 import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
@@ -47,6 +47,22 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
+    const hadInFlightRef = useRef(false);
+
+    useEffect(() => {
+        const hasFiles = files.length > 0;
+        const allReady = hasFiles && files.every((f) => f.status === 'ready');
+
+        if (hadInFlightRef.current && allReady) {
+            toast({
+                title: 'Upload complete',
+                description: files.length === 1 ? files[0].file.name : `${files.length} files`,
+            });
+        }
+
+        hadInFlightRef.current = hasFiles && !allReady;
+    }, [files]);
+
     const invalidateResources = useCallback(() => {
         if (scope?.projectId) {
             globalMutate(serializeProjectResourceListKey(scope.projectId));
@@ -80,7 +96,8 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                 if (fileStatus === 'error') {
                     setFiles((prev) => prev.filter((_, i) => i !== index));
                     toast({
-                        title: 'File processing failed',
+                        title: 'Upload failed',
+                        description: 'Something went wrong — please try again',
                         variant: 'destructive',
                     });
                     return;
@@ -176,6 +193,11 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                 }
             }
             if (entries.length === 0) return;
+
+            toast({
+                title: 'Uploading',
+                description: entries.length === 1 ? entries[0].file.name : `${entries.length} files`,
+            });
 
             setFiles((prev) => {
                 const startIndex = prev.length;

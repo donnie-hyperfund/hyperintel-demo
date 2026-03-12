@@ -4,7 +4,6 @@ import { Loader2, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { toast } from '@/hooks/use-toast';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 
@@ -18,7 +17,6 @@ export function UploadResource() {
 
     useEffect(() => {
         if (prevIsUploadingRef.current && !isUploading && files.length > 0) {
-            toast({ title: `${files.length} file(s) uploaded successfully` });
             clearFiles();
         }
         prevIsUploadingRef.current = isUploading;
