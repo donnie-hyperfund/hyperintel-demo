@@ -120,6 +120,17 @@ function companyWrapper({ children }: { children: ReactNode }) {
     return <ChatProvider chatType="company">{children}</ChatProvider>;
 }
 
+function companyWithProjectOriginWrapper({ children }: { children: ReactNode }) {
+    return (
+        <ChatProvider
+            chatType="company"
+            chatRouteBuilder={(chatId) => `/companies/${chatId}?origin=project&projectId=project-1`}
+        >
+            {children}
+        </ChatProvider>
+    );
+}
+
 function createSSEBody(payload: string): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder();
     return new ReadableStream<Uint8Array>({
@@ -353,6 +364,28 @@ describe('ChatProvider', () => {
         );
         expect(result.current.chatId).toBe('company-chat-1');
         expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/companies/company-chat-1');
+
+        replaceStateSpy.mockRestore();
+    });
+
+    it('uses a custom route builder after creating an intake chat', async () => {
+        const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+        apiMock.chats.createIntake.mockResolvedValue({ id: 'company-chat-2' });
+        sendIntakeActionMock.mockResolvedValue({
+            body: createSSEBody('data: {"type":"done"}\n\n'),
+        });
+
+        const { result } = renderHook(() => useChatContext<'company'>(), { wrapper: companyWithProjectOriginWrapper });
+
+        await act(async () => {
+            await result.current.sendMessage('intake message');
+        });
+
+        expect(replaceStateSpy).toHaveBeenCalledWith(
+            null,
+            '',
+            '/companies/company-chat-2?origin=project&projectId=project-1',
+        );
 
         replaceStateSpy.mockRestore();
     });

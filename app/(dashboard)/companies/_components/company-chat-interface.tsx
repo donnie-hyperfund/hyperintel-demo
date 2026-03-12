@@ -1,8 +1,8 @@
 'use client';
 
+import { IntakeHeader } from '@/app/(dashboard)/_components/intake-header';
 import { ArtifactPreviewPanel } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel';
 import ChatPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel';
-import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
 import { ResizablePanelWrapper } from '@/components/layouts/panel-wrapper/resizable-panel-wrapper';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 
@@ -18,7 +18,7 @@ export function CompanyChatInterface({ title }: CompanyChatInterfaceProps) {
             LeftPaneComponent={
                 <ChatPanel
                     HeaderComponent={
-                        <DashboardHeader title={title} parent={{ label: 'Companies', href: '/companies' }} />
+                        <IntakeHeader title={title} defaultParent={{ label: 'Companies', href: '/companies' }} />
                     }
                     emptyTitle="Let’s build a new company profile."
                     emptySubtitle="Tell us about the company or upload supporting documents. We’ll take it from there."

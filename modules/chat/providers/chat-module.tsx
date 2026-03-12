@@ -11,6 +11,7 @@ type ChatModuleBaseProps = {
     children: ReactNode;
     initialChatId?: string;
     initialMessages?: Message[];
+    chatRouteBuilder?: (chatId: string) => string;
 };
 
 type PhaseChatModuleProps = ChatModuleBaseProps & {
@@ -25,7 +26,14 @@ type IntakeChatModuleProps = ChatModuleBaseProps & {
 
 export type ChatModuleProps = PhaseChatModuleProps | IntakeChatModuleProps;
 
-export function ChatModule({ children, projectId, chatType, initialChatId, initialMessages = [] }: ChatModuleProps) {
+export function ChatModule({
+    children,
+    projectId,
+    chatType,
+    initialChatId,
+    initialMessages = [],
+    chatRouteBuilder,
+}: ChatModuleProps) {
     return (
         <ActivePanelProvider>
             <ArtifactProvider>
@@ -34,6 +42,7 @@ export function ChatModule({ children, projectId, chatType, initialChatId, initi
                     chatType={chatType}
                     initialChatId={initialChatId}
                     initialMessages={initialMessages}
+                    chatRouteBuilder={chatRouteBuilder}
                 >
                     <Suspense>
                         <ScrollTargetProvider>{children}</ScrollTargetProvider>
