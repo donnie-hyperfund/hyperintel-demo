@@ -7,6 +7,7 @@ const EXTENSION_ICONS: Record<string, string> = {
     pdf: '/icons/extensions/pdf.svg',
     docx: '/icons/extensions/docx.svg',
     xlsx: '/icons/extensions/xlsx.svg',
+    pptx: '/icons/extensions/pptx.svg',
 };
 
 type FileTypeIconProps = {
