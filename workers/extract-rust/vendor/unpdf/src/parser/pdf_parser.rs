@@ -656,6 +656,112 @@ impl PdfParser {
     pub fn version(&self) -> String {
         self.backend.raw_doc().version.to_string()
     }
+
+    /// Debug page extraction - returns detailed info about spans, lines, and blocks.
+    pub fn debug_page(&self, page_num: u32) -> Result<String> {
+        let mut out = String::new();
+        let mut analyzer = LayoutAnalyzer::new(&self.backend);
+
+        // Step 1: Extract spans
+        let spans = analyzer.extract_page_spans(page_num)?;
+        out.push_str(&format!("=== SPANS ({}) ===\n", spans.len()));
+        for (i, span) in spans.iter().enumerate() {
+            out.push_str(&format!(
+                "  span[{}]: x={:.1} y={:.1} size={:.1} font={} text={:?}\n",
+                i, span.x, span.y, span.font_size, span.font_name, span.text
+            ));
+        }
+
+        // Step 2: Build font stats
+        for span in &spans {
+            analyzer.font_stats_mut().add_size(span.font_size);
+        }
+        analyzer.font_stats_mut().analyze();
+        let body_size = analyzer.font_stats_mut().body_size;
+        let heading_sizes = analyzer.font_stats_mut().heading_sizes.clone();
+        out.push_str(&format!(
+            "\n=== FONT STATS ===\n  body_size={:.1} heading_sizes={:?}\n",
+            body_size, heading_sizes
+        ));
+
+        // Step 3: Group into lines
+        let lines = analyzer.group_spans_into_lines_pub(spans);
+        out.push_str(&format!("\n=== LINES ({}) ===\n", lines.len()));
+        for (i, line) in lines.iter().enumerate() {
+            out.push_str(&format!(
+                "  line[{}]: y={:.1} x={:.1} font_size={:.1} spans={} text={:?}\n",
+                i, line.y, line.x, line.font_size, line.spans.len(), line.text()
+            ));
+        }
+
+        // Step 4: Detect headings
+        let lines = analyzer.detect_headings_pub(lines);
+        out.push_str(&format!("\n=== LINES WITH HEADINGS ===\n"));
+        for (i, line) in lines.iter().enumerate() {
+            out.push_str(&format!(
+                "  line[{}]: heading={} level={} size={:.1} text={:?}\n",
+                i, line.is_heading, line.heading_level, line.font_size, line.text()
+            ));
+        }
+
+        // Step 5: Block grouping with detailed reasoning
+        out.push_str(&format!("\n=== BLOCK GROUPING DECISIONS ===\n"));
+        if lines.len() >= 2 {
+            // Calculate avg spacing (same as in group_lines_into_blocks)
+            let mut spacings: Vec<f32> = lines
+                .windows(2)
+                .map(|w| (w[0].y - w[1].y).abs())
+                .filter(|s| *s > 0.1)
+                .collect();
+            if !spacings.is_empty() {
+                spacings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let avg_spacing = spacings[spacings.len() / 2];
+                out.push_str(&format!("  median_spacing={:.1}\n", avg_spacing));
+
+                for i in 1..lines.len() {
+                    let prev = &lines[i - 1];
+                    let curr = &lines[i];
+                    let spacing = (prev.y - curr.y).abs();
+                    let font_diff = (prev.font_size - curr.font_size).abs();
+                    let margin_diff = (prev.x - curr.x).abs();
+                    let heading_change = prev.is_heading != curr.is_heading;
+                    let level_change = prev.is_heading && curr.is_heading
+                        && prev.heading_level != curr.heading_level;
+                    let spacing_break = spacing > avg_spacing * 2.0;
+                    let font_break = font_diff > 2.0;
+                    let margin_break = margin_diff > 20.0;
+                    let should_break = heading_change || level_change || spacing_break || font_break || margin_break;
+
+                    if should_break {
+                        out.push_str(&format!(
+                            "  BREAK before line[{}]: spacing={:.1}(>{:.1}?{}) font_diff={:.1}(>2?{}) margin_diff={:.1}(>20?{}) heading_change={} level_change={}\n    prev={:?}\n    curr={:?}\n",
+                            i, spacing, avg_spacing * 2.0, spacing_break,
+                            font_diff, font_break,
+                            margin_diff, margin_break,
+                            heading_change, level_change,
+                            prev.text(), curr.text()
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Step 6: Final blocks
+        let blocks = analyzer.group_lines_into_blocks_pub(lines);
+        out.push_str(&format!("\n=== BLOCKS ({}) ===\n", blocks.len()));
+        for (i, block) in blocks.iter().enumerate() {
+            out.push_str(&format!(
+                "  block[{}]: type={:?} heading_level={} lines={} text={:?}\n",
+                i, block.block_type, block.heading_level, block.lines.len(),
+                {
+                    let t = block.text();
+                    if t.len() > 80 { format!("{}...", &t[..80]) } else { t }
+                }
+            ));
+        }
+
+        Ok(out)
+    }
 }
 
 /// Helper to get a string from a PDF dictionary.

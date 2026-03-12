@@ -21,7 +21,9 @@ if (!existsSync(pkgPath)) {
 
 // wasm-pack --target nodejs emits CJS, use require to load it
 const require = createRequire(import.meta.url);
-const { extract_docx, extract_pptx } = require(pkgPath);
+const { extract_docx, extract_pptx, extract_pdf } = require(pkgPath);
+
+const extractors = { docx: extract_docx, pptx: extract_pptx, pdf: extract_pdf };
 
 // ── ad-hoc file mode ─────────────────────────────────────────────────────────
 
@@ -33,14 +35,14 @@ if (fileArg) {
     process.exit(1);
   }
   const ext = extname(filePath).slice(1).toLowerCase();
+  const fn = extractors[ext];
+  if (!fn) {
+    console.error(`Unsupported extension: .${ext} (supported: docx, pptx, pdf)`);
+    process.exit(1);
+  }
   const bytes = readFileSync(filePath);
   try {
-    const md = ext === "docx" ? extract_docx(bytes) : ext === "pptx" ? extract_pptx(bytes) : null;
-    if (md === null) {
-      console.error(`Unsupported extension: .${ext}`);
-      process.exit(1);
-    }
-    console.log(md);
+    console.log(fn(bytes));
   } catch (e) {
     console.error("Extraction failed:", e.message);
     process.exit(1);
@@ -72,19 +74,31 @@ test("extract_pptx is a function", () => {
   if (typeof extract_pptx !== "function") throw new Error("not a function");
 });
 
+test("extract_pdf is a function", () => {
+  if (typeof extract_pdf !== "function") throw new Error("not a function");
+});
+
 test("extract_docx rejects garbage bytes", () => {
   try {
     extract_docx(new Uint8Array([0, 1, 2, 3]));
     throw new Error("should have thrown");
   } catch (e) {
     if (e.message === "should have thrown") throw e;
-    // expected error — bad zip
   }
 });
 
 test("extract_pptx rejects garbage bytes", () => {
   try {
     extract_pptx(new Uint8Array([0, 1, 2, 3]));
+    throw new Error("should have thrown");
+  } catch (e) {
+    if (e.message === "should have thrown") throw e;
+  }
+});
+
+test("extract_pdf rejects garbage bytes", () => {
+  try {
+    extract_pdf(new Uint8Array([0, 1, 2, 3]));
     throw new Error("should have thrown");
   } catch (e) {
     if (e.message === "should have thrown") throw e;

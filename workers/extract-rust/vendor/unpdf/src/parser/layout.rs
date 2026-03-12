@@ -342,9 +342,9 @@ impl FontStatistics {
 
     /// Get heading level for a font size (1-6, or 0 for body text).
     pub fn get_heading_level(&self, font_size: f32, _is_bold: bool) -> u8 {
-        // Headings must be noticeably larger than body text
-        // We require at least 1.5pt larger to avoid false positives
-        let heading_threshold = self.body_size + 1.5;
+        // Headings must be substantially larger than body text
+        // Require 50% larger to avoid false positives from slightly different font sizes
+        let heading_threshold = self.body_size * 1.5;
 
         if font_size < heading_threshold {
             return 0;
@@ -454,16 +454,49 @@ impl<'a> LayoutAnalyzer<'a> {
         let mut current_font_name: Vec<u8> = Vec::new();
         let mut current_font_size: f32 = 12.0;
         let mut text_matrix = TextMatrix::default();
+        let mut text_leading: f32 = 0.0;
         let mut in_text_block = false;
+
+        // CTM (Current Transformation Matrix) tracking
+        let mut ctm = GraphicsMatrix::identity();
+        let mut ctm_stack: Vec<GraphicsMatrix> = Vec::new();
 
         for op in &operations {
             match op.operator.as_str() {
+                // Graphics state operators
+                "q" => {
+                    ctm_stack.push(ctm);
+                }
+                "Q" => {
+                    if let Some(saved) = ctm_stack.pop() {
+                        ctm = saved;
+                    }
+                }
+                "cm" => {
+                    if op.operands.len() >= 6 {
+                        let m = GraphicsMatrix {
+                            a: get_number_from_value(&op.operands[0]).unwrap_or(1.0),
+                            b: get_number_from_value(&op.operands[1]).unwrap_or(0.0),
+                            c: get_number_from_value(&op.operands[2]).unwrap_or(0.0),
+                            d: get_number_from_value(&op.operands[3]).unwrap_or(1.0),
+                            e: get_number_from_value(&op.operands[4]).unwrap_or(0.0),
+                            f: get_number_from_value(&op.operands[5]).unwrap_or(0.0),
+                        };
+                        ctm = ctm.multiply(&m);
+                    }
+                }
+                // Text state operators
                 "BT" => {
                     in_text_block = true;
                     text_matrix = TextMatrix::default();
                 }
                 "ET" => {
                     in_text_block = false;
+                }
+                "TL" => {
+                    if let Some(val) = op.operands.first() {
+                        text_leading = get_number_from_value(val).unwrap_or(0.0);
+                    }
                 }
                 "Tf" => {
                     if op.operands.len() >= 2 {
@@ -484,6 +517,9 @@ impl<'a> LayoutAnalyzer<'a> {
                         let tx = get_number_from_value(&op.operands[0]).unwrap_or(0.0);
                         let ty = get_number_from_value(&op.operands[1]).unwrap_or(0.0);
                         text_matrix.translate(tx, ty);
+                        if op.operator == "TD" {
+                            text_leading = -ty;
+                        }
                     }
                 }
                 "Tm" => {
@@ -499,17 +535,19 @@ impl<'a> LayoutAnalyzer<'a> {
                     }
                 }
                 "T*" => {
-                    text_matrix.next_line();
+                    text_matrix.next_line_with_leading(text_leading);
                 }
                 "Tj" | "TJ" => {
                     if in_text_block {
-                        let text = if op.operator == "TJ" {
+                        // Track both decoded text and raw glyph width (1/1000 units)
+                        let (text, raw_width_1000) = if op.operator == "TJ" {
                             // TJ: array of strings and positioning adjustments
-                            // Numbers indicate kerning/spacing adjustments in 1/1000 text space units
-                            // Large negative values (like -200 to -300) often indicate word spaces
+                            // Numbers are kerning/spacing in 1/1000 text space units
                             if let Some(PdfValue::Array(arr)) = op.operands.first() {
                                 let mut combined = String::new();
                                 let space_threshold = 200.0;
+                                let mut width_1000: f32 = 0.0;
+                                let mut has_widths = true;
 
                                 for item in arr {
                                     match item {
@@ -519,65 +557,103 @@ impl<'a> LayoutAnalyzer<'a> {
                                                 &current_font_name,
                                                 bytes,
                                             ));
+                                            if has_widths {
+                                                if let Some(w) = self.backend.text_width(
+                                                    page_id,
+                                                    &current_font_name,
+                                                    bytes,
+                                                ) {
+                                                    width_1000 += w;
+                                                } else {
+                                                    has_widths = false;
+                                                }
+                                            }
                                         }
                                         PdfValue::Integer(n) => {
                                             let adjustment = -(*n as f32);
                                             if adjustment > space_threshold {
                                                 maybe_insert_space(&mut combined);
                                             }
+                                            // TJ adjustments affect total advance width
+                                            width_1000 -= *n as f32;
                                         }
                                         PdfValue::Real(n) => {
                                             let adjustment = -n;
                                             if adjustment > space_threshold {
                                                 maybe_insert_space(&mut combined);
                                             }
+                                            width_1000 -= n;
                                         }
                                         _ => {}
                                     }
                                 }
-                                combined
+                                let w = if has_widths { Some(width_1000) } else { None };
+                                (combined, w)
                             } else {
-                                String::new()
+                                (String::new(), None)
                             }
                         } else {
                             // Tj: single string
                             if let Some(PdfValue::Str(bytes)) = op.operands.first() {
-                                self.backend.decode_text(page_id, &current_font_name, bytes)
+                                let text = self.backend.decode_text(page_id, &current_font_name, bytes);
+                                let width = self.backend.text_width(page_id, &current_font_name, bytes);
+                                (text, width)
                             } else {
-                                String::new()
+                                (String::new(), None)
                             }
                         };
 
                         if !text.trim().is_empty() {
-                            let (x, y) = text_matrix.get_position();
-                            let effective_size = current_font_size * text_matrix.get_scale();
-                            spans.push(TextSpan::new(
+                            let (tx, ty) = text_matrix.get_position();
+                            // Apply CTM to get absolute page position
+                            let x = ctm.a * tx + ctm.c * ty + ctm.e;
+                            let y = ctm.b * tx + ctm.d * ty + ctm.f;
+                            let ctm_scale = (ctm.a * ctm.a + ctm.c * ctm.c).sqrt();
+                            let effective_size = current_font_size * text_matrix.get_scale() * ctm_scale;
+                            let mut span = TextSpan::new(
                                 text,
                                 x,
                                 y,
                                 effective_size,
                                 current_font.clone(),
-                            ));
+                            );
+                            // Use font metrics width when available, fall back to estimate
+                            span.width = if let Some(rw) = raw_width_1000 {
+                                rw / 1000.0 * effective_size
+                            } else {
+                                span.text.chars().count() as f32 * effective_size * 0.5
+                            };
+                            spans.push(span);
                         }
                     }
                 }
                 "'" | "\"" => {
-                    text_matrix.next_line();
+                    text_matrix.next_line_with_leading(text_leading);
                     if in_text_block {
                         let text_idx = if op.operator == "\"" { 2 } else { 0 };
                         if let Some(PdfValue::Str(bytes)) = op.operands.get(text_idx) {
                             let text = self.backend.decode_text(page_id, &current_font_name, bytes);
+                            let raw_width_1000 = self.backend.text_width(page_id, &current_font_name, bytes);
 
                             if !text.trim().is_empty() {
-                                let (x, y) = text_matrix.get_position();
-                                let effective_size = current_font_size * text_matrix.get_scale();
-                                spans.push(TextSpan::new(
+                                let (tx, ty) = text_matrix.get_position();
+                                let x = ctm.a * tx + ctm.c * ty + ctm.e;
+                                let y = ctm.b * tx + ctm.d * ty + ctm.f;
+                                let ctm_scale = (ctm.a * ctm.a + ctm.c * ctm.c).sqrt();
+                                let effective_size = current_font_size * text_matrix.get_scale() * ctm_scale;
+                                let mut span = TextSpan::new(
                                     text,
                                     x,
                                     y,
                                     effective_size,
                                     current_font.clone(),
-                                ));
+                                );
+                                span.width = if let Some(rw) = raw_width_1000 {
+                                    rw / 1000.0 * effective_size
+                                } else {
+                                    span.text.chars().count() as f32 * effective_size * 0.5
+                                };
+                                spans.push(span);
                             }
                         }
                     }
@@ -1010,23 +1086,25 @@ impl<'a> LayoutAnalyzer<'a> {
         blocks
     }
 
-    /// Calculate average line spacing.
+    /// Calculate typical (median) line spacing, ignoring outliers from heading gaps.
     fn calculate_avg_line_spacing(&self, lines: &[TextLine]) -> f32 {
         if lines.len() < 2 {
-            return 12.0; // Default
+            return 12.0;
         }
 
-        let spacings: Vec<f32> = lines
+        let mut spacings: Vec<f32> = lines
             .windows(2)
             .map(|w| (w[0].y - w[1].y).abs())
-            .filter(|s| *s > 0.1) // Filter out very small spacings
+            .filter(|s| *s > 0.1)
             .collect();
 
         if spacings.is_empty() {
             return 12.0;
         }
 
-        spacings.iter().sum::<f32>() / spacings.len() as f32
+        // Use median instead of mean to avoid heading gaps inflating the average
+        spacings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        spacings[spacings.len() / 2]
     }
 
     /// Determine if a new block should start.
@@ -1036,24 +1114,26 @@ impl<'a> LayoutAnalyzer<'a> {
         curr_line: &TextLine,
         avg_spacing: f32,
     ) -> bool {
-        // Heading always starts a new block
-        if curr_line.is_heading {
+        // Heading status changes → new block
+        if prev_line.is_heading != curr_line.is_heading {
             return true;
         }
 
-        // After a heading, start new block
-        if prev_line.is_heading {
+        // Different heading levels → new block
+        if prev_line.is_heading && curr_line.is_heading
+            && prev_line.heading_level != curr_line.heading_level
+        {
             return true;
         }
 
-        // Large spacing indicates new paragraph
+        // Large spacing indicates new paragraph (use 2x median to avoid splitting normal paragraphs)
         let spacing = (prev_line.y - curr_line.y).abs();
-        if spacing > avg_spacing * 1.5 {
+        if spacing > avg_spacing * 2.0 {
             return true;
         }
 
-        // Significant font size change
-        if (prev_line.font_size - curr_line.font_size).abs() > 1.0 {
+        // Significant font size change (> 2pt difference)
+        if (prev_line.font_size - curr_line.font_size).abs() > 2.0 {
             return true;
         }
 
@@ -1117,10 +1197,9 @@ impl TextMatrix {
         }
     }
 
-    fn next_line(&mut self) {
-        // Default line leading (could be set by TL operator)
-        self.f -= 12.0 * self.d;
-        self.line_y = self.f;
+    fn next_line_with_leading(&mut self, leading: f32) {
+        let tl = if leading != 0.0 { leading } else { 12.0 };
+        self.translate(0.0, -tl);
     }
 
     fn get_position(&self) -> (f32, f32) {
@@ -1130,6 +1209,42 @@ impl TextMatrix {
     fn get_scale(&self) -> f32 {
         // Return the vertical scale factor
         (self.a * self.a + self.c * self.c).sqrt()
+    }
+}
+
+/// Graphics state matrix (CTM - Current Transformation Matrix).
+#[derive(Debug, Clone, Copy)]
+struct GraphicsMatrix {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    e: f32,
+    f: f32,
+}
+
+impl GraphicsMatrix {
+    fn identity() -> Self {
+        Self {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            e: 0.0,
+            f: 0.0,
+        }
+    }
+
+    /// Multiply self * other (concatenate matrices).
+    fn multiply(&self, other: &Self) -> Self {
+        Self {
+            a: self.a * other.a + self.b * other.c,
+            b: self.a * other.b + self.b * other.d,
+            c: self.c * other.a + self.d * other.c,
+            d: self.c * other.b + self.d * other.d,
+            e: self.e * other.a + self.f * other.c + other.e,
+            f: self.e * other.b + self.f * other.d + other.f,
+        }
     }
 }
 

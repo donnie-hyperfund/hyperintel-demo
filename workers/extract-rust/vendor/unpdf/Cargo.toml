@@ -15,17 +15,17 @@ rust-version = "1.75"
 
 [lib]
 name = "unpdf"
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib"]
 
 [features]
 default = ["fast-parse"]
 ffi = []
 async = ["tokio"]
-fast-parse = []  # Enable nom_parser for faster PDF parsing
+fast-parse = []
 
 [dependencies]
 # PDF parsing
-lopdf = "0.39"
+lopdf = { version = "0.39", default-features = false }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -33,9 +33,6 @@ serde_json = "1.0"
 
 # Error handling
 thiserror = "2.0"
-
-# Parallel processing
-rayon = "1.10"
 
 # Text processing
 regex = "1.11"
@@ -47,18 +44,8 @@ chrono = { version = "0.4", features = ["serde"] }
 # Logging
 log = "0.4"
 
+# WASM-compatible randomness (needed by lopdf's encryption transitive deps)
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
 # Optional: Async I/O
 tokio = { version = "1.42", features = ["rt", "fs"], optional = true }
-
-[dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-tempfile = "3.14"
-
-[[bench]]
-name = "parse_benchmark"
-harness = false
-
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = 3

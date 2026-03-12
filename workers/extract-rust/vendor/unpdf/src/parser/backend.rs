@@ -19,6 +19,76 @@ pub struct BackendFontInfo {
     pub base_font: String,
 }
 
+/// Cached font width data for computing text advance widths.
+///
+/// PDF fonts store glyph widths in 1/1000 units of text space.
+/// Simple fonts (Type1, TrueType) use single-byte character codes.
+/// CID fonts (Type0) use multi-byte character codes.
+#[derive(Debug)]
+pub(crate) enum FontWidthData {
+    /// Simple font: single-byte character codes mapped via FirstChar + Widths array.
+    Simple {
+        first_char: u32,
+        widths: Vec<f32>,
+        default_width: f32,
+    },
+    /// CID font: multi-byte character codes mapped via W array.
+    Cid {
+        code_width: usize,
+        widths: HashMap<u32, f32>,
+        default_width: f32,
+    },
+}
+
+impl FontWidthData {
+    /// Compute total advance width for a byte sequence in 1/1000 text space units.
+    pub(crate) fn compute_width(&self, bytes: &[u8]) -> f32 {
+        match self {
+            FontWidthData::Simple {
+                first_char,
+                widths,
+                default_width,
+            } => bytes
+                .iter()
+                .map(|&b| {
+                    let code = b as u32;
+                    if code >= *first_char {
+                        let idx = (code - first_char) as usize;
+                        if idx < widths.len() {
+                            widths[idx]
+                        } else {
+                            *default_width
+                        }
+                    } else {
+                        *default_width
+                    }
+                })
+                .sum(),
+            FontWidthData::Cid {
+                code_width,
+                widths,
+                default_width,
+            } => {
+                let mut total = 0.0f32;
+                let mut i = 0;
+                while i < bytes.len() {
+                    let code = if *code_width >= 2 && i + 1 < bytes.len() {
+                        let c = (bytes[i] as u32) << 8 | bytes[i + 1] as u32;
+                        i += 2;
+                        c
+                    } else {
+                        let c = bytes[i] as u32;
+                        i += 1;
+                        c
+                    };
+                    total += widths.get(&code).copied().unwrap_or(*default_width);
+                }
+                total
+            }
+        }
+    }
+}
+
 /// A value from a PDF content stream operand.
 #[derive(Debug, Clone)]
 pub enum PdfValue {
@@ -57,6 +127,14 @@ pub trait PdfBackend {
     /// Decode a text byte sequence using the font's encoding on the given page.
     /// Falls back to simple decoding if the font or encoding is unavailable.
     fn decode_text(&self, page: PageId, font_name: &[u8], bytes: &[u8]) -> String;
+
+    /// Compute the total advance width of a text byte sequence in 1/1000 text space units.
+    ///
+    /// Uses the font's glyph width table from the PDF font dictionary.
+    /// Returns `None` if width data is unavailable for this font.
+    fn text_width(&self, _page: PageId, _font_name: &[u8], _bytes: &[u8]) -> Option<f32> {
+        None
+    }
 }
 
 /// Simple text decoding fallback when no encoding is available.
@@ -281,6 +359,8 @@ pub struct LopdfBackend {
     doc: LopdfDocument,
     /// Cache of parsed ToUnicode CMaps per font object ID.
     cmap_cache: RefCell<HashMap<ObjectId, Option<ToUnicodeMap>>>,
+    /// Cache of font width data per font object ID.
+    width_cache: RefCell<HashMap<ObjectId, Option<FontWidthData>>>,
 }
 
 impl LopdfBackend {
@@ -293,6 +373,7 @@ impl LopdfBackend {
         Ok(Self {
             doc,
             cmap_cache: RefCell::new(HashMap::new()),
+            width_cache: RefCell::new(HashMap::new()),
         })
     }
 
@@ -305,6 +386,7 @@ impl LopdfBackend {
         Ok(Self {
             doc,
             cmap_cache: RefCell::new(HashMap::new()),
+            width_cache: RefCell::new(HashMap::new()),
         })
     }
 
@@ -567,6 +649,158 @@ impl PdfBackend for LopdfBackend {
         // 3. Final fallback
         decode_text_simple(bytes)
     }
+
+    fn text_width(&self, page: PageId, font_name: &[u8], bytes: &[u8]) -> Option<f32> {
+        let font_obj_id = self.find_font_dict(page, font_name)?;
+
+        // Check cache
+        {
+            let cache = self.width_cache.borrow();
+            if let Some(cached) = cache.get(&font_obj_id) {
+                return cached.as_ref().map(|wd| wd.compute_width(bytes));
+            }
+        }
+
+        // Compute and cache
+        let data = self.extract_font_widths(font_obj_id);
+        let width = data.as_ref().map(|wd| wd.compute_width(bytes));
+        self.width_cache.borrow_mut().insert(font_obj_id, data);
+        width
+    }
+}
+
+impl LopdfBackend {
+    /// Extract font width data from a font dictionary.
+    fn extract_font_widths(&self, font_obj_id: ObjectId) -> Option<FontWidthData> {
+        let font_dict = match self.doc.get_object(font_obj_id).ok()? {
+            Object::Dictionary(d) => d,
+            _ => return None,
+        };
+
+        // Check font subtype to determine width extraction strategy
+        let subtype = font_dict
+            .get(b"Subtype")
+            .ok()
+            .and_then(|o| match o {
+                Object::Name(n) => Some(n.as_slice()),
+                _ => None,
+            });
+
+        match subtype {
+            Some(b"Type0") => self.extract_type0_widths(font_dict),
+            _ => self.extract_simple_font_widths(font_dict),
+        }
+    }
+
+    /// Extract widths for simple fonts (Type1, TrueType, Type3).
+    ///
+    /// Simple fonts use single-byte character codes. The `/Widths` array
+    /// maps codes from `/FirstChar` to `/LastChar` to advance widths
+    /// in 1/1000 text space units.
+    fn extract_simple_font_widths(&self, font_dict: &lopdf::Dictionary) -> Option<FontWidthData> {
+        let first_char = match font_dict.get(b"FirstChar").ok()? {
+            Object::Integer(i) => *i as u32,
+            _ => return None,
+        };
+
+        let widths_obj = font_dict.get(b"Widths").ok()?;
+        let widths_arr = match widths_obj {
+            Object::Array(arr) => arr,
+            Object::Reference(r) => match self.doc.get_object(*r).ok()? {
+                Object::Array(arr) => arr,
+                _ => return None,
+            },
+            _ => return None,
+        };
+
+        let widths: Vec<f32> = widths_arr
+            .iter()
+            .map(|obj| match obj {
+                Object::Integer(i) => *i as f32,
+                Object::Real(r) => *r,
+                Object::Reference(r) => match self.doc.get_object(*r) {
+                    Ok(Object::Integer(i)) => *i as f32,
+                    Ok(Object::Real(r)) => *r,
+                    _ => 0.0,
+                },
+                _ => 0.0,
+            })
+            .collect();
+
+        // Get default width from font descriptor's MissingWidth
+        let default_width = font_dict
+            .get(b"FontDescriptor")
+            .ok()
+            .and_then(|fd| {
+                let fd_dict = match fd {
+                    Object::Reference(r) => self.doc.get_dictionary(*r).ok()?,
+                    Object::Dictionary(d) => d,
+                    _ => return None,
+                };
+                match fd_dict.get(b"MissingWidth").ok()? {
+                    Object::Integer(i) => Some(*i as f32),
+                    Object::Real(r) => Some(*r),
+                    _ => None,
+                }
+            })
+            .unwrap_or(500.0);
+
+        Some(FontWidthData::Simple {
+            first_char,
+            widths,
+            default_width,
+        })
+    }
+
+    /// Extract widths for Type0 (composite/CID) fonts.
+    ///
+    /// Type0 fonts use multi-byte character codes. Widths come from
+    /// the `/W` array in the descendant CIDFont dictionary.
+    fn extract_type0_widths(&self, font_dict: &lopdf::Dictionary) -> Option<FontWidthData> {
+        let descendants = font_dict.get(b"DescendantFonts").ok()?;
+        let descendants_arr = match descendants {
+            Object::Array(arr) => arr,
+            Object::Reference(r) => match self.doc.get_object(*r).ok()? {
+                Object::Array(arr) => arr,
+                _ => return None,
+            },
+            _ => return None,
+        };
+
+        let cid_font = match descendants_arr.first()? {
+            Object::Reference(r) => self.doc.get_dictionary(*r).ok()?,
+            Object::Dictionary(d) => d,
+            _ => return None,
+        };
+
+        let default_width = match cid_font.get(b"DW").ok() {
+            Some(Object::Integer(i)) => *i as f32,
+            Some(Object::Real(r)) => *r,
+            _ => 1000.0,
+        };
+
+        let mut widths = HashMap::new();
+
+        if let Ok(w_obj) = cid_font.get(b"W") {
+            let w_arr = match w_obj {
+                Object::Array(arr) => Some(arr),
+                Object::Reference(r) => match self.doc.get_object(*r).ok()? {
+                    Object::Array(arr) => Some(arr),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(arr) = w_arr {
+                parse_cid_w_array(arr, &self.doc, &mut widths);
+            }
+        }
+
+        Some(FontWidthData::Cid {
+            code_width: 2,
+            widths,
+            default_width,
+        })
+    }
 }
 
 impl LopdfBackend {
@@ -637,6 +871,81 @@ impl LopdfBackend {
         }
 
         Some(result)
+    }
+}
+
+/// Parse a CID font `/W` array into a width map.
+///
+/// The `/W` array has two forms:
+/// - `cid [w1 w2 w3 ...]` — individual widths starting from `cid`
+/// - `cid_start cid_end w` — same width for the entire range
+fn parse_cid_w_array(arr: &[Object], doc: &LopdfDocument, widths: &mut HashMap<u32, f32>) {
+    let mut i = 0;
+    while i < arr.len() {
+        let cid = match &arr[i] {
+            Object::Integer(n) => *n as u32,
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        i += 1;
+
+        if i >= arr.len() {
+            break;
+        }
+
+        match &arr[i] {
+            Object::Array(w_arr) => {
+                // cid [w1 w2 ...] form
+                for (j, w_obj) in w_arr.iter().enumerate() {
+                    let w = match w_obj {
+                        Object::Integer(n) => *n as f32,
+                        Object::Real(n) => *n,
+                        _ => continue,
+                    };
+                    widths.insert(cid + j as u32, w);
+                }
+                i += 1;
+            }
+            Object::Integer(end_cid) => {
+                // cid_start cid_end w form
+                let end = *end_cid as u32;
+                i += 1;
+                if i >= arr.len() {
+                    break;
+                }
+                let w = match &arr[i] {
+                    Object::Integer(n) => *n as f32,
+                    Object::Real(n) => *n,
+                    _ => {
+                        i += 1;
+                        continue;
+                    }
+                };
+                for code in cid..=end {
+                    widths.insert(code, w);
+                }
+                i += 1;
+            }
+            Object::Reference(r) => {
+                // Could be a reference to an array
+                if let Ok(Object::Array(w_arr)) = doc.get_object(*r) {
+                    for (j, w_obj) in w_arr.iter().enumerate() {
+                        let w = match w_obj {
+                            Object::Integer(n) => *n as f32,
+                            Object::Real(n) => *n,
+                            _ => continue,
+                        };
+                        widths.insert(cid + j as u32, w);
+                    }
+                }
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
+        }
     }
 }
 

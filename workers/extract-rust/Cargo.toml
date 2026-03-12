@@ -12,6 +12,6 @@ worker-macros = { version = "0.7", features = ["http"] }
 http = "1.3"
 futures-util = "0.3"
 
-# Vendored extraction crates (will be patched for WASM)
-# docx-parser = { path = "vendor/docx-parser" }
-# pptx-to-md = { path = "vendor/pptx-to-md" }
+# Vendored extraction crates
+markdownify = { path = "vendor/markdownify" }
+unpdf = { path = "vendor/unpdf", default-features = false, features = ["fast-parse"] }

@@ -52,13 +52,14 @@ interface ExtractionContext {
     em: EntityManager;
 }
 
-async function extractMarkdown(fileBytes: ArrayBuffer, filetype: Filetype, env: Env): Promise<string> {
+function extractMarkdown(fileBytes: ArrayBuffer, filetype: Filetype, env: Env): Promise<string> {
     switch (filetype) {
         case 'docx':
         case 'pptx':
             return extractViaRustWorker(fileBytes, filetype, env);
         case 'pdf':
-            return extractPdf(fileBytes, env);
+            // return extractPdf(fileBytes, env);
+            return extractViaRustWorker(fileBytes, filetype, env);
         default:
             throw new Error(`Unsupported file type: ${filetype}`);
     }
@@ -204,7 +205,7 @@ async function markFileFailed(em: EntityManager, fileId: string, reason: string)
         const file = await em.findOne(ArtifactFileEntity, fileId);
         if (file) {
             file.status = 'error';
-            // TODO: store reason when we add an error_message column
+            file.extraction_error = reason;
             await em.flush();
         }
     } catch (error) {

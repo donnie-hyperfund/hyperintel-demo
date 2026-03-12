@@ -41,9 +41,10 @@ async fn fetch(req: HttpRequest, _env: Env, _ctx: Context) -> Result<HttpRespons
             match filetype.as_str() {
                 "docx" => extract_docx(&body),
                 "pptx" => extract_pptx(&body),
+                "pdf" => extract_pdf(&body),
                 _ => json_response(
                     400,
-                    r#"{"error":"Missing or invalid X-File-Type header. Expected: docx | pptx"}"#,
+                    r#"{"error":"Missing or invalid X-File-Type header. Expected: docx | pptx | pdf"}"#,
                 ),
             }
         }
@@ -63,18 +64,34 @@ async fn collect_body(req: HttpRequest) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn extract_docx(_bytes: &[u8]) -> Result<HttpResponse> {
-    // TODO
-    json_response(
-        501,
-        r#"{"error":"docx extraction not yet wired - vendor crate needs patching"}"#,
-    )
+fn extract_docx(bytes: &[u8]) -> Result<HttpResponse> {
+    match markdownify::docx::parse_docx(bytes) {
+        Ok(md) => text_response(200, &md),
+        Err(e) => json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
+    }
 }
 
-fn extract_pptx(_bytes: &[u8]) -> Result<HttpResponse> {
-    // TODO
-    json_response(
-        501,
-        r#"{"error":"pptx extraction not yet wired - vendor crate needs patching"}"#,
-    )
+fn extract_pptx(bytes: &[u8]) -> Result<HttpResponse> {
+    match markdownify::pptx::parse_pptx(bytes) {
+        Ok(md) => text_response(200, &md),
+        Err(e) => json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
+    }
+}
+
+fn extract_pdf(bytes: &[u8]) -> Result<HttpResponse> {
+    let doc = match unpdf::parse_bytes(bytes) {
+        Ok(d) => d,
+        Err(e) => return json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
+    };
+    let options = unpdf::render::RenderOptions {
+        cleanup: Some(unpdf::render::CleanupOptions {
+            max_consecutive_newlines: 2,
+            ..unpdf::render::CleanupOptions::standard()
+        }),
+        ..unpdf::render::RenderOptions::default()
+    };
+    match unpdf::render::to_markdown(&doc, &options) {
+        Ok(md) => text_response(200, &md),
+        Err(e) => json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
+    }
 }
