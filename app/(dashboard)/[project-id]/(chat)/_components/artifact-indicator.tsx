@@ -5,11 +5,13 @@ import { cva } from 'class-variance-authority';
 
 import { useCallback, useEffect, useRef } from 'react';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
+import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
 import { cn } from '@/lib/utils';
 import { DEFAULT_DOCUMENT_TYPE_ICON } from '@/modules/artifacts/constants';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
 import { getDocumentTypeIcon, isDocumentType } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
 
 const indicatorVariants = cva(
@@ -42,6 +44,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
     const { getArtifact, addArtifact, updateArtifact } = useArtifactContext();
     const { target: scrollTarget, markFound, clear: clearScrollTarget } = useScrollTargetContext();
     const Icon = isDocumentType(documentType) ? getDocumentTypeIcon(documentType) : DEFAULT_DOCUMENT_TYPE_ICON;
+    const { projectId } = useChatContext();
 
     const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -65,8 +68,9 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
         openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
 
         try {
-            const api = createArtifactApi(getToken);
-            const fetchedArtifact = await api.getByKey(documentName, documentVersion);
+            const fetchedArtifact = projectId
+                ? await createProjectArtifactApi(getToken).getByKey(projectId, documentName, documentVersion)
+                : await createArtifactApi(getToken).getByKey(documentName, documentVersion);
 
             if (fetchedArtifact) {
                 updateArtifact(

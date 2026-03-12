@@ -243,9 +243,18 @@ export function ChatProvider({
     const fetchArtifact = useCallback(
         async (artifactKey: string, version: number) => {
             try {
-                const artifact = await api.artifacts.getByKey(artifactKey, version);
+                const artifact = projectId
+                    ? await api.projectArtifacts.getByKey(projectId, artifactKey, version)
+                    : await api.artifacts.getByKey(artifactKey, version);
                 if (artifact) {
-                    artifactContext.addArtifact(artifact, version);
+                    artifactContext.addArtifact(
+                        {
+                            ...artifact,
+                            id: artifactKey,
+                            key: artifact.key,
+                        },
+                        version,
+                    );
                 }
                 return artifact;
             } catch (error) {
@@ -253,7 +262,7 @@ export function ChatProvider({
                 return null;
             }
         },
-        [api.artifacts, projectId, artifactContext],
+        [api.artifacts, api.projectArtifacts, projectId, artifactContext],
     );
 
     // Use the stream reader hook for SSE processing
