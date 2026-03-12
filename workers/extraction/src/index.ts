@@ -162,14 +162,13 @@ async function processExtraction(
     console.log(`${logPrefix} Extracted ${markdown.length} chars from ${originalName}`);
 
     // 4. Update artifact version with extracted content, approve it
-    const version = await ctx.em.findOneOrFail(ArtifactVersionEntity, versionId);
+    const version = await ctx.em.findOneOrFail(ArtifactVersionEntity, versionId, { populate: ['artifact'] });
     version.content = markdown;
     version.status = 'approved';
     version.status_changed_at = new Date();
 
     // Also find the parent artifact and set current_version
-    const artifact = await version.artifact.load();
-    artifact.current_version = version;
+    version.artifact.current_version = version;
 
     // Mark file as processed
     const artifactFile = await ctx.em.findOneOrFail(ArtifactFileEntity, fileId);
