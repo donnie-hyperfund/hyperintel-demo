@@ -18,10 +18,10 @@ export const resourceKeys = {
     list: (params?: ResourceListParams) => [...resourceKeys.lists(), params] as const,
 };
 
-export function getResourceListInfiniteKey(limit = 20, approvedOnly?: boolean) {
+export function getResourceListInfiniteKey(limit = 20, approvedOnly?: boolean, documentType?: DocumentType[]) {
     return (pageIndex: number, previousPageData: PaginatedResponse<ArtifactDto> | null) => {
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
-        return resourceKeys.list({ page: pageIndex + 1, limit, approvedOnly });
+        return resourceKeys.list({ page: pageIndex + 1, limit, approvedOnly, documentType });
     };
 }
 
