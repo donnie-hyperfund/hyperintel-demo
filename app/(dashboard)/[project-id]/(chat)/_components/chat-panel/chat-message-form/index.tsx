@@ -48,7 +48,8 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
 
     const message = watch('message');
     const hasContent = message && message.trim().length > 0;
-    const isBusy = isGenerating || isSummarizing || isLoading || isSubmitting;
+    const hasProcessingFiles = files.some((f) => f.status === 'uploading' || f.status === 'processing');
+    const isBusy = isGenerating || isSummarizing || isLoading || isSubmitting || hasProcessingFiles;
     const isDisabled = !hasContent || isBusy;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
@@ -58,7 +59,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
         const uploadedFiles = files.map((entry) => entry.file);
 
         if (uploadedFiles.length > 0) {
-            await submitFiles({ chatId: chatId ?? undefined });
+            await submitFiles();
         }
 
         const fileDirective =
