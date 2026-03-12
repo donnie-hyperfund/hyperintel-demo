@@ -1,5 +1,7 @@
+import { Suspense } from 'react';
+
 type NewCompanyLayoutProps = LayoutProps<'/companies/new'>;
 
 export default function NewCompanyLayout({ children }: NewCompanyLayoutProps) {
-    return children;
+    return <Suspense>{children}</Suspense>;
 }
