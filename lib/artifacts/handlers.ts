@@ -9,6 +9,7 @@ import { loadVersionsForArtifacts } from '@/lib/artifacts/queries';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { handleListChatArtifacts } from '@/lib/chats/handlers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
@@ -509,4 +510,47 @@ export async function handleRemoveProjectResource(
     });
 
     return NextResponse.json({ success: true, message: 'Resource removed from project' });
+}
+
+// ---------------------------------------------------------------------------
+// File status (batch)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/artifacts/files/status?fileIds=id1,id2,id3
+ * Returns status of multiple artifact files — used by frontend to poll extraction progress.
+ */
+export async function handleGetFileStatuses(req: NextRequest, user: UserEntity): Promise<NextResponse> {
+    const { em } = await getOrm();
+    const fileIds = req.nextUrl.searchParams.get('fileIds')?.split(',').filter(Boolean) ?? [];
+
+    if (fileIds.length === 0) {
+        return NextResponse.json({ error: 'fileIds query param is required', code: 'MISSING_FILE_IDS' }, { status: 400 });
+    }
+
+    if (fileIds.length > 50) {
+        return NextResponse.json({ error: 'Max 50 fileIds per request', code: 'TOO_MANY_FILE_IDS' }, { status: 400 });
+    }
+
+    const files = await em
+        .createQueryBuilder(ArtifactFileEntity, 'f')
+        .select('f.*')
+        .leftJoinAndSelect('f.artifact_version', 'v')
+        .leftJoin('v.artifact', 'a')
+        .leftJoin('a.project', 'p')
+        .leftJoin('a.chat', 'c')
+        .where({
+            'f.id': { $in: fileIds },
+            $or: [{ 'p.user': user.id }, { 'c.user': user.id }, { 'a.user': user.id }],
+        })
+        .getResultList();
+
+    return NextResponse.json({
+        files: files.map((f) => ({
+            fileId: f.id,
+            versionId: f.artifact_version.id,
+            status: f.status,
+            originalName: f.original_name,
+        })),
+    });
 }
