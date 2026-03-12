@@ -3,12 +3,12 @@ import { useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
-import { useFileDropContext } from '@/modules/chat/providers/file-drop-provider';
+import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 
 const ACCEPT_STRING = ALLOWED_ARTIFACT_EXTENSIONS.join(',');
 
 export function AttachFileButton() {
-    const { addFiles } = useFileDropContext();
+    const { addFiles } = useFileUploadContext();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleClick = useCallback(() => {

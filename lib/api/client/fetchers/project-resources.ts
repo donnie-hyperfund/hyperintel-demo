@@ -1,3 +1,4 @@
+import { unstable_serialize } from 'swr/infinite';
 import type { ArtifactDto, DocumentType } from '@/lib/schema/artifact';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
@@ -23,6 +24,10 @@ export function getProjectResourceListInfiniteKey(projectId: string, limit = 20)
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
         return projectResourceKeys.list(projectId, { page: pageIndex + 1, limit });
     };
+}
+
+export function serializeProjectResourceListKey(projectId: string, limit = 20) {
+    return unstable_serialize(getProjectResourceListInfiniteKey(projectId, limit));
 }
 
 export function createProjectResourceApi(getToken: TokenGetter) {

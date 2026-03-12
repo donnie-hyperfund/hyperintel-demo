@@ -7,13 +7,10 @@ import { PhaseHeader } from '@/components/layouts/dashboard-layout/phase-header'
 import { ResizablePanelWrapper } from '@/components/layouts/panel-wrapper/resizable-panel-wrapper';
 import { usePanelIntentParam } from '@/hooks/use-panel-intent-param';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { FileDropProvider } from '@/modules/chat/providers/file-drop-provider';
 import ChatPanel from './chat-panel';
 
 export default function PhaseChatInterface() {
     const { panelState, closePanel } = useActivePanelContext();
-    const { chatId } = useChatContext();
 
     usePanelIntentParam();
 
@@ -22,13 +19,11 @@ export default function PhaseChatInterface() {
     return (
         <ResizablePanelWrapper
             LeftPaneComponent={
-                <FileDropProvider scope={{ chatId: chatId ?? undefined }}>
-                    <ChatPanel
-                        HeaderComponent={<PhaseHeader />}
-                        emptyTitle="What would you like your team to work on?"
-                        emptySubtitle="Describe your objective and your Superhuman team will get to work."
-                    />
-                </FileDropProvider>
+                <ChatPanel
+                    HeaderComponent={<PhaseHeader />}
+                    emptyTitle="What would you like your team to work on?"
+                    emptySubtitle="Describe your objective and your Superhuman team will get to work."
+                />
             }
             RightPaneComponent={
                 <>

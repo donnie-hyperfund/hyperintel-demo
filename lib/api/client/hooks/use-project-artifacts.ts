@@ -12,6 +12,7 @@ import {
     projectArtifactKeys,
     serializeProjectArtifactListKey,
 } from '@/lib/api/client/fetchers/project-artifacts';
+import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
 import type {
     InfinitePaginationParams,
     PaginatedResponse,
@@ -194,7 +195,7 @@ export function useUploadProjectArtifact(projectId: string, chatId: string | nul
                 throw new Error(error.message || 'Upload failed');
             }
 
-            globalMutate(serializeProjectArtifactListKey(projectId));
+            globalMutate(serializeProjectResourceListKey(projectId));
             return response.json();
         },
     );

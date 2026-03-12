@@ -1,7 +1,7 @@
+import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { raw, wrap } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/knex';
 import { type NextRequest, NextResponse } from 'next/server';
-import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
@@ -9,6 +9,7 @@ import { loadVersionsForArtifacts } from '@/lib/artifacts/queries';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { handleListChatArtifacts } from '@/lib/chats/handlers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
@@ -212,8 +213,7 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
 // ---------------------------------------------------------------------------
 
 const ARTIFACT_ERRORS = {
-    NOT_FOUND: () =>
-        NextResponse.json({ message: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 }),
+    NOT_FOUND: () => NextResponse.json({ message: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 }),
     VERSION_NOT_FOUND: () =>
         NextResponse.json({ message: 'Version not found', code: 'VERSION_NOT_FOUND' }, { status: 404 }),
     ALREADY_DELETED: () =>
@@ -326,9 +326,7 @@ export async function handleImportArtifacts(
     // Queue embeddings for imported artifacts (fire-and-forget)
     if (result.imported > 0) {
         const embeddingQueue = createEmbeddingQueueAdapter({
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL
-                ? `${process.env.EMBEDDING_WORKER_URL}/enqueue`
-                : undefined,
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
             authSecret: process.env.AUTH_SECRET,
         });
 
@@ -513,4 +511,50 @@ export async function handleRemoveProjectResource(
     });
 
     return NextResponse.json({ success: true, message: 'Resource removed from project' });
+}
+
+// ---------------------------------------------------------------------------
+// File status (batch)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/artifacts/files/status?fileIds=id1,id2,id3
+ * Returns status of multiple artifact files — used by frontend to poll extraction progress.
+ */
+export async function handleGetFileStatuses(req: NextRequest, user: UserEntity): Promise<NextResponse> {
+    const { em } = await getOrm();
+    const fileIds = req.nextUrl.searchParams.get('fileIds')?.split(',').filter(Boolean) ?? [];
+
+    if (fileIds.length === 0) {
+        return NextResponse.json(
+            { error: 'fileIds query param is required', code: 'MISSING_FILE_IDS' },
+            { status: 400 },
+        );
+    }
+
+    if (fileIds.length > 50) {
+        return NextResponse.json({ error: 'Max 50 fileIds per request', code: 'TOO_MANY_FILE_IDS' }, { status: 400 });
+    }
+
+    const files = await em
+        .createQueryBuilder(ArtifactFileEntity, 'f')
+        .select('f.*')
+        .leftJoinAndSelect('f.artifact_version', 'v')
+        .leftJoin('v.artifact', 'a')
+        .leftJoin('a.project', 'p')
+        .leftJoin('a.chat', 'c')
+        .where({
+            'f.id': { $in: fileIds },
+            $or: [{ 'p.user': user.id }, { 'c.user': user.id }, { 'a.user': user.id }],
+        })
+        .getResultList();
+
+    return NextResponse.json({
+        files: files.map((f) => ({
+            fileId: f.id,
+            versionId: f.artifact_version.id,
+            status: f.status,
+            originalName: f.original_name,
+        })),
+    });
 }

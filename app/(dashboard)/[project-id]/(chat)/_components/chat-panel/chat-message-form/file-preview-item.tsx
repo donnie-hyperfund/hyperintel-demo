@@ -1,7 +1,7 @@
-import { Check, Loader2, X } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { formatFileSize, getFileExtension } from '@/lib/files';
-import type { FileEntryStatus } from '@/modules/chat/providers/file-drop-provider';
+import type { FileEntryStatus } from '@/modules/file-uploads/providers/file-upload-provider';
 
 type FilePreviewItemProps = {
     file: File;
@@ -20,11 +20,9 @@ export function FilePreviewItem({ file, status, onRemove }: FilePreviewItemProps
                 </p>
             </div>
 
-            {status === 'uploading' ? (
+            {status === 'uploading' || status === 'processing' ? (
                 <Loader2 className="text-muted-foreground size-4 shrink-0 animate-spin" />
-            ) : status === 'ready' ? (
-                <Check className="text-green-500 size-4 shrink-0" />
-            ) : status === 'pending' ? (
+            ) : (
                 <button
                     type="button"
                     onClick={(e) => {
@@ -35,7 +33,7 @@ export function FilePreviewItem({ file, status, onRemove }: FilePreviewItemProps
                 >
                     <X className="size-5" />
                 </button>
-            ) : null}
+            )}
         </div>
     );
 }

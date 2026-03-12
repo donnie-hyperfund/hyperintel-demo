@@ -5,13 +5,12 @@ import { Send } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
-import { useParams } from 'next/navigation';
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { IS_DEV } from '@/lib/config';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { useFileDropContext } from '@/modules/chat/providers/file-drop-provider';
+import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
 import { FilePreviewItem } from './file-preview-item';
@@ -30,7 +29,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
         state: { isGenerating, isSummarizing, isLoading, tokenUsage },
     } = useChatContext();
 
-    const { files, removeFile, submitFiles, isSubmitting } = useFileDropContext();
+    const { files, removeFile, submitFiles, isSubmitting } = useFileUploadContext();
 
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
@@ -48,8 +47,9 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
     });
 
     const message = watch('message');
-    const hasContent = (message && message.trim().length > 0);
-    const isBusy = isGenerating || isSummarizing || isLoading || isSubmitting;
+    const hasContent = message && message.trim().length > 0;
+    const hasProcessingFiles = files.some((f) => f.status === 'uploading' || f.status === 'processing');
+    const isBusy = isGenerating || isSummarizing || isLoading || isSubmitting || hasProcessingFiles;
     const isDisabled = !hasContent || isBusy;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
@@ -59,12 +59,11 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
         const uploadedFiles = files.map((entry) => entry.file);
 
         if (uploadedFiles.length > 0) {
-            await submitFiles({ chatId: chatId ?? undefined });
+            await submitFiles();
         }
 
-        const fileDirective = uploadedFiles.length > 0
-            ? uploadedFiles.map((f) => `::upload[${f.name}]{size=${f.size}}`).join('\n')
-            : '';
+        const fileDirective =
+            uploadedFiles.length > 0 ? uploadedFiles.map((f) => `::upload[${f.name}]{size=${f.size}}`).join('\n') : '';
 
         const message = [fileDirective, data.message.trim()].filter(Boolean).join('\n\n');
 
@@ -167,7 +166,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                 minHeight={24}
                             />
 
-                            <AttachFileButton />
+                            {chatId && <AttachFileButton />}
 
                             <div className="flex items-end gap-2 ml-auto">
                                 {IS_DEV && <SwitchModelSelector disabled={isBusy} />}

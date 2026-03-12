@@ -4,6 +4,7 @@ import { frontendEnv } from '@/lib/env';
 import {
     ApproveArtifactActionDto,
     type ConfirmUploadDto,
+    type DeleteArtifactDto,
     type ExportFormat,
     type PresignUploadDto,
     RejectArtifactActionDto,
@@ -128,8 +129,6 @@ export const uploadArtifact = (
 ) => {
     const body = toFormData(data);
 
-    console.log(frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS, frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE);
-
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.UploadAction);
         return fetch(workerUrl, {
@@ -176,6 +175,25 @@ export const confirmUpload = (data: ConfirmUploadDto, accessToken: string) => {
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.ConfirmAction, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+};
+
+export const deleteArtifact = (data: DeleteArtifactDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.DeleteAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.DeleteAction, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),

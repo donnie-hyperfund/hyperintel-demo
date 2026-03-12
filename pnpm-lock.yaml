@@ -450,6 +450,8 @@ importers:
 
   workers/embedding: {}
 
+  workers/extraction: {}
+
 packages:
 
   '@acemir/cssom@0.9.31':

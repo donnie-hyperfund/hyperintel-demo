@@ -1,0 +1,38 @@
+[package]
+name = "pptx-to-md"
+version = "0.4.0"
+edition = "2021"
+description = "Parse Microsoft PowerPoint files (.pptx) into Markdown (.md)"
+readme = "README.md"
+repository = "https://github.com/nilskruthoff/pptx-parser.git"
+license = "MIT OR Apache-2.0"
+keywords = ["pptx", "markdown", "conversion", "microsoft", "parser"]
+categories = ["text-processing", "parser-implementations"]
+
+[[example]]
+name = "basic_usage"
+path = "examples/basic_usage.rs"
+
+[[example]]
+name = "memory_efficient_streaming"
+path = "examples/memory_efficient_streaming.rs"
+
+[[example]]
+name = "manual_image_extraction"
+path = "examples/manual_image_extraction.rs"
+
+[[example]]
+name = "save_images"
+path = "examples/save_images.rs"
+
+[[example]]
+name = "slide_elements"
+path = "examples/slide_elements.rs"
+
+[dependencies]
+zip = "2.2.2"
+roxmltree = "0.20.0"
+thiserror = "2.0.11"
+base64 = "0.22.1"
+image = "0.24.9"
+rayon = "1.10.0"
