@@ -1,0 +1,23 @@
+[package]
+name = "docx-parser"
+version = "0.1.1"
+edition = "2021"
+authors = ["Erik Vullings <erik.vullings@gmail.com>"]
+description = "Parse Word and OpenOffice DOCX files, and output markdown or JSON"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/erikvullings/docx-parser"
+keywords = ["docx", "markdown", "openoffice", "parser"]
+categories = ["command-line-utilities", "encoding"]
+
+[dependencies]
+base64 = "0.22.1"
+clap = { version = "4.5.4", features = ["derive"] }
+docx-rust = "0.1.8"
+# docx-rust = { git = "https://github.com/erikvullings/docx-rs.git" }
+serde = { version = "1.0.202", features = ["derive"] }
+serde_json = "1.0.117"
+
+[[bin]]
+name = "docx-parser"
+path = "src/main.rs"
