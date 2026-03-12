@@ -1,0 +1,34 @@
+# extraction worker definition
+# Consumes hi-extraction-queue, reads files from R2,
+# routes to Rust WASM worker (docx/pptx) or PDF renderer,
+# stores extracted markdown and queues embedding.
+name: hi-extraction
+
+secrets:
+  - DATABASE_URL
+  - AUTH_SECRET
+  - OPENAI_KEY
+  - OPENROUTER_API_KEY
+  - LANGFUSE_SECRET_KEY
+  - R2_ACCESS_KEY_ID
+  - R2_SECRET_ACCESS_KEY
+  - CF_ACCOUNT_ID
+
+r2_buckets:
+  - binding: ARTIFACTS_BUCKET
+    bucket_name:
+      production: hi-artifacts
+      dev: hi-artifacts-dev
+
+queues:
+  consumers:
+    - queue: hi-extraction-queue
+      max_batch_size: 5
+      max_batch_timeout: 10
+  producers:
+    - binding: EMBEDDING_QUEUE
+      queue: hi-embedding-queue
+
+services:
+  - binding: EXTRACT_RUST
+    service: hi-extract-rust

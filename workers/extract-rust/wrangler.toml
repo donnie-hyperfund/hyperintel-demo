@@ -1,0 +1,9 @@
+name = "hi-extract-rust"
+main = "build/index.js"
+compatibility_date = "2025-04-29"
+
+# Not publicly accessible — only called via service binding from hi-extraction worker
+workers_dev = false
+
+[build]
+command = "cargo install -q \"worker-build@^0.7\" && worker-build --release"
