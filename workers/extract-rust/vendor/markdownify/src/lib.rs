@@ -12,6 +12,7 @@ use std::{
 };
 
 use flate2::read::GzDecoder;
+#[cfg(feature = "xz2")]
 use xz2::read::XzDecoder;
 
 use crate::{archives::FileTree, error::ParsingError};
@@ -145,6 +146,7 @@ pub fn convert(path: &Path) -> Result<String, ParsingError> {
     let mut content = Vec::new();
 
     match ext.as_str() {
+        #[cfg(feature = "xz2")]
         "xz" => {
             ext = path
                 .file_stem()

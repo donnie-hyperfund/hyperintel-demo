@@ -15,11 +15,11 @@ edition = "2024"
 [dependencies]
 thiserror = "2.0.18"
 
-zip = "8.1.0"
+zip = { version = "8.1.0", default-features = false, features = ["deflate"] }
 tar = "0.4.44"
 
 flate2 = "1.1.9"
-xz2 = "0.1.7"
+xz2 = { version = "0.1.7", optional = true }
 
 calamine = "0.33.0"
 csv = "1.4.0"
