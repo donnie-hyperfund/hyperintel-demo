@@ -3,6 +3,7 @@
 import { Check, Loader2, X as XIcon } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/hooks/use-toast';
 import { useApproveUserArtifactVersion, useRejectUserArtifactVersion } from '@/lib/api/client/hooks/use-artifacts';
 import {
     useApproveProjectArtifactVersion,
@@ -11,6 +12,7 @@ import {
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
 import { isIntakeChat } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 
 type ArtifactApprovalBarParams = PageParams<'/[project-id]'>;
 
@@ -29,6 +31,7 @@ export function ArtifactApprovalBar({
 }: ArtifactApprovalBarProps) {
     const { updateArtifact, artifacts } = useArtifactContext();
     const { clearPendingChanges, chatType } = useChatContext();
+    const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
     const isIntake = isIntakeChat(chatType);
 
     const { 'project-id': projectId } = useParams<ArtifactApprovalBarParams>();
@@ -54,7 +57,7 @@ export function ArtifactApprovalBar({
 
     const isApproving = isApprovingProjectArtifact || isApprovingUserArtifact;
     const isRejecting = isRejectingProjectArtifact || isRejectingUserArtifact;
-    const isProcessing = isApproving || isRejecting;
+    const isProcessing = isApproving || isRejecting || isLinkingToProject;
 
     const hasOtherPendingArtifacts = () => {
         return Object.values(artifacts).some((versions) =>
@@ -75,9 +78,14 @@ export function ArtifactApprovalBar({
                 if (!hasOtherPendingArtifacts()) {
                     clearPendingChanges();
                 }
+
+                if (isIntake && isProjectFlow) {
+                    await handleApprovedArtifact(updated);
+                }
             }
         } catch (err) {
             console.error('Failed to approve:', err);
+            toast({ title: 'Failed to approve document.', variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);
         }
@@ -97,6 +105,7 @@ export function ArtifactApprovalBar({
             }
         } catch (err) {
             console.error('Failed to reject:', err);
+            toast({ title: 'Failed to reject document.', variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);
         }

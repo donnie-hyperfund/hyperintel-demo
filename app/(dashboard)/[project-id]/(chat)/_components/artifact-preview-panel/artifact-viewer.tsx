@@ -8,6 +8,7 @@ import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
+import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
@@ -87,6 +88,7 @@ export const ArtifactViewer = ({
         state: { messages },
         projectId,
     } = useChatContext();
+    const { isLinking: isLinkingToProject } = useOptionalProjectOrigin();
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
     const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
@@ -170,9 +172,11 @@ export const ArtifactViewer = ({
                             <Loader2 className="size-5 animate-spin" />
                             {isProcessingDelete
                                 ? 'Deleting...'
-                                : isProcessingApproval
-                                  ? 'Processing...'
-                                  : 'Making changes...'}
+                                : isLinkingToProject
+                                  ? 'Adding to Project Intel...'
+                                  : isProcessingApproval
+                                    ? 'Processing...'
+                                    : 'Making changes...'}
                         </div>
                     </div>
                 )}

@@ -13,7 +13,7 @@ import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/work
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
-import { intakeConfigMap } from '@/modules/chat/contants';
+import { intakeConfigMap } from '@/modules/chat/constants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
@@ -75,6 +75,8 @@ type ChatProviderProps = {
     initialChatId?: string;
     /** Initial messages to display */
     initialMessages?: Message[];
+    /** Optional route builder used after creating a new chat */
+    chatRouteBuilder?: (chatId: string) => string;
 };
 
 function buildContextValue(
@@ -102,6 +104,7 @@ export function ChatProvider({
     chatType = 'phase',
     initialChatId,
     initialMessages = [],
+    chatRouteBuilder,
 }: ChatProviderProps) {
     const artifactContext = useArtifactContext();
 
@@ -137,6 +140,22 @@ export function ChatProvider({
             pendingPhaseTransition: false,
         };
     });
+
+    const buildChatRoute = useCallback(
+        (nextChatId: string) => {
+            if (chatRouteBuilder) {
+                return chatRouteBuilder(nextChatId);
+            }
+
+            if (chatType === 'phase') {
+                if (!projectId) throw new Error('Project ID is required for phase chats');
+                return `/${projectId}/${nextChatId}`;
+            }
+
+            return `/${chatType === 'company' ? 'companies' : 'stakeholders'}/${nextChatId}`;
+        },
+        [chatRouteBuilder, chatType, projectId],
+    );
 
     // Pagination state for infinite scroll
     const [pagination, setPagination] = useState<PaginationState>({
@@ -375,7 +394,7 @@ export function ChatProvider({
                         setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
 
                         // Update URL without navigation using history API
-                        window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
+                        window.history.replaceState(null, '', buildChatRoute(chatIdToUse));
 
                         insertChatToCache(cache, globalMutate, newChat);
                     } else {
@@ -389,11 +408,7 @@ export function ChatProvider({
                         skipNextLoad.current = true;
                         setChatId(chatIdToUse);
 
-                        const basePath =
-                            chatType === 'company' ? '/companies' : chatType === 'stakeholder' ? '/stakeholders' : null;
-                        if (basePath) {
-                            window.history.replaceState(null, '', `${basePath}/${chatIdToUse}`);
-                        }
+                        window.history.replaceState(null, '', buildChatRoute(chatIdToUse));
                     }
                 }
 
@@ -438,6 +453,7 @@ export function ChatProvider({
             globalMutate,
             chatType,
             projectId,
+            buildChatRoute,
             readStream,
             selectedModel,
             state.isGenerating,

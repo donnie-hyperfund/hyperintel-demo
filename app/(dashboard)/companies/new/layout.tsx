@@ -1,7 +1,7 @@
-import { ChatModule } from '@/modules/chat/providers/chat-module';
+import { Suspense } from 'react';
 
 type NewCompanyLayoutProps = LayoutProps<'/companies/new'>;
 
 export default function NewCompanyLayout({ children }: NewCompanyLayoutProps) {
-    return <ChatModule chatType="company">{children}</ChatModule>;
+    return <Suspense>{children}</Suspense>;
 }

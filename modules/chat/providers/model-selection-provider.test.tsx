@@ -5,6 +5,11 @@ import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { ModelSelectionProvider, useModelSelection } from './model-selection-provider';
 
+vi.mock('@/lib/config', () => ({
+    IS_DEV: true,
+    IS_PROD: false,
+}));
+
 function wrapper({ children }: { children: ReactNode }) {
     return <ModelSelectionProvider>{children}</ModelSelectionProvider>;
 }

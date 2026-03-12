@@ -1,8 +1,8 @@
 'use client';
 
+import { IntakeHeader } from '@/app/(dashboard)/_components/intake-header';
 import { ArtifactPreviewPanel } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel';
 import ChatPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel';
-import { DashboardHeader } from '@/components/layouts/dashboard-layout/dashboard-header';
 import { ResizablePanelWrapper } from '@/components/layouts/panel-wrapper/resizable-panel-wrapper';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -22,10 +22,13 @@ export function StakeholderChatInterface({ title }: StakeholderChatInterfaceProp
                 <FileDropProvider scope={{ chatId: chatId ?? undefined }}>
                     <ChatPanel
                         HeaderComponent={
-                            <DashboardHeader title={title} parent={{ label: 'Stakeholders', href: '/stakeholders' }} />
+                            <IntakeHeader
+                                title={title}
+                                defaultParent={{ label: 'Stakeholders', href: '/stakeholders' }}
+                            />
                         }
-                        emptyTitle="Let’s build a new stakeholder persona."
-                        emptySubtitle="Tell us about the stakeholder or upload supporting documents. We’ll take it from there."
+                        emptyTitle="Let's build a new stakeholder persona."
+                        emptySubtitle="Tell us about the stakeholder or upload supporting documents. We'll take it from there."
                     />
                 </FileDropProvider>
             }

@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { useCallback } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useHighlightResourceParam } from '@/hooks/use-highlight-resource-param';
 import { createProjectResourceApi } from '@/lib/api/client/fetchers/project-resources';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
 import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
@@ -21,6 +22,8 @@ export function ResourceList() {
     const { allItems, isLoading, error, size, setSize, hasNextPage, mutate } = useFetchProjectResources(projectId, {
         limit: PAGE_SIZE,
     });
+
+    const { highlightedKey, registerRef } = useHighlightResourceParam(allItems);
 
     const [sentryRef] = useInfiniteScroll({
         loading: isLoading,
@@ -74,7 +77,13 @@ export function ResourceList() {
     return (
         <div className="space-y-1.5">
             {allItems.map((artifact) => (
-                <ResourceItem key={artifact.id} artifact={artifact} onRemove={handleRemove} />
+                <ResourceItem
+                    key={artifact.id}
+                    artifact={artifact}
+                    onRemove={handleRemove}
+                    isHighlighted={highlightedKey === artifact.key}
+                    itemRef={(element) => registerRef(artifact.id, element)}
+                />
             ))}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">
