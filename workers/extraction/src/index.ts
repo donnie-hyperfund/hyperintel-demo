@@ -207,10 +207,22 @@ async function processExtraction(
 
 async function markFileFailed(em: EntityManager, fileId: string, reason: string) {
     try {
-        const file = await em.findOne(ArtifactFileEntity, fileId);
+        const file = await em.findOne(ArtifactFileEntity, fileId, { populate: ['artifact_version.artifact'] });
         if (file) {
             file.status = 'error';
             file.extraction_error = reason;
+
+            // Soft-delete so the artifact doesn't appear in listings
+            const version = file.artifact_version;
+            if (version && version.status === 'proposed') {
+                version.status = 'deleted';
+                version.status_changed_at = new Date();
+
+                if (!version.artifact.current_version) {
+                    version.artifact.current_version = version;
+                }
+            }
+
             await em.flush();
         }
     } catch (error) {
