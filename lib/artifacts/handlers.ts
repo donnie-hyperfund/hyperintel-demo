@@ -1,7 +1,7 @@
+import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { raw, wrap } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/knex';
 import { type NextRequest, NextResponse } from 'next/server';
-import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
@@ -212,8 +212,7 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
 // ---------------------------------------------------------------------------
 
 const ARTIFACT_ERRORS = {
-    NOT_FOUND: () =>
-        NextResponse.json({ message: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 }),
+    NOT_FOUND: () => NextResponse.json({ message: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 }),
     VERSION_NOT_FOUND: () =>
         NextResponse.json({ message: 'Version not found', code: 'VERSION_NOT_FOUND' }, { status: 404 }),
     ALREADY_DELETED: () =>
@@ -326,9 +325,7 @@ export async function handleImportArtifacts(
     // Queue embeddings for imported artifacts (fire-and-forget)
     if (result.imported > 0) {
         const embeddingQueue = createEmbeddingQueueAdapter({
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL
-                ? `${process.env.EMBEDDING_WORKER_URL}/enqueue`
-                : undefined,
+            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
             authSecret: process.env.AUTH_SECRET,
         });
 
@@ -525,7 +522,10 @@ export async function handleGetFileStatuses(req: NextRequest, user: UserEntity):
     const fileIds = req.nextUrl.searchParams.get('fileIds')?.split(',').filter(Boolean) ?? [];
 
     if (fileIds.length === 0) {
-        return NextResponse.json({ error: 'fileIds query param is required', code: 'MISSING_FILE_IDS' }, { status: 400 });
+        return NextResponse.json(
+            { error: 'fileIds query param is required', code: 'MISSING_FILE_IDS' },
+            { status: 400 },
+        );
     }
 
     if (fileIds.length > 50) {
