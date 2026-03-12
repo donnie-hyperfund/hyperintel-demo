@@ -18,7 +18,7 @@ export function CompanyChatInterface({ title }: CompanyChatInterfaceProps) {
             LeftPaneComponent={
                 <ChatPanel
                     HeaderComponent={
-                      <IntakeHeader title={title} defaultParent={{ label: 'Companies', href: '/companies' }} />
+                        <IntakeHeader title={title} defaultParent={{ label: 'Companies', href: '/companies' }} />
                     }
                     emptyTitle="Let’s build a new company profile."
                     emptySubtitle="Tell us about the company or upload supporting documents. We’ll take it from there."

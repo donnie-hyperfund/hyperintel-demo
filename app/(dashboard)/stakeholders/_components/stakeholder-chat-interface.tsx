@@ -18,10 +18,7 @@ export function StakeholderChatInterface({ title }: StakeholderChatInterfaceProp
             LeftPaneComponent={
                 <ChatPanel
                     HeaderComponent={
-                      <IntakeHeader
-                          title={title}
-                          defaultParent={{ label: 'Stakeholders', href: '/stakeholders' }}
-                      />
+                        <IntakeHeader title={title} defaultParent={{ label: 'Stakeholders', href: '/stakeholders' }} />
                     }
                     emptyTitle="Let’s build a new stakeholder persona."
                     emptySubtitle="Tell us about the stakeholder or upload supporting documents. We’ll take it from there."
