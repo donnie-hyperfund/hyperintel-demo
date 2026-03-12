@@ -174,7 +174,7 @@ export const ArtifactViewer = ({
                                 ? 'Deleting...'
                                 : isLinkingToProject
                                   ? 'Adding to Project Intel...'
-                                  : isProcessingApproval
+                                  : isProcessingApproval || status === 'proposed'
                                     ? 'Processing...'
                                     : 'Making changes...'}
                         </div>
@@ -207,6 +207,7 @@ export const ArtifactViewer = ({
                     artifactKey={artifactKey}
                     artifactVersion={version}
                     artifactVersionId={artifactVersionId!}
+                    disabled={isUpdating}
                     onProcessingChange={setIsProcessingApproval}
                 />
             )}

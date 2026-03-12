@@ -22,6 +22,7 @@ export type ArtifactContextValue = {
     getArtifact: (id: string, version?: VersionKey) => Artifact | null;
     getStore: () => ArtifactStore;
     addArtifact: (artifact: Artifact, version?: VersionKey) => void;
+    removeArtifact: (id: string, version?: VersionKey) => void;
     updateArtifact: (
         id: string,
         updates: ArtifactUpdate,
@@ -87,6 +88,38 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
         [emit],
     );
 
+    const removeArtifact = useCallback(
+        (id: string, version?: VersionKey) => {
+            const prev = storeRef.current;
+            const existing = prev[id];
+            if (!existing) return;
+
+            if (version === undefined) {
+                const next = { ...prev };
+                delete next[id];
+                storeRef.current = next;
+                emit();
+                return;
+            }
+
+            const versionKey = String(version);
+            if (!(versionKey in existing)) return;
+
+            const nextVersions = { ...existing };
+            delete nextVersions[versionKey];
+
+            if (Object.keys(nextVersions).length === 0) {
+                const next = { ...prev };
+                delete next[id];
+                storeRef.current = next;
+            } else {
+                storeRef.current = { ...prev, [id]: nextVersions };
+            }
+            emit();
+        },
+        [emit],
+    );
+
     const updateArtifact = useCallback(
         (
             id: string,
@@ -135,6 +168,7 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
         getArtifact,
         getStore,
         addArtifact,
+        removeArtifact,
         updateArtifact,
         subscribe,
     }).current;
@@ -169,6 +203,6 @@ export function useArtifactStore(): ArtifactStore {
 
 /** Stable action references that never cause re-renders. */
 export function useArtifactActions() {
-    const { addArtifact, updateArtifact, getArtifact, getStore } = useArtifactContext();
-    return { addArtifact, updateArtifact, getArtifact, getStore };
+    const { addArtifact, removeArtifact, updateArtifact, getArtifact, getStore } = useArtifactContext();
+    return { addArtifact, removeArtifact, updateArtifact, getArtifact, getStore };
 }

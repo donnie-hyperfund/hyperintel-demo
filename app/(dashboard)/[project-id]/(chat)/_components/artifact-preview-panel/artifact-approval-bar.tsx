@@ -16,6 +16,7 @@ type ArtifactApprovalBarProps = {
     artifactKey: string;
     artifactVersion: number;
     artifactVersionId: string;
+    disabled?: boolean;
     onProcessingChange?: (isProcessing: boolean) => void;
 };
 
@@ -24,6 +25,7 @@ export function ArtifactApprovalBar({
     artifactKey,
     artifactVersion,
     artifactVersionId,
+    disabled = false,
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
     const { updateArtifact } = useArtifactActions();
@@ -47,7 +49,7 @@ export function ArtifactApprovalBar({
         artifactVersionId,
     );
 
-    const isProcessing = isApproving || isRejecting || isLinkingToProject;
+    const isProcessing = isApproving || isRejecting || isLinkingToProject || disabled;
 
     const handleApprove = async () => {
         try {
