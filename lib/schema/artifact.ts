@@ -209,6 +209,11 @@ export const ListUserResourcesQuerySchema = z.object({
 });
 export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
 
+export const DeleteArtifactSchema = z.object({
+    artifactId: z.string().uuid(),
+});
+export type DeleteArtifactDto = z.infer<typeof DeleteArtifactSchema>;
+
 export const ExportArtifactQuerySchema = z.object({
     artifactVersionId: z.string().uuid(),
     format: ExportFormatSchema.default('docx'),

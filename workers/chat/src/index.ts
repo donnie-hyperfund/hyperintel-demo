@@ -8,6 +8,7 @@ import { requestId } from 'hono/request-id';
 import {
     ApproveArtifactActionSchema,
     ConfirmUploadSchema,
+    DeleteArtifactSchema,
     ExportArtifactQuerySchema,
     PresignUploadSchema,
     RejectArtifactActionSchema,
@@ -16,6 +17,7 @@ import {
 import { SendChatActionSchema, SendIntakeChatActionSchema, SummarizeActionSchema } from '@/lib/schema/chat';
 import { ImportArtifactsActionSchema } from '@/lib/schema/project';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
+import { deleteArtifactHandler } from './artifact-deleter';
 import { exportArtifactHandler } from './artifact-exporter';
 import { importArtifactsHandler } from './artifact-importer';
 import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './artifact-uploader';
@@ -67,6 +69,12 @@ app.post('/artifacts/approve', zValidator('json', ApproveArtifactActionSchema), 
 app.post('/artifacts/reject', zValidator('json', RejectArtifactActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await rejectArtifactHandler(c.req.valid('json'), c.var);
+    });
+});
+
+app.post('/artifacts/delete', zValidator('json', DeleteArtifactSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await deleteArtifactHandler(c.req.valid('json'), c.var);
     });
 });
 
