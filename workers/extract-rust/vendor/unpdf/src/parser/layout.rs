@@ -147,17 +147,22 @@ impl TextLine {
             let prev_end = prev_span.x + prev_span.width;
             let gap = span.x - prev_end;
 
-            // Estimate average character width from current span
-            let char_count = span.text.chars().count();
-            let avg_char_width = if char_count > 0 && span.width > 0.0 {
-                span.width / char_count as f32
-            } else {
-                span.font_size * 0.5 // Fallback: assume half of font size
+            // Estimate average character width — use the wider of current and previous span
+            // to avoid underestimating when spans contain single characters
+            let char_width_from = |s: &TextSpan| -> f32 {
+                let cc = s.text.chars().count();
+                if cc > 0 && s.width > 0.0 {
+                    s.width / cc as f32
+                } else {
+                    s.font_size * 0.6
+                }
             };
+            let avg_char_width = char_width_from(span).max(char_width_from(prev_span));
 
-            // Check if we need to insert a space
-            // Gap threshold: if gap is more than 20% of average char width, insert space
-            let space_threshold = avg_char_width * 0.2;
+            // Gap threshold: if gap exceeds 50% of average char width, insert space.
+            // 50% is more forgiving than 20% and avoids spurious spaces in PDFs where
+            // each glyph is emitted as its own span (common in invoices/tables).
+            let space_threshold = avg_char_width * 0.5;
 
             // Get last char of previous span and first char of current span
             let prev_last_char = prev_span.text.chars().last();

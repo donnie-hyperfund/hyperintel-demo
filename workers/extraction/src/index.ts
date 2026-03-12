@@ -162,6 +162,9 @@ async function processExtraction(
         return { success: false, error: 'Empty extraction result' };
     }
 
+    // Strip null bytes — PostgreSQL text columns reject \0
+    markdown = markdown.replaceAll('\0', '');
+
     console.log(`${logPrefix} Extracted ${markdown.length} chars from ${originalName}`);
 
     // 4. Update artifact version with extracted content, approve it
