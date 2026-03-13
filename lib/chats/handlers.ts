@@ -98,10 +98,12 @@ export async function handleCreateChat(req: NextRequest, user: UserEntity): Prom
             return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
         }
 
+        const phaseIndex = await em.count(ChatEntity, { project: projectId });
         const chat = em.create(ChatEntity, {
             project: projectId,
             user,
             phase: 'active',
+            phase_index: phaseIndex,
             ...(title && { summary: title }),
         });
         await em.persistAndFlush(chat);
@@ -115,6 +117,7 @@ export async function handleCreateChat(req: NextRequest, user: UserEntity): Prom
         type: 'intake',
         phase: 'active',
         user,
+        phase_index: 0,
         metadata: {
             framework,
             ...(category && { category }),
