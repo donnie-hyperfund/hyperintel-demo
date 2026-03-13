@@ -17,7 +17,11 @@ import { useProjectCreationWizard } from './_providers/project-creation-wizard-p
 export default function NewProjectPage() {
     const router = useRouter();
     const { data, updateData, submitProject, isSubmitting } = useProjectCreationWizard();
-    const { companies, stakeholders, legacyDna } = useFetchResources();
+    const { companies, stakeholders, legacyDna } = useFetchResources({
+        limit: 20,
+        approvedOnly: true,
+        documentType: ['Company Profile', 'Human Persona', 'Legacy DNA'],
+    });
     const hasResources = companies.length > 0 || stakeholders.length > 0 || legacyDna.length > 0;
 
     const {
