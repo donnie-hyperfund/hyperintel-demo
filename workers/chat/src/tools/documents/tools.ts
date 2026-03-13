@@ -120,9 +120,17 @@ When the user asks about a specific file or document (e.g., "what's in the UX do
 1. **First** use \`search_knowledge\` with a relevant query — this searches by semantic similarity across all approved documents.
 2. If \`search_knowledge\` returns no relevant results, use \`list_documents\` to browse available documents and find the right name.
 3. Then use \`read_document\` with the exact document name to view its full content.
-Never skip straight to \`read_document\` with a guessed name — always discover the correct name first via search or listing.`,
+Never skip straight to \`read_document\` with a guessed name — always discover the correct name first via search or listing.
+
+## Proactive Actions (FORBIDDEN)
+**NEVER create documents the user did not explicitly request.** After approving or rejecting a document, STOP and wait for the user's next message. Do NOT:
+- Automatically start creating "the next logical document"
+- Generate follow-up content without being asked
+- Chain approvals into new document creation
+- Anticipate what the user "probably wants next"
+Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
     behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When the user message contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action.',
+        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When the user message contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request. After approving a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval. Only create documents when the user explicitly asks for them.',
     tools: [
         'begin_document',
         'write_document',
@@ -529,12 +537,12 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             lines: result.lines,
                         },
                         appendedOutput: `::document[${draft.name}]{version=${result.version} lines=${result.lines} documentType="${draft.document_type}"}`,
-                        message: `Saved as proposed v${result.version}. Awaiting user approval to become live.`,
+                        message: `Saved as proposed v${result.version}. Awaiting user approval to become live. STOP HERE — do not create any more documents until the user asks.`,
                     };
 
                     if (result.supersededVersion) {
                         response.supersededVersion = result.supersededVersion;
-                        response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded.`;
+                        response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded. STOP HERE — do not create any more documents until the user asks.`;
                     }
 
                     return response;
@@ -752,7 +760,7 @@ This triggers AI content generation (YAML) for internal documents and queues emb
                     return {
                         ...result,
                         name: normalizedName,
-                        message: `Document "${normalizedName}" v${result.version} has been approved and is now live.`,
+                        message: `Document "${normalizedName}" v${result.version} has been approved and is now live. STOP HERE — do not create any more documents unless the user explicitly asks.`,
                     };
                 } catch (err: any) {
                     return { error: err.message || 'Failed to approve document' };

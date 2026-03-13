@@ -23,7 +23,14 @@ import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { ListArtifactsQuerySchema } from '@/lib/schema/artifact';
 import { CreateUnifiedChatBodySchema } from '@/lib/schema/chat';
-import { type ChatDocumentSummaryDto, type ChatDto, type ChatMessageDto, CreateMessageBodySchema, ListChatsQuerySchema, ListMessagesQuerySchema } from '@/lib/schema/message';
+import {
+    type ChatDocumentSummaryDto,
+    type ChatDto,
+    type ChatMessageDto,
+    CreateMessageBodySchema,
+    ListChatsQuerySchema,
+    ListMessagesQuerySchema,
+} from '@/lib/schema/message';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,10 +58,7 @@ export async function verifyChatAccess(
     userId: string,
     projectId?: string,
 ): Promise<ChatEntity | null> {
-    const qb = em
-        .createQueryBuilder(ChatEntity, 'c')
-        .select('c.*')
-        .leftJoin('c.project', 'p');
+    const qb = em.createQueryBuilder(ChatEntity, 'c').select('c.*').leftJoin('c.project', 'p');
 
     applyOwnership(qb, chatId, userId, projectId);
 
@@ -98,10 +102,12 @@ export async function handleCreateChat(req: NextRequest, user: UserEntity): Prom
             return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
         }
 
+        const phaseIndex = await em.count(ChatEntity, { project: projectId });
         const chat = em.create(ChatEntity, {
             project: projectId,
             user,
             phase: 'active',
+            phase_index: phaseIndex,
             ...(title && { summary: title }),
         });
         await em.persistAndFlush(chat);
@@ -115,6 +121,7 @@ export async function handleCreateChat(req: NextRequest, user: UserEntity): Prom
         type: 'intake',
         phase: 'active',
         user,
+        phase_index: 0,
         metadata: {
             framework,
             ...(category && { category }),
@@ -129,11 +136,7 @@ export async function handleCreateChat(req: NextRequest, user: UserEntity): Prom
 /**
  * Get a single chat with message count, first message, and document summaries.
  */
-export async function handleGetChat(
-    chatId: string,
-    user: UserEntity,
-    projectId?: string,
-): Promise<NextResponse> {
+export async function handleGetChat(chatId: string, user: UserEntity, projectId?: string): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const qb = em
@@ -201,11 +204,7 @@ export async function handleGetChat(
 /**
  * Delete a chat.
  */
-export async function handleDeleteChat(
-    chatId: string,
-    user: UserEntity,
-    projectId?: string,
-): Promise<NextResponse> {
+export async function handleDeleteChat(chatId: string, user: UserEntity, projectId?: string): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const chat = await verifyChatAccess(em, chatId, user.id, projectId);
@@ -222,11 +221,7 @@ export async function handleDeleteChat(
 /**
  * List chats (paginated) with message count and first message preview.
  */
-export async function handleListChats(
-    req: NextRequest,
-    user: UserEntity,
-    projectId?: string,
-): Promise<NextResponse> {
+export async function handleListChats(req: NextRequest, user: UserEntity, projectId?: string): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const { searchParams } = new URL(req.url);
@@ -393,11 +388,7 @@ export async function handleCreateMessage(
 /**
  * Get a single message by ID (ownership verified through chat).
  */
-export async function handleGetMessage(
-    chatId: string,
-    messageId: string,
-    user: UserEntity,
-): Promise<NextResponse> {
+export async function handleGetMessage(chatId: string, messageId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const message = await em
@@ -459,13 +450,12 @@ export async function handleListChatArtifacts(
     }
 
     if (projectId) {
-        qb.leftJoin('a.project', 'p')
-            .where({
-                ...versionFilter,
-                'p.id': projectId,
-                'p.user': user.id,
-                $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
-            });
+        qb.leftJoin('a.project', 'p').where({
+            ...versionFilter,
+            'p.id': projectId,
+            'p.user': user.id,
+            $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+        });
     } else {
         qb.where({
             ...versionFilter,
@@ -508,8 +498,12 @@ export async function handleGetChatArtifact(
         .leftJoin('a.versions', 'v');
 
     if (projectId) {
-        qb.leftJoin('a.project', 'p')
-            .where({ 'a.id': artifactId, 'v.chat': chatId, 'p.id': projectId, 'p.user': user.id });
+        qb.leftJoin('a.project', 'p').where({
+            'a.id': artifactId,
+            'v.chat': chatId,
+            'p.id': projectId,
+            'p.user': user.id,
+        });
     } else {
         qb.where({ 'a.id': artifactId, 'v.chat': chatId });
     }
