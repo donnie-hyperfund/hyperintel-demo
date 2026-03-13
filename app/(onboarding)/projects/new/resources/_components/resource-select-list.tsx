@@ -1,8 +1,9 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
-import { Building, Building2, Dna, Users } from 'lucide-react';
-import { useMemo } from 'react';
+import { Building, Building2, Dna, Loader2, Users } from 'lucide-react';
+import { useMemo, useRef } from 'react';
+import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
 import type { ArtifactDto } from '@/lib/schema/artifact';
@@ -15,10 +16,18 @@ type ResourceSelectListProps = {
 };
 
 export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: ResourceSelectListProps) {
-    const { companies, stakeholders, legacyDna, isLoading } = useFetchResources({
+    const { companies, stakeholders, legacyDna, isLoading, hasNextPage, size, setSize } = useFetchResources({
         limit: 20,
         approvedOnly: true,
-        documentType: ['Company Profile', 'Human Persona', 'Legacy DNA'],
+        documentType: ['Legacy DNA', 'Company Profile', 'Human Persona'],
+    });
+
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [sentryRef] = useInfiniteScroll({
+        loading: isLoading,
+        hasNextPage,
+        onLoadMore: () => setSize(size + 1),
+        rootMargin: '0px 0px 100px 0px',
     });
 
     const totalCount = useMemo(
@@ -26,7 +35,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
         [companies, stakeholders, legacyDna],
     );
 
-    if (isLoading) {
+    if (isLoading && size === 1) {
         return (
             <div className="space-y-2 px-4 py-6">
                 {Array.from({ length: 4 }, (_, i) => (
@@ -52,7 +61,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
 
     return (
         <>
-            <div className="max-h-128 overflow-y-auto px-4 py-6 space-y-4">
+            <div ref={scrollContainerRef} className="max-h-128 overflow-y-auto px-4 py-6 space-y-4">
                 <Section
                     title="Legacy DNA"
                     icon={Dna}
@@ -74,6 +83,11 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
                     selectedIds={selectedIds}
                     onToggle={onToggle}
                 />
+                {(isLoading || hasNextPage) && (
+                    <div ref={sentryRef} className="flex items-center justify-center py-3">
+                        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    </div>
+                )}
             </div>
 
             {selectedCount > 0 && (
