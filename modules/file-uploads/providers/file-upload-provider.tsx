@@ -8,6 +8,7 @@ import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/proje
 import { confirmUpload, deleteArtifact, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
 import { isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
+import { usePendingUploads } from './pending-uploads-provider';
 
 const BINARY_MIME_TYPES: Record<string, string> = {
     '.pdf': 'application/pdf',
@@ -46,6 +47,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
     filesRef.current = files;
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
+    const { addPendingArtifactId, clearPendingArtifactIds } = usePendingUploads();
 
     const hadInFlightRef = useRef(false);
 
@@ -157,6 +159,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                     }
 
                     updateEntry(index, { status: 'processing', presignData });
+                    addPendingArtifactId(presignData.artifactId);
                     pollFileStatus(presignData.fileId, index);
                 } else {
                     const res = await uploadArtifact({ file, ...scope }, token);
@@ -164,6 +167,11 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                     if (!res.ok) {
                         const err = await res.json();
                         throw new Error(err.message || 'Upload failed');
+                    }
+
+                    const resData: { artifactId?: string } = await res.json();
+                    if (resData.artifactId) {
+                        addPendingArtifactId(resData.artifactId);
                     }
 
                     updateEntry(index, { status: 'ready' });
@@ -178,7 +186,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                 });
             }
         },
-        [getToken, scope, updateEntry, invalidateResources, pollFileStatus],
+        [getToken, scope, updateEntry, invalidateResources, pollFileStatus, addPendingArtifactId],
     );
 
     const addFiles = useCallback(
@@ -235,7 +243,8 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
 
     const clearFiles = useCallback(() => {
         setFiles([]);
-    }, []);
+        clearPendingArtifactIds();
+    }, [clearPendingArtifactIds]);
 
     // Simple polling helper to wait for an in-flight eager upload
     const waitForStatus = useCallback((file: File, target: FileEntryStatus): Promise<void> => {
@@ -265,6 +274,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
             );
 
             setFiles([]);
+            clearPendingArtifactIds();
         } catch (err) {
             toast({
                 title: 'Upload failed',
@@ -274,7 +284,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
         } finally {
             setIsSubmitting(false);
         }
-    }, [waitForStatus]);
+    }, [waitForStatus, clearPendingArtifactIds]);
 
     return (
         <FileUploadContext.Provider value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting }}>
