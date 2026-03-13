@@ -388,10 +388,7 @@ export async function handleListResources(
             .where({
                 'p.id': projectId,
                 'p.user': user.id,
-                $or: [
-                    { [raw("a.metadata->>'importedFrom'")]: { $ne: null } },
-                    { 'cv.is_uploaded': true },
-                ],
+                $or: [{ [raw("a.metadata->>'importedFrom'")]: { $ne: null } }, { 'cv.is_uploaded': true }],
                 $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
             });
     } else {
@@ -417,7 +414,14 @@ export async function handleListResources(
         }
     }
 
-    query.orderBy({ 'cv.document_type': 'ASC', 'a.created_at': 'DESC' });
+    if (documentType?.length) {
+        const cases = documentType
+            .map((dt, i) => `WHEN cv.document_type = '${dt.replace(/'/g, "''")}' THEN ${i}`)
+            .join(' ');
+        query.orderBy({ [raw(`CASE ${cases} ELSE ${documentType.length} END`)]: 'ASC', 'a.created_at': 'DESC' });
+    } else {
+        query.orderBy({ 'cv.document_type': 'ASC', 'a.created_at': 'DESC' });
+    }
 
     const { nodes, totalCount } = await getPaginatedResult(query, { page, perPage: limit });
 

@@ -3,7 +3,7 @@
 import { useAuth } from '@clerk/nextjs';
 import { Building2, Loader2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useHighlightResourceParam } from '@/hooks/use-highlight-resource-param';
@@ -11,6 +11,7 @@ import { createProjectResourceApi } from '@/lib/api/client/fetchers/project-reso
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
 import { deleteArtifact } from '@/lib/api/requests/worker/chat';
 import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { usePendingUploads } from '@/modules/file-uploads/providers/pending-uploads-provider';
 import { ResourceItem } from './resource-item';
 
 type ResourceListParams = PageParams<'/[project-id]'>;
@@ -20,9 +21,25 @@ const PAGE_SIZE = 20;
 export function ResourceList() {
     const { 'project-id': projectId } = useParams<ResourceListParams>();
     const { getToken } = useAuth();
-    const { allItems, isLoading, error, size, setSize, hasNextPage, mutate } = useFetchProjectResources(projectId, {
-        limit: PAGE_SIZE,
-    });
+
+    const pendingUploads = usePendingUploads();
+
+    const {
+        allItems: rawItems,
+        isLoading,
+        error,
+        size,
+        setSize,
+        hasNextPage,
+        mutate,
+    } = useFetchProjectResources(projectId, { limit: PAGE_SIZE });
+
+    const allItems = useMemo(() => {
+        const pendingIds = pendingUploads?.pendingArtifactIds;
+        if (!pendingIds || pendingIds.length === 0) return rawItems;
+        const pendingSet = new Set(pendingIds);
+        return rawItems.filter((a) => !pendingSet.has(a.id));
+    }, [rawItems, pendingUploads?.pendingArtifactIds]);
 
     const { highlightedKey, registerRef } = useHighlightResourceParam(allItems);
 
