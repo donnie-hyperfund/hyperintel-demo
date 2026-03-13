@@ -4,7 +4,8 @@ import { useAuth } from '@clerk/nextjs';
 import type { LucideIcon } from 'lucide-react';
 import { Building, Building2, Dna, Link, Loader2, Users } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -37,12 +38,20 @@ export function LinkResourceDialog() {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isImporting, setIsImporting] = useState(false);
 
-    const { companies, stakeholders, legacyDna, isLoading } = useFetchResources({
+    const { companies, stakeholders, legacyDna, isLoading, hasNextPage, size, setSize } = useFetchResources({
         limit: 20,
         approvedOnly: true,
-        documentType: ['Company Profile', 'Human Persona', 'Legacy DNA'],
+        documentType: ['Legacy DNA', 'Company Profile', 'Human Persona'],
     });
     const { allItems: projectResources, mutate: mutateProjectResources } = useFetchProjectResources(projectId);
+
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [sentryRef] = useInfiniteScroll({
+        loading: isLoading,
+        hasNextPage,
+        onLoadMore: () => setSize(size + 1),
+        rootMargin: '0px 0px 100px 0px',
+    });
 
     const alreadyLinkedKeys = useMemo(() => new Set(projectResources.map((a) => a.key)), [projectResources]);
 
@@ -135,8 +144,8 @@ export function LinkResourceDialog() {
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="flex flex-1 flex-col overflow-y-auto space-y-4 py-2">
-                    {isLoading ? (
+                <div ref={scrollContainerRef} className="flex flex-1 flex-col overflow-y-auto space-y-4 py-2">
+                    {isLoading && size === 1 ? (
                         <div className="flex flex-1 items-center justify-center space-y-2">
                             {Array.from({ length: 3 }).map((_, i) => (
                                 <ArtifactListItemSkeleton key={i} size="sm" />
@@ -172,6 +181,11 @@ export function LinkResourceDialog() {
                                 selectedIds={selectedIds}
                                 onToggle={handleToggle}
                             />
+                            {(isLoading || hasNextPage) && (
+                                <div ref={sentryRef} className="flex items-center justify-center py-3">
+                                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                                </div>
+                            )}
                         </>
                     )}
                 </div>

@@ -20,7 +20,7 @@ export default function NewProjectPage() {
     const { companies, stakeholders, legacyDna } = useFetchResources({
         limit: 20,
         approvedOnly: true,
-        documentType: ['Company Profile', 'Human Persona', 'Legacy DNA'],
+        documentType: ['Legacy DNA', 'Company Profile', 'Human Persona'],
     });
     const hasResources = companies.length > 0 || stakeholders.length > 0 || legacyDna.length > 0;
 
