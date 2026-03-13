@@ -119,7 +119,13 @@ export const KnowledgeSearchToolGroup: AgentToolGroup = {
     description: 'Tools for searching and retrieving information from project documents.',
     guidance: `Use search_knowledge to find relevant information from project documents. Use list_documents to see all available documents.
 
-**CRITICAL: At the START of every new conversation or phase/stage, you MUST call search_knowledge FIRST to gather relevant context from previous work before responding to the user.** This ensures continuity across phases and prevents redundant work.`,
+**CRITICAL: At the START of every new conversation or phase/stage, you MUST call search_knowledge FIRST to gather relevant context from previous work before responding to the user.** This ensures continuity across phases and prevents redundant work.
+
+**When the user asks about a specific file or document:**
+1. First use \`search_knowledge\` with a relevant query to find it by content similarity.
+2. If no relevant results, use \`list_documents\` to browse all available documents and find the correct name.
+3. Then use \`read_document\` with the exact name to view the full content.
+Never guess document names — always discover them via search or listing first.`,
     tools: ['search_knowledge', 'list_documents'],
 };
 
