@@ -281,7 +281,7 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
                     toolGroups,
                     terminalToolNames: ['generate_summary'],
                     config: {
-                        maxToolCalls: 20,
+                        maxToolCalls: 100,
                         getSystemPrompt: async () =>
                             buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath, WEB_SEARCH_GUIDANCE),
                         statusUpdates: { enabled: true },
