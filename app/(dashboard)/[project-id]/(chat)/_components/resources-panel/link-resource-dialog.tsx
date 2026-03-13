@@ -42,6 +42,7 @@ export function LinkResourceDialog() {
         limit: 20,
         approvedOnly: true,
         documentType: ['Legacy DNA', 'Company Profile', 'Human Persona'],
+        excludeProjectId: projectId,
     });
     const { allItems: projectResources, mutate: mutateProjectResources } = useFetchProjectResources(projectId);
 

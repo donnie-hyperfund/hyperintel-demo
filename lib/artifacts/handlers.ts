@@ -371,11 +371,12 @@ export async function handleListResources(
         limit: searchParams.get('limit') ?? undefined,
         documentType: searchParams.get('documentType') ?? undefined,
         approvedOnly: searchParams.get('approvedOnly') ?? undefined,
+        excludeProjectId: searchParams.get('excludeProjectId') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
 
-    const { page, limit, documentType, approvedOnly } = queryData;
+    const { page, limit, documentType, approvedOnly, excludeProjectId } = queryData;
 
     const query = em.createQueryBuilder(ArtifactEntity, 'a').select('a.*');
 
@@ -400,6 +401,17 @@ export async function handleListResources(
             where['cv.status'] = 'approved';
         }
         query.leftJoinAndSelect('a.current_version', 'cv').where(where);
+
+        // Exclude artifacts published from a specific project
+        if (excludeProjectId) {
+            query.andWhere({
+                $or: [
+                    { [raw("a.metadata->'publishedFrom'->>'projectId'")]: { $ne: excludeProjectId } },
+                    { [raw("a.metadata->'publishedFrom'->>'projectId'")]: null },
+                    { [raw('a.metadata')]: null },
+                ],
+            });
+        }
     }
 
     if (documentType?.length) {
