@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
-import { ANTHROPIC_MODELS } from '@/common/ai/types';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
@@ -14,9 +13,10 @@ import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/work
 import type { ChatMessageDto } from '@/lib/schema/message';
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
-import { intakeConfigMap } from '@/modules/chat/contants';
+import { intakeConfigMap } from '@/modules/chat/constants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
-// import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
+import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
+import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
@@ -48,6 +48,14 @@ export type BaseChatContextValue = {
     clearPendingChanges: () => void;
     /** Clear the pending phase transition flag (called after dialog handles it) */
     clearPendingPhaseTransition: () => void;
+    /** Check if there are other pending artifacts */
+    hasOtherPendingArtifacts: (excludeArtifactKey: string) => boolean;
+};
+
+type ToolDocumentDecision = {
+    action: 'approve' | 'reject';
+    artifactKey: string;
+    version: number;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -76,6 +84,8 @@ type ChatProviderProps = {
     initialChatId?: string;
     /** Initial messages to display */
     initialMessages?: Message[];
+    /** Optional route builder used after creating a new chat */
+    chatRouteBuilder?: (chatId: string) => string;
 };
 
 function buildContextValue(
@@ -103,11 +113,13 @@ export function ChatProvider({
     chatType = 'phase',
     initialChatId,
     initialMessages = [],
+    chatRouteBuilder,
 }: ChatProviderProps) {
     const artifactContext = useArtifactContext();
 
     const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();
+    const { isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
 
     const { mutate: globalMutate, cache, fallback } = useSWRConfig();
     const router = useRouter();
@@ -117,7 +129,7 @@ export function ChatProvider({
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
-    // const { selectedModel } = useModelSelection();
+    const { selectedModel } = useModelSelection();
     const skipNextLoad = useRef(false);
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
@@ -138,6 +150,22 @@ export function ChatProvider({
             pendingPhaseTransition: false,
         };
     });
+
+    const buildChatRoute = useCallback(
+        (nextChatId: string) => {
+            if (chatRouteBuilder) {
+                return chatRouteBuilder(nextChatId);
+            }
+
+            if (chatType === 'phase') {
+                if (!projectId) throw new Error('Project ID is required for phase chats');
+                return `/${projectId}/${nextChatId}`;
+            }
+
+            return `/${chatType === 'company' ? 'companies' : 'stakeholders'}/${nextChatId}`;
+        },
+        [chatRouteBuilder, chatType, projectId],
+    );
 
     // Pagination state for infinite scroll
     const [pagination, setPagination] = useState<PaginationState>({
@@ -209,6 +237,18 @@ export function ChatProvider({
         setState((prev) => ({ ...prev, pendingPhaseTransition: false }));
     }, []);
 
+    const hasOtherPendingArtifacts = useCallback(
+        (excludeArtifactKey: string) => {
+            return Object.values(artifactContext.artifacts).some((versions) =>
+                Object.values(versions).some(
+                    (artifact) =>
+                        artifact.key !== excludeArtifactKey && artifact.proposed_version?.status === 'proposed',
+                ),
+            );
+        },
+        [artifactContext.artifacts],
+    );
+
     const onTerminalTool = useCallback((toolName: string) => {
         if (toolName === 'generate_summary') {
             setState((prev) => ({ ...prev, pendingPhaseTransition: true }));
@@ -225,9 +265,18 @@ export function ChatProvider({
     const fetchArtifact = useCallback(
         async (artifactKey: string, version: number) => {
             try {
-                const artifact = await api.artifacts.getByKey(artifactKey, version);
+                const artifact = projectId
+                    ? await api.projectArtifacts.getByKey(projectId, artifactKey, version)
+                    : await api.artifacts.getByKey(artifactKey, version);
                 if (artifact) {
-                    artifactContext.addArtifact(artifact, version);
+                    artifactContext.addArtifact(
+                        {
+                            ...artifact,
+                            id: artifactKey,
+                            key: artifact.key,
+                        },
+                        version,
+                    );
                 }
                 return artifact;
             } catch (error) {
@@ -235,7 +284,29 @@ export function ChatProvider({
                 return null;
             }
         },
-        [api.artifacts, projectId, artifactContext],
+        [api.artifacts, api.projectArtifacts, projectId, artifactContext],
+    );
+
+    const handleToolDocumentDecision = useCallback(
+        async ({ action, artifactKey, version }: ToolDocumentDecision) => {
+            const artifact = await fetchArtifact(artifactKey, version);
+
+            if (!hasOtherPendingArtifacts(artifactKey)) {
+                clearPendingChanges();
+            }
+
+            if (action !== 'approve' || chatType === 'phase' || !isProjectFlow) {
+                return;
+            }
+
+            if (!artifact) {
+                console.error('[chat-provider] approved artifact could not be fetched for project return flow');
+                return;
+            }
+
+            await handleApprovedArtifact({ id: artifact.id, key: artifact.key });
+        },
+        [chatType, clearPendingChanges, fetchArtifact, handleApprovedArtifact, hasOtherPendingArtifacts, isProjectFlow],
     );
 
     // Use the stream reader hook for SSE processing
@@ -249,6 +320,7 @@ export function ChatProvider({
         fetchArtifact,
         onDocumentStart,
         onTerminalTool,
+        onToolDocumentDecision: handleToolDocumentDecision,
     });
 
     /** Convert API message to internal Message format */
@@ -376,7 +448,7 @@ export function ChatProvider({
                         setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
 
                         // Update URL without navigation using history API
-                        window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
+                        window.history.replaceState(null, '', buildChatRoute(chatIdToUse));
 
                         insertChatToCache(cache, globalMutate, newChat);
                     } else {
@@ -390,11 +462,7 @@ export function ChatProvider({
                         skipNextLoad.current = true;
                         setChatId(chatIdToUse);
 
-                        const basePath =
-                            chatType === 'company' ? '/companies' : chatType === 'stakeholder' ? '/stakeholders' : null;
-                        if (basePath) {
-                            window.history.replaceState(null, '', `${basePath}/${chatIdToUse}`);
-                        }
+                        window.history.replaceState(null, '', buildChatRoute(chatIdToUse));
                     }
                 }
 
@@ -407,8 +475,7 @@ export function ChatProvider({
                     {
                         message: content,
                         chatId: chatIdToUse,
-                        //model: selectedModel, // NOTE: Hidden temporarily
-                        model: ANTHROPIC_MODELS.OPUS, // NOTE: Default model for production
+                        model: selectedModel,
                     },
                     accessToken,
                 );
@@ -440,8 +507,9 @@ export function ChatProvider({
             globalMutate,
             chatType,
             projectId,
+            buildChatRoute,
             readStream,
-            //selectedModel, // NOTE: Hidden temporarily
+            selectedModel,
             state.isGenerating,
         ],
     );
@@ -556,6 +624,7 @@ export function ChatProvider({
                 navigateToNewPhase,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
+                hasOtherPendingArtifacts,
             })}
         >
             {children}

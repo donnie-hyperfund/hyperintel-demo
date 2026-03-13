@@ -18,6 +18,7 @@ import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { ChatHandlerOptions } from './chat-handler';
 import type { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
+import { createKnowledgeTools, KnowledgeSearchToolGroup, type KnowledgeSearchContext } from './tools/knowledge-search';
 import { createDocumentEventHandler } from './utils/document-events';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createEnqueue, createSSEStream, handleCommonStreamEvent, handleStreamError, loadChatHistory } from './utils/stream-utils';
@@ -119,7 +120,7 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
             // Track version IDs created during this turn
             const createdVersionIds: string[] = [];
 
-            const agentCtx: DocumentToolsContext = {
+            const agentCtx: DocumentToolsContext & KnowledgeSearchContext = {
                 em: em!,
                 userId,
                 chatId: chat.id,
@@ -141,8 +142,8 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
             };
             const inferenceParams = options.overrideInference ?? defaultInference;
 
-            const allTools = [...createDocumentTools()];
-            const toolGroups = [DocumentToolGroup];
+            const allTools = [...createDocumentTools(), ...createKnowledgeTools()];
+            const toolGroups = [DocumentToolGroup, KnowledgeSearchToolGroup];
 
             const { stream, historyPromise } = runAgentStream(
                 agentCtx,
@@ -158,7 +159,7 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
                 {
                     toolGroups,
                     config: {
-                        maxToolCalls: 10,
+                        maxToolCalls: 100,
                         statusUpdates: { enabled: true },
                         onTurnComplete: () => {
                             if (agentCtx.draftManager.hasActive()) {

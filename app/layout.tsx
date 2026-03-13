@@ -10,23 +10,11 @@ import { Toaster } from '@/components/ui/toaster';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-    title: 'HYPERINTEL™ - AI Chatbot Demo',
+    title: 'HYPERINTEL™',
     description: 'Dual-panel AI chatbot comparison interface',
     generator: 'v0.app',
     icons: {
-        icon: [
-            {
-                url: '/icon-light-32x32.png',
-                sizes: '32x32',
-                type: 'image/png',
-            },
-            {
-                url: '/icon-dark-32x32.png',
-                sizes: '32x32',
-                type: 'image/png',
-            },
-        ],
-        apple: '/apple-icon.png',
+        icon: '/favicon.ico',
     },
 };
 

@@ -1,0 +1,13 @@
+[package]
+name = "extract-tester"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+markdownify = { path = "../vendor/markdownify" }
+unpdf = { path = "../vendor/unpdf", default-features = false, features = ["fast-parse"] }
+wasm-bindgen = "0.2"

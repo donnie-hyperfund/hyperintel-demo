@@ -51,9 +51,9 @@ export default function LinkResourcesPage() {
                 transition={{ duration: 0.4, ease: 'easeOut' }}
                 className="mb-8 space-y-2 text-center"
             >
-                <h1 className="text-3xl font-semibold tracking-tight">Link resources</h1>
+                <h1 className="text-3xl font-semibold tracking-tight">Add to Project Intel</h1>
                 <p className="text-muted-foreground text-sm leading-relaxed">
-                    Select existing resources to include in your new project.
+                    {"Select existing resources to include in your project's intel."}
                 </p>
             </motion.div>
 
@@ -94,7 +94,7 @@ export default function LinkResourcesPage() {
                         disabled={isSubmitting}
                         onClick={onSkip}
                     >
-                        Skip, create without resources
+                        Skip, create without intel
                     </button>
                 </motion.div>
             </form>

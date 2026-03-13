@@ -5,7 +5,6 @@ import type { PaginatedResponse, PaginationParams } from '../types';
 const ENDPOINTS = {
     root: '/api/artifacts',
     byId: (artifactId: string) => `/api/artifacts/${artifactId}`,
-    // TODO: use /api/artifacts/${key} when backend is updated
     byKey: (key: string) => `/api/resources/${key}`,
 } as const;
 

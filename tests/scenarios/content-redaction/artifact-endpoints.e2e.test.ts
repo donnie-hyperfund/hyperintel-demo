@@ -95,18 +95,18 @@ describe("internal artifact content redaction (is_internal=true)", () => {
 		expect(json).not.toContain(AI_SECRET);
 	});
 
-	it("GET /projects/:pid/artifacts/:aid — no content on single", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/artifacts/[artifactId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/artifacts/${internalArtifactId}`), { params: Promise.resolve({ projectId, artifactId: internalArtifactId }) });
+	it("GET /artifacts/:aid — no content on single", async () => {
+		const { GET } = await import("@/app/api/artifacts/[artifactId]/route");
+		const res = await GET(req(`/api/artifacts/${internalArtifactId}`), { params: Promise.resolve({ artifactId: internalArtifactId }) });
 		const json = await res.text();
 		expect(res.status).toBe(200);
 		expect(json).not.toContain(SECRET);
 		expect(json).not.toContain(AI_SECRET);
 	});
 
-	it("GET /projects/:pid/artifacts/:aid?version=1 — no content on loaded version", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/artifacts/[artifactId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/artifacts/${internalArtifactId}?version=1`), { params: Promise.resolve({ projectId, artifactId: internalArtifactId }) });
+	it("GET /artifacts/:aid?version=1 — no content on loaded version", async () => {
+		const { GET } = await import("@/app/api/artifacts/[artifactId]/route");
+		const res = await GET(req(`/api/artifacts/${internalArtifactId}?version=1`), { params: Promise.resolve({ artifactId: internalArtifactId }) });
 		const json = await res.text();
 		expect(res.status).toBe(200);
 		expect(json).not.toContain(SECRET);
@@ -114,8 +114,8 @@ describe("internal artifact content redaction (is_internal=true)", () => {
 	});
 
 	it("GET /chats/:cid/artifacts — no content in list", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/artifacts/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/artifacts`), { params: Promise.resolve({ projectId, chatId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/artifacts/route");
+		const res = await GET(req(`/api/chats/${chatId}/artifacts`), { params: Promise.resolve({ chatId }) });
 		const json = await res.text();
 		expect(res.status).toBe(200);
 		expect(json).not.toContain(SECRET);
@@ -123,8 +123,8 @@ describe("internal artifact content redaction (is_internal=true)", () => {
 	});
 
 	it("GET /chats/:cid/artifacts/:aid — no content on single chat artifact", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/artifacts/[artifactId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/artifacts/${internalArtifactId}`), { params: Promise.resolve({ projectId, chatId, artifactId: internalArtifactId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/artifacts/[artifactId]/route");
+		const res = await GET(req(`/api/chats/${chatId}/artifacts/${internalArtifactId}`), { params: Promise.resolve({ chatId, artifactId: internalArtifactId }) });
 		const json = await res.text();
 		expect(res.status).toBe(200);
 		expect(json).not.toContain(SECRET);
@@ -151,18 +151,18 @@ describe("non-internal artifact content exposure (is_internal=false)", () => {
 		expect(json).not.toContain(PUBLIC_AI);
 	});
 
-	it("GET /projects/:pid/artifacts/:aid — public content on single, ai_content still redacted", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/artifacts/[artifactId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/artifacts/${publicArtifactId}`), { params: Promise.resolve({ projectId, artifactId: publicArtifactId }) });
+	it("GET /artifacts/:aid — public content on single, ai_content still redacted", async () => {
+		const { GET } = await import("@/app/api/artifacts/[artifactId]/route");
+		const res = await GET(req(`/api/artifacts/${publicArtifactId}`), { params: Promise.resolve({ artifactId: publicArtifactId }) });
 		const json = await res.text();
 		expect(res.status).toBe(200);
 		expect(json).toContain(PUBLIC_CONTENT);
 		expect(json).not.toContain(PUBLIC_AI);
 	});
 
-	it("GET /projects/:pid/artifacts/:aid?version=1 — public content on loaded version, ai_content still redacted", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/artifacts/[artifactId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/artifacts/${publicArtifactId}?version=1`), { params: Promise.resolve({ projectId, artifactId: publicArtifactId }) });
+	it("GET /artifacts/:aid?version=1 — public content on loaded version, ai_content still redacted", async () => {
+		const { GET } = await import("@/app/api/artifacts/[artifactId]/route");
+		const res = await GET(req(`/api/artifacts/${publicArtifactId}?version=1`), { params: Promise.resolve({ artifactId: publicArtifactId }) });
 		const json = await res.text();
 		expect(res.status).toBe(200);
 		expect(json).toContain(PUBLIC_CONTENT);
@@ -170,8 +170,8 @@ describe("non-internal artifact content exposure (is_internal=false)", () => {
 	});
 
 	it("GET /chats/:cid/artifacts — public content in list, ai_content still redacted", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/artifacts/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/artifacts`), { params: Promise.resolve({ projectId, chatId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/artifacts/route");
+		const res = await GET(req(`/api/chats/${chatId}/artifacts`), { params: Promise.resolve({ chatId }) });
 		const json = await res.text();
 		expect(res.status).toBe(200);
 		expect(json).toContain(PUBLIC_CONTENT);
@@ -179,8 +179,8 @@ describe("non-internal artifact content exposure (is_internal=false)", () => {
 	});
 
 	it("GET /chats/:cid/artifacts/:aid — public content on single chat artifact, ai_content still redacted", async () => {
-		const { GET } = await import("@/app/api/projects/[projectId]/chats/[chatId]/artifacts/[artifactId]/route");
-		const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/artifacts/${publicArtifactId}`), { params: Promise.resolve({ projectId, chatId, artifactId: publicArtifactId }) });
+		const { GET } = await import("@/app/api/chats/[chatId]/artifacts/[artifactId]/route");
+		const res = await GET(req(`/api/chats/${chatId}/artifacts/${publicArtifactId}`), { params: Promise.resolve({ chatId, artifactId: publicArtifactId }) });
 		const json = await res.text();
 		expect(res.status).toBe(200);
 		expect(json).toContain(PUBLIC_CONTENT);

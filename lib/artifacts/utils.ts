@@ -1,4 +1,9 @@
-import { ALLOWED_ARTIFACT_EXTENSIONS, type ArtifactDto, MAX_ARTIFACT_UPLOAD_SIZE } from '@/lib/schema/artifact';
+import {
+    ALLOWED_ARTIFACT_EXTENSIONS,
+    type ArtifactDto,
+    isBinaryArtifactExtension,
+    MAX_ARTIFACT_UPLOAD_SIZE,
+} from '@/lib/schema/artifact';
 
 // ── Artifact DTO helpers ────────────────────────────────────────────────────
 
@@ -50,11 +55,17 @@ export class UploadValidationError extends Error {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/**
- * Normalize artifact key - ensure .md extension.
- */
 export function normalizeArtifactKey(key: string): string {
     const trimmed = key.trim();
+    const ext = trimmed.slice(trimmed.lastIndexOf('.')).toLowerCase();
+    if (isBinaryArtifactExtension(ext)) return trimmed;
+    return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
+}
+
+export function normalizeUploadedFileKey(filename: string): string {
+    const trimmed = filename.trim();
+    const ext = trimmed.slice(trimmed.lastIndexOf('.')).toLowerCase();
+    if (isBinaryArtifactExtension(ext)) return trimmed;
     return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
 }
 

@@ -2,9 +2,10 @@
 
 import { useAuth } from '@clerk/nextjs';
 import type { LucideIcon } from 'lucide-react';
-import { Building, Building2, Dna, Loader2, Plus, Users } from 'lucide-react';
-import { useParams } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { Building, Building2, Dna, Link, Loader2, Users } from 'lucide-react';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -16,24 +17,42 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
 import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
 import { importArtifacts } from '@/lib/api/requests/worker/projects';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { NewResourceDropdown } from './new-resource-dropdown';
 
 type LinkResourceDialogParams = PageParams<'/[project-id]'>;
 
 export function LinkResourceDialog() {
     const { 'project-id': projectId } = useParams<LinkResourceDialogParams>();
     const { getToken } = useAuth();
+    const router = useRouter();
     const [open, setOpen] = useState(false);
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+    const [pendingPath, setPendingPath] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isImporting, setIsImporting] = useState(false);
 
-    const { companies, stakeholders, legacyDna, isLoading } = useFetchResources({ limit: 20, approvedOnly: true });
+    const { companies, stakeholders, legacyDna, isLoading, hasNextPage, size, setSize } = useFetchResources({
+        limit: 20,
+        approvedOnly: true,
+        documentType: ['Legacy DNA', 'Company Profile', 'Human Persona'],
+        excludeProjectId: projectId,
+    });
     const { allItems: projectResources, mutate: mutateProjectResources } = useFetchProjectResources(projectId);
+
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [sentryRef] = useInfiniteScroll({
+        loading: isLoading,
+        hasNextPage,
+        onLoadMore: () => setSize(size + 1),
+        rootMargin: '0px 0px 100px 0px',
+    });
 
     const alreadyLinkedKeys = useMemo(() => new Set(projectResources.map((a) => a.key)), [projectResources]);
 
@@ -70,11 +89,11 @@ export function LinkResourceDialog() {
             }
 
             await mutateProjectResources();
-            toast({ title: `${selectedIds.length} resource(s) linked to project.` });
+            toast({ title: `${selectedIds.length} resource(s) added to Project Intel.` });
             setSelectedIds([]);
             setOpen(false);
         } catch {
-            toast({ title: 'Failed to link resources.', variant: 'destructive' });
+            toast({ title: 'Failed to add to Project Intel.', variant: 'destructive' });
         } finally {
             setIsImporting(false);
         }
@@ -82,34 +101,63 @@ export function LinkResourceDialog() {
 
     const handleOpenChange = useCallback((next: boolean) => {
         setOpen(next);
-        if (!next) setSelectedIds([]);
+        if (!next) {
+            setDropdownOpen(false);
+            setSelectedIds([]);
+        }
     }, []);
+
+    const handleNavigate = useCallback((path: string) => {
+        setPendingPath(path);
+        setDropdownOpen(false);
+        setSelectedIds([]);
+        setOpen(false);
+    }, []);
+
+    useEffect(() => {
+        if (!pendingPath || open) return;
+        const path = pendingPath;
+        setPendingPath(null);
+        router.push(path);
+    }, [pendingPath, open, router]);
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-7">
-                    <Plus className="size-4" />
-                </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <Tooltip>
+                <DialogTrigger>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="size-7">
+                            <Link className="size-4" />
+                        </Button>
+                    </TooltipTrigger>
+                </DialogTrigger>
+                <TooltipContent>Link resource</TooltipContent>
+            </Tooltip>
+
+            <DialogContent
+                className="sm:max-w-xl flex max-h-140 h-full flex-col"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+            >
                 <DialogHeader>
-                    <DialogTitle>Link resources</DialogTitle>
-                    <DialogDescription>Select resources to add to this project.</DialogDescription>
+                    <DialogTitle>Add Project Intel</DialogTitle>
+                    <DialogDescription>
+                        Link an existing company profile or persona, or create a new one.
+                    </DialogDescription>
                 </DialogHeader>
 
-                <div className="max-h-80 overflow-y-auto space-y-4 py-2">
-                    {isLoading ? (
-                        <div className="space-y-2">
+                <div ref={scrollContainerRef} className="flex flex-1 flex-col overflow-y-auto space-y-4 py-2">
+                    {isLoading && size === 1 ? (
+                        <div className="flex flex-1 items-center justify-center space-y-2">
                             {Array.from({ length: 3 }).map((_, i) => (
                                 <ArtifactListItemSkeleton key={i} size="sm" />
                             ))}
                         </div>
                     ) : totalAvailable === 0 ? (
                         <EmptyState
+                            className="flex-1"
                             icon={Building2}
-                            title="All resources linked"
-                            description="All your available resources are already linked to this project."
+                            title="All Project Intel linked"
+                            description="All available profiles and personas are already linked to this project."
                         />
                     ) : (
                         <>
@@ -134,11 +182,22 @@ export function LinkResourceDialog() {
                                 selectedIds={selectedIds}
                                 onToggle={handleToggle}
                             />
+                            {(isLoading || hasNextPage) && (
+                                <div ref={sentryRef} className="flex items-center justify-center py-3">
+                                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                                </div>
+                            )}
                         </>
                     )}
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="sm:justify-between">
+                    <NewResourceDropdown
+                        projectId={projectId}
+                        open={dropdownOpen}
+                        onOpenChange={setDropdownOpen}
+                        onNavigate={handleNavigate}
+                    />
                     <Button
                         onClick={handleImport}
                         disabled={selectedIds.length === 0 || isImporting}
@@ -147,10 +206,10 @@ export function LinkResourceDialog() {
                         {isImporting ? (
                             <>
                                 <Loader2 className="size-4 animate-spin" />
-                                Linking...
+                                Adding...
                             </>
                         ) : (
-                            `Link ${selectedIds.length || ''} resource${selectedIds.length !== 1 ? 's' : ''}`
+                            `Add Project Intel`
                         )}
                     </Button>
                 </DialogFooter>

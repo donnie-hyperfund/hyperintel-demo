@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const envFrontendSchema = z.object({
+    NEXT_PUBLIC_APP_ENV: z.enum(['development', 'production']).default('development'),
     NEXT_PUBLIC_BASE_URL: z.string().url().optional(),
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string(),
     // NEXT_PUBLIC_VERCEL_URL: z.string().optional(),
@@ -11,11 +12,12 @@ const envFrontendSchema = z.object({
 });
 
 const parsedFrontendEnv = envFrontendSchema.safeParse({
+    NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
     NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
     // NEXT_PUBLIC_VERCEL_URL: process.env.NEXT_PUBLIC_VERCEL_URL,
     NEXT_PUBLIC_CLOUDFLARE_BASE: process.env.NEXT_PUBLIC_CLOUDFLARE_BASE,
-    NEXT_PUBLIC_LOCAL_WORKERS: process.env.NEXT_PUBLIC_LOCAL_WORKERS,
+    NEXT_PUBLIC_LOCAL_WORKERS: process.env.NEXT_PUBLIC_LOCAL_WORKERS === 'true',
     NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV: process.env.NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV,
     NEXT_PUBLIC_CLOUDFLARE_ALIAS: process.env.NEXT_PUBLIC_CLOUDFLARE_ALIAS,
 });

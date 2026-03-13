@@ -122,9 +122,15 @@ export const RejectArtifactActionSchema = z.object({
 });
 export type RejectArtifactActionDto = z.infer<typeof RejectArtifactActionSchema>;
 
-export const MAX_ARTIFACT_UPLOAD_SIZE = 5 * 1024 * 1024; // 5MB
-// TODO: Add '.docx' once we have conversion (e.g. mammoth)
-export const ALLOWED_ARTIFACT_EXTENSIONS = ['.md'];
+export const MAX_ARTIFACT_UPLOAD_SIZE = 50 * 1024 * 1024;
+
+export const TEXT_ARTIFACT_EXTENSIONS = ['.md'] as const;
+export const BINARY_ARTIFACT_EXTENSIONS = ['.pdf', '.docx', '.pptx'] as const;
+export const ALLOWED_ARTIFACT_EXTENSIONS = [...TEXT_ARTIFACT_EXTENSIONS, ...BINARY_ARTIFACT_EXTENSIONS] as string[];
+
+export function isBinaryArtifactExtension(ext: string): boolean {
+    return (BINARY_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
+}
 
 export const UploadArtifactSchema = zfd.formData({
     file: zfd.file(
@@ -134,7 +140,7 @@ export const UploadArtifactSchema = zfd.formData({
             `File too large (max ${MAX_ARTIFACT_UPLOAD_SIZE / 1024 / 1024}MB)`,
         ),
     ),
-    projectId: zfd.text(z4.string().uuid()),
+    projectId: zfd.text(z4.string().uuid().optional()),
     chatId: zfd.text(z4.string().uuid().optional()),
     title: zfd.text(z4.string().min(1).optional()),
 });
@@ -151,6 +157,42 @@ export const UploadArtifactResponseSchema = z.object({
 });
 export type UploadArtifactResponseDto = z.infer<typeof UploadArtifactResponseSchema>;
 
+export const PresignUploadSchema = z.object({
+    filename: z.string().min(1),
+    fileSize: z.number().int().positive().max(MAX_ARTIFACT_UPLOAD_SIZE),
+    projectId: z.string().uuid().optional(),
+    chatId: z.string().uuid().optional(),
+    title: z.string().min(1).optional(),
+});
+export type PresignUploadDto = z.infer<typeof PresignUploadSchema>;
+
+export const PresignUploadResponseSchema = z.object({
+    uploadUrl: z.string().url(),
+    storageKey: z.string(),
+    artifactId: z.string().uuid(),
+    versionId: z.string().uuid(),
+    fileId: z.string().uuid(),
+    key: z.string(),
+});
+export type PresignUploadResponseDto = z.infer<typeof PresignUploadResponseSchema>;
+
+export const ConfirmUploadSchema = z.object({
+    fileId: z.string().uuid(),
+    versionId: z.string().uuid(),
+});
+export type ConfirmUploadDto = z.infer<typeof ConfirmUploadSchema>;
+
+export const ConfirmUploadResponseSchema = z.object({
+    success: z.boolean(),
+    action: z.enum(['created', 'new_version']),
+    artifactId: z.string().uuid(),
+    versionId: z.string().uuid(),
+    version: z.number().int().positive(),
+    key: z.string(),
+    supersededVersion: z.number().int().positive().optional(),
+});
+export type ConfirmUploadResponseDto = z.infer<typeof ConfirmUploadResponseSchema>;
+
 export const EXPORT_FORMATS = ['docx'] as const;
 export const ExportFormatSchema = z.enum(EXPORT_FORMATS);
 export type ExportFormat = z.infer<typeof ExportFormatSchema>;
@@ -164,8 +206,15 @@ export const ListUserResourcesQuerySchema = z.object({
         .enum(['true', 'false'])
         .transform((v) => v === 'true')
         .optional(),
+    /** Exclude resources originally published from this project */
+    excludeProjectId: z.string().uuid().optional(),
 });
 export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
+
+export const DeleteArtifactSchema = z.object({
+    artifactId: z.string().uuid(),
+});
+export type DeleteArtifactDto = z.infer<typeof DeleteArtifactSchema>;
 
 export const ExportArtifactQuerySchema = z.object({
     artifactVersionId: z.string().uuid(),

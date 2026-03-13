@@ -62,6 +62,20 @@ const nextConfig = {
         }
         return config;
     },
+    async redirects() {
+        return [
+            {
+                source: '/workspace',
+                destination: '/launch-pad',
+                permanent: true,
+            },
+            {
+                source: '/select-project',
+                destination: '/launch-pad',
+                permanent: true,
+            },
+        ];
+    },
     async headers() {
         return isProd
             ? []

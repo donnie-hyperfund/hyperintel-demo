@@ -1,0 +1,51 @@
+# Build artifacts
+/target/
+debug/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test files
+test-files/
+test-output/
+tests/fixtures/*.pdf
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+debug.txt
+
+# Coverage
+*.profraw
+*.profdata
+coverage/
+
+# Local
+dev-docs/
+.serena/
+claudedocs/
+test-extract/
+CLAUDE.md
+nul
+
+# Python bindings
+bindings/python/src/unpdf/lib/
+bindings/python/dist/
+bindings/python/build/
+bindings/python/*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# C# bindings
+bindings/csharp/**/bin/
+bindings/csharp/**/obj/
+bindings/csharp/**/runtimes/
+bindings/csharp/artifacts/
+*.nupkg

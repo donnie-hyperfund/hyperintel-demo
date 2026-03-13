@@ -3,6 +3,7 @@
 import { Check, Loader2, X as XIcon } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/hooks/use-toast';
 import { useApproveUserArtifactVersion, useRejectUserArtifactVersion } from '@/lib/api/client/hooks/use-artifacts';
 import {
     useApproveProjectArtifactVersion,
@@ -11,6 +12,7 @@ import {
 import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
 import { isIntakeChat } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 
 type ArtifactApprovalBarParams = PageParams<'/[project-id]'>;
 
@@ -27,8 +29,9 @@ export function ArtifactApprovalBar({
     artifactVersion,
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
-    const { updateArtifact, artifacts } = useArtifactContext();
-    const { clearPendingChanges, chatType } = useChatContext();
+    const { updateArtifact } = useArtifactContext();
+    const { clearPendingChanges, chatType, hasOtherPendingArtifacts } = useChatContext();
+    const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
     const isIntake = isIntakeChat(chatType);
 
     const { 'project-id': projectId } = useParams<ArtifactApprovalBarParams>();
@@ -54,15 +57,7 @@ export function ArtifactApprovalBar({
 
     const isApproving = isApprovingProjectArtifact || isApprovingUserArtifact;
     const isRejecting = isRejectingProjectArtifact || isRejectingUserArtifact;
-    const isProcessing = isApproving || isRejecting;
-
-    const hasOtherPendingArtifacts = () => {
-        return Object.values(artifacts).some((versions) =>
-            Object.values(versions).some(
-                (artifact) => artifact.key !== artifactKey && artifact.proposed_version?.status === 'proposed',
-            ),
-        );
-    };
+    const isProcessing = isApproving || isRejecting || isLinkingToProject;
 
     const handleApprove = async () => {
         try {
@@ -72,12 +67,17 @@ export function ArtifactApprovalBar({
             if (updated) {
                 updateArtifact(artifactId, updated, artifactVersion, { merge: false });
                 // Clear pending changes only if no other artifacts are pending
-                if (!hasOtherPendingArtifacts()) {
+                if (!hasOtherPendingArtifacts(artifactKey)) {
                     clearPendingChanges();
+                }
+
+                if (isIntake && isProjectFlow) {
+                    await handleApprovedArtifact(updated);
                 }
             }
         } catch (err) {
             console.error('Failed to approve:', err);
+            toast({ title: 'Failed to approve document.', variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);
         }
@@ -91,12 +91,13 @@ export function ArtifactApprovalBar({
             if (updated) {
                 updateArtifact(artifactId, updated, artifactVersion, { merge: false });
                 // Clear pending changes only if no other artifacts are pending
-                if (!hasOtherPendingArtifacts()) {
+                if (!hasOtherPendingArtifacts(artifactKey)) {
                     clearPendingChanges();
                 }
             }
         } catch (err) {
             console.error('Failed to reject:', err);
+            toast({ title: 'Failed to reject document.', variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);
         }

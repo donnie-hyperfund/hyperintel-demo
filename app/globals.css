@@ -468,13 +468,13 @@
   white-space: nowrap;
 }
 
-.artifact-scroll-highlight {
+.highlight-pulse {
   outline: 2px solid var(--primary);
   outline-offset: 3px;
-  animation: artifact-scroll-highlight 2.5s ease-in-out forwards;
+  animation: highlight-pulse 2.5s ease-in-out forwards;
 }
 
-@keyframes artifact-scroll-highlight {
+@keyframes highlight-pulse {
   0% { outline-color: transparent; }
   10%, 80% { outline-color: var(--primary); }
   100% { outline-color: transparent; }

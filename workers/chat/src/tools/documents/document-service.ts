@@ -23,12 +23,13 @@ import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/ar
 // SCOPE — project-scoped or user-scoped artifacts
 // ============================================================================
 
-export type DocumentScope = { projectId: string } | { userId: string };
+export type DocumentScope = { projectId: string } | { userId: string; chatId?: string };
 
 /** Build a MikroORM where-clause fragment from a scope. */
-function scopeFilter(scope: DocumentScope): Record<string, string> {
+function scopeFilter(scope: DocumentScope): Record<string, unknown> {
     if ('projectId' in scope) return { project: scope.projectId };
-    return { user: scope.userId };
+    if (scope.chatId) return { $or: [{ user: scope.userId, project: null }, { chat: scope.chatId }] };
+    return { user: scope.userId, project: null };
 }
 
 /** Set the owner (project or user) on a new artifact entity. */
@@ -323,8 +324,7 @@ export async function listDocuments(
 
     const artifacts = await em.find(
         ArtifactEntity,
-        // TODO allow including deleted artifacts
-        { ...scopeFilter(scope), $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
+        { $and: [scopeFilter(scope), { $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] }] } as any,
         { populate: ['current_version', 'versions'] },
     );
 

@@ -4,15 +4,14 @@ import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
-    root: (projectId: string) => `/api/projects/${projectId}/chats`,
+    root: '/api/chats',
     byId: (chatId: string) => `/api/chats/${chatId}`,
-    unified: '/api/chats',
 } as const;
 
 export const chatKeys = {
     all: ['chats'] as const,
     lists: () => [...chatKeys.all, 'list'] as const,
-    list: (params?: PaginationParams) => [...chatKeys.lists(), params] as const,
+    list: (projectId?: string, params?: PaginationParams) => [...chatKeys.lists(), projectId, params] as const,
     details: () => [...chatKeys.all, 'detail'] as const,
     detail: (chatId: string) => [...chatKeys.details(), chatId] as const,
 };
@@ -21,10 +20,12 @@ export function createChatApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 
     return {
-        // TODO: Unify this when backend is updated
         list: async (projectId: string, params?: PaginationParams) => {
             const { data } = await axios.get<PaginatedResponse<ChatDto>>(
-                buildUrl(ENDPOINTS.root(projectId), params as Record<string, string | number | undefined>),
+                buildUrl(ENDPOINTS.root, {
+                    projectId,
+                    ...params,
+                } as Record<string, string | number | undefined>),
             );
             return data;
         },
@@ -34,14 +35,13 @@ export function createChatApi(getToken: TokenGetter) {
             return data;
         },
 
-        // TODO: Unify this when backend is updated
         createIntake: async (body: CreateIntakeChatBodyDto) => {
-            const { data } = await axios.post<ChatDto>(ENDPOINTS.unified, body);
+            const { data } = await axios.post<ChatDto>(ENDPOINTS.root, body);
             return data;
         },
 
         create: async (projectId: string, body?: { title?: string }) => {
-            const { data } = await axios.post<ChatDto>(ENDPOINTS.root(projectId), body || {});
+            const { data } = await axios.post<ChatDto>(ENDPOINTS.root, { projectId, ...body });
             return data;
         },
 

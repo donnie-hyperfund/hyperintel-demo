@@ -45,8 +45,11 @@ async function processMessage(
 ): Promise<ProcessingResult> {
     switch (message.type) {
         case 'index_artifact_version': {
+            const scopeLabel = message.projectId
+                ? `project ${message.projectId}`
+                : `chat ${message.chatId}`;
             console.log(
-                `${logPrefix} Indexing version ${message.versionId} for project ${message.projectId}`,
+                `${logPrefix} Indexing version ${message.versionId} for ${scopeLabel}`,
                 message.documentName ? `(${message.documentName})` : '',
             );
 
@@ -55,7 +58,7 @@ async function processMessage(
                 ctx.orouterSdk,
                 ctx.em,
                 { id: message.versionId, content: message.content },
-                message.projectId,
+                { projectId: message.projectId, chatId: message.chatId },
                 ArtifactEmbeddingEntity,
                 message.is_ai_content ?? false,
             );

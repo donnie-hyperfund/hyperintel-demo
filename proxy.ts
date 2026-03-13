@@ -10,12 +10,11 @@ const isPublicRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)', '/api/
 
 /** Routes that any authenticated user can visit freely (no project cookie required). */
 const isBrowsableRoute = createRouteMatcher([
-    '/workspace',
+    '/launch-pad',
     '/projects',
     '/projects/new(.*)',
     '/companies(.*)',
     '/stakeholders(.*)',
-    '/select-project(.*)',
 ]);
 
 /**
@@ -51,7 +50,7 @@ export default clerkMiddleware(async (auth, req) => {
                 const browsable = isBrowsableRoute(req);
 
                 if (!hasProjects && !browsable) {
-                    return NextResponse.redirect(new URL('/workspace', req.url));
+                    return NextResponse.redirect(new URL('/launch-pad', req.url));
                 }
 
                 if (hasProjects && pathname === '/') {
@@ -68,7 +67,7 @@ export default clerkMiddleware(async (auth, req) => {
                     }
 
                     if (!validProjectId) {
-                        return NextResponse.redirect(new URL('/workspace', req.url));
+                        return NextResponse.redirect(new URL('/launch-pad', req.url));
                     }
 
                     const lastChat = await em.findOne(
@@ -86,7 +85,7 @@ export default clerkMiddleware(async (auth, req) => {
     }
 
     if (pathname === '/') {
-        return NextResponse.redirect(new URL('/workspace', req.url));
+        return NextResponse.redirect(new URL('/launch-pad', req.url));
     }
 
     return NextResponse.next();

@@ -3,13 +3,16 @@
 import { useAuth } from '@clerk/nextjs';
 import { Building2, Loader2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useHighlightResourceParam } from '@/hooks/use-highlight-resource-param';
 import { createProjectResourceApi } from '@/lib/api/client/fetchers/project-resources';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
+import { deleteArtifact } from '@/lib/api/requests/worker/chat';
 import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
-import { ResourceSection } from './resource-section';
+import { usePendingUploads } from '@/modules/file-uploads/providers/pending-uploads-provider';
+import { ResourceItem } from './resource-item';
 
 type ResourceListParams = PageParams<'/[project-id]'>;
 
@@ -18,8 +21,27 @@ const PAGE_SIZE = 20;
 export function ResourceList() {
     const { 'project-id': projectId } = useParams<ResourceListParams>();
     const { getToken } = useAuth();
-    const { companies, stakeholders, legacyDna, isLoading, error, size, setSize, hasNextPage, mutate } =
-        useFetchProjectResources(projectId, { limit: PAGE_SIZE });
+
+    const pendingUploads = usePendingUploads();
+
+    const {
+        allItems: rawItems,
+        isLoading,
+        error,
+        size,
+        setSize,
+        hasNextPage,
+        mutate,
+    } = useFetchProjectResources(projectId, { limit: PAGE_SIZE });
+
+    const allItems = useMemo(() => {
+        const pendingIds = pendingUploads?.pendingArtifactIds;
+        if (!pendingIds || pendingIds.length === 0) return rawItems;
+        const pendingSet = new Set(pendingIds);
+        return rawItems.filter((a) => !pendingSet.has(a.id));
+    }, [rawItems, pendingUploads?.pendingArtifactIds]);
+
+    const { highlightedKey, registerRef } = useHighlightResourceParam(allItems);
 
     const [sentryRef] = useInfiniteScroll({
         loading: isLoading,
@@ -30,10 +52,16 @@ export function ResourceList() {
 
     const handleRemove = useCallback(
         async (artifactId: string) => {
-            await createProjectResourceApi(getToken).remove(projectId, artifactId);
+            const artifact = allItems.find((a) => a.id === artifactId);
+            if (artifact?.current_version?.is_uploaded) {
+                const token = await getToken();
+                if (token) await deleteArtifact({ artifactId }, token);
+            } else {
+                await createProjectResourceApi(getToken).remove(projectId, artifactId);
+            }
             await mutate();
         },
-        [getToken, projectId, mutate],
+        [getToken, projectId, mutate, allItems],
     );
 
     if (isLoading && size === 1) {
@@ -51,32 +79,36 @@ export function ResourceList() {
             <div className="flex flex-1 items-center justify-center">
                 <EmptyState
                     icon={Building2}
-                    title="Failed to load resources"
+                    title="Failed to load Project Intel"
                     error={error.message || 'An unexpected error occurred.'}
                 />
             </div>
         );
     }
 
-    const isEmpty = companies.length === 0 && stakeholders.length === 0 && legacyDna.length === 0;
-
-    if (isEmpty) {
+    if (allItems.length === 0) {
         return (
             <div className="flex flex-1 items-center justify-center">
                 <EmptyState
                     icon={Building2}
-                    title="No resources linked"
-                    description="Link existing resources to make them available in this project."
+                    title="Project Intel is empty"
+                    description="Upload files to add to Project Intel."
                 />
             </div>
         );
     }
 
     return (
-        <div className="space-y-6">
-            <ResourceSection title="Legacy DNA" artifacts={legacyDna} onRemove={handleRemove} />
-            <ResourceSection title="Companies" artifacts={companies} onRemove={handleRemove} />
-            <ResourceSection title="Stakeholders" artifacts={stakeholders} onRemove={handleRemove} />
+        <div className="space-y-1.5">
+            {allItems.map((artifact) => (
+                <ResourceItem
+                    key={artifact.id}
+                    artifact={artifact}
+                    onRemove={handleRemove}
+                    isHighlighted={highlightedKey === artifact.key}
+                    itemRef={(element) => registerRef(artifact.id, element)}
+                />
+            ))}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />

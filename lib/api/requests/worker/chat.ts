@@ -1,7 +1,14 @@
 import { getWorkerUrl, toFormData } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
 import { frontendEnv } from '@/lib/env';
-import { ApproveArtifactActionDto, type ExportFormat, RejectArtifactActionDto } from '@/lib/schema/artifact';
+import {
+    ApproveArtifactActionDto,
+    type ConfirmUploadDto,
+    type DeleteArtifactDto,
+    type ExportFormat,
+    type PresignUploadDto,
+    RejectArtifactActionDto,
+} from '@/lib/schema/artifact';
 import { SendChatActionDto, SummarizeActionDto } from '@/lib/schema/chat';
 
 export const sendIntakeAction = (data: SendChatActionDto, accessToken: string) => {
@@ -117,7 +124,7 @@ export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: strin
 };
 
 export const uploadArtifact = (
-    data: { file: File; projectId: string; chatId: string | null; title?: string },
+    data: { file: File; projectId?: string | null; chatId?: string | null; title?: string },
     accessToken: string,
 ) => {
     const body = toFormData(data);
@@ -133,6 +140,63 @@ export const uploadArtifact = (
     return fetch(WORKERS_LOCAL_ENDPOINTS.UploadAction, {
         method: 'POST',
         body,
+    });
+};
+
+export const presignUpload = (data: PresignUploadDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.PresignAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.PresignAction, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+};
+
+export const confirmUpload = (data: ConfirmUploadDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ConfirmAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.ConfirmAction, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+};
+
+export const deleteArtifact = (data: DeleteArtifactDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.DeleteAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.DeleteAction, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
     });
 };
 

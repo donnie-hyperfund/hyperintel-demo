@@ -7,17 +7,22 @@ import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import {
     ApproveArtifactActionSchema,
+    ConfirmUploadSchema,
+    DeleteArtifactSchema,
     ExportArtifactQuerySchema,
+    PresignUploadSchema,
     RejectArtifactActionSchema,
     UploadArtifactSchema,
 } from '@/lib/schema/artifact';
-import { SendChatActionSchema, SummarizeActionSchema, SendIntakeChatActionSchema} from '@/lib/schema/chat';
+import { SendChatActionSchema, SendIntakeChatActionSchema, SummarizeActionSchema } from '@/lib/schema/chat';
 import { ImportArtifactsActionSchema } from '@/lib/schema/project';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
+import { deleteArtifactHandler } from './artifact-deleter';
 import { exportArtifactHandler } from './artifact-exporter';
 import { importArtifactsHandler } from './artifact-importer';
-import { uploadArtifactHandler } from './artifact-uploader';
+import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './artifact-uploader';
 import { chatActionHandler } from './chat-handler';
+import { cleanupStaleUploads } from './cleanup';
 import { intakeActionHandler } from './intake-handler';
 import { summarizeActionHandler } from './summarizer';
 
@@ -67,6 +72,12 @@ app.post('/artifacts/reject', zValidator('json', RejectArtifactActionSchema), as
     });
 });
 
+app.post('/artifacts/delete', zValidator('json', DeleteArtifactSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await deleteArtifactHandler(c.req.valid('json'), c.var);
+    });
+});
+
 app.post('/artifacts/import', zValidator('json', ImportArtifactsActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await importArtifactsHandler(c.req.valid('json'), c.var);
@@ -76,6 +87,18 @@ app.post('/artifacts/import', zValidator('json', ImportArtifactsActionSchema), a
 app.post('/artifacts/upload', zValidator('form', UploadArtifactSchema), async (c) => {
     return wrapWorker(async () => {
         return await uploadArtifactHandler(c.req.valid('form'), c.var);
+    });
+});
+
+app.post('/artifacts/upload/presign', zValidator('json', PresignUploadSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await presignUploadHandler(c.req.valid('json'), c.var);
+    });
+});
+
+app.post('/artifacts/upload/confirm', zValidator('json', ConfirmUploadSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await confirmUploadHandler(c.req.valid('json'), c.var);
     });
 });
 
@@ -89,4 +112,9 @@ app.get('/', (c) => {
     return c.json({ status: 'ok', worker: 'chat', userId: c.var.user.userId });
 });
 
-export default app;
+export default {
+    fetch: app.fetch,
+    async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+        ctx.waitUntil(cleanupStaleUploads(env));
+    },
+};

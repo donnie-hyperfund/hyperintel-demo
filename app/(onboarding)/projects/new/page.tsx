@@ -17,7 +17,11 @@ import { useProjectCreationWizard } from './_providers/project-creation-wizard-p
 export default function NewProjectPage() {
     const router = useRouter();
     const { data, updateData, submitProject, isSubmitting } = useProjectCreationWizard();
-    const { companies, stakeholders, legacyDna } = useFetchResources();
+    const { companies, stakeholders, legacyDna } = useFetchResources({
+        limit: 20,
+        approvedOnly: true,
+        documentType: ['Legacy DNA', 'Company Profile', 'Human Persona'],
+    });
     const hasResources = companies.length > 0 || stakeholders.length > 0 || legacyDna.length > 0;
 
     const {
@@ -52,8 +56,8 @@ export default function NewProjectPage() {
             >
                 <h1 className="text-3xl font-semibold tracking-tight">Create a new project</h1>
                 <p className="text-muted-foreground text-sm leading-relaxed">
-                    Keep your chats and deliverables organized in one place, and make it easy to share context across
-                    your team.
+                    Keep your chats and artifacts organized in one place, and make it easy to share context across your
+                    team.
                 </p>
             </motion.div>
 

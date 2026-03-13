@@ -74,6 +74,21 @@
 			"binding": "FIRECRAWL_API_KEY",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "FIRECRAWL_API_KEY"
+		},
+		{
+			"binding": "R2_ACCESS_KEY_ID",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "R2_ACCESS_KEY_ID"
+		},
+		{
+			"binding": "R2_SECRET_ACCESS_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "R2_SECRET_ACCESS_KEY"
+		},
+		{
+			"binding": "CF_ACCOUNT_ID",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "CF_ACCOUNT_ID"
 		}
 	],
 	"queues": {
@@ -81,9 +96,24 @@
 			{
 				"queue": "hi-embedding-queue",
 				"binding": "EMBEDDING_QUEUE"
+			},
+			{
+				"queue": "hi-extraction-queue",
+				"binding": "EXTRACTION_QUEUE"
 			}
 		]
 	},
+	"triggers": {
+		"crons": [
+			"0 * * * *"
+		]
+	},
+	"r2_buckets": [
+		{
+			"binding": "ARTIFACTS_BUCKET",
+			"bucket_name": "hi-artifacts"
+		}
+	],
 	"env": {
 		"dev": {
 			"vars": {
@@ -136,6 +166,21 @@
 					"binding": "FIRECRAWL_API_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "FIRECRAWL_API_KEY"
+				},
+				{
+					"binding": "R2_ACCESS_KEY_ID",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "R2_ACCESS_KEY_ID"
+				},
+				{
+					"binding": "R2_SECRET_ACCESS_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "R2_SECRET_ACCESS_KEY"
+				},
+				{
+					"binding": "CF_ACCOUNT_ID",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "CF_ACCOUNT_ID"
 				}
 			],
 			"queues": {
@@ -143,6 +188,10 @@
 					{
 						"queue": "hi-embedding-queue-dev",
 						"binding": "EMBEDDING_QUEUE"
+					},
+					{
+						"queue": "hi-extraction-queue-dev",
+						"binding": "EXTRACTION_QUEUE"
 					}
 				]
 			},
@@ -150,6 +199,12 @@
 				{
 					"binding": "PREVIEW_DB_MAP",
 					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "ARTIFACTS_BUCKET",
+					"bucket_name": "hi-artifacts-dev"
 				}
 			]
 		},
@@ -204,6 +259,21 @@
 					"binding": "FIRECRAWL_API_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "FIRECRAWL_API_KEY"
+				},
+				{
+					"binding": "R2_ACCESS_KEY_ID",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "R2_ACCESS_KEY_ID"
+				},
+				{
+					"binding": "R2_SECRET_ACCESS_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "R2_SECRET_ACCESS_KEY"
+				},
+				{
+					"binding": "CF_ACCOUNT_ID",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "CF_ACCOUNT_ID"
 				}
 			],
 			"queues": {
@@ -211,6 +281,10 @@
 					{
 						"queue": "hi-embedding-queue-experimental",
 						"binding": "EMBEDDING_QUEUE"
+					},
+					{
+						"queue": "hi-extraction-queue-experimental",
+						"binding": "EXTRACTION_QUEUE"
 					}
 				]
 			},
@@ -218,6 +292,12 @@
 				{
 					"binding": "PREVIEW_DB_MAP",
 					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "ARTIFACTS_BUCKET",
+					"bucket_name": "hi-artifacts-dev"
 				}
 			]
 		}

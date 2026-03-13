@@ -6,6 +6,9 @@ export enum WORKERS_LOCAL_ENDPOINTS {
     RejectAction = '/api/chat/artifacts/reject',
     ImportAction = '/api/chat/artifacts/import',
     UploadAction = '/api/chat/artifacts/upload',
+    PresignAction = '/api/chat/artifacts/upload/presign',
+    ConfirmAction = '/api/chat/artifacts/upload/confirm',
+    DeleteAction = '/api/chat/artifacts/delete',
     ExportAction = '/api/chat/artifacts/export',
 }
 
@@ -22,5 +25,8 @@ export enum CHAT_EP {
     RejectAction = '/artifacts/reject',
     ImportAction = '/artifacts/import',
     UploadAction = '/artifacts/upload',
+    PresignAction = '/artifacts/upload/presign',
+    ConfirmAction = '/artifacts/upload/confirm',
+    DeleteAction = '/artifacts/delete',
     ExportAction = '/artifacts/export',
 }

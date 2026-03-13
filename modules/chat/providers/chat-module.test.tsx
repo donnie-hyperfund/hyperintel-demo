@@ -15,6 +15,7 @@ const chatProviderMock = vi.fn(
         projectId?: string;
         chatType?: 'phase' | 'company' | 'stakeholder';
         initialChatId?: string;
+        chatRouteBuilder?: (chatId: string) => string;
     }) => <div data-props={JSON.stringify(props)}>{children}</div>,
 );
 const scrollTargetProviderMock = vi.fn(({ children }: { children: ReactNode }) => <div>{children}</div>);
@@ -34,6 +35,7 @@ vi.mock('./chat-provider', () => ({
         chatType?: 'phase' | 'company' | 'stakeholder';
         initialChatId?: string;
         initialMessages?: unknown[];
+        chatRouteBuilder?: (chatId: string) => string;
     }) => chatProviderMock(props),
 }));
 
@@ -73,6 +75,23 @@ describe('ChatModule', () => {
         expect(chatProviderMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 chatType: 'company',
+            }),
+        );
+    });
+
+    it('passes a custom chat route builder to ChatProvider', () => {
+        const chatRouteBuilder = (chatId: string) => `/companies/${chatId}?origin=project&projectId=project-1`;
+
+        render(
+            <ChatModule chatType="company" chatRouteBuilder={chatRouteBuilder}>
+                <span>company-intake</span>
+            </ChatModule>,
+        );
+
+        expect(chatProviderMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                chatType: 'company',
+                chatRouteBuilder,
             }),
         );
     });

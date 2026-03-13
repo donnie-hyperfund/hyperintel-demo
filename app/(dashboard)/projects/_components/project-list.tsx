@@ -55,7 +55,7 @@ export const ProjectList = () => {
                 className="flex-1"
                 icon={FileCode}
                 title="No projects yet"
-                description="Create your first project to start organizing your chats and deliverables."
+                description="Create your first project to start organizing your chats and artifacts."
             >
                 <Button asChild className="mt-2">
                     <Link href="/projects/new">

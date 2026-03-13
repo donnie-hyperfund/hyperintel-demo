@@ -1,10 +1,11 @@
 'use client';
 
-import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
 import type { Message } from '@/modules/chat/types';
-import { ArtifactIndicator } from '../../artifact-indicator';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
+import { DocumentDirective } from './document-directive';
+import { UploadDirective } from './file-directive';
 import { MessageThinkingBlock } from './message-thinking-block';
 
 type ChatMessageProps = {
@@ -12,29 +13,9 @@ type ChatMessageProps = {
     renderMarkdown?: boolean;
 };
 
-const documentDirective: DirectiveHandler = ({ type, label, attributes, children }) => {
-    const version = Number(attributes.version);
-
-    if (type === 'container') {
-        return (
-            <div>
-                <ArtifactIndicator
-                    documentName={label}
-                    documentVersion={version}
-                    documentType={attributes['document-type']}
-                />
-                {children}
-            </div>
-        );
-    }
-
-    return (
-        <ArtifactIndicator documentName={label} documentVersion={version} documentType={attributes['document-type']} />
-    );
-};
-
 const chatDirectives = {
-    document: documentDirective,
+    document: DocumentDirective,
+    upload: UploadDirective,
 };
 
 export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps) {
@@ -49,7 +30,7 @@ export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps
             <div className="max-w-[90%] min-w-0 rounded-4 py-3 px-4 bg-neutral-800 text-foreground justify-self-end">
                 <div className="min-w-0">
                     {renderMarkdown ? (
-                        <MarkdownRenderer markdown={text} variant="message" />
+                        <MarkdownRenderer markdown={text} variant="message" directives={chatDirectives} />
                     ) : (
                         <p className="text-sm whitespace-pre-wrap">{text}</p>
                     )}
@@ -85,7 +66,7 @@ export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps
                         <p className="text-sm whitespace-pre-wrap">{textContent}</p>
                     ))}
 
-                {isStreaming && blocks.length === 0 && <TypingIndicator />}
+                {isStreaming && !textContent && thinkingBlocks.length === 0 && <TypingIndicator />}
 
                 {message.isError && (
                     <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
