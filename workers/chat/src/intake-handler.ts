@@ -159,7 +159,7 @@ export async function intakeActionHandler(data: SendIntakeChatActionDto, ctx: Ct
                 {
                     toolGroups,
                     config: {
-                        maxToolCalls: 10,
+                        maxToolCalls: 100,
                         statusUpdates: { enabled: true },
                         onTurnComplete: () => {
                             if (agentCtx.draftManager.hasActive()) {
