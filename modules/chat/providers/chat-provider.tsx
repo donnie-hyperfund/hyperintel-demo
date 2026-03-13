@@ -16,6 +16,7 @@ import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
+import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { useStreamReader } from '../hooks/use-stream-reader';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
 
@@ -47,6 +48,14 @@ export type BaseChatContextValue = {
     clearPendingChanges: () => void;
     /** Clear the pending phase transition flag (called after dialog handles it) */
     clearPendingPhaseTransition: () => void;
+    /** Check if there are other pending artifacts */
+    hasOtherPendingArtifacts: (excludeArtifactKey: string) => boolean;
+};
+
+type ToolDocumentDecision = {
+    action: 'approve' | 'reject';
+    artifactKey: string;
+    version: number;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -110,6 +119,7 @@ export function ChatProvider({
 
     const { openPanel } = useActivePanelContext();
     const { getToken } = useAuth();
+    const { isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
 
     const { mutate: globalMutate, cache, fallback } = useSWRConfig();
     const router = useRouter();
@@ -227,6 +237,18 @@ export function ChatProvider({
         setState((prev) => ({ ...prev, pendingPhaseTransition: false }));
     }, []);
 
+    const hasOtherPendingArtifacts = useCallback(
+        (excludeArtifactKey: string) => {
+            return Object.values(artifactContext.artifacts).some((versions) =>
+                Object.values(versions).some(
+                    (artifact) =>
+                        artifact.key !== excludeArtifactKey && artifact.proposed_version?.status === 'proposed',
+                ),
+            );
+        },
+        [artifactContext.artifacts],
+    );
+
     const onTerminalTool = useCallback((toolName: string) => {
         if (toolName === 'generate_summary') {
             setState((prev) => ({ ...prev, pendingPhaseTransition: true }));
@@ -265,6 +287,28 @@ export function ChatProvider({
         [api.artifacts, api.projectArtifacts, projectId, artifactContext],
     );
 
+    const handleToolDocumentDecision = useCallback(
+        async ({ action, artifactKey, version }: ToolDocumentDecision) => {
+            const artifact = await fetchArtifact(artifactKey, version);
+
+            if (!hasOtherPendingArtifacts(artifactKey)) {
+                clearPendingChanges();
+            }
+
+            if (action !== 'approve' || chatType === 'phase' || !isProjectFlow) {
+                return;
+            }
+
+            if (!artifact) {
+                console.error('[chat-provider] approved artifact could not be fetched for project return flow');
+                return;
+            }
+
+            await handleApprovedArtifact({ id: artifact.id, key: artifact.key });
+        },
+        [chatType, clearPendingChanges, fetchArtifact, handleApprovedArtifact, hasOtherPendingArtifacts, isProjectFlow],
+    );
+
     // Use the stream reader hook for SSE processing
     const { readStream } = useStreamReader({
         artifactContext,
@@ -276,6 +320,7 @@ export function ChatProvider({
         fetchArtifact,
         onDocumentStart,
         onTerminalTool,
+        onToolDocumentDecision: handleToolDocumentDecision,
     });
 
     /** Convert API message to internal Message format */
@@ -579,6 +624,7 @@ export function ChatProvider({
                 navigateToNewPhase,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
+                hasOtherPendingArtifacts,
             })}
         >
             {children}

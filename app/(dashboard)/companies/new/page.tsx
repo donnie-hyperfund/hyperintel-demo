@@ -16,10 +16,10 @@ export default function NewCompanyPage() {
     );
 
     return (
-        <ChatModule chatType="company" chatRouteBuilder={chatRouteBuilder}>
-            <ProjectOriginProvider origin={origin} resourceType="company">
+        <ProjectOriginProvider origin={origin} resourceType="company">
+            <ChatModule chatType="company" chatRouteBuilder={chatRouteBuilder}>
                 <CompanyChatInterface title="New company" />
-            </ProjectOriginProvider>
-        </ChatModule>
+            </ChatModule>
+        </ProjectOriginProvider>
     );
 }

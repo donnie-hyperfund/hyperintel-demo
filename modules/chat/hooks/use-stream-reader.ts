@@ -22,6 +22,12 @@ type DocumentEvent = {
     payload: any;
 };
 
+type ToolDocumentDecision = {
+    action: 'approve' | 'reject';
+    artifactKey: string;
+    version: number;
+};
+
 type UseStreamReaderOptions = {
     /** Artifact context for document streaming */
     artifactContext: Pick<ArtifactContextValue, 'getArtifact' | 'addArtifact' | 'updateArtifact'>;
@@ -41,6 +47,8 @@ type UseStreamReaderOptions = {
     onDocumentStart?: () => void;
     /** Called when a terminal tool completes (e.g. generate_summary) via done event */
     onTerminalTool?: (toolName: string) => void;
+    /** Called after a streamed approve/reject tool succeeds */
+    onToolDocumentDecision?: (decision: ToolDocumentDecision) => Promise<void>;
 };
 
 /**
@@ -57,6 +65,7 @@ export function useStreamReader({
     fetchArtifact,
     onDocumentStart,
     onTerminalTool,
+    onToolDocumentDecision,
 }: UseStreamReaderOptions) {
     const { getArtifact, addArtifact, updateArtifact } = artifactContext;
 
@@ -275,6 +284,22 @@ export function useStreamReader({
 
             // Queue for processing document events sequentially without blocking other events
             const documentQueue = new AsyncEventQueue<DocumentEvent>(handleDocumentEvent);
+            const pendingToolDocumentDecisions = new Map<string, ToolDocumentDecision>();
+
+            const flushToolDocumentDecisions = async () => {
+                if (!onToolDocumentDecision || pendingToolDocumentDecisions.size === 0) return;
+
+                const decisions = Array.from(pendingToolDocumentDecisions.values());
+                pendingToolDocumentDecisions.clear();
+
+                for (const decision of decisions) {
+                    try {
+                        await onToolDocumentDecision(decision);
+                    } catch (error) {
+                        console.error('[stream-reader] failed to handle streamed document decision:', error);
+                    }
+                }
+            };
 
             try {
                 while (true) {
@@ -375,19 +400,31 @@ export function useStreamReader({
                                         updateStreamingMessage();
                                     }
 
-                                    if (event.success === true && event.tool === 'approve_document') {
+                                    if (
+                                        event.success === true &&
+                                        (event.tool === 'approve_document' || event.tool === 'reject_document')
+                                    ) {
                                         try {
                                             const parsed =
                                                 typeof event.result === 'string'
                                                     ? JSON.parse(event.result)
                                                     : event.result;
 
-                                            if (parsed.name && parsed.version) {
+                                            if (parsed.name && typeof parsed.version === 'number') {
                                                 revalidateArtifactByKeyAndVersion?.(parsed.name, parsed.version);
+                                                pendingToolDocumentDecisions.set(
+                                                    `${event.tool}:${parsed.name}:${parsed.version}`,
+                                                    {
+                                                        action:
+                                                            event.tool === 'approve_document' ? 'approve' : 'reject',
+                                                        artifactKey: parsed.name,
+                                                        version: parsed.version,
+                                                    },
+                                                );
                                             }
                                         } catch (err) {
                                             console.warn(
-                                                '[stream-reader] approve_document: failed to parse tool_result',
+                                                `[stream-reader] ${event.tool}: failed to parse tool_result`,
                                                 err,
                                             );
                                         }
@@ -516,6 +553,7 @@ export function useStreamReader({
                                                 : msg,
                                         ),
                                     );
+                                    await flushToolDocumentDecisions();
                                     setIsLoading(false);
                                     if (event.tokenBreakdown && onTokenUsage) {
                                         onTokenUsage({
@@ -537,6 +575,7 @@ export function useStreamReader({
                     }
                 }
             } finally {
+                await flushToolDocumentDecisions();
                 // Ensure message is finalized even if stream ends unexpectedly
                 setMessages((prev) => prev.map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)));
                 setIsLoading(false);
@@ -555,6 +594,7 @@ export function useStreamReader({
             fetchArtifact,
             onDocumentStart,
             onTerminalTool,
+            onToolDocumentDecision,
         ],
     );
 
