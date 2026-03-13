@@ -93,6 +93,13 @@ vi.mock('@/modules/chat/providers/model-selection-provider', () => ({
     useModelSelection: () => ({ selectedModel: selectedModelMock }),
 }));
 
+vi.mock('@/modules/intake/providers/project-origin-provider', () => ({
+    useOptionalProjectOrigin: () => ({
+        isProjectFlow: false,
+        handleApprovedArtifact: vi.fn(),
+    }),
+}));
+
 vi.mock('../hooks/use-stream-reader', () => ({
     useStreamReader: (options: { setIsLoading: (value: boolean) => void }) => {
         streamReaderOptions = options;
