@@ -4,7 +4,7 @@ import { useAuth } from '@clerk/nextjs';
 import type { LucideIcon } from 'lucide-react';
 import { Building, Building2, Dna, Link, Loader2, Users } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import {
@@ -113,6 +113,13 @@ export function LinkResourceDialog() {
         setOpen(false);
     }, []);
 
+    useEffect(() => {
+        if (!pendingPath || open) return;
+        const path = pendingPath;
+        setPendingPath(null);
+        router.push(path);
+    }, [pendingPath, open, router]);
+
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <Tooltip>
@@ -129,13 +136,6 @@ export function LinkResourceDialog() {
             <DialogContent
                 className="sm:max-w-xl flex max-h-140 h-full flex-col"
                 onOpenAutoFocus={(e) => e.preventDefault()}
-                onCloseAutoFocus={(e) => {
-                    if (!pendingPath) return;
-
-                    e.preventDefault();
-                    setPendingPath(null);
-                    router.push(pendingPath);
-                }}
             >
                 <DialogHeader>
                     <DialogTitle>Add Project Intel</DialogTitle>

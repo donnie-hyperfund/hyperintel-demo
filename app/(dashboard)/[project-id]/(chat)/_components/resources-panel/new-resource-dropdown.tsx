@@ -37,7 +37,7 @@ export function NewResourceDropdown({ projectId, open, onOpenChange, onNavigate 
     );
 
     return (
-        <DropdownMenu open={open} onOpenChange={onOpenChange}>
+        <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
             <DropdownMenuTrigger asChild>
                 <Button variant="soft">
                     New resource

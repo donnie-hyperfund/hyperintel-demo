@@ -25,6 +25,7 @@ export function NextPhaseButton() {
     const { data: artifactPages } = useFetchProjectArtifactsInfinite(projectId, { limit: 20 });
 
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [pendingNavigation, setPendingNavigation] = useState(false);
 
     const totalPhases = chatPages?.[0]?.data.length ?? 0;
 
@@ -57,10 +58,16 @@ export function NextPhaseButton() {
     }, [summarizeChat]);
 
     const handleGoToNextPhase = useCallback(() => {
+        setPendingNavigation(true);
         setDialogOpen(false);
+    }, []);
+
+    useEffect(() => {
+        if (!pendingNavigation || dialogOpen) return;
+        setPendingNavigation(false);
         revalidateChats();
         navigateToNewPhase();
-    }, [navigateToNewPhase, revalidateChats]);
+    }, [pendingNavigation, dialogOpen, revalidateChats, navigateToNewPhase]);
 
     // React to chat-triggered phase transition (AI called generate_summary)
     useEffect(() => {
