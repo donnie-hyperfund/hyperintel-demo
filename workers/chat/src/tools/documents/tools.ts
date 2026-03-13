@@ -113,7 +113,14 @@ When a user message contains approval or rejection signals, you MUST process the
 - **Ambiguity:** If it's unclear whether the user is approving or just continuing, and there IS a pending proposed document, ask for clarification before proceeding.
 
 ## Important
-\`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.`,
+\`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.
+
+## Finding Documents / Files
+When the user asks about a specific file or document (e.g., "what's in the UX doc?", "check the analysis file"):
+1. **First** use \`search_knowledge\` with a relevant query — this searches by semantic similarity across all approved documents.
+2. If \`search_knowledge\` returns no relevant results, use \`list_documents\` to browse available documents and find the right name.
+3. Then use \`read_document\` with the exact document name to view its full content.
+Never skip straight to \`read_document\` with a guessed name — always discover the correct name first via search or listing.`,
     behavioralGuidance:
         'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When the user message contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action.',
     tools: [
