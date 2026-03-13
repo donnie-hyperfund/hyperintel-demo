@@ -29,8 +29,8 @@ export function ArtifactApprovalBar({
     artifactVersion,
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
-    const { updateArtifact, artifacts } = useArtifactContext();
-    const { clearPendingChanges, chatType } = useChatContext();
+    const { updateArtifact } = useArtifactContext();
+    const { clearPendingChanges, chatType, hasOtherPendingArtifacts } = useChatContext();
     const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
     const isIntake = isIntakeChat(chatType);
 
@@ -59,14 +59,6 @@ export function ArtifactApprovalBar({
     const isRejecting = isRejectingProjectArtifact || isRejectingUserArtifact;
     const isProcessing = isApproving || isRejecting || isLinkingToProject;
 
-    const hasOtherPendingArtifacts = () => {
-        return Object.values(artifacts).some((versions) =>
-            Object.values(versions).some(
-                (artifact) => artifact.key !== artifactKey && artifact.proposed_version?.status === 'proposed',
-            ),
-        );
-    };
-
     const handleApprove = async () => {
         try {
             onProcessingChange?.(true);
@@ -75,7 +67,7 @@ export function ArtifactApprovalBar({
             if (updated) {
                 updateArtifact(artifactId, updated, artifactVersion, { merge: false });
                 // Clear pending changes only if no other artifacts are pending
-                if (!hasOtherPendingArtifacts()) {
+                if (!hasOtherPendingArtifacts(artifactKey)) {
                     clearPendingChanges();
                 }
 
@@ -99,7 +91,7 @@ export function ArtifactApprovalBar({
             if (updated) {
                 updateArtifact(artifactId, updated, artifactVersion, { merge: false });
                 // Clear pending changes only if no other artifacts are pending
-                if (!hasOtherPendingArtifacts()) {
+                if (!hasOtherPendingArtifacts(artifactKey)) {
                     clearPendingChanges();
                 }
             }

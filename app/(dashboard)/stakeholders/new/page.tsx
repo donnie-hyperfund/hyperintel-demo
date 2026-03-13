@@ -16,10 +16,10 @@ export default function NewStakeholderPage() {
     );
 
     return (
-        <ChatModule chatType="stakeholder" chatRouteBuilder={chatRouteBuilder}>
-            <ProjectOriginProvider origin={origin} resourceType="stakeholder">
+        <ProjectOriginProvider origin={origin} resourceType="stakeholder">
+            <ChatModule chatType="stakeholder" chatRouteBuilder={chatRouteBuilder}>
                 <StakeholderChatInterface title="New stakeholder" />
-            </ProjectOriginProvider>
-        </ChatModule>
+            </ChatModule>
+        </ProjectOriginProvider>
     );
 }
