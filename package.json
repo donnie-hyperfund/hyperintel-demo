@@ -32,7 +32,7 @@
         "test:e2e": "vitest --project app-e2e",
         "test:app": "vitest --project app-unit --project app-e2e",
         "test:app:unit": "vitest --project app-unit",
-        "test:app:providers": "vitest --project app-unit --run modules/chat/providers modules/artifacts/providers modules/intake/providers \"app/(onboarding)/projects/new/_providers\" components/swr-provider.test.tsx components/theme-provider.test.tsx",
+        "test:app:providers": "vitest --project app-unit --run modules/chat/providers modules/artifacts/providers modules/intake/providers modules/file-uploads/providers \"app/(onboarding)/projects/new/_providers\" components/swr-provider.test.tsx components/theme-provider.test.tsx",
         "test:app:e2e": "vitest --project app-e2e",
         "test:app:integration": "vitest --project app-integration",
         "test:common": "vitest --project common --project common-integration",
