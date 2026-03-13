@@ -38,16 +38,20 @@ const FileUploadContext = createContext<FileUploadContextValue | null>(null);
 type FileUploadProviderProps = {
     children: ReactNode;
     scope?: { projectId?: string; chatId?: string };
+    /** When true, uploaded artifact IDs are tracked as "pending" so the resource list hides them until the message is sent. */
+    trackAsPending?: boolean;
 };
 
-export function FileUploadProvider({ children, scope }: FileUploadProviderProps) {
+export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
     const [files, setFiles] = useState<FileEntry[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const filesRef = useRef(files);
     filesRef.current = files;
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
-    const { addPendingArtifactId, clearPendingArtifactIds } = usePendingUploads();
+    const { addPendingArtifactId: _addPending, clearPendingArtifactIds: _clearPending } = usePendingUploads();
+    const addPendingArtifactId = trackAsPending ? _addPending : () => {};
+    const clearPendingArtifactIds = trackAsPending ? _clearPending : () => {};
 
     const hadInFlightRef = useRef(false);
 
