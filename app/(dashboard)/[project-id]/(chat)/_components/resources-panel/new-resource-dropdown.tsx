@@ -14,10 +14,12 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 type NewResourceDropdownProps = {
     projectId: string;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
     onNavigate: (path: string) => void;
 };
 
-export function NewResourceDropdown({ projectId, onNavigate }: NewResourceDropdownProps) {
+export function NewResourceDropdown({ projectId, open, onOpenChange, onNavigate }: NewResourceDropdownProps) {
     const { chatId } = useChatContext();
 
     const handleSelect = useCallback(
@@ -35,7 +37,7 @@ export function NewResourceDropdown({ projectId, onNavigate }: NewResourceDropdo
     );
 
     return (
-        <DropdownMenu>
+        <DropdownMenu open={open} onOpenChange={onOpenChange}>
             <DropdownMenuTrigger asChild>
                 <Button variant="soft">
                     New resource
