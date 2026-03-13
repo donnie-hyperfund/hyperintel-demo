@@ -15,7 +15,11 @@ type ResourceSelectListProps = {
 };
 
 export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: ResourceSelectListProps) {
-    const { companies, stakeholders, legacyDna, isLoading } = useFetchResources({ limit: 20, approvedOnly: true });
+    const { companies, stakeholders, legacyDna, isLoading } = useFetchResources({
+        limit: 20,
+        approvedOnly: true,
+        documentType: ['Company Profile', 'Human Persona', 'Legacy DNA'],
+    });
 
     const totalCount = useMemo(
         () => companies.length + stakeholders.length + legacyDna.length,
