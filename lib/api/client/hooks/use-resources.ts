@@ -11,14 +11,18 @@ import { getArtifactDocumentType } from '@/lib/artifacts/utils';
 import type { ArtifactDto, DocumentType } from '@/lib/schema/artifact';
 
 export function useFetchResources(
-    params: InfinitePaginationParams & { approvedOnly?: boolean; documentType?: DocumentType[] } = { limit: 20 },
+    params: InfinitePaginationParams & {
+        approvedOnly?: boolean;
+        documentType?: DocumentType[];
+        excludeProjectId?: string;
+    } = { limit: 20 },
     config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
-    const { approvedOnly, documentType } = params;
+    const { approvedOnly, documentType, excludeProjectId } = params;
 
     const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
-        getResourceListInfiniteKey(params.limit, approvedOnly, documentType),
+        getResourceListInfiniteKey(params.limit, approvedOnly, documentType, excludeProjectId),
         (key) => {
             const pageParams = key[key.length - 1] as ResourceListParams;
             return createResourceApi(getToken).list(pageParams);

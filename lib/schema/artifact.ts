@@ -206,6 +206,8 @@ export const ListUserResourcesQuerySchema = z.object({
         .enum(['true', 'false'])
         .transform((v) => v === 'true')
         .optional(),
+    /** Exclude resources originally published from this project */
+    excludeProjectId: z.string().uuid().optional(),
 });
 export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
 

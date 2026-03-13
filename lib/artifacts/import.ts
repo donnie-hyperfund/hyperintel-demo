@@ -88,6 +88,18 @@ export async function importArtifactsToProject(
                 continue;
             }
 
+            // Skip artifacts that were originally published from this project
+            const publishedFrom = source.metadata?.publishedFrom as { projectId?: string } | undefined;
+            if (publishedFrom?.projectId === projectId) {
+                details.push({
+                    sourceArtifactId: artifactId,
+                    key: source.key,
+                    status: 'skipped_duplicate',
+                });
+                skipped++;
+                continue;
+            }
+
             // Find best version: latest approved by version number
             const versions = source.versions.getItems();
             const bestVersion = versions
