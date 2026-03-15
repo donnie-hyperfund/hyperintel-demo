@@ -6,6 +6,7 @@ import type { PaginatedResponse, PaginationParams } from '../types';
 const ENDPOINTS = {
     root: '/api/chats',
     byId: (chatId: string) => `/api/chats/${chatId}`,
+    model: (chatId: string) => `/api/chats/${chatId}/model`,
 } as const;
 
 export const chatKeys = {
@@ -47,6 +48,11 @@ export function createChatApi(getToken: TokenGetter) {
 
         delete: async (chatId: string) => {
             const { data } = await axios.delete<{ message: string }>(ENDPOINTS.byId(chatId));
+            return data;
+        },
+
+        updateModel: async (chatId: string, model: string) => {
+            const { data } = await axios.patch<{ selected_model: string }>(ENDPOINTS.model(chatId), { model });
             return data;
         },
     };

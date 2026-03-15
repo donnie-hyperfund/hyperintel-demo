@@ -22,7 +22,7 @@ import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { ListArtifactsQuerySchema } from '@/lib/schema/artifact';
-import { CreateUnifiedChatBodySchema } from '@/lib/schema/chat';
+import { CreateUnifiedChatBodySchema, UpdateChatModelSchema } from '@/lib/schema/chat';
 import {
     type ChatDocumentSummaryDto,
     type ChatDto,
@@ -31,6 +31,8 @@ import {
     ListChatsQuerySchema,
     ListMessagesQuerySchema,
 } from '@/lib/schema/message';
+import { workerSystemAction } from '@/lib/broadcast/worker-internal';
+import { getAvailablePresets } from '@/lib/presets';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -250,6 +252,7 @@ export async function handleUpdateChatModel(
 
     return NextResponse.json({ selected_model: parsed.model });
 }
+
 // ---------------------------------------------------------------------------
 // Chat list handler
 // ---------------------------------------------------------------------------

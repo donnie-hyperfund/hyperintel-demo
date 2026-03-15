@@ -6,7 +6,7 @@
  */
 
 import { runAgentStream } from '@common/ai/agent';
-import type { ParamsWithType } from '@common/ai/inference';
+import { type ParamsWithType, extractInferenceMetadata } from '@common/ai/inference';
 import { resolvePreset, DEFAULT_PRESET_ID } from '@/lib/presets';
 import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
@@ -438,10 +438,12 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                             content: assistantContent,
                             reasoning: streamLog.fullReasoning || null,
                             blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
-                            ...(isError && {
-                                is_error: true,
-                                metadata: { error: event.error!.message },
-                            }),
+                            metadata: {
+                                preset: presetId,
+                                inference: extractInferenceMetadata(inferenceParams),
+                                ...(isError && { error: event.error!.message }),
+                            },
+                            ...(isError && { is_error: true }),
                             ...(isAborted && { is_aborted: true }),
                             ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
                         });

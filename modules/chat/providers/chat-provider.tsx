@@ -58,6 +58,10 @@ export type BaseChatContextValue = {
     hasOtherPendingArtifacts: (excludeArtifactKey: string) => boolean;
     /** Set artifact action processing state (approve/reject in flight) */
     setProcessingArtifactAction: (isProcessing: boolean) => void;
+    /** Change the chat's model — persists to DB via API when chatId exists, otherwise local-only */
+    changeModel: (presetId: string) => Promise<void>;
+    /** Dismiss the invalid model alert dialog */
+    dismissInvalidModelAlert: () => void;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -146,7 +150,7 @@ export function ChatProvider({
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
-    const { selectedModel } = useModelSelection();
+    const { selectedModel, setSelectedModel, isModelAvailable, setIsChangingModel } = useModelSelection();
     const skipNextLoad = useRef(false);
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
@@ -168,6 +172,7 @@ export function ChatProvider({
             activeResponseId: null,
             summaryBlocks: [],
             isProcessingArtifactAction: false,
+            showInvalidModelAlert: false,
         };
     });
 
@@ -515,7 +520,11 @@ export function ChatProvider({
         onToolDocumentDecision: handleToolDocumentDecision,
         // Clear stale isGenerating/isSummarizing set from DB's active_agent_message_id
         // when the initial WS subscribe_response confirms no active stream.
-        onSubscribeResponse: (status: 'idle' | 'streaming' | 'stale') => {
+        // Also sync selectedModel from the subscribe response.
+        onSubscribeResponse: (status: 'idle' | 'streaming' | 'stale', selectedModel: string | null) => {
+            if (selectedModel) {
+                setSelectedModel(selectedModel);
+            }
             if (status === 'idle') {
                 setState((prev) =>
                     prev.isGenerating || prev.isSummarizing
@@ -523,6 +532,9 @@ export function ChatProvider({
                         : prev,
                 );
             }
+        },
+        onModelChanged: (model: string) => {
+            setSelectedModel(model);
         },
     };
 
@@ -781,6 +793,11 @@ export function ChatProvider({
             const apiMessages: Message[] =
                 messagesData.data?.map((m) => mapApiMessage(m, chatData.active_agent_message_id)) || [];
 
+            // Sync persisted model selection
+            if (chatData.selected_model) {
+                setSelectedModel(chatData.selected_model);
+            }
+
             setState((prev) => {
                 const apiMessagesReversed = apiMessages.reverse();
 
@@ -815,7 +832,7 @@ export function ChatProvider({
             console.error('Error loading messages:', error);
             setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
         }
-    }, [api, chatId, mapApiMessage]);
+    }, [api, chatId, mapApiMessage, setSelectedModel]);
 
     // Keep reconnect ref in sync with loadMessages
     loadMessagesRef.current = loadMessages;
@@ -864,6 +881,11 @@ export function ChatProvider({
     const sendMessage = useCallback(
         async (content: string, opts?: { stagedArtifactIds?: string[] }) => {
             if (!content.trim() || state.isGenerating) return;
+
+            if (!isModelAvailable) {
+                setState((prev) => ({ ...prev, showInvalidModelAlert: true }));
+                return;
+            }
 
             // Create user message with temporary client-side ID
             const userMessage = createUserMessage(content);
@@ -931,7 +953,7 @@ export function ChatProvider({
                 }));
             }
         },
-        [api, cache, chatType, ensureChatId, getToken, globalMutate, selectedModel, state.isGenerating],
+        [api, cache, chatType, ensureChatId, getToken, globalMutate, selectedModel, state.isGenerating, isModelAvailable],
     );
 
     // ========================================================================
@@ -1029,6 +1051,35 @@ export function ChatProvider({
         }));
     }, [chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
 
+    /** Change the chat's selected model — persists via API when a chat exists */
+    const changeModel = useCallback(
+        async (presetId: string) => {
+            if (!chatId) {
+                // No chat yet — just update local state (will be sent with first message)
+                setSelectedModel(presetId);
+                return;
+            }
+
+            const previousModel = selectedModel;
+            setSelectedModel(presetId); // optimistic
+            setIsChangingModel(true);
+
+            try {
+                await api.chats.updateModel(chatId, presetId);
+            } catch (err) {
+                console.error('Failed to update model:', err);
+                setSelectedModel(previousModel); // revert
+            } finally {
+                setIsChangingModel(false);
+            }
+        },
+        [chatId, api, setSelectedModel, selectedModel, setIsChangingModel],
+    );
+
+    const dismissInvalidModelAlert = useCallback(() => {
+        setState((prev) => ({ ...prev, showInvalidModelAlert: false }));
+    }, []);
+
     return (
         <ChatContext.Provider
             value={buildContextValue(chatType, projectId, {
@@ -1048,6 +1099,8 @@ export function ChatProvider({
                 clearPendingPhaseTransition,
                 hasOtherPendingArtifacts,
                 setProcessingArtifactAction,
+                changeModel,
+                dismissInvalidModelAlert,
             })}
         >
             {children}

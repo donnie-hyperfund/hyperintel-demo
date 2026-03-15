@@ -23,6 +23,12 @@ export const SummarizeActionSchema = z.object({
 
 export type SummarizeActionDto = z.infer<typeof SummarizeActionSchema>;
 
+export const UpdateChatModelSchema = z.object({
+    chatId: z.string().uuid(),
+    model: z.string(),
+});
+export type UpdateChatModelDto = z.infer<typeof UpdateChatModelSchema>;
+
 export const TokenBreakdownSchema = z.object({
     context: z.number(),
     prompt: z.number(),

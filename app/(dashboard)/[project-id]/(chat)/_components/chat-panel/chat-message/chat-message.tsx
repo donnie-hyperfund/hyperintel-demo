@@ -29,15 +29,19 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
             .map((b) => b.content)
             .join('\n');
         return (
-            <div className="group max-w-[90%] min-w-0 rounded-4 py-3 px-4 bg-neutral-800 text-foreground justify-self-end">
-                <div className="min-w-0">
-                    {renderMarkdown ? (
-                        <MarkdownRenderer markdown={text} variant="message" directives={chatDirectives} />
-                    ) : (
-                        <p className="text-sm whitespace-pre-wrap">{text}</p>
-                    )}
+            <div className="group max-w-[90%] min-w-0 justify-self-end">
+                <div className="rounded-4 py-3 px-4 bg-neutral-800 text-foreground">
+                    <div className="min-w-0">
+                        {renderMarkdown ? (
+                            <MarkdownRenderer markdown={text} variant="message" directives={chatDirectives} />
+                        ) : (
+                            <p className="text-sm whitespace-pre-wrap">{text}</p>
+                        )}
+                    </div>
                 </div>
-                <DevSlot name="message-actions" messageId={message.id} content={text} role="user" blocks={blocks} />
+                <div className="flex justify-end">
+                    <DevSlot name="message-actions" messageId={message.id} content={text} role="user" blocks={blocks} />
+                </div>
             </div>
         );
     }

@@ -82,10 +82,11 @@ function IconButton({
 
 // --- Main component ---
 
-function MessageFeedback({ messageId, content, blocks }: Props) {
+function MessageFeedback({ messageId, content, role, blocks }: Props) {
 	// Subscribe to feedback changes so toggle re-renders
 	useSyncExternalStore(subscribeFeedback, getFeedbackSnapshot, getFeedbackSnapshot);
 	const feedback = getFeedback(messageId);
+	const isUser = role === 'user';
 
 	const copyText = useCallback(() => {
 		navigator.clipboard.writeText(content);
@@ -109,17 +110,21 @@ function MessageFeedback({ messageId, content, blocks }: Props) {
 			<IconButton onClick={copyText} title="Copy text">
 				<Copy size={14} />
 			</IconButton>
-			{blocks && blocks.length > 0 && (
+			{!isUser && blocks && blocks.length > 0 && (
 				<IconButton onClick={copyBlocks} title="Copy blocks as JSON">
 					<FileJson size={14} />
 				</IconButton>
 			)}
-			<IconButton onClick={toggleUp} title="Thumbs up" active={feedback === 'up'} activeColor="text-green-400">
-				<ThumbsUp size={14} />
-			</IconButton>
-			<IconButton onClick={toggleDown} title="Thumbs down" active={feedback === 'down'} activeColor="text-red-400">
-				<ThumbsDown size={14} />
-			</IconButton>
+			{!isUser && (
+				<>
+					<IconButton onClick={toggleUp} title="Thumbs up" active={feedback === 'up'} activeColor="text-green-400">
+						<ThumbsUp size={14} />
+					</IconButton>
+					<IconButton onClick={toggleDown} title="Thumbs down" active={feedback === 'down'} activeColor="text-red-400">
+						<ThumbsDown size={14} />
+					</IconButton>
+				</>
+			)}
 		</div>
 	);
 }
