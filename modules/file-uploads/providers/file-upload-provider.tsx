@@ -8,6 +8,8 @@ import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/proje
 import { confirmUpload, deleteArtifact, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
 import { isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
+import { draftStorageKeys } from '@/lib/storage/draft-storage-keys';
+import { safeGetJsonItem, safeRemoveItem, safeSetJsonItem } from '@/lib/storage/local-storage';
 import { usePendingUploads } from './pending-uploads-provider';
 
 const BINARY_MIME_TYPES: Record<string, string> = {
@@ -19,10 +21,16 @@ const BINARY_MIME_TYPES: Record<string, string> = {
 export type FileEntryStatus = 'pending' | 'uploading' | 'processing' | 'ready';
 
 export type FileEntry = {
-    file: File;
+    id: string;
+    name: string;
+    size: number;
     status: FileEntryStatus;
+    file?: File;
+    artifactId?: string;
     presignData?: PresignUploadResponseDto;
 };
+
+type PersistedFileEntry = Omit<FileEntry, 'file'>;
 
 export type FileUploadContextValue = {
     files: FileEntry[];
@@ -43,17 +51,26 @@ type FileUploadProviderProps = {
 };
 
 export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
-    const [files, setFiles] = useState<FileEntry[]>([]);
+    const {
+        storageKey,
+        addPendingArtifactId: _addPending,
+        clearPendingArtifactIds: _clearPending,
+    } = usePendingUploads();
+    const addPendingArtifactId: (id: string) => void = trackAsPending ? _addPending : () => {};
+    const clearPendingArtifactIds: () => void = trackAsPending ? _clearPending : () => {};
+    const uploadsStorageKey = trackAsPending ? draftStorageKeys(storageKey).uploadedFiles : null;
+
+    const [files, setFiles] = useState<FileEntry[]>(
+        () => (uploadsStorageKey ? safeGetJsonItem<PersistedFileEntry[]>(uploadsStorageKey) : null) ?? [],
+    );
     const [isSubmitting, setIsSubmitting] = useState(false);
     const filesRef = useRef(files);
     filesRef.current = files;
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
-    const { addPendingArtifactId: _addPending, clearPendingArtifactIds: _clearPending } = usePendingUploads();
-    const addPendingArtifactId = trackAsPending ? _addPending : () => {};
-    const clearPendingArtifactIds = trackAsPending ? _clearPending : () => {};
 
     const hadInFlightRef = useRef(false);
+    const resumedProcessingIdsRef = useRef<Set<string>>(new Set());
 
     useEffect(() => {
         const hasFiles = files.length > 0;
@@ -62,12 +79,33 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         if (hadInFlightRef.current && allReady) {
             toast({
                 title: 'Upload complete',
-                description: files.length === 1 ? files[0].file.name : `${files.length} files`,
+                description: files.length === 1 ? files[0].name : `${files.length} files`,
             });
         }
 
         hadInFlightRef.current = hasFiles && !allReady;
     }, [files]);
+
+    useEffect(() => {
+        if (!uploadsStorageKey) return;
+
+        const persistedEntries = files.filter((entry) => entry.artifactId).map(({ file: _file, ...entry }) => entry);
+
+        if (persistedEntries.length > 0) {
+            safeSetJsonItem(uploadsStorageKey, persistedEntries);
+            return;
+        }
+
+        safeRemoveItem(uploadsStorageKey);
+    }, [files, uploadsStorageKey]);
+
+    // Re-populate pending artifact IDs from restored file entries on mount
+    useEffect(() => {
+        if (!trackAsPending) return;
+        for (const entry of filesRef.current) {
+            if (entry.artifactId) addPendingArtifactId(entry.artifactId);
+        }
+    }, []);
 
     const invalidateResources = useCallback(() => {
         if (scope?.projectId) {
@@ -75,12 +113,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         }
     }, [globalMutate, scope?.projectId]);
 
-    const updateEntry = useCallback((index: number, update: Partial<FileEntry>) => {
-        setFiles((prev) => prev.map((entry, i) => (i === index ? { ...entry, ...update } : entry)));
+    const updateEntry = useCallback((entryId: string, update: Partial<FileEntry>) => {
+        setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
     }, []);
 
     const pollFileStatus = useCallback(
-        async (fileId: string, index: number) => {
+        async (fileId: string, entryId: string) => {
             const poll = async () => {
                 const token = await getToken();
                 if (!token) return;
@@ -94,13 +132,13 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 const fileStatus = data.files.find((f) => f.fileId === fileId)?.status;
 
                 if (fileStatus === 'processed') {
-                    updateEntry(index, { status: 'ready' });
+                    updateEntry(entryId, { status: 'ready' });
                     invalidateResources();
                     return;
                 }
 
                 if (fileStatus === 'error') {
-                    setFiles((prev) => prev.filter((_, i) => i !== index));
+                    setFiles((prev) => prev.filter((entryToKeep) => entryToKeep.id !== entryId));
                     toast({
                         title: 'Upload failed',
                         description: 'Something went wrong — please try again',
@@ -114,14 +152,14 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
             await poll();
         },
-        [getToken, updateEntry, invalidateResources],
+        [getToken, invalidateResources, updateEntry],
     );
 
     const startEagerUpload = useCallback(
-        async (file: File, index: number) => {
+        async (file: File, entryId: string) => {
             const ext = `.${file.name.split('.').pop()?.toLowerCase()}`;
 
-            updateEntry(index, { status: 'uploading' });
+            updateEntry(entryId, { status: 'uploading' });
 
             try {
                 const token = await getToken();
@@ -162,9 +200,14 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         throw new Error(err.message || 'Confirm failed');
                     }
 
-                    updateEntry(index, { status: 'processing', presignData });
+                    updateEntry(entryId, {
+                        status: 'processing',
+                        artifactId: presignData.artifactId,
+                        presignData,
+                    });
                     addPendingArtifactId(presignData.artifactId);
-                    pollFileStatus(presignData.fileId, index);
+                    resumedProcessingIdsRef.current.add(entryId);
+                    pollFileStatus(presignData.fileId, entryId);
                 } else {
                     const res = await uploadArtifact({ file, ...scope }, token);
 
@@ -178,11 +221,14 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         addPendingArtifactId(resData.artifactId);
                     }
 
-                    updateEntry(index, { status: 'ready' });
+                    updateEntry(entryId, {
+                        status: 'ready',
+                        artifactId: resData.artifactId,
+                    });
                     invalidateResources();
                 }
             } catch (err) {
-                setFiles((prev) => prev.filter((_, i) => i !== index));
+                setFiles((prev) => prev.filter((entry) => entry.id !== entryId));
                 toast({
                     title: `Failed to upload "${file.name}"`,
                     description: err instanceof Error ? err.message : undefined,
@@ -190,36 +236,42 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 });
             }
         },
-        [getToken, scope, updateEntry, invalidateResources, pollFileStatus, addPendingArtifactId],
+        [addPendingArtifactId, getToken, invalidateResources, pollFileStatus, scope, updateEntry],
     );
 
     const addFiles = useCallback(
         (newFiles: File[]) => {
             const entries: FileEntry[] = [];
-            for (const f of newFiles) {
-                const error = validateArtifactFile(f);
+            for (const file of newFiles) {
+                const error = validateArtifactFile(file);
                 if (error) {
                     toast({ title: error.message, variant: 'destructive' });
                 } else {
-                    entries.push({ file: f, status: 'pending' });
+                    entries.push({
+                        id: crypto.randomUUID(),
+                        file,
+                        name: file.name,
+                        size: file.size,
+                        status: 'pending',
+                    });
                 }
             }
             if (entries.length === 0) return;
 
             toast({
                 title: 'Uploading',
-                description: entries.length === 1 ? entries[0].file.name : `${entries.length} files`,
+                description: entries.length === 1 ? entries[0].name : `${entries.length} files`,
             });
 
             setFiles((prev) => {
-                const startIndex = prev.length;
-                // Schedule eager uploads outside the updater to avoid
-                // double-firing in React StrictMode
                 queueMicrotask(() => {
-                    entries.forEach((entry, i) => {
-                        startEagerUpload(entry.file, startIndex + i);
+                    entries.forEach((entry) => {
+                        if (entry.file) {
+                            startEagerUpload(entry.file, entry.id);
+                        }
                     });
                 });
+
                 return [...prev, ...entries];
             });
         },
@@ -230,11 +282,10 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         (index: number) => {
             const entry = filesRef.current[index];
 
-            // Delete the artifact from the backend if it was uploaded
-            if (entry?.presignData) {
+            if (entry?.artifactId) {
                 getToken().then((token) => {
                     if (token) {
-                        deleteArtifact({ artifactId: entry.presignData!.artifactId }, token);
+                        deleteArtifact({ artifactId: entry.artifactId! }, token);
                         invalidateResources();
                     }
                 });
@@ -250,15 +301,15 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         clearPendingArtifactIds();
     }, [clearPendingArtifactIds]);
 
-    // Simple polling helper to wait for an in-flight eager upload
-    const waitForStatus = useCallback((file: File, target: FileEntryStatus): Promise<void> => {
+    const waitForStatus = useCallback((entryId: string, target: FileEntryStatus): Promise<void> => {
         return new Promise((resolve, reject) => {
             const check = () => {
-                const entry = filesRef.current.find((e) => e.file === file);
+                const entry = filesRef.current.find((currentEntry) => currentEntry.id === entryId);
                 if (!entry) return reject(new Error('Upload failed'));
                 if (entry.status === target) return resolve();
                 setTimeout(check, 200);
             };
+
             check();
         });
     }, []);
@@ -268,11 +319,10 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         try {
             const current = filesRef.current;
 
-            // Wait for all in-flight uploads/processing to finish
             await Promise.all(
                 current.map((entry) => {
                     if (entry.status !== 'ready') {
-                        return waitForStatus(entry.file, 'ready');
+                        return waitForStatus(entry.id, 'ready');
                     }
                 }),
             );
@@ -288,7 +338,17 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         } finally {
             setIsSubmitting(false);
         }
-    }, [waitForStatus, clearPendingArtifactIds]);
+    }, [clearPendingArtifactIds, waitForStatus]);
+
+    useEffect(() => {
+        for (const entry of files) {
+            if (entry.status !== 'processing' || !entry.presignData) continue;
+            if (resumedProcessingIdsRef.current.has(entry.id)) continue;
+
+            resumedProcessingIdsRef.current.add(entry.id);
+            void pollFileStatus(entry.presignData.fileId, entry.id);
+        }
+    }, [files, pollFileStatus]);
 
     return (
         <FileUploadContext.Provider value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting }}>

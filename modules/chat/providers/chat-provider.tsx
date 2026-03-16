@@ -78,8 +78,8 @@ type ChatProviderProps = {
     children: ReactNode;
     /** Project ID for API calls (required for phase chats, omit for intake) */
     projectId?: string;
-    /** Chat type — defaults to 'phase' */
-    chatType?: ChatType;
+    /** Chat type */
+    chatType: ChatType;
     /** Initial chat ID (optional - will create on first message if not provided) */
     initialChatId?: string;
     /** Initial messages to display */
@@ -110,7 +110,7 @@ function createUserMessage(content: string): Message {
 export function ChatProvider({
     children,
     projectId,
-    chatType = 'phase',
+    chatType,
     initialChatId,
     initialMessages = [],
     chatRouteBuilder,

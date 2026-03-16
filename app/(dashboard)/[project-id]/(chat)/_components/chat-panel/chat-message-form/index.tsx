@@ -59,7 +59,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
         if (!data.message.trim() && files.length === 0) return;
 
         // Capture file names before submitFiles clears them
-        const uploadedFiles = files.map((entry) => entry.file);
+        const uploadedFiles = files.map((entry) => ({ name: entry.name, size: entry.size }));
 
         if (uploadedFiles.length > 0) {
             await submitFiles();
@@ -137,8 +137,9 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                     <div className="grid grid-cols-2 w-full relative flex-wrap gap-3 max-h-48 overflow-y-auto pb-2">
                                         {files.map((entry, i) => (
                                             <FilePreviewItem
-                                                key={`${entry.file.name}-${entry.file.size}`}
-                                                file={entry.file}
+                                                key={entry.id}
+                                                name={entry.name}
+                                                size={entry.size}
                                                 status={entry.status}
                                                 onRemove={() => removeFile(i)}
                                             />

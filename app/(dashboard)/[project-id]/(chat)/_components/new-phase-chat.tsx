@@ -18,7 +18,7 @@ export function NewPhaseChat({ projectId }: NewPhaseChatProps) {
     }, []);
 
     return (
-        <ChatModule key={mountKey} projectId={projectId}>
+        <ChatModule key={mountKey} chatType="phase" projectId={projectId}>
             <PhaseChatInterface />
         </ChatModule>
     );

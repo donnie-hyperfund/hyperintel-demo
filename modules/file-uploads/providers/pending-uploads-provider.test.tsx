@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import { PendingUploadsProvider, usePendingUploads } from './pending-uploads-provider';
 
 function wrapper({ children }: { children: ReactNode }) {
-    return <PendingUploadsProvider>{children}</PendingUploadsProvider>;
+    return <PendingUploadsProvider storageKey="test">{children}</PendingUploadsProvider>;
 }
 
 describe('PendingUploadsProvider', () => {
@@ -78,7 +78,7 @@ describe('PendingUploadsProvider', () => {
         expect(result.current.pendingArtifactIds).toEqual(['artifact-2']);
     });
 
-    it('does not deduplicate ids', () => {
+    it('deduplicates ids', () => {
         const { result } = renderHook(() => usePendingUploads(), { wrapper });
 
         act(() => {
@@ -86,6 +86,6 @@ describe('PendingUploadsProvider', () => {
             result.current.addPendingArtifactId('artifact-1');
         });
 
-        expect(result.current.pendingArtifactIds).toEqual(['artifact-1', 'artifact-1']);
+        expect(result.current.pendingArtifactIds).toEqual(['artifact-1']);
     });
 });
