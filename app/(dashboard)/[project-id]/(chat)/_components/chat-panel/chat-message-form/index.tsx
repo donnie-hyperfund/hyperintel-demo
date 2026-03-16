@@ -9,6 +9,7 @@ import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/componen
 import { Button } from '@/components/ui/button';
 import { IS_DEV } from '@/lib/config';
 import { cn } from '@/lib/utils';
+import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
@@ -25,12 +26,14 @@ type ChatMessageFormProps = {
 const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
     const {
         sendMessage,
+        chatType,
         chatId,
+        projectId,
         state: { isGenerating, isSummarizing, isLoading, tokenUsage },
     } = useChatContext();
 
     const { files, removeFile, submitFiles, isSubmitting } = useFileUploadContext();
-
+    const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
     const {
@@ -42,7 +45,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
     } = useForm<ChatMessageFormValues>({
         resolver: zodResolver(chatMessageFormSchema),
         defaultValues: {
-            message: '',
+            message: initialDraft,
         },
     });
 
@@ -67,6 +70,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
 
         const message = [fileDirective, data.message.trim()].filter(Boolean).join('\n\n');
 
+        clearDraft();
         reset({ message: '' });
         textareaRef.current?.updateTextareaHeight();
 
@@ -157,6 +161,7 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                                 value={message || ''}
                                 onChange={(e) => {
                                     onChange(e);
+                                    saveDraft(e.target.value);
                                 }}
                                 onBlur={onBlur}
                                 onKeyDown={handleKeyDown}
