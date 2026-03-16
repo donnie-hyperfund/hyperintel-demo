@@ -3,18 +3,24 @@
 import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
 
 type PendingUploadsContextValue = {
+    storageKey: string;
     pendingArtifactIds: string[];
     addPendingArtifactId: (id: string) => void;
     clearPendingArtifactIds: () => void;
 };
 
+type PendingUploadsProviderProps = {
+    children: ReactNode;
+    storageKey: string;
+};
+
 const PendingUploadsContext = createContext<PendingUploadsContextValue | null>(null);
 
-export function PendingUploadsProvider({ children }: { children: ReactNode }) {
+export function PendingUploadsProvider({ children, storageKey }: PendingUploadsProviderProps) {
     const [pendingArtifactIds, setPendingArtifactIds] = useState<string[]>([]);
 
     const addPendingArtifactId = useCallback((id: string) => {
-        setPendingArtifactIds((prev) => [...prev, id]);
+        setPendingArtifactIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     }, []);
 
     const clearPendingArtifactIds = useCallback(() => {
@@ -22,7 +28,9 @@ export function PendingUploadsProvider({ children }: { children: ReactNode }) {
     }, []);
 
     return (
-        <PendingUploadsContext.Provider value={{ pendingArtifactIds, addPendingArtifactId, clearPendingArtifactIds }}>
+        <PendingUploadsContext.Provider
+            value={{ storageKey, pendingArtifactIds, addPendingArtifactId, clearPendingArtifactIds }}
+        >
             {children}
         </PendingUploadsContext.Provider>
     );

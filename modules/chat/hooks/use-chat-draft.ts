@@ -1,33 +1,25 @@
 import { useCallback, useMemo, useRef } from 'react';
+import { getDraftBaseKey } from '@/lib/storage/draft-storage-keys';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
 import type { ChatType } from '../types';
 
-function draftKey(chatType: ChatType, chatId: string | null, projectId?: string): string | null {
-    if (chatId) return `draft:${chatType}:${chatId}`;
-    if (projectId) return `draft:${chatType}:${projectId}:new`;
-    return `draft:${chatType}:new`;
-}
-
 export function useChatDraft(chatType: ChatType, chatId: string | null, projectId?: string) {
-    const key = draftKey(chatType, chatId, projectId);
+    const key = getDraftBaseKey(chatType, chatId, projectId);
     const keyRef = useRef(key);
     keyRef.current = key;
 
-    const initialDraft = useMemo(() => (key ? (safeGetItem(key) ?? '') : ''), [key]);
+    const initialDraft = useMemo(() => safeGetItem(key) ?? '', [key]);
 
     const saveDraft = useCallback((value: string) => {
-        const k = keyRef.current;
-        if (!k) return;
         if (value.trim()) {
-            safeSetItem(k, value);
+            safeSetItem(keyRef.current, value);
         } else {
-            safeRemoveItem(k);
+            safeRemoveItem(keyRef.current);
         }
     }, []);
 
     const clearDraft = useCallback(() => {
-        const k = keyRef.current;
-        if (k) safeRemoveItem(k);
+        safeRemoveItem(keyRef.current);
     }, []);
 
     return { initialDraft, saveDraft, clearDraft } as const;

@@ -108,16 +108,20 @@ vi.mock('../hooks/use-stream-reader', () => ({
 }));
 
 function phaseWrapper({ children }: { children: ReactNode }) {
-    return <ChatProvider projectId="project-1">{children}</ChatProvider>;
+    return (
+        <ChatProvider chatType="phase" projectId="project-1">
+            {children}
+        </ChatProvider>
+    );
 }
 
 function phaseWithoutProjectWrapper({ children }: { children: ReactNode }) {
-    return <ChatProvider>{children}</ChatProvider>;
+    return <ChatProvider chatType="phase">{children}</ChatProvider>;
 }
 
 function phaseWithInitialChatWrapper({ children }: { children: ReactNode }) {
     return (
-        <ChatProvider projectId="project-1" initialChatId="chat-initial">
+        <ChatProvider chatType="phase" projectId="project-1" initialChatId="chat-initial">
             {children}
         </ChatProvider>
     );
