@@ -312,9 +312,9 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             const entry = filesRef.current[index];
 
             if (entry?.artifactId) {
-                getToken().then((token) => {
+                getToken().then(async (token) => {
                     if (token) {
-                        deleteArtifact({ artifactId: entry.artifactId! }, token);
+                        await deleteArtifact({ artifactId: entry.artifactId! }, token);
                         invalidateResources();
                     }
                 });
@@ -358,6 +358,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
             setFiles([]);
             clearPendingArtifactIds();
+            invalidateResources();
         } catch (err) {
             toast({
                 title: 'Upload failed',
@@ -367,7 +368,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         } finally {
             setIsSubmitting(false);
         }
-    }, [clearPendingArtifactIds, waitForStatus]);
+    }, [clearPendingArtifactIds, invalidateResources, waitForStatus]);
 
     useEffect(() => {
         const resumed: FileEntry[] = [];
