@@ -359,39 +359,66 @@ export function WsLogTab() {
 		const result: GroupedLogEntry[] = [];
 		const openStreams = new Map<string, StreamGroup>();
 
+		const ensureOpenStream = (agentMessageId: string, entry: WsLogEntry): StreamGroup => {
+			const existing = openStreams.get(agentMessageId);
+			if (existing) return existing;
+
+			const group: StreamGroup = {
+				kind: 'stream',
+				id: entry.id,
+				startEntry: entry,
+				children: [entry],
+				agentMessageId,
+			};
+			openStreams.set(agentMessageId, group);
+			result.push(group);
+			return group;
+		};
+
 		for (const entry of filtered) {
 			const data = entry.data as any;
 
+			// Primary stream start signal
 			if (entry.event === 'stream_started' && data?.agentMessageId) {
-				const group: StreamGroup = {
-					kind: 'stream',
-					id: entry.id,
-					startEntry: entry,
-					children: [entry],
-					agentMessageId: data.agentMessageId,
-				};
-				openStreams.set(data.agentMessageId, group);
-				result.push(group);
+				const group = ensureOpenStream(data.agentMessageId, entry);
+				if (group.children[group.children.length - 1]?.id !== entry.id) {
+					group.children.push(entry);
+				}
+				continue;
+			}
+
+			// Mid-stream recovery: subscribe_response can attach to an already running stream
+			if (
+				entry.event === 'subscribe_response' &&
+				data?.status === 'streaming' &&
+				typeof data?.agentMessageId === 'string'
+			) {
+				const group = ensureOpenStream(data.agentMessageId, entry);
+				if (group.children[group.children.length - 1]?.id !== entry.id) {
+					group.children.push(entry);
+				}
+				continue;
+			}
+
+			// Stream events/status can arrive without a visible stream_started in this log window.
+			// Create an implicit group so logs remain grouped by stream.
+			if (entry.event === 'stream_event' && data?.agentMessageId) {
+				const group = ensureOpenStream(data.agentMessageId, entry);
+				if (group.children[group.children.length - 1]?.id !== entry.id) {
+					group.children.push(entry);
+				}
 				continue;
 			}
 
 			if (entry.event === 'stream_status' && data?.agentMessageId) {
-				const group = openStreams.get(data.agentMessageId);
-				if (group) {
-					group.endEntry = entry;
+				const group = ensureOpenStream(data.agentMessageId, entry);
+				if (group.children[group.children.length - 1]?.id !== entry.id) {
 					group.children.push(entry);
-					group.status = data.status;
-					openStreams.delete(data.agentMessageId);
-					continue;
 				}
-			}
-
-			if (entry.event === 'stream_event' && data?.agentMessageId) {
-				const group = openStreams.get(data.agentMessageId);
-				if (group) {
-					group.children.push(entry);
-					continue;
-				}
+				group.endEntry = entry;
+				group.status = data.status;
+				openStreams.delete(data.agentMessageId);
+				continue;
 			}
 
 			result.push({ kind: 'standalone', entry });

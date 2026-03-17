@@ -90,12 +90,20 @@ vi.mock('@/lib/websocket/provider', () => ({
     useWebsocket: () => wsMock,
 }));
 
+const closePanelMock = vi.fn();
 vi.mock('@/modules/chat/providers/active-panel-provider', () => ({
-    useActivePanelContext: () => ({ openPanel: openPanelMock }),
+    useActivePanelContext: () => ({ openPanel: openPanelMock, closePanel: closePanelMock, panelState: null }),
 }));
 
+const setSelectedModelMock = vi.fn();
+const setIsChangingModelMock = vi.fn();
 vi.mock('@/modules/chat/providers/model-selection-provider', () => ({
-    useModelSelection: () => ({ selectedModel: selectedModelMock }),
+    useModelSelection: () => ({
+        selectedModel: selectedModelMock,
+        setSelectedModel: setSelectedModelMock,
+        isModelAvailable: true,
+        setIsChangingModel: setIsChangingModelMock,
+    }),
 }));
 
 vi.mock('@/modules/intake/providers/project-origin-provider', () => ({
@@ -166,6 +174,9 @@ describe('ChatProvider', () => {
         sendIntakeActionMock.mockReset();
         summarizeMock.mockReset();
         openPanelMock.mockReset();
+        closePanelMock.mockReset();
+        setSelectedModelMock.mockReset();
+        setIsChangingModelMock.mockReset();
         createApiClientMock.mockReset();
 
         cacheMock.clear();
@@ -309,14 +320,14 @@ describe('ChatProvider', () => {
                 message: 'hello world',
                 chatId: 'chat-1',
                 model: 'sonnet',
-            },
+            }),
             'token-abc',
         );
         expect(result.current.chatId).toBe('chat-1');
         expect(result.current.state.phaseIndex).toBe(3);
         expect(result.current.state.messages.at(-1)?.role).toBe('user');
         expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/project-1/chat-1');
-        expect(insertChatToCacheMock).toHaveBeenCalledWith(cacheMock, mutateMock, {
+        expect(insertChatToCacheMock).toHaveBeenCalledWith(cacheMock, mutateMock, 'project-1', {
             id: 'chat-1',
             phase_index: 3,
         });
@@ -361,7 +372,7 @@ describe('ChatProvider', () => {
                 message: 'intake message',
                 chatId: 'company-chat-1',
                 model: 'sonnet',
-            },
+            }),
             'token-abc',
         );
         expect(result.current.chatId).toBe('company-chat-1');
