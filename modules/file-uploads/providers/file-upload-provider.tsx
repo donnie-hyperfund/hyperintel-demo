@@ -8,8 +8,8 @@ import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/proje
 import { confirmUpload, deleteArtifact, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
 import { isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
-import { draftStorageKeys } from '@/lib/storage/draft-storage-keys';
 import { safeGetJsonItem, safeRemoveItem, safeSetJsonItem } from '@/lib/storage/local-storage';
+import { getUploadStorageKey } from '@/lib/storage/storage-keys';
 import { usePendingUploads } from './pending-uploads-provider';
 
 const BINARY_MIME_TYPES: Record<string, string> = {
@@ -25,12 +25,14 @@ export type FileEntry = {
     name: string;
     size: number;
     status: FileEntryStatus;
+    createdAt: number;
     file?: File;
     artifactId?: string;
     presignData?: PresignUploadResponseDto;
 };
 
 type PersistedFileEntry = Omit<FileEntry, 'file'>;
+type UploadBatch = { pendingIds: Set<string>; total: number; firstName: string };
 
 export type FileUploadContextValue = {
     files: FileEntry[];
@@ -51,14 +53,10 @@ type FileUploadProviderProps = {
 };
 
 export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
-    const {
-        storageKey,
-        addPendingArtifactId: _addPending,
-        clearPendingArtifactIds: _clearPending,
-    } = usePendingUploads();
+    const { addPendingArtifactId: _addPending, clearPendingArtifactIds: _clearPending } = usePendingUploads();
     const addPendingArtifactId: (id: string) => void = trackAsPending ? _addPending : () => {};
     const clearPendingArtifactIds: () => void = trackAsPending ? _clearPending : () => {};
-    const uploadsStorageKey = trackAsPending ? draftStorageKeys(storageKey).uploadedFiles : null;
+    const uploadsStorageKey = getUploadStorageKey(scope, trackAsPending);
 
     const [files, setFiles] = useState<FileEntry[]>(
         () => (uploadsStorageKey ? safeGetJsonItem<PersistedFileEntry[]>(uploadsStorageKey) : null) ?? [],
@@ -69,30 +67,18 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
-    const hadInFlightRef = useRef(false);
+    const batchesRef = useRef<UploadBatch[]>([]);
     const resumedProcessingIdsRef = useRef<Set<string>>(new Set());
-
-    useEffect(() => {
-        const hasFiles = files.length > 0;
-        const allReady = hasFiles && files.every((f) => f.status === 'ready');
-
-        if (hadInFlightRef.current && allReady) {
-            toast({
-                title: 'Upload complete',
-                description: files.length === 1 ? files[0].name : `${files.length} files`,
-            });
-        }
-
-        hadInFlightRef.current = hasFiles && !allReady;
-    }, [files]);
 
     useEffect(() => {
         if (!uploadsStorageKey) return;
 
-        const persistedEntries = files.filter((entry) => entry.artifactId).map(({ file: _file, ...entry }) => entry);
+        const persistable = files
+            .filter((entry) => entry.status === 'processing' && entry.presignData)
+            .map(({ file: _file, ...entry }) => entry);
 
-        if (persistedEntries.length > 0) {
-            safeSetJsonItem(uploadsStorageKey, persistedEntries);
+        if (persistable.length > 0) {
+            safeSetJsonItem(uploadsStorageKey, persistable);
             return;
         }
 
@@ -117,6 +103,42 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
     }, []);
 
+    const finalizeEntry = useCallback(
+        (entryId: string, extra?: Partial<FileEntry>) => {
+            updateEntry(entryId, { ...extra, status: 'ready' });
+            invalidateResources();
+
+            for (let i = batchesRef.current.length - 1; i >= 0; i--) {
+                const batch = batchesRef.current[i];
+                if (!batch.pendingIds.delete(entryId)) continue;
+                if (batch.pendingIds.size === 0) {
+                    toast({
+                        title: 'Upload complete',
+                        description: batch.total === 1 ? batch.firstName : `${batch.total} files`,
+                    });
+                    batchesRef.current.splice(i, 1);
+                }
+            }
+        },
+        [updateEntry, invalidateResources],
+    );
+
+    const failEntry = useCallback(
+        (entryId: string, description?: string) => {
+            setFiles((prev) => prev.filter((e) => e.id !== entryId));
+            invalidateResources();
+            toast({ title: 'Upload failed', description, variant: 'destructive' });
+
+            for (let i = batchesRef.current.length - 1; i >= 0; i--) {
+                const batch = batchesRef.current[i];
+                if (!batch.pendingIds.delete(entryId)) continue;
+                batch.total--;
+                if (batch.pendingIds.size === 0) batchesRef.current.splice(i, 1);
+            }
+        },
+        [invalidateResources],
+    );
+
     const pollFileStatus = useCallback(
         async (fileId: string, entryId: string) => {
             const poll = async () => {
@@ -132,18 +154,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 const fileStatus = data.files.find((f) => f.fileId === fileId)?.status;
 
                 if (fileStatus === 'processed') {
-                    updateEntry(entryId, { status: 'ready' });
-                    invalidateResources();
+                    finalizeEntry(entryId);
                     return;
                 }
 
                 if (fileStatus === 'error') {
-                    setFiles((prev) => prev.filter((entryToKeep) => entryToKeep.id !== entryId));
-                    toast({
-                        title: 'Upload failed',
-                        description: 'Something went wrong — please try again',
-                        variant: 'destructive',
-                    });
+                    failEntry(entryId, 'Something went wrong — please try again');
                     return;
                 }
 
@@ -152,7 +168,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
             await poll();
         },
-        [getToken, invalidateResources, updateEntry],
+        [getToken, finalizeEntry, failEntry],
     );
 
     const startEagerUpload = useCallback(
@@ -181,6 +197,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     }
 
                     const presignData: PresignUploadResponseDto = await presignRes.json();
+
+                    invalidateResources();
 
                     const mimeType = BINARY_MIME_TYPES[ext] ?? 'application/octet-stream';
                     const putRes = await fetch(presignData.uploadUrl, {
@@ -221,22 +239,22 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         addPendingArtifactId(resData.artifactId);
                     }
 
-                    updateEntry(entryId, {
-                        status: 'ready',
-                        artifactId: resData.artifactId,
-                    });
-                    invalidateResources();
+                    finalizeEntry(entryId, { artifactId: resData.artifactId });
                 }
             } catch (err) {
-                setFiles((prev) => prev.filter((entry) => entry.id !== entryId));
-                toast({
-                    title: `Failed to upload "${file.name}"`,
-                    description: err instanceof Error ? err.message : undefined,
-                    variant: 'destructive',
-                });
+                failEntry(entryId, err instanceof Error ? err.message : undefined);
             }
         },
-        [addPendingArtifactId, getToken, invalidateResources, pollFileStatus, scope, updateEntry],
+        [
+            addPendingArtifactId,
+            failEntry,
+            finalizeEntry,
+            getToken,
+            invalidateResources,
+            pollFileStatus,
+            scope,
+            updateEntry,
+        ],
     );
 
     const addFiles = useCallback(
@@ -253,6 +271,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         name: file.name,
                         size: file.size,
                         status: 'pending',
+                        createdAt: Date.now(),
                     });
                 }
             }
@@ -261,6 +280,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             toast({
                 title: 'Uploading',
                 description: entries.length === 1 ? entries[0].name : `${entries.length} files`,
+            });
+
+            batchesRef.current.push({
+                pendingIds: new Set(entries.map((e) => e.id)),
+                total: entries.length,
+                firstName: entries[0].name,
             });
 
             setFiles((prev) => {
@@ -341,12 +366,23 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     }, [clearPendingArtifactIds, waitForStatus]);
 
     useEffect(() => {
+        const resumed: FileEntry[] = [];
+
         for (const entry of files) {
             if (entry.status !== 'processing' || !entry.presignData) continue;
             if (resumedProcessingIdsRef.current.has(entry.id)) continue;
 
             resumedProcessingIdsRef.current.add(entry.id);
+            resumed.push(entry);
             void pollFileStatus(entry.presignData.fileId, entry.id);
+        }
+
+        if (resumed.length > 0) {
+            batchesRef.current.push({
+                pendingIds: new Set(resumed.map((e) => e.id)),
+                total: resumed.length,
+                firstName: resumed[0].name,
+            });
         }
     }, [files, pollFileStatus]);
 

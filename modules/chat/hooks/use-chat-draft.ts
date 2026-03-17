@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react';
-import { getDraftBaseKey } from '@/lib/storage/draft-storage-keys';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
+import { getDraftBaseKey } from '@/lib/storage/storage-keys';
 import type { ChatType } from '../types';
 
 export function useChatDraft(chatType: ChatType, chatId: string | null, projectId?: string) {
