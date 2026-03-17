@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(export PATH=\"$PATH:/c/Users/bartl/.cargo/bin\")",
+      "Bash(cargo --version)"
+    ]
+  }
+}
