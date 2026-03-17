@@ -24,6 +24,7 @@ import {
 } from './utils/prompt-loader';
 import { createEnqueue, createSSEStream, handleCommonStreamEvent, handleStreamError, loadChatHistory } from './utils/stream-utils';
 import { safetyCheck } from './safety/guard';
+import { analyzeResponse } from './safety/analyzer';
 
 // ============================================================================
 // CONTEXT PREPROCESSING
@@ -363,6 +364,10 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
             const state = { wasTool: false };
             let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
 
+            // Captured after done_ext for post-processing safety analysis
+            let assistantContentForAnalysis = '';
+            let assistantMsgIdForAnalysis: string | null = null;
+
             // Document event handler for frontend streaming
             const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) =>
                 enqueue(docEvent),
@@ -424,6 +429,10 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
                                 ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
                             });
                             em!.persist(assistantMsg);
+
+                            // Capture for post-processing safety analysis
+                            assistantContentForAnalysis = assistantContent;
+                            assistantMsgIdForAnalysis = assistantMsg.id;
                         }
 
                         // Link created document versions to the assistant message
@@ -507,6 +516,37 @@ export async function chatActionHandler(data: SendChatActionDto, ctx: Ctx, optio
 
             await historyPromise;
             controller.close();
+
+            // Post-processing: analyze agent response for leaks (async, doesn't block user)
+            if (assistantContentForAnalysis) {
+                analyzeResponse(ctx, message, assistantContentForAnalysis).then(async (analysis) => {
+                    if (!analysis || !analysis.leaked) return;
+
+                    console.warn('[safety-analyzer] LEAK DETECTED:', analysis);
+
+                    try {
+                        // Flag the assistant message in DB
+                        if (assistantMsgIdForAnalysis) {
+                            const msg = await em!.findOne(ChatMessageEntity, assistantMsgIdForAnalysis);
+                            if (msg) {
+                                msg.metadata = {
+                                    ...((msg.metadata as Record<string, unknown>) ?? {}),
+                                    safetyAnalysis: analysis,
+                                };
+                                await em!.flush();
+                            }
+                        }
+
+                        // TODO: When websockets are implemented, send a "retract" event
+                        // to the frontend so it can hide/redact the leaked message in real-time.
+                        // e.g. ctx.ws.send(chatId, { type: 'retract', messageId: assistantMsgIdForAnalysis, reason: analysis.category })
+                    } catch (err) {
+                        console.error('[safety-analyzer] Failed to flag message:', err);
+                    }
+                }).catch((err) => {
+                    console.error('[safety-analyzer] Unhandled error:', err);
+                });
+            }
         } catch (error: any) {
             await handleStreamError(error, em!, chatId, message, enqueue, controller, requestStartedAt);
         }
