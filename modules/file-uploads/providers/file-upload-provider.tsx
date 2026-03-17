@@ -74,7 +74,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         if (!uploadsStorageKey) return;
 
         const persistable = files
-            .filter((entry) => entry.status === 'processing' && entry.presignData)
+            .filter(
+                (entry) =>
+                    (entry.status === 'processing' && entry.presignData) ||
+                    (entry.status === 'ready' && entry.artifactId),
+            )
             .map(({ file: _file, ...entry }) => entry);
 
         if (persistable.length > 0) {
