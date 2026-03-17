@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import { PendingUploadsProvider, usePendingUploads } from './pending-uploads-provider';
 
 function wrapper({ children }: { children: ReactNode }) {
-    return <PendingUploadsProvider storageKey="test">{children}</PendingUploadsProvider>;
+    return <PendingUploadsProvider>{children}</PendingUploadsProvider>;
 }
 
 describe('PendingUploadsProvider', () => {

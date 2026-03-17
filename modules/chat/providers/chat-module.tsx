@@ -1,7 +1,6 @@
 'use client';
 
 import { type ReactNode, Suspense } from 'react';
-import { getDraftBaseKey } from '@/lib/storage/draft-storage-keys';
 import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
 import { PendingUploadsProvider } from '../../file-uploads/providers/pending-uploads-provider';
 import type { Message } from '../types';
@@ -36,12 +35,10 @@ export function ChatModule({
     initialMessages = [],
     chatRouteBuilder,
 }: ChatModuleProps) {
-    const draftStorageKey = getDraftBaseKey(chatType, initialChatId ?? null, projectId);
-
     return (
         <ActivePanelProvider>
             <ArtifactProvider>
-                <PendingUploadsProvider storageKey={draftStorageKey}>
+                <PendingUploadsProvider>
                     <ChatProvider
                         projectId={projectId}
                         chatType={chatType}

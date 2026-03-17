@@ -420,7 +420,7 @@ export async function handleListResources(
             .join(' ');
         query.orderBy({ [raw(`CASE ${cases} ELSE ${documentType.length} END`)]: 'ASC', 'a.created_at': 'DESC' });
     } else {
-        query.orderBy({ 'cv.document_type': 'ASC', 'a.created_at': 'DESC' });
+        query.orderBy({ 'a.created_at': 'DESC' });
     }
 
     const { nodes, totalCount } = await getPaginatedResult(query, { page, perPage: limit });
