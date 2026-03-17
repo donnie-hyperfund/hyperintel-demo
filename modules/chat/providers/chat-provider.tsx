@@ -243,14 +243,14 @@ export function ChatProvider({
 
     const hasOtherPendingArtifacts = useCallback(
         (excludeArtifactKey: string) => {
-            return Object.values(artifactContext.artifacts).some((versions) =>
-                Object.values(versions).some(
+            return Object.values(artifactContext.getStore()).some((versions) =>
+                Object.values(versions as Record<string, any>).some(
                     (artifact) =>
                         artifact.key !== excludeArtifactKey && artifact.proposed_version?.status === 'proposed',
                 ),
             );
         },
-        [artifactContext.artifacts],
+        [artifactContext],
     );
 
     const onTerminalTool = useCallback((toolName: string) => {

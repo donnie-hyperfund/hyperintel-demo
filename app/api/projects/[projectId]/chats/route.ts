@@ -8,14 +8,14 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { CreateChatBodySchema } from '@/lib/schema/chat';
+import { CreateUnifiedChatBodySchema } from '@/lib/schema/chat';
 import type { ChatDto } from '@/lib/schema/message';
 
 async function handleCreateChat(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const json = await req.json();
-    const bodyData = validatePayload(CreateChatBodySchema, json);
+    const bodyData = validatePayload(CreateUnifiedChatBodySchema, json);
 
     if (bodyData instanceof NextResponse) return bodyData;
 

@@ -22,7 +22,7 @@ export default function ProjectArtifactsPanel({ onClose }: ProjectArtifactsPanel
 
     return (
         <SidePanel
-            title="Deliverables"
+            title="Artifacts"
             onClose={onClose}
             actions={
                 <ProjectArtifactFilterDropdown filters={filters} onChange={handleFilterChange} />

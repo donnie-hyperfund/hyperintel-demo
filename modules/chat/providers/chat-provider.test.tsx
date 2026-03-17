@@ -146,7 +146,6 @@ function mockResponse(body: unknown = {}, opts: { ok?: boolean; status?: number 
         text: () => Promise.resolve(typeof body === 'string' ? body : JSON.stringify(body)),
     } as unknown as Response;
 }
-}
 
 describe('ChatProvider', () => {
     beforeEach(() => {

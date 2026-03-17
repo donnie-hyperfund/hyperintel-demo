@@ -45,7 +45,6 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
     const { projectId } = useChatContext();
     const { target: scrollTarget, markFound, clear: clearScrollTarget } = useScrollTargetContext();
     const Icon = isDocumentType(documentType) ? getDocumentTypeIcon(documentType) : DEFAULT_DOCUMENT_TYPE_ICON;
-    const { projectId } = useChatContext();
 
     const buttonRef = useRef<HTMLButtonElement>(null);
 
