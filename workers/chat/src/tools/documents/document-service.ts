@@ -253,6 +253,8 @@ export interface DocumentInfo {
     rejectedDocumentType: string | null;
     rejectionReason: string | null;
     lineCount: number;
+    /** Whether this artifact is a read-only public resource (or imported from one) */
+    isReadOnly: boolean;
 }
 
 /**
@@ -281,6 +283,9 @@ export async function findDocumentByName(
     const proposedContent = proposed?.content ?? null;
     const rejectedContent = rejected?.content ?? null;
 
+    // Public artifacts and copies imported from public artifacts are read-only
+    const isReadOnly = artifact.is_public || !!(artifact.metadata as any)?.importedFromPublic;
+
     return {
         id: artifact.id,
         name: artifact.key,
@@ -297,7 +302,7 @@ export async function findDocumentByName(
         rejectedDocumentType: rejected?.document_type ?? null,
         rejectionReason: rejected?.rejection_reason ?? null,
         lineCount: countLines(proposedContent ?? currentContent ?? ''),
-        // TODO: Use lineCount from entity once added
+        isReadOnly,
     };
 }
 
@@ -310,6 +315,8 @@ export interface DocumentListItem {
     latestVersion: number;
     latestStatus: VersionStatus;
     hasProposed: boolean;
+    /** Whether this artifact is a read-only public resource (or imported from one) */
+    isReadOnly: boolean;
 }
 
 /**
@@ -334,6 +341,7 @@ export async function listDocuments(
         const proposed = versions.find((v) => v.status === 'proposed');
 
         const contentForLines = proposed?.content ?? a.current_version?.content ?? '';
+        const isReadOnly = a.is_public || !!(a.metadata as any)?.importedFromPublic;
 
         return {
             name: a.key,
@@ -344,6 +352,7 @@ export async function listDocuments(
             latestVersion: latest?.version ?? 0,
             latestStatus: latest?.status ?? 'approved',
             hasProposed: !!proposed,
+            isReadOnly,
         };
     });
 }
