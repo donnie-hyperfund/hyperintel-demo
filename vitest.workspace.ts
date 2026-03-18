@@ -1,3 +1,4 @@
+// @ts-expect-error vitest v4 replaced defineWorkspace with defineConfig
 import { defineWorkspace } from "vitest/config";
 
 export default defineWorkspace([

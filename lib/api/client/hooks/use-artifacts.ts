@@ -1,12 +1,13 @@
 import { useAuth } from '@clerk/nextjs';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
-import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
+import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { artifactKeys, createArtifactApi, getArtifactListInfiniteKey } from '@/lib/api/client/fetchers/artifacts';
 import { resourceKeys } from '@/lib/api/client/fetchers/resources';
 import type { InfinitePaginationParams, PaginatedResponse, PaginationParams } from '@/lib/api/client/types';
 import { approveArtifact, rejectArtifact } from '@/lib/api/requests/worker/chat';
 import type { ArtifactDto, DocumentType } from '@/lib/schema/artifact';
+import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
 export function useFetchArtifacts(
     documentType: DocumentType | undefined,
@@ -32,7 +33,7 @@ export function useFetchArtifactsInfinite(
 ) {
     const { getToken } = useAuth();
 
-    const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
+    return useSWRInfinitePaginated<ArtifactDto>(
         getArtifactListInfiniteKey(documentType, params.limit),
         (key) => {
             if (!documentType) throw new Error('Document type is required');
@@ -41,11 +42,6 @@ export function useFetchArtifactsInfinite(
         },
         { revalidateOnFocus: false, ...config },
     );
-
-    const lastPage = result.data?.[result.data.length - 1];
-    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
-
-    return { ...result, hasNextPage };
 }
 
 function invalidateUserArtifactCaches(globalMutate: ReturnType<typeof useSWRConfig>['mutate']) {

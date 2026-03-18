@@ -3,13 +3,20 @@
 import { useAuth } from '@clerk/nextjs';
 import { Building2, Loader2 } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useHighlightResourceParam } from '@/hooks/use-highlight-resource-param';
 import { createProjectResourceApi } from '@/lib/api/client/fetchers/project-resources';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
+import { deleteArtifact } from '@/lib/api/requests/worker/chat';
+import { getLatestArtifactVersion } from '@/lib/artifacts/utils';
 import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { useUploadEntries } from '@/modules/file-uploads/hooks/use-upload-entries';
+import { usePendingUploads } from '@/modules/file-uploads/providers/pending-uploads-provider';
+import { mergeByDate } from '@/modules/file-uploads/utils/merge-resource-list';
 import { ResourceItem } from './resource-item';
+import { UploadingResourceItem } from './uploading-resource-item';
 
 type ResourceListParams = PageParams<'/[project-id]'>;
 
@@ -18,9 +25,30 @@ const PAGE_SIZE = 20;
 export function ResourceList() {
     const { 'project-id': projectId } = useParams<ResourceListParams>();
     const { getToken } = useAuth();
-    const { allItems, isLoading, error, size, setSize, hasNextPage, mutate } = useFetchProjectResources(projectId, {
-        limit: PAGE_SIZE,
-    });
+    const { pendingArtifactIds } = usePendingUploads();
+
+    const {
+        allItems: rawItems,
+        isLoading,
+        error,
+        size,
+        setSize,
+        hasNextPage,
+        mutate,
+    } = useFetchProjectResources(projectId, { limit: PAGE_SIZE });
+
+    const allItems = useMemo(() => {
+        if (pendingArtifactIds.length === 0) return rawItems;
+        const pendingSet = new Set(pendingArtifactIds);
+        return rawItems.filter((a) => !pendingSet.has(a.id));
+    }, [rawItems, pendingArtifactIds]);
+
+    const knownArtifactIds = useMemo(() => new Set(allItems.map((a) => a.id)), [allItems]);
+    const uploadEntries = useUploadEntries(knownArtifactIds);
+
+    const mergedItems = useMemo(() => mergeByDate(uploadEntries, allItems), [uploadEntries, allItems]);
+
+    const { highlightedKey, registerRef } = useHighlightResourceParam(allItems);
 
     const [sentryRef] = useInfiniteScroll({
         loading: isLoading,
@@ -31,10 +59,17 @@ export function ResourceList() {
 
     const handleRemove = useCallback(
         async (artifactId: string) => {
-            await createProjectResourceApi(getToken).remove(projectId, artifactId);
+            const artifact = allItems.find((a) => a.id === artifactId);
+            const version = artifact && getLatestArtifactVersion(artifact);
+            if (version?.is_uploaded) {
+                const token = await getToken();
+                if (token) await deleteArtifact({ artifactId }, token);
+            } else {
+                await createProjectResourceApi(getToken).remove(projectId, artifactId);
+            }
             await mutate();
         },
-        [getToken, projectId, mutate],
+        [getToken, projectId, mutate, allItems],
     );
 
     if (isLoading && size === 1) {
@@ -59,7 +94,7 @@ export function ResourceList() {
         );
     }
 
-    if (allItems.length === 0) {
+    if (mergedItems.length === 0) {
         return (
             <div className="flex flex-1 items-center justify-center">
                 <EmptyState
@@ -73,9 +108,24 @@ export function ResourceList() {
 
     return (
         <div className="space-y-1.5">
-            {allItems.map((artifact) => (
-                <ResourceItem key={artifact.id} artifact={artifact} onRemove={handleRemove} />
-            ))}
+            {mergedItems.map((item) =>
+                item.kind === 'upload' ? (
+                    <UploadingResourceItem
+                        key={item.entry.id}
+                        name={item.entry.name}
+                        size={item.entry.size}
+                        status={item.entry.status}
+                    />
+                ) : (
+                    <ResourceItem
+                        key={item.artifact.id}
+                        artifact={item.artifact}
+                        onRemove={handleRemove}
+                        isHighlighted={highlightedKey === item.artifact.key}
+                        itemRef={(element) => registerRef(item.artifact.id, element)}
+                    />
+                ),
+            )}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />

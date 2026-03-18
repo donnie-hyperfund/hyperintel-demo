@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Send } from 'lucide-react';
+import { ArrowUp, Loader2, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
@@ -9,22 +9,33 @@ import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/componen
 import { Button } from '@/components/ui/button';
 import { IS_DEV } from '@/lib/config';
 import { cn } from '@/lib/utils';
+import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
+import { AttachFileButton } from './attach-file-button';
+import { FilePreviewItem } from './file-preview-item';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 import { SwitchModelSelector } from './switch-model-selector';
 
 type ChatMessageFormProps = {
     className?: string;
     ref?: React.RefObject<HTMLDivElement | null>;
+    showGradientFade?: boolean;
 };
 
-const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
+const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessageFormProps) => {
     const {
         sendMessage,
-        state: { isGenerating, isSummarizing, isLoading, tokenUsage },
+        chatType,
+        chatId,
+        projectId,
+        stopGeneration,
+        state: { isGenerating, isSummarizing, isLoading, tokenUsage, activeResponseId },
     } = useChatContext();
 
+    const { files, removeFile, submitFiles, isSubmitting } = useFileUploadContext();
+    const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
     const {
@@ -36,20 +47,38 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
     } = useForm<ChatMessageFormValues>({
         resolver: zodResolver(chatMessageFormSchema),
         defaultValues: {
-            message: '',
+            message: initialDraft,
         },
     });
 
     const message = watch('message');
     const hasContent = message && message.trim().length > 0;
-    const isBusy = isGenerating || isSummarizing || isLoading;
+    const hasProcessingFiles = files.some((f) => f.status === 'uploading' || f.status === 'processing');
+    const isBusy = isGenerating || isSummarizing || isLoading || isSubmitting || hasProcessingFiles;
     const isDisabled = !hasContent || isBusy;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
-        if (!data.message.trim()) return;
+        if (!data.message.trim() && files.length === 0) return;
+
+        // Capture file names before submitFiles clears them
+        const uploadedFiles = files.map((entry) => ({ name: entry.name, size: entry.size }));
+
+        if (uploadedFiles.length > 0) {
+            await submitFiles();
+        }
+
+        const fileDirective =
+            uploadedFiles.length > 0 ? uploadedFiles.map((f) => `::upload[${f.name}]{size=${f.size}}`).join('\n') : '';
+
+        const message = [fileDirective, data.message.trim()].filter(Boolean).join('\n\n');
+
+        clearDraft();
         reset({ message: '' });
         textareaRef.current?.updateTextareaHeight();
-        await sendMessage(data.message);
+
+        if (message) {
+            await sendMessage(message);
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -81,17 +110,18 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
         <div ref={ref} className={className}>
             <AnimatePresence>
                 <form onSubmit={handleSubmit(onFormSubmit)} className="relative flex items-end justify-center px-4">
-                    {/* Background component*/}
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="absolute inset-0 pointer-events-none"
-                        style={{
-                            background: 'linear-gradient(to bottom, transparent 0px, var(--color-card) 2rem)',
-                        }}
-                    />
+                    {showGradientFade && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                                background: 'linear-gradient(to bottom, transparent 0px, var(--color-card) 2rem)',
+                            }}
+                        />
+                    )}
 
                     <div className="w-full max-w-3xl relative z-10">
                         <motion.div
@@ -101,29 +131,82 @@ const ChatMessageForm = ({ className, ref }: ChatMessageFormProps) => {
                             transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
                             onClick={handleContainerClick}
                             className={cn(
-                                'relative flex flex-wrap items-end gap-2 rounded-5 border border-neutral-700 p-5 shadow-lg shadow-black/15 bg-neutral-800',
+                                'relative flex flex-wrap items-end gap-3 rounded-5 border border-neutral-700 p-5 shadow-lg shadow-black/15 bg-neutral-800',
                                 errors.message && 'border-red-400 ring-red-500/20 dark:ring-red-500/40',
                             )}
                         >
+                            {files.length > 0 && (
+                                <div className="relative w-full max-h-48 overflow-y-clip mb-1">
+                                    <div className="grid grid-cols-2 w-full relative flex-wrap gap-3 max-h-48 overflow-y-auto pb-2">
+                                        {files.map((entry, i) => (
+                                            <FilePreviewItem
+                                                key={entry.id}
+                                                name={entry.name}
+                                                size={entry.size}
+                                                status={entry.status}
+                                                onRemove={() => removeFile(i)}
+                                            />
+                                        ))}
+                                    </div>
+
+                                    <div
+                                        className="absolute top-46 left-0 right-0 h-2"
+                                        style={{
+                                            background:
+                                                'linear-gradient(to bottom, transparent 0px, var(--color-neutral-800))',
+                                        }}
+                                    />
+                                </div>
+                            )}
+
                             <AutoExpandingTextarea
                                 name={name}
                                 ref={mergedRef}
                                 value={message || ''}
                                 onChange={(e) => {
                                     onChange(e);
+                                    saveDraft(e.target.value);
                                 }}
                                 onBlur={onBlur}
                                 onKeyDown={handleKeyDown}
                                 placeholder="Type your message..."
                                 className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground"
-                                maxHeight={144}
+                                maxHeight={384}
                                 minHeight={24}
                             />
+
+                            {chatId && <AttachFileButton />}
+
                             <div className="flex items-end gap-2 ml-auto">
                                 {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
-                                <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
-                                    <Send className="size-4" />
-                                </Button>
+
+                                {isGenerating ? (
+                                    activeResponseId ? (
+                                        <Button
+                                            type="button"
+                                            onClick={stopGeneration}
+                                            variant="unstyled"
+                                            className="bg-transparent hover:bg-accent text-white border border-neutral-500/35"
+                                            size="icon"
+                                        >
+                                            <Square className="size-3.5 fill-current" />
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            type="button"
+                                            disabled
+                                            className="shrink-0"
+                                            size="icon"
+                                            variant="secondary"
+                                        >
+                                            <Loader2 className="size-4 animate-spin" />
+                                        </Button>
+                                    )
+                                ) : (
+                                    <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
+                                        <ArrowUp className="size-5" />
+                                    </Button>
+                                )}
                             </div>
                         </motion.div>
 

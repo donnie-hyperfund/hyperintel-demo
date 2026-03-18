@@ -1,0 +1,16 @@
+# services worker definition
+name: hi-services
+secrets:
+  - DATABASE_URL
+  - CLERK_SECRET_KEY
+
+durable_objects:
+  - name: USER_GATEWAY
+    class_name: UserGateway
+    script_name: hi-objects
+  - name: CHAT_STREAM_DO
+    class_name: ChatStreamDO
+    script_name: hi-objects
+
+# triggers:
+#   crons: ["0 * * * *"]

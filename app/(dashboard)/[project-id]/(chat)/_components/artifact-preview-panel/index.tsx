@@ -1,7 +1,7 @@
 'use client';
 
 import { FileText, Loader2 } from 'lucide-react';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactContent, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
@@ -12,9 +12,7 @@ type ArtifactPreviewPanelProps = {
 };
 
 export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactPreviewPanelProps) => {
-    const { getArtifact } = useArtifactContext();
-
-    const currentArtifact = artifactId && version ? getArtifact(artifactId, version) : null;
+    const currentArtifact = useArtifact(artifactId, version);
 
     const updatedAt = currentArtifact?.proposed_version?.updated_at
         ? new Date(currentArtifact?.proposed_version?.updated_at)

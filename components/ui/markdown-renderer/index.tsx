@@ -5,7 +5,6 @@ import { useMemo } from 'react';
 import Markdown, { Components } from 'react-markdown';
 import rehypeExternalLinks from 'rehype-external-links';
 import rehypeKatex from 'rehype-katex';
-import rehypeMathjax from 'rehype-mathjax';
 import rehypeRaw from 'rehype-raw';
 import remarkBreaks from 'remark-breaks';
 import remarkDirective from 'remark-directive';
@@ -78,8 +77,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
         Object.entries(directives).forEach(([directiveName, handler]) => {
             // Handle leaf and text directives (both use same element name)
-            const componentName = `directive-${directiveName}` as keyof Components;
-            components[componentName] = ((props: any) => {
+            const componentName = `directive-${directiveName}`;
+            (components as Record<string, any>)[componentName] = ((props: any) => {
                 const type = props['data-directive-type'] || 'leaf';
                 const name = props['data-directive-name'] || directiveName;
                 const label = props['data-directive-label'] || '';
@@ -103,8 +102,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             }) as any;
 
             // Handle container directives separately
-            const containerName = `directive-${directiveName}-container` as keyof Components;
-            components[containerName] = ((props: any) => {
+            const containerName = `directive-${directiveName}-container`;
+            (components as Record<string, any>)[containerName] = ((props: any) => {
                 const name = props['data-directive-name'] || directiveName;
                 const label = props['data-directive-label'] || '';
 
@@ -142,7 +141,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 remarkGfm,
                 remarkDirective,
                 remarkDirectivesHandler(directives),
-                [remarkMath, { singleDollarTextMath: false }],
+                remarkMath,
                 remarkFootnotesExtra,
                 remarkInlineLinks,
             ] as any[],
@@ -157,7 +156,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return baseRemarkPlugins;
     }, [baseRemarkPlugins, citations]);
 
-    const rehypePlugins = useMemo(() => [rehypeRaw, rehypeMathjax, rehypeKatex, rehypeExternalLinks] as any[], []);
+    const rehypePlugins = useMemo(() => [rehypeRaw, rehypeKatex, rehypeExternalLinks] as any[], []);
 
     if (preprocessedMarkdown.length > CHUNK_THRESHOLD) {
         return (

@@ -1,0 +1,26 @@
+# objects worker — dedicated DO container
+# Hosts all Durable Objects so other workers can use preview URLs
+name: hi-objects
+secrets:
+  - DATABASE_URL
+  - CLERK_SECRET_KEY
+
+durable_objects:
+  - name: USER_GATEWAY
+    class_name: UserGateway
+    local: true
+  - name: CHAT_STREAM_DO
+    class_name: ChatStreamDO
+    local: true
+  - name: GENERATION_PROXY
+    class_name: GenerationProxyDO
+    local: true
+
+migrations:
+  - tag: v1_initial
+    new_sqlite_classes:
+      - UserGateway
+      - ChatStreamDO
+  - tag: v2_generation_proxy
+    new_sqlite_classes:
+      - GenerationProxyDO

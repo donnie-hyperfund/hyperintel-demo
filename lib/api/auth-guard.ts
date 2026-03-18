@@ -1,5 +1,5 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
-import { type EntityManager, UniqueConstraintViolationException } from '@mikro-orm/postgresql';
+import type { EntityManager } from '@mikro-orm/postgresql';
 import { redirect } from 'next/navigation';
 import { type NextRequest, NextResponse } from 'next/server';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
@@ -23,23 +23,14 @@ async function ensureUser(clerkId: string, em: EntityManager): Promise<UserEntit
     const lastName = clerkUser?.lastName;
     const name = firstName && lastName ? `${firstName} ${lastName}` : (firstName ?? lastName ?? null);
 
-    try {
-        const user = em.create(UserEntity, {
-            clerkId,
-            email,
-            name,
-            emailConfirmed: false,
-        });
-        await em.persistAndFlush(user);
-        return user;
-    } catch (error) {
-        if (error instanceof UniqueConstraintViolationException) {
-            em.clear();
-            const user = await em.findOne(UserEntity, { clerkId });
-            if (user) return user;
-        }
-        throw error;
-    }
+    const user = await em.upsert(UserEntity, {
+        clerkId,
+        email,
+        name,
+        emailConfirmed: false,
+    });
+    await em.flush();
+    return user;
 }
 
 /**
@@ -59,6 +50,8 @@ export async function assertClerkAuth(): Promise<ClerkUser> {
 /**
  * Returns UserEntity for API route handlers.
  * Use this when you need the full user entity with DB relations.
+ *
+ * TODO - flag whether to create user if missing
  */
 export async function assertAuth(): Promise<UserEntity> {
     const { userId } = await auth();

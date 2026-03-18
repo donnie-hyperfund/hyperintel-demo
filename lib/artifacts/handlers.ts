@@ -109,10 +109,11 @@ export async function handleListProjectArtifacts(
         })
         .orderBy({ 'a.created_at': 'DESC' });
 
-    // Exclude imported resources (they are shown via the project resources endpoint)
+    // Exclude imported resources and uploaded files (they are shown via the project resources endpoint)
     query.andWhere({
         $or: [{ [raw("a.metadata->>'importedFrom'")]: null }, { [raw('a.metadata')]: null }],
     });
+    query.andWhere({ $or: [{ 'cv.is_uploaded': null }, { 'cv.is_uploaded': false }] });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
@@ -370,24 +371,25 @@ export async function handleListResources(
         limit: searchParams.get('limit') ?? undefined,
         documentType: searchParams.get('documentType') ?? undefined,
         approvedOnly: searchParams.get('approvedOnly') ?? undefined,
+        excludeProjectId: searchParams.get('excludeProjectId') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
 
-    const { page, limit, documentType, approvedOnly } = queryData;
+    const { page, limit, documentType, approvedOnly, excludeProjectId } = queryData;
 
     const query = em.createQueryBuilder(ArtifactEntity, 'a').select('a.*');
 
     if (projectId) {
-        // Project-scoped: imported resources only
+        // Project-scoped: imported resources + uploaded files
         query
             .leftJoin('a.project', 'p')
             .leftJoinAndSelect('a.current_version', 'cv')
             .where({
                 'p.id': projectId,
                 'p.user': user.id,
-                [raw("a.metadata->>'importedFrom'")]: { $ne: null },
-                $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+                $or: [{ [raw("a.metadata->>'importedFrom'")]: { $ne: null } }, { 'cv.is_uploaded': true }],
+                $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
             });
     } else {
         // User-scoped: global resources
@@ -399,9 +401,27 @@ export async function handleListResources(
             where['cv.status'] = 'approved';
         }
         query.leftJoinAndSelect('a.current_version', 'cv').where(where);
+
+        // Exclude artifacts published from a specific project
+        if (excludeProjectId) {
+            query.andWhere({
+                $or: [
+                    { [raw("a.metadata->'publishedFrom'->>'projectId'")]: { $ne: excludeProjectId } },
+                    { [raw("a.metadata->'publishedFrom'->>'projectId'")]: null },
+                    { [raw('a.metadata')]: null },
+                ],
+            });
+        }
     }
 
-    query.orderBy({ 'cv.document_type': 'ASC', 'a.created_at': 'DESC' });
+    if (documentType?.length) {
+        const cases = documentType
+            .map((dt, i) => `WHEN cv.document_type = '${dt.replace(/'/g, "''")}' THEN ${i}`)
+            .join(' ');
+        query.orderBy({ [raw(`CASE ${cases} ELSE ${documentType.length} END`)]: 'ASC', 'a.created_at': 'DESC' });
+    } else {
+        query.orderBy({ 'a.created_at': 'DESC' });
+    }
 
     const { nodes, totalCount } = await getPaginatedResult(query, { page, perPage: limit });
 

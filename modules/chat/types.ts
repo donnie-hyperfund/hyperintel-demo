@@ -3,6 +3,7 @@ export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { StreamBlock } from '@/common/ai/agent/types';
 import type { ArtifactDto } from '@/lib/schema/artifact';
+import type { StreamEvent, TokenUsage } from '@/lib/schema/stream';
 
 // =============================================================================
 // Chat Types
@@ -19,10 +20,12 @@ export type MessageArtifactRef = {
 /** Message using blocks-based structure for rich content */
 export type Message = {
     id: string;
+    tempId?: string;
     role: 'user' | 'assistant';
     blocks: StreamBlock[];
     isStreaming?: boolean;
     isError?: boolean;
+    isAborted?: boolean;
     status?: string;
     createdAt?: Date;
 };
@@ -48,6 +51,10 @@ export type ChatState = {
     summaryNewChatId: string | null;
     /** True when AI triggered generate_summary from chat — tells UI to show the phase transition dialog */
     pendingPhaseTransition: boolean;
+    /** Active agent message ID for WS-based abort */
+    activeResponseId: string | null;
+    /** Live blocks from the summary stream — available for rendering in the summary modal */
+    summaryBlocks: StreamBlock[];
 };
 
 export type PaginationState = {
@@ -71,107 +78,7 @@ export type Artifact = Partial<ArtifactDto> & {
 };
 
 // =============================================================================
-// Token Usage Types
+// Token Usage & Streaming Types (canonical definitions in lib/schema/stream)
 // =============================================================================
 
-export type TokenBreakdown = {
-    context: number;
-    prompt: number;
-    promptTool: number;
-    toolDef: number;
-};
-
-export type TokenUsage = {
-    usedTokens: number;
-    tokenBreakdown: TokenBreakdown;
-};
-
-// =============================================================================
-// Streaming Types
-// =============================================================================
-
-export type StreamEventType =
-    | 'delta'
-    | 'created'
-    | 'reasoning_start'
-    | 'reasoning_delta'
-    | 'reasoning_done'
-    | 'tool_start'
-    | 'tool_result'
-    | 'search_start'
-    | 'search_results'
-    | 'citation'
-    | 'document_start'
-    | 'document_delta'
-    | 'document_patch'
-    | 'document_edit'
-    | 'document_complete'
-    | 'status_update'
-    | 'error'
-    | 'done'
-    | 'done_ext';
-
-export type DocumentEdit = {
-    startLine: number;
-    endLine: number;
-    oldContent: string;
-    newContent: string;
-};
-
-export type StreamEvent =
-    // Text content
-    | { type: 'delta'; text: string; blockId?: string }
-    | { type: 'created'; id: string }
-    // Reasoning/thinking
-    | { type: 'reasoning_start'; blockId?: string }
-    | { type: 'reasoning_delta'; text?: string; content?: string }
-    | { type: 'reasoning_done'; durationMs?: number }
-    // Tool calls
-    | { type: 'tool_start'; id: string; tool: string }
-    | { type: 'tool_result'; id: string; result: unknown; success: boolean }
-    // Search & citations
-    | { type: 'search_start'; query: string; blockId: string }
-    | { type: 'search_results'; blockId: string; resultCount: number }
-    | {
-          type: 'citation';
-          url: string;
-          citedText: string;
-          title?: string;
-          blockId: string;
-          parentTextBlockId: string;
-          startIndex: number;
-          endIndex: number;
-      }
-    // Documents/artifacts
-    | { type: 'document_start'; name: string; title?: string; pendingVersion: number }
-    | { type: 'document_delta'; name: string; pendingVersion: number; content: string }
-    | { type: 'document_edit'; name: string; pendingVersion: number; edits: DocumentEdit[] }
-    | { type: 'document_complete'; name: string; version: number }
-    // Status & control
-    | { type: 'status_update'; status: string }
-    | { type: 'error'; error: string; soft?: boolean }
-    | { type: 'done'; tokenUsage?: TokenUsage; error?: string }
-    | { type: 'done_ext' };
-
-export type StreamState = {
-    isStreaming: boolean;
-    error: Error | null;
-};
-
-export type StreamSubscriber = (event: StreamEvent) => void;
-
-// =============================================================================
-// SSE Parsing Types (for stream-parser service)
-// =============================================================================
-
-export type SSEMessage = {
-    event?: string;
-    data: string;
-    id?: string;
-    retry?: number;
-};
-
-export type ParsedSSEChunk = {
-    messages: SSEMessage[];
-    remainder: string;
-};
+export type { DocumentEdit, StreamEvent, StreamEventType, TokenBreakdown, TokenUsage } from '@/lib/schema/stream';

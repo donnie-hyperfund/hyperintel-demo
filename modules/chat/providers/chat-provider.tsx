@@ -9,15 +9,19 @@ import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
-import { sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
+import { abort, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
+import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
-import { intakeConfigMap } from '@/modules/chat/contants';
+import { intakeConfigMap } from '@/modules/chat/constants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
-import { useStreamReader } from '../hooks/use-stream-reader';
-import type { ChatState, ChatType, Message, PaginationState, StreamBlock, TokenUsage } from '../types';
+import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
+import { useChatStream } from '../hooks/use-chat-stream';
+import { useStream } from '../hooks/use-stream';
+import { useUserEvents } from '../hooks/use-user-events';
+import type { ChatState, ChatType, Message, PaginationState, StreamBlock } from '../types';
 
 export type BaseChatContextValue = {
     state: ChatState;
@@ -47,6 +51,14 @@ export type BaseChatContextValue = {
     clearPendingChanges: () => void;
     /** Clear the pending phase transition flag (called after dialog handles it) */
     clearPendingPhaseTransition: () => void;
+    /** Check if there are other pending artifacts */
+    hasOtherPendingArtifacts: (excludeArtifactKey: string) => boolean;
+};
+
+type ToolDocumentDecision = {
+    action: 'approve' | 'reject';
+    artifactKey: string;
+    version: number;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -69,12 +81,14 @@ type ChatProviderProps = {
     children: ReactNode;
     /** Project ID for API calls (required for phase chats, omit for intake) */
     projectId?: string;
-    /** Chat type — defaults to 'phase' */
-    chatType?: ChatType;
+    /** Chat type */
+    chatType: ChatType;
     /** Initial chat ID (optional - will create on first message if not provided) */
     initialChatId?: string;
     /** Initial messages to display */
     initialMessages?: Message[];
+    /** Optional route builder used after creating a new chat */
+    chatRouteBuilder?: (chatId: string) => string;
 };
 
 function buildContextValue(
@@ -90,23 +104,39 @@ function createUserMessage(content: string): Message {
     const id = uuidv4();
     return {
         id,
+        tempId: id,
         role: 'user',
         blocks: [{ id: `text-${id}`, type: 'text', content }],
         createdAt: new Date(),
     };
 }
 
+type ArtifactVersionEventPayload = {
+    artifactId?: string;
+    artifactName?: string;
+    versionId?: string;
+    version?: number;
+    action?: string;
+    previousStatus?: string;
+    status?: string;
+    nextStatus?: 'approved' | 'rejected';
+};
+
 export function ChatProvider({
     children,
     projectId,
-    chatType = 'phase',
+    chatType,
     initialChatId,
     initialMessages = [],
+    chatRouteBuilder,
 }: ChatProviderProps) {
-    const artifactContext = useArtifactContext();
+    const artifactContext = useArtifactActions();
 
-    const { openPanel } = useActivePanelContext();
+    const { openPanel, closePanel, panelState } = useActivePanelContext();
+    const panelStateRef = useRef(panelState);
+    panelStateRef.current = panelState;
     const { getToken } = useAuth();
+    const { isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
 
     const { mutate: globalMutate, cache, fallback } = useSWRConfig();
     const router = useRouter();
@@ -135,8 +165,26 @@ export function ChatProvider({
             phaseIndex: cached?.phase_index ?? null,
             summaryNewChatId: null,
             pendingPhaseTransition: false,
+            activeResponseId: null,
+            summaryBlocks: [],
         };
     });
+
+    const buildChatRoute = useCallback(
+        (nextChatId: string) => {
+            if (chatRouteBuilder) {
+                return chatRouteBuilder(nextChatId);
+            }
+
+            if (chatType === 'phase') {
+                if (!projectId) throw new Error('Project ID is required for phase chats');
+                return `/${projectId}/${nextChatId}`;
+            }
+
+            return `/${chatType === 'company' ? 'companies' : 'stakeholders'}/${nextChatId}`;
+        },
+        [chatRouteBuilder, chatType, projectId],
+    );
 
     // Pagination state for infinite scroll
     const [pagination, setPagination] = useState<PaginationState>({
@@ -146,23 +194,12 @@ export function ChatProvider({
         hasMore: false,
     });
 
-    // Abort controller for cancelling requests
-    const abortControllerRef = useRef<AbortController | null>(null);
+    // Forward ref for reconnect handler (loadMessages is defined later)
+    const loadMessagesRef = useRef<() => void>(() => {});
 
-    // State setters for useStreamReader
-    const setMessages = useCallback((action: React.SetStateAction<Message[]>) => {
-        setState((prev) => ({
-            ...prev,
-            messages: typeof action === 'function' ? action(prev.messages) : action,
-        }));
-    }, []);
-
-    const setIsLoading = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
-        setState((prev) => ({
-            ...prev,
-            isGenerating: typeof value === 'function' ? value(prev.isGenerating) : value,
-        }));
-    }, []);
+    // ========================================================================
+    // CALLBACKS FOR STREAM HOOK
+    // ========================================================================
 
     const revalidateArtifactByKeyAndVersion = useCallback(
         async (keyId: string, version: number) => {
@@ -192,10 +229,6 @@ export function ChatProvider({
         [globalMutate, projectId, artifactContext, api.projectArtifacts, api.artifacts],
     );
 
-    const onTokenUsage = useCallback((usage: TokenUsage) => {
-        setState((prev) => ({ ...prev, tokenUsage: usage }));
-    }, []);
-
     const onDocumentStart = useCallback(() => {
         setState((prev) => ({ ...prev, hasPendingChanges: true }));
     }, []);
@@ -207,6 +240,18 @@ export function ChatProvider({
     const clearPendingPhaseTransition = useCallback(() => {
         setState((prev) => ({ ...prev, pendingPhaseTransition: false }));
     }, []);
+
+    const hasOtherPendingArtifacts = useCallback(
+        (excludeArtifactKey: string) => {
+            return Object.values(artifactContext.getStore()).some((versions) =>
+                Object.values(versions as Record<string, any>).some(
+                    (artifact) =>
+                        artifact.key !== excludeArtifactKey && artifact.proposed_version?.status === 'proposed',
+                ),
+            );
+        },
+        [artifactContext],
+    );
 
     const onTerminalTool = useCallback((toolName: string) => {
         if (toolName === 'generate_summary') {
@@ -224,9 +269,18 @@ export function ChatProvider({
     const fetchArtifact = useCallback(
         async (artifactKey: string, version: number) => {
             try {
-                const artifact = await api.artifacts.getByKey(artifactKey, version);
+                const artifact = projectId
+                    ? await api.projectArtifacts.getByKey(projectId, artifactKey, version)
+                    : await api.artifacts.getByKey(artifactKey, version);
                 if (artifact) {
-                    artifactContext.addArtifact(artifact, version);
+                    artifactContext.addArtifact(
+                        {
+                            ...artifact,
+                            id: artifactKey,
+                            key: artifact.key,
+                        },
+                        version,
+                    );
                 }
                 return artifact;
             } catch (error) {
@@ -234,24 +288,34 @@ export function ChatProvider({
                 return null;
             }
         },
-        [api.artifacts, projectId, artifactContext],
+        [api.artifacts, api.projectArtifacts, projectId, artifactContext],
     );
 
-    // Use the stream reader hook for SSE processing
-    const { readStream } = useStreamReader({
-        artifactContext,
-        setMessages,
-        setIsLoading,
-        handleArtifactOpen,
-        revalidateArtifactByKeyAndVersion,
-        onTokenUsage,
-        fetchArtifact,
-        onDocumentStart,
-        onTerminalTool,
-    });
+    const handleToolDocumentDecision = useCallback(
+        async ({ action, artifactKey, version }: ToolDocumentDecision) => {
+            const artifact = await fetchArtifact(artifactKey, version);
+
+            if (!hasOtherPendingArtifacts(artifactKey)) {
+                clearPendingChanges();
+            }
+
+            if (action !== 'approve' || chatType === 'phase' || !isProjectFlow) {
+                return;
+            }
+
+            if (!artifact) {
+                console.error('[chat-provider] approved artifact could not be fetched for project return flow');
+                return;
+            }
+
+            await handleApprovedArtifact({ id: artifact.id, key: artifact.key });
+        },
+        [chatType, clearPendingChanges, fetchArtifact, handleApprovedArtifact, hasOtherPendingArtifacts, isProjectFlow],
+    );
+
 
     /** Convert API message to internal Message format */
-    const mapApiMessage = useCallback((m: ChatMessageDto): Message => {
+    const mapApiMessage = useCallback((m: ChatMessageDto, activeAgentMessageId?: string | null): Message => {
         // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
         const blocks: StreamBlock[] =
             m.blocks && m.blocks.length > 0
@@ -263,10 +327,348 @@ export function ChatProvider({
             id: m.id,
             role: m.role as 'user' | 'assistant',
             blocks,
-            isStreaming: false,
+            isStreaming: activeAgentMessageId === m.id,
             ...(m.is_error && { isError: true }),
+            ...(m.is_aborted && { isAborted: true }),
         };
     }, []);
+
+    const handleStreamStarted = useCallback(
+        (agentMessageId: string, userMessageId: string, tempId?: string, streamType?: 'chat' | 'summary') => {
+            if (streamType === 'summary') {
+                // Summary stream arrived on existing chat: subscription — enter summarize mode
+                setState((prev) => ({ ...prev, isSummarizing: true, summaryNewChatId: null, summaryBlocks: [] }));
+            } else {
+                // Normal chat response — reconcile user message ID and set generating state
+                setState((prev) => {
+                    const messages = prev.messages.map((m) =>
+                        m.id === userMessageId || m.tempId === userMessageId
+                            ? { ...m, id: userMessageId, tempId: m.tempId || m.id }
+                            : m,
+                    );
+                    return { ...prev, isGenerating: true, activeResponseId: agentMessageId, messages };
+                });
+            }
+        },
+        [],
+    );
+
+    const handleMessageCreated = useCallback(
+        (apiMessage: unknown, tempId?: string) => {
+            const mapped = mapApiMessage(apiMessage as ChatMessageDto, null);
+            setState((prev) => {
+                const existingIdx = prev.messages.findIndex(
+                    (m) =>
+                        m.id === mapped.id ||
+                        m.tempId === mapped.id ||
+                        (tempId && (m.id === tempId || m.tempId === tempId)),
+                );
+
+                if (existingIdx !== -1) {
+                    const next = [...prev.messages];
+                    next[existingIdx] = { ...mapped, tempId: next[existingIdx].tempId || tempId };
+                    return { ...prev, messages: next };
+                }
+
+                return {
+                    ...prev,
+                    messages: [...prev.messages, { ...mapped, tempId }],
+                };
+            });
+        },
+        [mapApiMessage],
+    );
+
+    const handleStreamDone = useCallback(
+        (status: StreamStatus, terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' }) => {
+            const isNormalDone = terminalEvent?.type === 'done';
+            const newChatId = isNormalDone ? terminalEvent.newChatId : undefined;
+
+            if (newChatId) {
+                // Summary stream completed — store the new chat ID and exit summarizing mode
+                setState((prev) => ({ ...prev, isSummarizing: false, summaryNewChatId: newChatId }));
+                return;
+            }
+
+            setState((prev) => ({
+                ...prev,
+                isGenerating: false,
+                activeResponseId: null,
+                tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
+                hasPendingChanges: isNormalDone
+                    ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
+                    : prev.hasPendingChanges,
+                phaseIndex: isNormalDone ? (terminalEvent.phaseIndex ?? prev.phaseIndex) : prev.phaseIndex,
+                messages: prev.messages.map((msg) =>
+                    msg.isStreaming
+                        ? {
+                              ...msg,
+                              isStreaming: false,
+                              status: undefined,
+                              ...(status === 'error' && { isError: true }),
+                              ...(status === 'aborted' && { isAborted: true }),
+                          }
+                        : msg,
+                ),
+            }));
+        },
+        [],
+    );
+
+    // ========================================================================
+    // WEBSOCKET STREAM HOOK (replaces SSE useStreamReader)
+    // ========================================================================
+
+    // Both hooks called unconditionally (React rules). The inactive one receives
+    // null as chatId and is a no-op inside useStream's effect.
+    const streamOpts = {
+        artifactContext,
+        onReconnect: () => loadMessagesRef.current(),
+        onDone: handleStreamDone,
+        onDocumentStart,
+        onArtifactOpen: handleArtifactOpen,
+        fetchArtifact,
+        revalidateArtifact: revalidateArtifactByKeyAndVersion,
+        onStreamStarted: handleStreamStarted,
+        onTerminalTool,
+        onMessageCreated: handleMessageCreated,
+        // Clear stale isGenerating/isSummarizing set from DB's active_agent_message_id
+        // when the initial WS subscribe_response confirms no active stream.
+        onSubscribeResponse: (status: 'idle' | 'streaming' | 'stale') => {
+            if (status === 'idle') {
+                setState((prev) =>
+                    prev.isGenerating || prev.isSummarizing
+                        ? { ...prev, isGenerating: false, isSummarizing: false, activeResponseId: null }
+                        : prev,
+                );
+            }
+        },
+    };
+
+    const chatStream = useChatStream(chatType === 'phase' ? chatId : null, streamOpts);
+    const intakeStream = useStream('intake', chatType !== 'phase' ? chatId : null, streamOpts);
+
+    // Route to the active stream based on chat type
+    const stream = chatType === 'phase' ? chatStream : intakeStream;
+
+    const resolveStoredArtifactKeyById = useCallback(
+        (payload: ArtifactVersionEventPayload): string | null => {
+            if (!payload.artifactId) return null;
+
+            for (const [storedKey, versions] of Object.entries(artifactContext.getStore())) {
+                for (const artifact of Object.values(versions)) {
+                    if (artifact.id === payload.artifactId) {
+                        return artifact.key || storedKey;
+                    }
+                }
+            }
+
+            return null;
+        },
+        [artifactContext],
+    );
+
+    const upsertSyncedArtifact = useCallback(
+        (
+            artifactFromApi: Awaited<ReturnType<typeof api.artifacts.getByKey>>,
+            fallbackKey?: string,
+            fallbackVersion?: number,
+        ) => {
+            const artifactKey = artifactFromApi.key || fallbackKey;
+            if (!artifactKey) return;
+
+            const version = fallbackVersion ?? getLatestArtifactVersion(artifactFromApi)?.version;
+            if (version === undefined) return;
+
+            const nextArtifact = {
+                ...artifactFromApi,
+                id: artifactKey,
+                key: artifactKey,
+            };
+
+            if (artifactContext.getArtifact(artifactKey, version)) {
+                artifactContext.updateArtifact(artifactKey, nextArtifact, version, { merge: false });
+            } else {
+                artifactContext.addArtifact(nextArtifact, version);
+            }
+        },
+        [artifactContext],
+    );
+
+    useUserEvents(
+        useCallback(
+            (eventType, payload) => {
+                if (eventType !== 'artifact_version_updated' && eventType !== 'artifact_version_update_started') return;
+                if (!payload || typeof payload !== 'object') return;
+
+                const eventPayload = payload as ArtifactVersionEventPayload;
+                const artifactKey = eventPayload.artifactName || resolveStoredArtifactKeyById(eventPayload);
+                const requestedVersion = typeof eventPayload.version === 'number' ? eventPayload.version : undefined;
+
+                if (eventType === 'artifact_version_update_started') {
+                    if (!artifactKey || requestedVersion === undefined) return;
+                    if (!artifactContext.getArtifact(artifactKey, requestedVersion)) return;
+                    artifactContext.updateArtifact(artifactKey, { isUpdating: true }, requestedVersion);
+                    return;
+                }
+
+                if (artifactKey) {
+                    const sync = projectId
+                        ? api.projectArtifacts.getByKey(projectId, artifactKey, requestedVersion)
+                        : api.artifacts.getByKey(artifactKey, requestedVersion);
+
+                    void sync
+                        .then((artifact) => upsertSyncedArtifact(artifact, artifactKey, requestedVersion))
+                        .catch(() => {
+                            if (requestedVersion !== undefined) {
+                                artifactContext.updateArtifact(artifactKey, { isUpdating: false }, requestedVersion);
+                            }
+                        });
+                    return;
+                }
+
+                // Backward compatibility for older payload shape that only carries artifactId.
+                if (projectId && eventPayload.artifactId) {
+                    void api.projectArtifacts
+                        .get(projectId, eventPayload.artifactId)
+                        .then((artifact) => upsertSyncedArtifact(artifact, artifact.key, requestedVersion))
+                        .catch(() => {
+                            // Can't clear isUpdating here — we don't have the artifact key.
+                        });
+                }
+            },
+            [
+                api.artifacts,
+                api.projectArtifacts,
+                artifactContext,
+                projectId,
+                resolveStoredArtifactKeyById,
+                upsertSyncedArtifact,
+            ],
+        ),
+    );
+
+    const cleanupTransientArtifacts = useCallback(
+        (docs: Array<{ name: string; pendingVersion: number }>) => {
+            if (docs.length === 0) return;
+
+            const transientVersions = new Set(docs.map((d) => `${d.name}:${d.pendingVersion}`));
+            for (const doc of docs) {
+                artifactContext.removeArtifact(doc.name, doc.pendingVersion);
+            }
+
+            const currentPanel = panelStateRef.current;
+            if (
+                currentPanel?.panel === 'artifact-preview' &&
+                transientVersions.has(`${currentPanel.artifactId}:${currentPanel.version}`)
+            ) {
+                closePanel();
+            }
+        },
+        [artifactContext, closePanel],
+    );
+
+    // If stream aborts (also from another tab), remove transient unsaved artifacts.
+    useEffect(() => {
+        if (stream.status !== 'aborted') return;
+        cleanupTransientArtifacts(stream.activeDocuments);
+    }, [stream.status, stream.activeDocuments, cleanupTransientArtifacts]);
+
+    // Ref to latest stream values so rAF callbacks read fresh data
+    const streamRef = useRef(stream);
+    streamRef.current = stream;
+    const syncRaf = useRef(0);
+
+    // Sync stream blocks → state.messages (streaming assistant message).
+    // Uses rAF coalescing so rapid WS-driven dependency changes produce at most
+    // one setState per animation frame (~16ms), avoiding double-renders.
+    // Terminal transitions (done/error/aborted) flush immediately for consistency.
+    useEffect(() => {
+        if (!stream.agentMessageId) return;
+        if (stream.streamType === 'summary') return;
+
+        const isActive = stream.status === 'streaming';
+        const isTerminal = stream.status === 'done' || stream.status === 'error' || stream.status === 'aborted';
+        if (!isActive && !isTerminal) return;
+
+        const syncToMessages = (s: typeof stream) => {
+            const active = s.status === 'streaming';
+            setState((prev) => {
+                const msgId = s.agentMessageId!;
+                const streamMsg: Message = {
+                    id: msgId,
+                    role: 'assistant',
+                    blocks: s.blocks,
+                    isStreaming: active,
+                    ...(active && s.displayStatus && { status: s.displayStatus }),
+                    ...(s.status === 'error' && { isError: true }),
+                    ...(s.status === 'aborted' && { isAborted: true }),
+                };
+
+                const exists = prev.messages.some((m) => m.id === msgId);
+                return {
+                    ...prev,
+                    isGenerating: active,
+                    messages: exists
+                        ? prev.messages.map((m) => (m.id === msgId ? streamMsg : m))
+                        : [...prev.messages, streamMsg],
+                };
+            });
+        };
+
+        if (isTerminal) {
+            if (syncRaf.current) {
+                cancelAnimationFrame(syncRaf.current);
+                syncRaf.current = 0;
+            }
+            syncToMessages(stream);
+            return;
+        }
+
+        // Coalesce active-streaming updates: at most one setState per animation frame
+        if (!syncRaf.current) {
+            syncRaf.current = requestAnimationFrame(() => {
+                syncRaf.current = 0;
+                const s = streamRef.current;
+                if (s.agentMessageId && s.status === 'streaming') {
+                    syncToMessages(s);
+                }
+            });
+        }
+    }, [stream.blocks, stream.agentMessageId, stream.status, stream.displayStatus, stream.streamType]);
+
+    useEffect(
+        () => () => {
+            if (syncRaf.current) cancelAnimationFrame(syncRaf.current);
+        },
+        [],
+    );
+
+    // Page-load recovery: if we subscribe mid-summary, stream.streamType is set from the
+    // subscribe_response snapshot — enter summarizing mode without waiting for stream_started.
+    // Also clears isGenerating which loadMessages may have set from active_agent_message_id
+    // (the DB doesn't distinguish summary streams from chat streams).
+    useEffect(() => {
+        if (stream.streamType === 'summary') {
+            setState((prev) =>
+                prev.isSummarizing && !prev.isGenerating
+                    ? prev
+                    : { ...prev, isSummarizing: true, isGenerating: false, activeResponseId: null },
+            );
+        }
+    }, [stream.streamType]);
+
+    // Sync summary stream blocks into state so the summary modal can render them.
+    useEffect(() => {
+        if (stream.streamType !== 'summary') return;
+        setState((prev) => (prev.summaryBlocks === stream.blocks ? prev : { ...prev, summaryBlocks: stream.blocks }));
+    }, [stream.streamType, stream.blocks]);
+
+    // ========================================================================
+    // MESSAGE LOADING
+    // ========================================================================
+
+    // (mapApiMessage was moved above handleStreamStarted)
 
     /** Load messages from API for the current chat (initial load - gets newest messages) */
     const loadMessages = useCallback(async () => {
@@ -287,16 +689,33 @@ export function ChatProvider({
             ]);
 
             // API returns DESC order (newest first), reverse for display (newest at bottom)
-            const apiMessages: Message[] = messagesData.data?.map(mapApiMessage) || [];
+            const apiMessages: Message[] =
+                messagesData.data?.map((m) => mapApiMessage(m, chatData.active_agent_message_id)) || [];
 
-            setState((prev) => ({
-                ...prev,
-                messages: apiMessages.reverse(),
-                isLoading: false,
-                tokenUsage: chatData.token_usage ?? null,
-                hasPendingChanges: chatData.has_pending_changes ?? false,
-                phaseIndex: chatData.phase_index,
-            }));
+            setState((prev) => {
+                const apiMessagesReversed = apiMessages.reverse();
+
+                // Preserve the active streaming bubble if it hasn't hit the DB yet
+                // so it doesn't blink out of existence during the HTTP load
+                const streamingMsg = prev.messages.find((m) => m.isStreaming);
+                if (streamingMsg && !apiMessagesReversed.some((m) => m.id === streamingMsg.id)) {
+                    apiMessagesReversed.push(streamingMsg);
+                }
+
+                // Don't set isGenerating if we already know this is a summary stream
+                // (active_agent_message_id is set for both chat and summary streams in DB)
+                const hasActiveStream = !!chatData.active_agent_message_id;
+                return {
+                    ...prev,
+                    messages: apiMessagesReversed,
+                    isLoading: false,
+                    isGenerating: prev.isSummarizing ? false : hasActiveStream,
+                    activeResponseId: prev.isSummarizing ? null : (chatData.active_agent_message_id ?? null),
+                    tokenUsage: chatData.token_usage ?? null,
+                    hasPendingChanges: chatData.has_pending_changes ?? false,
+                    phaseIndex: chatData.phase_index,
+                };
+            });
             setPagination({
                 page: messagesData.pagination.page,
                 totalPages: messagesData.pagination.totalPages,
@@ -309,6 +728,17 @@ export function ChatProvider({
         }
     }, [api, chatId, mapApiMessage]);
 
+    // Keep reconnect ref in sync with loadMessages
+    loadMessagesRef.current = loadMessages;
+
+    // Auto-load messages when an initial chat ID is provided
+    useEffect(() => {
+        if (initialChatId) {
+            loadMessages();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialChatId]);
+
     /** Load more (older) messages for infinite scroll */
     const loadMoreMessages = useCallback(async () => {
         if (!chatId || pagination.isLoadingMore || !pagination.hasMore) return;
@@ -319,7 +749,7 @@ export function ChatProvider({
             const nextPage = pagination.page + 1;
             const data = await api.messages.list(chatId, { page: nextPage });
             // API returns DESC order (newest first), reverse and prepend to existing messages
-            const olderMessages: Message[] = data.data?.map(mapApiMessage) || [];
+            const olderMessages: Message[] = data.data?.map((m) => mapApiMessage(m, state.activeResponseId)) || [];
 
             setState((prev) => ({
                 ...prev,
@@ -337,15 +767,19 @@ export function ChatProvider({
         }
     }, [api, chatId, pagination.isLoadingMore, pagination.hasMore, pagination.page, mapApiMessage]);
 
-    /** Send a message - creates chat if needed, handles streaming */
+    // ========================================================================
+    // SEND MESSAGE
+    // ========================================================================
+
+    /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
         async (content: string) => {
             if (!content.trim() || state.isGenerating) return;
 
-            // Create user message
+            // Create user message with temporary client-side ID
             const userMessage = createUserMessage(content);
 
-            // Add user message and set loading state
+            // Add user message and set generating state
             setState((prev) => ({
                 ...prev,
                 messages: [...prev.messages, userMessage],
@@ -375,7 +809,7 @@ export function ChatProvider({
                         setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
 
                         // Update URL without navigation using history API
-                        window.history.replaceState(null, '', `/${projectId}/${chatIdToUse}`);
+                        window.history.replaceState(null, '', buildChatRoute(chatIdToUse));
 
                         insertChatToCache(cache, globalMutate, newChat);
                     } else {
@@ -389,17 +823,11 @@ export function ChatProvider({
                         skipNextLoad.current = true;
                         setChatId(chatIdToUse);
 
-                        const basePath =
-                            chatType === 'company' ? '/companies' : chatType === 'stakeholder' ? '/stakeholders' : null;
-                        if (basePath) {
-                            window.history.replaceState(null, '', `${basePath}/${chatIdToUse}`);
-                        }
+                        window.history.replaceState(null, '', buildChatRoute(chatIdToUse));
                     }
                 }
 
-                // Create abort controller for this request
-                abortControllerRef.current = new AbortController();
-
+                // POST triggers server-side generation — stream arrives via WS subscription
                 // TODO: Unify this when backend is updated
                 const send = chatType === 'phase' ? sendAction : sendIntakeAction;
                 const response = await send(
@@ -407,13 +835,28 @@ export function ChatProvider({
                         message: content,
                         chatId: chatIdToUse,
                         model: selectedModel,
+                        tempId: userMessage.id, // Reconcile across WS boundaries
                     },
                     accessToken,
                 );
 
-                // Use streaming response
-                if (response.body) {
-                    await readStream(response.body);
+                if (!response.ok) {
+                    const errorText = await response.text().catch(() => 'Unknown error');
+                    throw new Error(`Send failed: ${response.status} — ${errorText}`);
+                }
+
+                // Broker mode: POST returns JSON { userMessageId, agentMessageId }.
+                // Stream data arrives via WebSocket subscription (no readStream needed).
+                const result = await response.json();
+
+                // Reconcile client-side user message ID with server-assigned ID
+                if (result.userMessageId) {
+                    setState((prev) => ({
+                        ...prev,
+                        messages: prev.messages.map((m) =>
+                            m.id === userMessage.id ? { ...m, id: result.userMessageId, tempId: m.tempId || m.id } : m,
+                        ),
+                    }));
                 }
             } catch (error) {
                 if (error instanceof Error && error.name === 'AbortError') {
@@ -426,79 +869,35 @@ export function ChatProvider({
                     isGenerating: false,
                     error: error instanceof Error ? error : new Error('Failed to send message'),
                 }));
-            } finally {
-                abortControllerRef.current = null;
             }
         },
-        [
-            api,
-            cache,
-            chatId,
-            getToken,
-            globalMutate,
-            chatType,
-            projectId,
-            readStream,
-            selectedModel,
-            state.isGenerating,
-        ],
+        [api, cache, chatId, getToken, globalMutate, chatType, projectId, buildChatRoute, selectedModel, state.isGenerating],
     );
 
-    /** Summarize current chat and store the new phase chat ID */
+    // ========================================================================
+    // SUMMARIZE
+    // ========================================================================
+
+    /** Trigger summarization — fires POST, then waits for stream_started(streamType:'summary') via WS */
     const summarizeChat = useCallback(async () => {
         // Summarization is only for phase chats
         if (chatType !== 'phase' || !chatId || state.isSummarizing) return;
 
-        setState((prev) => ({ ...prev, isSummarizing: true, summaryNewChatId: null, error: null }));
+        // Do NOT set isSummarizing here — stream_started(streamType:'summary') drives that state.
+        // This avoids showing the summarizing UI if the POST itself fails.
+        setState((prev) => ({ ...prev, error: null }));
 
         try {
             const accessToken = (await getToken()) ?? '';
             const response = await summarize({ chatId }, accessToken);
 
-            if (!response.body) {
-                throw new Error('No response stream');
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => 'Unknown error');
+                throw new Error(`Summarize failed: ${response.status} — ${errorText}`);
             }
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    const jsonStr = line.replace('data: ', '').trim();
-                    if (jsonStr === '[DONE]') continue;
-
-                    try {
-                        const event = JSON.parse(jsonStr);
-
-                        if (event.type === 'error') {
-                            setState((prev) => ({ ...prev, isSummarizing: false, error: new Error(event.error) }));
-                            return;
-                        }
-
-                        if (event.type === 'done' && event.newChatId) {
-                            setState((prev) => ({
-                                ...prev,
-                                isSummarizing: false,
-                                summaryNewChatId: event.newChatId,
-                            }));
-                            return;
-                        }
-                    } catch {
-                        // skip unparseable lines
-                    }
-                }
-            }
-
-            setState((prev) => ({ ...prev, isSummarizing: false }));
+            // Broker mode: POST returns { agentMessageId } synchronously.
+            // stream_started(streamType:'summary') arrives via existing chat: WS subscription.
         } catch (err) {
             setState((prev) => ({
                 ...prev,
@@ -514,29 +913,32 @@ export function ChatProvider({
         router.push(`/${projectId}/${state.summaryNewChatId}`);
     }, [projectId, router, state.summaryNewChatId]);
 
+    // ========================================================================
+    // STOP GENERATION
+    // ========================================================================
+
     /** Stop the current generation */
-    const stopGeneration = useCallback(() => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            abortControllerRef.current = null;
+    const stopGeneration = useCallback(async () => {
+        cleanupTransientArtifacts(stream.activeDocuments);
+
+        // Server-side abort via HTTP → ChatStreamDO.abort()
+        if (state.activeResponseId && chatId) {
+            const accessToken = (await getToken()) ?? '';
+            abort({ chatId, agentMessageId: state.activeResponseId }, accessToken).catch(() => {}); // fire-and-forget
         }
 
+        // Also send abort via WebSocket for faster path
+        stream.abort();
+
+        // Optimistically finalize streaming messages — server confirms via stream_status
         setState((prev) => ({
             ...prev,
             messages: prev.messages.map((msg) =>
-                msg.isStreaming ? { ...msg, isStreaming: false, status: undefined } : msg,
+                msg.isStreaming ? { ...msg, isStreaming: false, isAborted: true, status: undefined } : msg,
             ),
             isGenerating: false,
         }));
-    }, []);
-
-    // Auto-load messages when an initial chat ID is provided
-    useEffect(() => {
-        if (initialChatId) {
-            loadMessages();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [initialChatId]);
+    }, [chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
 
     return (
         <ChatContext.Provider
@@ -554,6 +956,7 @@ export function ChatProvider({
                 navigateToNewPhase,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
+                hasOtherPendingArtifacts,
             })}
         >
             {children}

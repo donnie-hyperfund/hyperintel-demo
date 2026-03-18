@@ -1,0 +1,23 @@
+/**
+ * Computes the base localStorage key for a draft session (text input).
+ * Accepts `string` for chatType so this utility stays independent of module-level types.
+ */
+export function getDraftBaseKey(chatType: string, chatId: string | null, projectId?: string): string {
+    if (chatId) return `draft:${chatType}:${chatId}`;
+    if (projectId) return `draft:${chatType}:${projectId}:new`;
+    return `draft:${chatType}:new`;
+}
+
+/**
+ * Computes the localStorage key for persisting in-progress file upload entries.
+ * Returns `null` when there isn't enough scope info to form a key.
+ */
+export function getUploadStorageKey(scope?: { projectId?: string; chatId?: string }, isDraft = false): string | null {
+    if (isDraft) {
+        if (scope?.chatId) return `draft-uploads:${scope.chatId}`;
+        if (scope?.projectId) return `draft-uploads:${scope.projectId}:new`;
+        return null;
+    }
+    if (scope?.projectId) return `resource-uploads:${scope.projectId}`;
+    return null;
+}

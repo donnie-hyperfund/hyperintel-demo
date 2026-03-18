@@ -206,8 +206,15 @@ export const ListUserResourcesQuerySchema = z.object({
         .enum(['true', 'false'])
         .transform((v) => v === 'true')
         .optional(),
+    /** Exclude resources originally published from this project */
+    excludeProjectId: z.string().uuid().optional(),
 });
 export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
+
+export const DeleteArtifactSchema = z.object({
+    artifactId: z.string().uuid(),
+});
+export type DeleteArtifactDto = z.infer<typeof DeleteArtifactSchema>;
 
 export const ExportArtifactQuerySchema = z.object({
     artifactVersionId: z.string().uuid(),

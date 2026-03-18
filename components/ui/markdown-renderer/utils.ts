@@ -32,12 +32,4 @@ function normalizeCustomMathTags(input: string): string {
 
 export function preprocessMarkdown(input: string): string {
     return input.replace(/={6,}/g, (match) => `<span class="md-divider">${match}</span>`);
-
-    // @TODO: Needs to be fixed - what's broken here? (DEAD CODE)
-    // let processedInput = normalizeCustomMathTags(input);
-    // // Replace ⏳ emoji with a placeholder that we'll handle in components
-    // processedInput = processedInput.replace(/⏳/g, '<span class="hourglass-spinner-placeholder"></span>');
-
-    // // BUG: Should return processedInput, currently returns original input
-    // return input;
 }

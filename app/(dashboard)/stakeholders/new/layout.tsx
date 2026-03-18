@@ -1,7 +1,7 @@
-import { ChatModule } from '@/modules/chat/providers/chat-module';
+import { Suspense } from 'react';
 
 type NewStakeholderLayoutProps = LayoutProps<'/stakeholders/new'>;
 
 export default function NewStakeholderLayout({ children }: NewStakeholderLayoutProps) {
-    return <ChatModule chatType="stakeholder">{children}</ChatModule>;
+    return <Suspense>{children}</Suspense>;
 }
