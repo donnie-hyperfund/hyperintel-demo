@@ -465,8 +465,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                     };
                     await em!.flush();
                 }
-            } catch (err) {
-            }
+            } catch { }
         }
 
         // done() → persist (above) → finalize() → clearStream (Decision #20)

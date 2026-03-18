@@ -660,8 +660,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                     };
                     await em!.flush();
                 }
-            } catch (err) {
-            }
+            } catch { }
         }
 
         // done() → persist (above) → finalize() → clearStream (Decision #20)
