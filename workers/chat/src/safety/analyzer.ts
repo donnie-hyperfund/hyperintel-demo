@@ -1,11 +1,16 @@
 /**
- * Post-processing Safety Analyzer
+ * Inline Safety Analyzer
  *
- * Runs AFTER the agent responds — checks if the agent leaked protected information.
- * Executes async (doesn't block the user response).
+ * Monitors the agent's response IN REAL-TIME during streaming.
+ * Runs on a timer (setInterval) — checks accumulated content every N seconds.
+ * If a leak is detected, aborts the stream immediately.
  *
- * TODO: When websockets are implemented, send a "retract" event to the frontend
- * so it can hide/redact the leaked message in real-time instead of just flagging.
+ * Flow:
+ * 1. Start monitoring when stream begins (startMonitoring)
+ * 2. Append content deltas as they arrive (appendContent)
+ * 3. Every INTERVAL_MS, check accumulated content for leaks
+ * 4. If leak detected → abort stream + push safety_retract event
+ * 5. Stop monitoring when stream ends (stopMonitoring)
  */
 
 import { z } from 'zod';
@@ -18,6 +23,12 @@ const DEFAULT_MODEL = COMMON_MODELS.GEMINI_FLASH_3;
 const FALLBACK_MODELS = [COMMON_MODELS.GEMINI_FLASH, COMMON_MODELS.GPT_4_1_MINI];
 
 const ANALYZER_PROMPT_SLUG = 'safety/analyzer-prompt';
+
+/** How often to check accumulated content (ms) */
+const CHECK_INTERVAL_MS = 4_000;
+
+/** Minimum content length before first check (skip tiny responses) */
+const MIN_CONTENT_LENGTH = 100;
 
 // ============================================================================
 // SCHEMA
@@ -56,14 +67,13 @@ async function getAnalyzerPrompt(ctx: Ctx): Promise<string | null> {
         const prompt = await getLangfusePromptRaw(ctx.langfuse!, ANALYZER_PROMPT_SLUG, ctx.env);
         if (prompt) cachedPrompt = prompt;
         return prompt;
-    } catch (err) {
-        console.warn('[safety-analyzer] Failed to load prompt from Langfuse:', err);
+    } catch {
         return null;
     }
 }
 
 // ============================================================================
-// CORE
+// SINGLE CHECK
 // ============================================================================
 
 async function analyzeWithModel(
@@ -80,7 +90,7 @@ async function analyzeWithModel(
             context: [
                 {
                     role: 'user',
-                    content: `## User message:\n${userMessage}\n\n## Agent response:\n${agentResponse}`,
+                    content: `## User message:\n${userMessage}\n\n## Agent response (so far):\n${agentResponse}`,
                 },
             ],
             params: {
@@ -94,59 +104,116 @@ async function analyzeWithModel(
             return result.result as AnalysisResult;
         }
 
-        console.warn(`[safety-analyzer] ${model} returned ${result.status}:`, result.error);
         return null;
-    } catch (err) {
-        console.warn(`[safety-analyzer] ${model} threw:`, err);
+    } catch {
         return null;
     }
 }
 
-/**
- * Analyze the agent's response for leaked protected information.
- * Runs async — does not block the user response.
- *
- * @returns AnalysisResult or null if all models fail.
- */
-export async function analyzeResponse(
+async function runAnalysis(
     ctx: Ctx,
     userMessage: string,
     agentResponse: string,
+    prompt: string,
 ): Promise<AnalysisResult | null> {
-    // Skip empty or very short responses
-    if (!agentResponse || agentResponse.trim().length < 20) {
-        return null;
-    }
-
-    if (!ctx.orouterSdk) {
-        console.warn('[safety-analyzer] No OpenRouter SDK available, skipping analysis');
-        return null;
-    }
-
-    // Load prompt from Langfuse
-    const prompt = await getAnalyzerPrompt(ctx);
-    if (!prompt) {
-        console.warn('[safety-analyzer] No prompt available, skipping analysis');
-        return null;
-    }
-
     const modelsToTry = [DEFAULT_MODEL, ...FALLBACK_MODELS.filter((m) => m !== DEFAULT_MODEL)];
 
     for (const model of modelsToTry) {
         const result = await analyzeWithModel(ctx, userMessage, agentResponse, model, prompt);
-        if (result) {
-            console.log('[safety-analyzer] Result:', {
-                model,
-                leaked: result.leaked,
-                category: result.category,
-                severity: result.severity,
-                evidence: result.evidence,
-            });
-            return result;
-        }
-        console.warn(`[safety-analyzer] Model ${model} failed, trying fallback...`);
+        if (result) return result;
     }
 
-    console.warn('[safety-analyzer] All models failed');
     return null;
+}
+
+// ============================================================================
+// INLINE MONITOR
+// ============================================================================
+
+export interface SafetyMonitor {
+    /** Call this with each content delta from the stream */
+    appendContent: (delta: string) => void;
+    /** Stop monitoring (call when stream ends, regardless of reason) */
+    stop: () => void;
+    /** Get the last analysis result (for persisting to DB) */
+    getLastResult: () => AnalysisResult | null;
+}
+
+interface MonitorOptions {
+    ctx: Ctx;
+    userMessage: string;
+    /** Called when a leak is detected — should abort the stream */
+    onLeak: (result: AnalysisResult) => void;
+}
+
+/**
+ * Create an inline safety monitor that checks streaming content periodically.
+ *
+ * Usage in runGeneration:
+ *   const monitor = createSafetyMonitor({ ctx, userMessage, onLeak: (r) => { abortController.abort(); ... } });
+ *   // in stream loop: monitor.appendContent(event.content);
+ *   // after stream: monitor.stop();
+ */
+export function createSafetyMonitor(options: MonitorOptions): SafetyMonitor {
+    const { ctx, userMessage, onLeak } = options;
+
+    let accumulatedContent = '';
+    let lastCheckedLength = 0;
+    let isRunning = true;
+    let isChecking = false;
+    let lastResult: AnalysisResult | null = null;
+    let intervalHandle: ReturnType<typeof setInterval> | null = null;
+
+    // Pre-load the prompt so first check is fast
+    const promptPromise = getAnalyzerPrompt(ctx);
+
+    async function check() {
+        // Skip if: already checking, stopped, no new content, or content too short
+        if (!isRunning || isChecking) return;
+        if (accumulatedContent.length < MIN_CONTENT_LENGTH) return;
+        if (accumulatedContent.length === lastCheckedLength) return;
+
+        isChecking = true;
+        const contentSnapshot = accumulatedContent;
+        lastCheckedLength = contentSnapshot.length;
+
+        try {
+            const prompt = await promptPromise;
+            if (!prompt || !isRunning) return;
+
+            const result = await runAnalysis(ctx, userMessage, contentSnapshot, prompt);
+            if (!result || !isRunning) return;
+
+            lastResult = result;
+
+            if (result.leaked) {
+                isRunning = false;
+                onLeak(result);
+            }
+        } catch {
+        } finally {
+            isChecking = false;
+        }
+    }
+
+    // Start periodic checks
+    if (ctx.orouterSdk) {
+        intervalHandle = setInterval(check, CHECK_INTERVAL_MS);
+    }
+
+    return {
+        appendContent(delta: string) {
+            if (isRunning) accumulatedContent += delta;
+        },
+        stop() {
+            isRunning = false;
+            if (intervalHandle) {
+                clearInterval(intervalHandle);
+                intervalHandle = null;
+            }
+        },
+        getLastResult() {
+            return lastResult;
+        },
+    };
 }

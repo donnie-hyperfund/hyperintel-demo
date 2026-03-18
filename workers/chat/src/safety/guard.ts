@@ -53,8 +53,7 @@ async function getGuardPrompt(ctx: Ctx): Promise<string | null> {
         const prompt = await getLangfusePromptRaw(ctx.langfuse!, GUARD_PROMPT_SLUG, ctx.env);
         if (prompt) cachedPrompt = prompt;
         return prompt;
-    } catch (err) {
-        console.warn('[safety-guard] Failed to load prompt from Langfuse:', err);
+    } catch {
         return null;
     }
 }
@@ -85,10 +84,8 @@ async function checkWithModel(
             return result.result as SafetyVerdict;
         }
 
-        console.warn(`[safety-guard] ${model} returned ${result.status}:`, result.error);
         return null;
-    } catch (err) {
-        console.warn(`[safety-guard] ${model} threw:`, err);
+    } catch {
         return null;
     }
 }
@@ -105,35 +102,17 @@ export async function safetyCheck(ctx: Ctx, message: string): Promise<SafetyVerd
     }
 
     // Quick check: if no OpenRouter SDK, fail open
-    if (!ctx.orouterSdk) {
-        console.warn('[safety-guard] No OpenRouter SDK available, skipping safety check');
-        return null;
-    }
+    if (!ctx.orouterSdk) return null;
 
-    // Load prompt from Langfuse
     const prompt = await getGuardPrompt(ctx);
-    if (!prompt) {
-        console.warn('[safety-guard] No prompt available, failing open');
-        return null;
-    }
+    if (!prompt) return null;
 
     const modelsToTry = [DEFAULT_MODEL, ...FALLBACK_MODELS.filter((m) => m !== DEFAULT_MODEL)];
 
     for (const model of modelsToTry) {
         const result = await checkWithModel(ctx, message, model, prompt);
-        if (result) {
-            console.log('[safety-guard] Verdict:', {
-                model,
-                blocked: result.blocked,
-                sensitive: result.sensitive,
-                score: result.score,
-                reason: result.reason,
-            });
-            return result;
-        }
-        console.warn(`[safety-guard] Model ${model} failed, trying fallback...`);
+        if (result) return result;
     }
 
-    console.warn('[safety-guard] All models failed, failing open (allowing message)');
     return null;
 }
