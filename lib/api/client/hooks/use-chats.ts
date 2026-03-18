@@ -1,10 +1,11 @@
 import { useAuth } from '@clerk/nextjs';
 import useSWR, { type SWRConfiguration } from 'swr';
-import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
+import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import type { ChatDto } from '@/lib/schema/message';
 import { chatKeys, createChatApi } from '../fetchers/chats';
 import type { InfinitePaginationParams, PaginatedResponse, PaginationParams } from '../types';
+import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
 export function useFetchChats(
     projectId: string | undefined,
@@ -14,7 +15,7 @@ export function useFetchChats(
     const { getToken } = useAuth();
 
     return useSWR<PaginatedResponse<ChatDto>>(
-        projectId ? chatKeys.list(projectId, params) : null,
+        projectId ? chatKeys.list(params) : null,
         () => {
             if (!projectId) throw new Error('Project ID is required');
             return createChatApi(getToken).list(projectId, params);
@@ -30,11 +31,11 @@ export function useFetchChatsInfinite(
 ) {
     const { getToken } = useAuth();
 
-    const result = useSWRInfinite<PaginatedResponse<ChatDto>>(
+    return useSWRInfinitePaginated<ChatDto>(
         (pageIndex, previousPageData) => {
             if (!projectId) return null;
             if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
-            return chatKeys.list(projectId, { page: pageIndex + 1, limit: params.limit });
+            return chatKeys.list({ page: pageIndex + 1, limit: params.limit });
         },
         (key) => {
             if (!projectId) throw new Error('Project ID is required');
@@ -43,11 +44,6 @@ export function useFetchChatsInfinite(
         },
         { revalidateOnFocus: false, revalidateFirstPage: false, ...config },
     );
-
-    const lastPage = result.data?.[result.data.length - 1];
-    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
-
-    return { ...result, hasNextPage };
 }
 
 export function useFetchChat(
@@ -58,9 +54,9 @@ export function useFetchChat(
     const { getToken } = useAuth();
 
     return useSWR<ChatDto>(
-        chatId ? chatKeys.detail(chatId) : null,
+        projectId && chatId ? chatKeys.detail(chatId) : null,
         () => {
-            if (!projectId || !chatId) throw new Error('Project ID and Chat ID are required');
+            if (!chatId) throw new Error('Chat ID is required');
             return createChatApi(getToken).get(chatId);
         },
         { revalidateOnFocus: false, ...config },

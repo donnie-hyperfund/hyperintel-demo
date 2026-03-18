@@ -16,7 +16,8 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { ChatHandlerOptions, chatActionHandler } from '@/workers/chat/src/chat-handler';
+import type { StreamEvent } from '@/lib/schema/stream';
+import { type ChatHandlerOptions, chatActionHandler } from '@/workers/chat/src/chat-handler';
 
 const overrideOpts: ChatHandlerOptions = {
     // useLocalPrompts: true,
@@ -207,11 +208,8 @@ async function nukeProject(): Promise<void> {
     await createNewChat();
 }
 
-async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string> {
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
+function createEventRenderer(): { onEvent: (event: StreamEvent) => void; finalize: () => void } {
     let fullText = '';
-    let buffer = '';
 
     // === UI State ===
     const THINKING_LINES = 4;
@@ -224,7 +222,7 @@ async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string
     const actions: string[] = [];
 
     // Document cards to show at end
-    const documents: { name: string; version: number; lines: number; action: string }[] = [];
+    const documents: { name: string; version: number; lines?: number; action?: string }[] = [];
 
     // Render the collapsible thinking+actions header
     const renderThinkingHeader = () => {
@@ -277,140 +275,95 @@ async function consumeStream(stream: ReadableStream<Uint8Array>): Promise<string
         statusText = 'Thinking...';
     };
 
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+    const onEvent = (event: StreamEvent) => {
+        switch (event.type) {
+            case 'delta':
+                finalizeThinking();
+                process.stdout.write(event.text || '');
+                fullText += event.text || '';
+                break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
+            case 'status_update':
+                statusText = event.status || 'Thinking...';
+                if (isInThinkingPhase) renderThinkingHeader();
+                break;
 
-            const lines = buffer.split('\n\n');
-            buffer = lines.pop() || '';
+            case 'reasoning_start':
+                isInThinkingPhase = true;
+                thinkingHasContent = false;
+                reasoningBuffer = '';
+                statusText = 'Thinking...';
+                renderThinkingHeader();
+                break;
 
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith('data: ')) continue;
-
-                const payload = trimmed.slice(6);
-                if (payload === '[DONE]') continue;
-
-                try {
-                    const event = JSON.parse(payload);
-
-                    switch (event.type) {
-                        case 'delta':
-                            finalizeThinking();
-                            process.stdout.write(event.text || '');
-                            fullText += event.text || '';
-                            break;
-
-                        case 'status_update':
-                            statusText = event.status || 'Thinking...';
-                            if (isInThinkingPhase) {
-                                renderThinkingHeader();
-                            }
-                            break;
-
-                        case 'reasoning_start':
-                            isInThinkingPhase = true;
-                            thinkingHasContent = false;
-                            reasoningBuffer = '';
-                            statusText = 'Thinking...';
-                            renderThinkingHeader();
-                            break;
-
-                        case 'reasoning_delta':
-                            if (showReasoning) {
-                                isInThinkingPhase = true;
-                                thinkingHasContent = true;
-                                reasoningBuffer += event.text || '';
-                                renderThinkingHeader();
-                            }
-                            break;
-
-                        case 'reasoning_done':
-                            // Don't finalize yet - wait for actual content or tool
-                            break;
-
-                        case 'tool_start':
-                            // Add to actions log
-                            actions.push(event.tool);
-                            if (isInThinkingPhase) {
-                                renderThinkingHeader();
-                            } else {
-                                // Not in thinking phase, just log it
-                                console.log(`${c.cyan}🔧${c.reset} ${event.tool}`);
-                            }
-                            break;
-
-                        case 'tool_result':
-                            if (!event.success) {
-                                finalizeThinking();
-                                console.log(
-                                    `${c.red}✗${c.reset} ${event.tool}: ${String(event.result).substring(0, 100)}`,
-                                );
-                            } else if (currentLogLevel >= LogLevel.DEBUG) {
-                                console.log(`${c.green}✓${c.reset} ${event.tool}`);
-                            }
-                            break;
-
-                        case 'document_complete':
-                            // Collect for display at end
-                            documents.push({
-                                name: event.name,
-                                version: event.version,
-                                lines: event.lines,
-                                action: event.action,
-                            });
-                            break;
-
-                        case 'document_start':
-                        case 'document_delta':
-                            // Silently collected, shown via document_complete
-                            break;
-
-                        case 'error': {
-                            finalizeThinking();
-                            const errMsg = JSON.stringify(serializeException(event.error));
-                            console.log(`${c.red}[ERROR]${c.reset} ${errMsg}`);
-                            break;
-                        }
-
-                        case 'done':
-                        case 'done_ext':
-                            // End of stream
-                            break;
-
-                        default:
-                            if (currentLogLevel >= LogLevel.VERBOSE) {
-                                console.log(`${c.dim}[?] ${event.type}${c.reset}`);
-                            }
-                            break;
-                    }
-                } catch {
-                    // Ignore parsing errors
+            case 'reasoning_delta':
+                if (showReasoning) {
+                    isInThinkingPhase = true;
+                    thinkingHasContent = true;
+                    reasoningBuffer += event.text || event.content || '';
+                    renderThinkingHeader();
                 }
+                break;
+
+            case 'reasoning_done':
+                break;
+
+            case 'tool_start':
+                actions.push(event.tool);
+                if (isInThinkingPhase) {
+                    renderThinkingHeader();
+                } else {
+                    console.log(`${c.cyan}🔧${c.reset} ${event.tool}`);
+                }
+                break;
+
+            case 'tool_result':
+                if (!event.success) {
+                    finalizeThinking();
+                    console.log(`${c.red}✗${c.reset} ${String(event.result).substring(0, 100)}`);
+                } else if (currentLogLevel >= LogLevel.DEBUG) {
+                    console.log(`${c.green}✓${c.reset} tool_result`);
+                }
+                break;
+
+            case 'document_complete':
+                documents.push({ name: event.name, version: event.version });
+                break;
+
+            case 'document_start':
+            case 'document_delta':
+                break;
+
+            case 'error': {
+                finalizeThinking();
+                const errMsg = JSON.stringify(serializeException(event.error));
+                console.log(`${c.red}[ERROR]${c.reset} ${errMsg}`);
+                break;
+            }
+
+            case 'done':
+            case 'done_ext':
+                break;
+
+            default:
+                if (currentLogLevel >= LogLevel.VERBOSE) {
+                    console.log(`${c.dim}[?] ${(event as any).type}${c.reset}`);
+                }
+                break;
+        }
+    };
+
+    const finalize = () => {
+        finalizeThinking();
+        if (documents.length > 0) {
+            console.log('');
+            for (const doc of documents) {
+                console.log(`${c.cyan}📄 ${doc.name}${c.reset} ${c.dim}v${doc.version}${c.reset}`);
             }
         }
-    } catch (err) {
-        log('ERROR', c.red, LogLevel.ERROR, 'Stream error:', err);
-    } finally {
-        finalizeThinking();
-    }
+    };
 
-    // === Render document cards at end ===
-    if (documents.length > 0) {
-        console.log(''); // Spacing
-        for (const doc of documents) {
-            const icon = doc.action === 'created' ? '📄' : doc.action === 'replaced' ? '📝' : '✏️';
-            console.log(
-                `${c.cyan}${icon} ${doc.name}${c.reset} ${c.dim}v${doc.version} (${doc.lines} lines)${c.reset}`,
-            );
-        }
-    }
-
-    return fullText;
+    return { onEvent, finalize };
 }
 
 async function handleMessage(message: string): Promise<void> {
@@ -422,9 +375,14 @@ async function handleMessage(message: string): Promise<void> {
     log('AGENT', c.blue, LogLevel.INFO, 'Sending message...');
 
     try {
-        const stream = await chatActionHandler({ chatId: currentChatId, message }, ctx, overrideOpts);
+        const renderer = createEventRenderer();
+        const result = await chatActionHandler({ chatId: currentChatId, message }, ctx, {
+            ...overrideOpts,
+            onEvent: renderer.onEvent,
+        });
         console.log(`${c.green}--- Assistant ---${c.reset}`);
-        await consumeStream(stream);
+        await result.generation;
+        renderer.finalize();
         console.log(`\n${c.dim}-----------------${c.reset}`);
     } catch (error) {
         log('ERROR', c.red, LogLevel.ERROR, 'Handler failed:', error);

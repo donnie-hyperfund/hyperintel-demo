@@ -23,9 +23,11 @@ export function createLangfuseClient(): LangfuseClient | null {
     }
 
     const defaultEnvironment =
+        // @ts-expect-error env typed lowercase but runtime value is capitalized to match PromptEnvironment
         environment === 'Development'
             ? PromptEnvironment.Development
-            : environment === 'Production'
+            : // @ts-expect-error same as above
+              environment === 'Production'
               ? PromptEnvironment.Production
               : undefined;
 

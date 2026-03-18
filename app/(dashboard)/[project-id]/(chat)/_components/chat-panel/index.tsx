@@ -77,7 +77,7 @@ function ChatPanelContent({
 
                 <div className="flex flex-1 flex-col items-center justify-center px-4">
                     <ChatEmptyTitle title={emptyTitle} subtitle={emptySubtitle} className="mb-12" />
-                    <ChatMessageForm ref={formRef} className="w-full" />
+                    <ChatMessageForm ref={formRef} className="w-full" showGradientFade={false} />
                 </div>
             </div>
         );

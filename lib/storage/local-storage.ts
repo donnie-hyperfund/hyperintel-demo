@@ -46,6 +46,7 @@ export function safeSetJsonItem(key: string, value: unknown): void {
     }
 }
 
+
 /** Returns the fully-qualified storage key (with prefix) for use with StorageEvent matching. */
 export function storageKey(key: string): string {
     return `${STORAGE_PREFIX}${key}`;

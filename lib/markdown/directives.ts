@@ -45,7 +45,7 @@ export const directiveHandlers: Record<string, DirectiveCallback> = {
         const attributes: DirectiveAttributes = directive.attributes || {};
         const noteType: string = attributes.type || 'info';
         const content: string =
-            directive.children && directive.children.length > 0 ? toString(directive.children[0] as Nodes) : '';
+            directive.children && directive.children.length > 0 ? toStringUtil(directive.children[0] as Nodes) : '';
         return {
             type: 'html',
             value: `<div class="note note-${noteType} p-4 rounded-lg border-l-4 mb-4 ${
@@ -70,9 +70,9 @@ export const directiveHandlers: Record<string, DirectiveCallback> = {
                 ? directive.children
                       .map((child: Nodes) => {
                           if (child.type === 'paragraph') {
-                              return `<p>${toString(child)}</p>`;
+                              return `<p>${toStringUtil(child)}</p>`;
                           }
-                          return toString(child);
+                          return toStringUtil(child);
                       })
                       .join('\n')
                 : '';

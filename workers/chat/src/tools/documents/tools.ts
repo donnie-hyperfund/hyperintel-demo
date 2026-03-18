@@ -58,6 +58,8 @@ export interface DocumentToolsContext {
     embeddingQueue?: EmbeddingQueueAdapter;
     /** Version IDs created during this turn - will be linked to assistant message after persist */
     createdVersionIds: string[];
+    /** Optional callback fired when a new artifact version is created (for user-scoped broadcasts) */
+    onVersionCreated?: (event: { artifactName: string; versionId: string; version: number; action: 'created' | 'proposed' }) => void;
 }
 
 /** Derive DocumentScope from context. */
@@ -497,6 +499,14 @@ If a proposed version already exists, it will be marked as "superseded".`,
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
+
+                    // Notify listener (user-scoped broadcast) — fire-and-forget
+                    ctx.onVersionCreated?.({
+                        artifactName: draft.name,
+                        versionId: result.versionId,
+                        version: result.version,
+                        action: result.action,
+                    });
 
                     // Only clear draft after successful persist
                     draftManager.discard();

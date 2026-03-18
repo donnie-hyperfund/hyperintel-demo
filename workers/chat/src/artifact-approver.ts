@@ -7,12 +7,38 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
+import type { UserGatewayStub } from './utils/do-stubs';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
+
+async function broadcastArtifactUserEvent(
+    ctx: Pick<Ctx, 'eCtx'>,
+    ugStub: UserGatewayStub,
+    eventType: string,
+    payload: Record<string, unknown>,
+): Promise<void> {
+    const task = ugStub
+        .broadcastToAll({
+            type: 'user_event',
+            eventType,
+            payload,
+        })
+        .catch((error) => {
+            console.error(`[artifact-approver] Failed to broadcast ${eventType}:`, error);
+        });
+
+    if (ctx.eCtx) {
+        ctx.eCtx.waitUntil(task);
+        return;
+    }
+
+    await task;
+}
 
 async function generateYAMLForArtifact(content: string, messages: ChatMessageEntity[], ctx: Ctx): Promise<string> {
     const localPath = resolveLocalPromptPath();
@@ -102,6 +128,21 @@ export async function approveArtifactHandler(
         });
     }
 
+    const previousStatus = version.status;
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
+    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+
+    // Keep the request-scoped broadcast alive on Workers until it is delivered.
+    await broadcastArtifactUserEvent(ctx, ugStub, 'artifact_version_update_started', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'approve',
+        previousStatus,
+        nextStatus: 'approved',
+    });
+
     // Classify document to determine if AI-readable YAML should be generated
     const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.artifact.title);
 
@@ -178,6 +219,16 @@ export async function approveArtifactHandler(
         }
     }
 
+    await broadcastArtifactUserEvent(ctx, ugStub, 'artifact_version_updated', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'approve',
+        previousStatus,
+        status: 'approved',
+    });
+
     return {
         success: true,
         version: version.version,
@@ -235,6 +286,20 @@ export async function rejectArtifactHandler(
         });
     }
 
+    const previousStatus = version.status;
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
+    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+
+    await broadcastArtifactUserEvent(ctx, ugStub, 'artifact_version_update_started', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'reject',
+        previousStatus,
+        nextStatus: 'rejected',
+    });
+
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
@@ -242,6 +307,16 @@ export async function rejectArtifactHandler(
     version.artifact.current_version = version;
 
     await em.flush();
+
+    await broadcastArtifactUserEvent(ctx, ugStub, 'artifact_version_updated', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'reject',
+        previousStatus,
+        status: 'rejected',
+    });
 
     return {
         success: true,

@@ -15,7 +15,9 @@ import {
     type PresignUploadDto,
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from './context';
+import type { UserGatewayStub } from './utils/do-stubs';
 
 function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
@@ -187,6 +189,17 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
     return result;
 }
 
+/** Broadcast artifact version creation to user's WS connections */
+function broadcastArtifactCreated(ctx: Ctx, result: UpsertResult, normalizedKey: string) {
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, ctx.previewAlias));
+    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+    ugStub.broadcastToAll({
+        type: 'user_event',
+        eventType: 'artifact_version_created',
+        payload: { artifactId: result.artifactId, versionId: result.versionId, version: result.version, artifactName: normalizedKey },
+    }).catch(console.error);
+}
+
 export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
     const { file, projectId, chatId, title: titleInput } = data;
     const { em, user } = ctx;
@@ -221,6 +234,8 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
     });
 
     await queueEmbedding(ctx, result.versionId, content, normalizedKey, projectId, chatId);
+
+    broadcastArtifactCreated(ctx, result, normalizedKey);
 
     return { success: true, ...result, key: normalizedKey };
 }
@@ -277,6 +292,8 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     });
 
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: PRESIGN_EXPIRY_SECONDS });
+
+    broadcastArtifactCreated(ctx, result, normalizedKey);
 
     return {
         uploadUrl,

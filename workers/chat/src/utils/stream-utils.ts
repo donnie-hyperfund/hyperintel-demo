@@ -1,7 +1,7 @@
 /**
  * Shared streaming utilities for agent chat handlers.
  *
- * Small helpers reused by chat-handler and intake-handler.
+ * Small helpers reused by chat-handler, intake-handler, and summarizer.
  * NOT a mega-abstraction — each handler keeps its own stream loop
  * and done_ext handling.
  */
@@ -9,7 +9,34 @@
 import type { AgentStreamEvent } from '@common/ai/agent';
 import { serializeException, stringifyError } from '@/common/ai/utils';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
+import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
+
+// ============================================================================
+// DO LIFECYCLE HELPERS
+// ============================================================================
+
+/**
+ * Wire a ChatStreamDO to an AbortController via long-polling.
+ * Starts an async loop that calls abortWait() and triggers the controller.
+ */
+export function wireAbort(streamDO: ChatStreamDOStub): AbortController {
+    const abortController = new AbortController();
+    (async () => {
+        try {
+            let signal: 'abort' | 'timeout' | 'done';
+            do {
+                signal = await streamDO.abortWait();
+            } while (signal === 'timeout');
+            if (signal === 'abort') abortController.abort();
+        } catch {
+            // DO evicted or RPC failed — abort to prevent hanging generation
+            abortController.abort();
+        }
+    })();
+    return abortController;
+}
 
 type Enqueue = (data: object | string) => void;
 
@@ -20,8 +47,15 @@ type Enqueue = (data: object | string) => void;
 export function createEnqueue(controller: ReadableStreamDefaultController<Uint8Array>): Enqueue {
     const encoder = new TextEncoder();
     return (data: object | string) => {
-        const payload = typeof data === 'string' ? data : JSON.stringify(data);
-        controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+        try {
+            const payload = typeof data === 'string' ? data : JSON.stringify(data);
+            controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+            return true;
+        } catch {
+            // Client disconnected — swallow. The handler must keep running
+            // to reach done_ext and persist to DB regardless.
+        }
+        return false;
     };
 }
 
@@ -137,6 +171,124 @@ export function handleCommonStreamEvent(
 }
 
 // ============================================================================
+// FIRE-AND-FORGET PUSHER
+// ============================================================================
+
+export interface Pusher {
+    /** Fire-and-forget push to ChatStreamDO with auto-incrementing seq. */
+    push: (events: StreamEvent[]) => void;
+    /** Await all in-flight pushes (call before terminal events). */
+    waitAll: () => Promise<void>;
+    /** Current sequence number (for the final awaited push of the terminal event). */
+    get seq(): number;
+}
+
+/**
+ * Factory for the fire-and-forget push pattern used by all handlers.
+ * Encapsulates pushSeq counter + inflightPushes tracking.
+ */
+export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher {
+    let pushSeq = 0;
+    const inflightPushes: Promise<void>[] = [];
+    return {
+        push: (events: StreamEvent[]) => {
+            const p = streamDO.push(events, pushSeq++).catch((err) =>
+                console.error(`[${label}] push failed:`, err),
+            );
+            inflightPushes.push(p);
+        },
+        waitAll: () => Promise.allSettled(inflightPushes).then(() => {}),
+        get seq() { return pushSeq++; },
+    };
+}
+
+// ============================================================================
+// ERROR CLEANUP HELPERS
+// ============================================================================
+
+/**
+ * Persist an error agent message row if one doesn't already exist.
+ * Used by chat-handler and intake-handler catch blocks.
+ * Summarizer skips this (no agent message to persist on error).
+ */
+export async function persistErrorMessage(
+    em: any,
+    chatId: string,
+    agentMessageId: string,
+    chat: { active_agent_message_id: string | null },
+    error: any,
+    label: string,
+) {
+    try {
+        const existing = await em.findOne(ChatMessageEntity, { id: agentMessageId });
+        if (!existing) {
+            const errorMsg = em.create(ChatMessageEntity, {
+                id: agentMessageId,
+                chat: chatId,
+                role: 'assistant',
+                content: '',
+                is_error: true,
+                metadata: { error: error?.message || 'Unknown error' },
+                debug_data: { error: serializeException(error) },
+            });
+            em.persist(errorMsg);
+        }
+        chat.active_agent_message_id = null;
+        await em.flush();
+    } catch (saveErr) {
+        console.error(`[${label}] failed to save error state:`, saveErr);
+    }
+}
+
+/**
+ * Error epilogue: drain inflight pushes, push error event, done+finalize, clearStream.
+ * Shared by all three handlers' catch blocks.
+ */
+export async function cleanupStreamDO(
+    pusher: Pusher,
+    streamDO: ChatStreamDOStub,
+    ugStub: UserGatewayStub,
+    topic: string,
+    error: any,
+) {
+    try {
+        await pusher.waitAll();
+        await streamDO.push([{ type: 'error', error: error?.message || 'Unknown error' }], pusher.seq);
+        await streamDO.done();
+        await streamDO.finalize();
+    } catch {
+        /* DO might already be gone */
+    } finally {
+        await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
+    }
+}
+
+// ============================================================================
+// DO PUSH HELPER
+// ============================================================================
+
+/**
+ * Convert handleCommonStreamEvent's enqueue-based API into StreamEvent[] collection.
+ * Creates a collector that captures what handleCommonStreamEvent would enqueue,
+ * returning the events for DO push instead.
+ */
+export function createEventCollector(): { enqueue: (data: object | string) => boolean; drain: () => StreamEvent[] } {
+    const events: StreamEvent[] = [];
+    return {
+        enqueue: (data: object | string) => {
+            if (typeof data === 'string') return false; // Skip '[DONE]' sentinel
+            events.push(data as StreamEvent);
+            return true;
+        },
+        drain: () => {
+            const copy = [...events];
+            events.length = 0;
+            return copy;
+        },
+    };
+}
+
+// ============================================================================
 // HISTORY LOADING
 // ============================================================================
 
@@ -146,13 +298,16 @@ export function handleCommonStreamEvent(
 export async function loadChatHistory(em: any, chatId: string) {
     const dbMessages = await em.find(ChatMessageEntity, { chat: chatId }, { orderBy: { created_at: 'ASC' } });
     return dbMessages.map((m: ChatMessageEntity) => {
-        if (m.is_error) {
+        if (m.is_error || m.is_aborted) {
             let safeContent = m.content || '';
             if (m.reasoning) {
                 safeContent = `<thinking>${m.reasoning}</thinking>\n\n${safeContent}`;
             }
+            const marker = m.is_error
+                ? '[This response was interrupted by an error]'
+                : '[This response was aborted by user]';
             if (safeContent) {
-                safeContent += '\n\n[This response was interrupted by an error]';
+                safeContent += `\n\n${marker}`;
             }
             return { role: m.role as 'user' | 'assistant', content: safeContent };
         }
@@ -213,33 +368,105 @@ export async function handleStreamError(
     }
 
     enqueue({ type: 'error', error: serialized.message || JSON.stringify(serialized) });
-    controller.close();
+    try {
+        controller.close();
+    } catch {
+        /* client already gone */
+    }
 }
 
 // ============================================================================
 // SSE STREAM WRAPPER
 // ============================================================================
 
-function sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
  * Wrap an async handler into a ReadableStream for SSE responses.
+ *
+ * The handler runs **independently** of the stream's lifecycle. If the client
+ * disconnects (ReadableStream gets cancelled), the handler keeps running to
+ * completion — so done_ext emission and DB persistence always happen.
  */
-export async function createSSEStream(
+export function createSSEStream(
     handler: (controller: ReadableStreamDefaultController<Uint8Array>) => Promise<void>,
     ctx?: Ctx,
-) {
-    let ready = false;
-    const stream = new ReadableStream<Uint8Array>({
-        async start(controller) {
-            const promise = handler(controller);
-            ctx?.eCtx?.waitUntil(promise);
-            ready = true;
-            await promise;
+): ReadableStream<Uint8Array> {
+    // Internal buffer decouples handler from stream consumer.
+    const buffer: Uint8Array[] = [];
+    let handlerDone = false;
+    let handlerError: unknown = null;
+    let wakeup: (() => void) | null = null;
+
+    const signal = () => {
+        wakeup?.();
+        wakeup = null;
+    };
+
+    // Proxy controller — buffers enqueue/close so the handler never touches
+    // the real stream controller (which dies on client disconnect).
+    const proxy = {
+        enqueue(chunk: Uint8Array) {
+            buffer.push(chunk);
+            signal();
+        },
+        close() {
+            handlerDone = true;
+            signal();
+        },
+        error(e?: any) {
+            handlerError = e;
+            handlerDone = true;
+            signal();
+        },
+        get desiredSize() {
+            return Math.max(0, 16 - buffer.length);
+        },
+    } as unknown as ReadableStreamDefaultController<Uint8Array>;
+
+    // Handler starts synchronously here — guaranteed to have begun before
+    // the ReadableStream is even constructed (matches old start() eagerness).
+    const handlerPromise = handler(proxy).catch((err) => {
+        handlerError = err;
+        handlerDone = true;
+        signal();
+    });
+    ctx?.eCtx?.waitUntil(handlerPromise);
+
+    return new ReadableStream<Uint8Array>({
+        async pull(controller) {
+            // Wait for buffered data or handler completion
+            while (buffer.length === 0 && !handlerDone) {
+                await new Promise<void>((r) => {
+                    wakeup = r;
+                });
+            }
+            // Forward buffered chunks to the real controller
+            while (buffer.length > 0) {
+                try {
+                    controller.enqueue(buffer.shift()!);
+                } catch {
+                    return;
+                }
+            }
+            if (handlerDone && buffer.length === 0) {
+                // Propagate handler errors to the stream (matches old start() rejection behavior)
+                if (handlerError) {
+                    try {
+                        controller.error(handlerError);
+                    } catch {
+                        /* already closed */
+                    }
+                } else {
+                    try {
+                        controller.close();
+                    } catch {
+                        /* already closed/cancelled */
+                    }
+                }
+            }
+        },
+        cancel() {
+            // Client disconnected — handler keeps running independently.
+            // Buffered data will be GC'd when the handler finishes.
         },
     });
-    while (!ready) await sleep(10);
-    return stream;
 }

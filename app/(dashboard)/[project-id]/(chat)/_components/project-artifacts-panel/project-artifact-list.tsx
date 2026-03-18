@@ -12,7 +12,7 @@ import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { SEARCH_PARAMS } from '@/lib/search-params';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getArtifactChatId } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -55,7 +55,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     });
     const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
 
-    const { addArtifact, updateArtifact } = useArtifactContext();
+    const { addArtifact, updateArtifact } = useArtifactActions();
     const { openPanel } = useActivePanelContext();
 
     const [dialogOpen, setDialogOpen] = useState(false);

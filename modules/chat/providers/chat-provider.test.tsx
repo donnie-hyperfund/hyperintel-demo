@@ -15,21 +15,17 @@ const sendIntakeActionMock = vi.fn();
 const summarizeMock = vi.fn();
 const openPanelMock = vi.fn();
 const createApiClientMock = vi.fn();
-const readStreamMock = vi.fn();
 
 let selectedModelMock = ANTHROPIC_MODELS.SONNET;
-let streamReaderOptions: {
-    setIsLoading: (value: boolean) => void;
-    onTerminalTool?: (toolName: string) => void;
-    onDocumentStart?: () => void;
-} | null = null;
 let fallbackMock: Record<string, unknown> = {};
 
 const cacheMock = new Map();
 const artifactContextMock = {
     addArtifact: vi.fn(),
+    removeArtifact: vi.fn(),
     updateArtifact: vi.fn(),
     getArtifact: vi.fn(),
+    getStore: vi.fn(() => ({})),
 };
 
 const apiMock = {
@@ -82,7 +78,12 @@ vi.mock('@/lib/api/requests/worker/chat', () => ({
 }));
 
 vi.mock('@/modules/artifacts/providers/artifact-provider', () => ({
-    useArtifactContext: () => artifactContextMock,
+    useArtifactActions: () => artifactContextMock,
+}));
+
+const wsMock = { send: vi.fn(), subscribe: vi.fn(() => vi.fn()), on: vi.fn(), off: vi.fn() };
+vi.mock('@/lib/websocket/provider', () => ({
+    useWebsocket: () => wsMock,
 }));
 
 vi.mock('@/modules/chat/providers/active-panel-provider', () => ({
@@ -100,12 +101,6 @@ vi.mock('@/modules/intake/providers/project-origin-provider', () => ({
     }),
 }));
 
-vi.mock('../hooks/use-stream-reader', () => ({
-    useStreamReader: (options: { setIsLoading: (value: boolean) => void }) => {
-        streamReaderOptions = options;
-        return { readStream: readStreamMock };
-    },
-}));
 
 function phaseWrapper({ children }: { children: ReactNode }) {
     return (
@@ -142,21 +137,20 @@ function companyWithProjectOriginWrapper({ children }: { children: ReactNode }) 
     );
 }
 
-function createSSEBody(payload: string): ReadableStream<Uint8Array> {
-    const encoder = new TextEncoder();
-    return new ReadableStream<Uint8Array>({
-        start(controller) {
-            controller.enqueue(encoder.encode(payload));
-            controller.close();
-        },
-    });
+function mockResponse(body: unknown = {}, opts: { ok?: boolean; status?: number } = {}): Response {
+    const { ok = true, status = ok ? 200 : 500 } = opts;
+    return {
+        ok,
+        status,
+        json: () => Promise.resolve(body),
+        text: () => Promise.resolve(typeof body === 'string' ? body : JSON.stringify(body)),
+    } as unknown as Response;
 }
 
 describe('ChatProvider', () => {
     beforeEach(() => {
         selectedModelMock = ANTHROPIC_MODELS.SONNET;
         fallbackMock = {};
-        streamReaderOptions = null;
 
         getTokenMock.mockReset();
         getTokenMock.mockResolvedValue('token-abc');
@@ -169,15 +163,13 @@ describe('ChatProvider', () => {
         summarizeMock.mockReset();
         openPanelMock.mockReset();
         createApiClientMock.mockReset();
-        readStreamMock.mockReset();
-        readStreamMock.mockImplementation(async () => {
-            streamReaderOptions?.setIsLoading(false);
-        });
 
         cacheMock.clear();
         artifactContextMock.addArtifact.mockReset();
+        artifactContextMock.removeArtifact.mockReset();
         artifactContextMock.updateArtifact.mockReset();
         artifactContextMock.getArtifact.mockReset();
+        artifactContextMock.getStore.mockReset().mockReturnValue({});
 
         apiMock.chats.create.mockReset();
         apiMock.chats.createIntake.mockReset();
@@ -299,9 +291,7 @@ describe('ChatProvider', () => {
             id: 'chat-1',
             phase_index: 3,
         });
-        sendActionMock.mockResolvedValue({
-            body: createSSEBody('data: {"type":"done"}\n\n'),
-        });
+        sendActionMock.mockResolvedValue(mockResponse());
 
         const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWrapper });
 
@@ -311,14 +301,13 @@ describe('ChatProvider', () => {
 
         expect(apiMock.chats.create).toHaveBeenCalledWith('project-1');
         expect(sendActionMock).toHaveBeenCalledWith(
-            {
+            expect.objectContaining({
                 message: 'hello world',
                 chatId: 'chat-1',
                 model: ANTHROPIC_MODELS.SONNET,
-            },
+            }),
             'token-abc',
         );
-        expect(readStreamMock).toHaveBeenCalledTimes(1);
         expect(result.current.chatId).toBe('chat-1');
         expect(result.current.state.phaseIndex).toBe(3);
         expect(result.current.state.messages.at(-1)?.role).toBe('user');
@@ -351,9 +340,7 @@ describe('ChatProvider', () => {
     it('creates intake chats for company mode and uses intake send endpoint', async () => {
         const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
         apiMock.chats.createIntake.mockResolvedValue({ id: 'company-chat-1' });
-        sendIntakeActionMock.mockResolvedValue({
-            body: createSSEBody('data: {"type":"done"}\n\n'),
-        });
+        sendIntakeActionMock.mockResolvedValue(mockResponse());
 
         const { result } = renderHook(() => useChatContext<'company'>(), { wrapper: companyWrapper });
 
@@ -366,11 +353,11 @@ describe('ChatProvider', () => {
             category: 'principal',
         });
         expect(sendIntakeActionMock).toHaveBeenCalledWith(
-            {
+            expect.objectContaining({
                 message: 'intake message',
                 chatId: 'company-chat-1',
                 model: ANTHROPIC_MODELS.SONNET,
-            },
+            }),
             'token-abc',
         );
         expect(result.current.chatId).toBe('company-chat-1');
@@ -382,9 +369,7 @@ describe('ChatProvider', () => {
     it('uses a custom route builder after creating an intake chat', async () => {
         const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
         apiMock.chats.createIntake.mockResolvedValue({ id: 'company-chat-2' });
-        sendIntakeActionMock.mockResolvedValue({
-            body: createSSEBody('data: {"type":"done"}\n\n'),
-        });
+        sendIntakeActionMock.mockResolvedValue(mockResponse());
 
         const { result } = renderHook(() => useChatContext<'company'>(), { wrapper: companyWithProjectOriginWrapper });
 
@@ -402,9 +387,7 @@ describe('ChatProvider', () => {
     });
 
     it('summarizes and navigates to the new phase chat', async () => {
-        summarizeMock.mockResolvedValue({
-            body: createSSEBody('data: {"type":"done","newChatId":"chat-2"}\n\n'),
-        });
+        summarizeMock.mockResolvedValue(mockResponse());
 
         const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWrapper });
 
@@ -417,18 +400,14 @@ describe('ChatProvider', () => {
         });
 
         expect(summarizeMock).toHaveBeenCalledWith({ chatId: 'chat-1' }, 'token-abc');
-        expect(result.current.state.summaryNewChatId).toBe('chat-2');
-
-        act(() => {
-            result.current.navigateToNewPhase();
-        });
-        expect(pushMock).toHaveBeenCalledWith('/project-1/chat-2');
+        // summaryNewChatId is set via WS stream events, not the HTTP response.
+        // navigateToNewPhase is a no-op until WS delivers the new chat ID.
+        expect(result.current.state.summaryNewChatId).toBeNull();
+        expect(result.current.state.error).toBeNull();
     });
 
-    it('handles summarize stream error events', async () => {
-        summarizeMock.mockResolvedValue({
-            body: createSSEBody('data: {"type":"error","error":"summary failed"}\n\n'),
-        });
+    it('handles summarize HTTP error', async () => {
+        summarizeMock.mockResolvedValue(mockResponse('summary failed', { ok: false, status: 500 }));
 
         const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWrapper });
 
@@ -441,40 +420,40 @@ describe('ChatProvider', () => {
         });
 
         expect(result.current.state.isSummarizing).toBe(false);
-        expect(result.current.state.error?.message).toBe('summary failed');
+        expect(result.current.state.error?.message).toBe('Summarize failed: 500 — summary failed');
     });
 
-    it('sets pending flags from stream callbacks and clears them via context methods', async () => {
-        apiMock.chats.create.mockResolvedValue({
-            id: 'chat-flag',
+    it('seeds hasPendingChanges from cache and clears via context methods', async () => {
+        // hasPendingChanges is seeded from the SWR-cached chat detail
+        const cacheKey = JSON.stringify(['chats', 'detail', 'chat-initial']);
+        fallbackMock = {
+            [cacheKey]: {
+                token_usage: null,
+                has_pending_changes: true,
+                phase_index: 1,
+            },
+        };
+
+        apiMock.chats.get.mockResolvedValue({
+            token_usage: null,
+            has_pending_changes: true,
             phase_index: 1,
         });
-
-        sendActionMock.mockResolvedValue({
-            body: createSSEBody('data: {"type":"done"}\n\n'),
+        apiMock.messages.list.mockResolvedValue({
+            data: [],
+            pagination: { page: 1, limit: 20, total: 0, totalPages: 1 },
         });
 
-        readStreamMock.mockImplementationOnce(async () => {
-            streamReaderOptions?.onDocumentStart?.();
-            streamReaderOptions?.onTerminalTool?.('generate_summary');
-            streamReaderOptions?.setIsLoading(false);
-        });
-
-        const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWrapper });
-
-        await act(async () => {
-            await result.current.sendMessage('trigger pending flags');
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
         });
 
         expect(result.current.state.hasPendingChanges).toBe(true);
-        expect(result.current.state.pendingPhaseTransition).toBe(true);
 
         act(() => {
             result.current.clearPendingChanges();
-            result.current.clearPendingPhaseTransition();
         });
 
         expect(result.current.state.hasPendingChanges).toBe(false);
-        expect(result.current.state.pendingPhaseTransition).toBe(false);
     });
 });
