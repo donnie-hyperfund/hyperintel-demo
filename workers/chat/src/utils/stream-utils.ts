@@ -192,13 +192,13 @@ export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher 
     const inflightPushes: Promise<void>[] = [];
     return {
         push: (events: StreamEvent[]) => {
-            const p = streamDO.push(events, pushSeq++).catch((err) =>
-                console.error(`[${label}] push failed:`, err),
-            );
+            const p = streamDO.push(events, pushSeq++).catch((err) => console.error(`[${label}] push failed:`, err));
             inflightPushes.push(p);
         },
         waitAll: () => Promise.allSettled(inflightPushes).then(() => {}),
-        get seq() { return pushSeq++; },
+        get seq() {
+            return pushSeq++;
+        },
     };
 }
 
@@ -296,7 +296,8 @@ export function createEventCollector(): { enqueue: (data: object | string) => bo
  * Load chat messages from DB and map to inference-ready format.
  */
 export async function loadChatHistory(em: any, chatId: string) {
-    const dbMessages = await em.createQueryBuilder(ChatMessageEntity, 'm')
+    const dbMessages = await em
+        .createQueryBuilder(ChatMessageEntity, 'm')
         .select('m.*')
         .where({ chat: chatId })
         .orderBy({ 'm.created_at': 'ASC' })

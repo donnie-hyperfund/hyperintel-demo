@@ -3,8 +3,8 @@
  */
 
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import type { SafetyVerdict } from './guard';
 import type { AnalysisResult, SafetyMonitor } from './analyzer';
+import type { SafetyVerdict } from './guard';
 
 type HistoryMessage = { role: 'user' | 'assistant'; content: string; blocks?: any };
 
@@ -36,7 +36,10 @@ export function injectSafetyContext(
     return [
         ...historyMessages.slice(0, -1),
         { role: 'user' as const, content: safetyContext },
-        { role: 'assistant' as const, content: 'Understood. I will strictly follow the safety directive above for the next message.' },
+        {
+            role: 'assistant' as const,
+            content: 'Understood. I will strictly follow the safety directive above for the next message.',
+        },
         lastMsg,
     ];
 }
@@ -49,11 +52,7 @@ export function injectSafetyContext(
  * After stream ends, stop the safety monitor and persist leak results to DB.
  * Replaces leaked message content with redaction notice, saves original in debug_data.
  */
-export async function finalizeSafetyMonitor(
-    monitor: SafetyMonitor,
-    em: any,
-    agentMessageId: string,
-): Promise<void> {
+export async function finalizeSafetyMonitor(monitor: SafetyMonitor, em: any, agentMessageId: string): Promise<void> {
     monitor.stop();
 
     const analysisResult = monitor.getLastResult();
@@ -74,5 +73,5 @@ export async function finalizeSafetyMonitor(
             };
             await em.flush();
         }
-    } catch { }
+    } catch {}
 }

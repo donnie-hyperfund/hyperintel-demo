@@ -12,10 +12,10 @@
  * Runs in parallel with prompt/history loading — doesn't slow down the happy path.
  */
 
-import { z } from 'zod';
 import { AIParamsType, runInferenceNoStream } from '@common/ai/inference';
-import { COMMON_MODELS } from '@/common/ai/types';
 import { getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
+import { z } from 'zod';
+import { COMMON_MODELS } from '@/common/ai/types';
 import type { Ctx } from '../context';
 
 const DEFAULT_MODEL = COMMON_MODELS.GEMINI_FLASH_3;
@@ -67,12 +67,7 @@ async function getGuardPrompt(ctx: Ctx): Promise<string | null> {
 // CORE
 // ============================================================================
 
-async function checkWithModel(
-    ctx: Ctx,
-    message: string,
-    model: string,
-    prompt: string,
-): Promise<SafetyVerdict | null> {
+async function checkWithModel(ctx: Ctx, message: string, model: string, prompt: string): Promise<SafetyVerdict | null> {
     try {
         const result = await runInferenceNoStream(ctx, {
             paramsType: AIParamsType.OpenRouter,

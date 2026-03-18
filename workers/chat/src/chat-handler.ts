@@ -11,20 +11,30 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from './context';
+import { createSafetyMonitor } from './safety/analyzer';
+import { safetyCheck } from './safety/guard';
+import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
-import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
-import { cleanupStreamDO, createEnqueue, createEventCollector, createPusher, createSSEStream, handleCommonStreamEvent, loadChatHistory, persistErrorMessage, wireAbort } from './utils/stream-utils';
-import { safetyCheck } from './safety/guard';
-import { createSafetyMonitor } from './safety/analyzer';
-import { injectSafetyContext, finalizeSafetyMonitor } from './safety/helpers';
+import {
+    cleanupStreamDO,
+    createEnqueue,
+    createEventCollector,
+    createPusher,
+    createSSEStream,
+    handleCommonStreamEvent,
+    loadChatHistory,
+    persistErrorMessage,
+    wireAbort,
+} from './utils/stream-utils';
 
 // ============================================================================
 // CONTEXT PREPROCESSING
@@ -137,7 +147,6 @@ You have access to web_search for real-time information. Use it when you need cu
 // ============================================================================
 
 const BOUNDARY_PROMPT_SLUG = 'safety/boundary-prompt';
-
 
 // ============================================================================
 // HELPERS
@@ -254,16 +263,27 @@ export async function chatActionHandler(
 
     // Register stream via UG → ChatTopicHandler → ChatStream DO init
     // Pass userId so the handler can auto-subscribe the initiator to the ChatStream DO
-    await ugStub.systemAction(`chat:${chatId}`, 'registerStream', {
-        agentMessageId,
-        userId: ctx.user.userId,
-        userMessageId,
-    }, alias ?? undefined);
+    await ugStub.systemAction(
+        `chat:${chatId}`,
+        'registerStream',
+        {
+            agentMessageId,
+            userId: ctx.user.userId,
+            userMessageId,
+        },
+        alias ?? undefined,
+    );
 
     // --- Test mode: keep existing direct-call behavior ---
     if (options.onEvent) {
         const generationPromise = runGeneration({
-            data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub,
+            data,
+            ctx,
+            options,
+            chat,
+            agentMessageId,
+            requestStartedAt,
+            ugStub,
         });
         return { userMessageId, agentMessageId, generation: generationPromise };
     }
@@ -278,7 +298,11 @@ export async function chatActionHandler(
         // Run generation inline — Worker stays alive because the DO reads this stream
         await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
 
-        try { controller.close(); } catch { /* already closed */ }
+        try {
+            controller.close();
+        } catch {
+            /* already closed */
+        }
     }, ctx);
 }
 
@@ -349,7 +373,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             embeddingQueue,
             createdVersionIds,
             onVersionCreated: (event) => {
-                ugStub.broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event }).catch(console.error);
+                ugStub
+                    .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
+                    .catch(console.error);
             },
         };
 
@@ -443,12 +469,14 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             onLeak: (result) => {
                 abortController.abort();
                 // Push retract event to frontend
-                fireAndForgetPush([{
-                    type: 'safety_retract',
-                    reason: result.category,
-                    severity: result.severity,
-                    evidence: result.evidence,
-                } as any]);
+                fireAndForgetPush([
+                    {
+                        type: 'safety_retract',
+                        reason: result.category,
+                        severity: result.severity,
+                        evidence: result.evidence,
+                    } as any,
+                ]);
             },
         });
 
@@ -565,9 +593,16 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                     // Save safety verdict to user message debug_data
                     if (safetyVerdict && safetyVerdict.score > 0) {
                         // Find the user message we just persisted (last user msg in chat)
-                        const userMsgs = await em!.find(ChatMessageEntity, { chat: chatId, role: 'user' }, { orderBy: { created_at: 'DESC' }, limit: 1 });
+                        const userMsgs = await em!.find(
+                            ChatMessageEntity,
+                            { chat: chatId, role: 'user' },
+                            { orderBy: { created_at: 'DESC' }, limit: 1 },
+                        );
                         if (userMsgs[0]) {
-                            userMsgs[0].debug_data = { ...((userMsgs[0].debug_data as Record<string, unknown>) ?? {}), safetyVerdict };
+                            userMsgs[0].debug_data = {
+                                ...((userMsgs[0].debug_data as Record<string, unknown>) ?? {}),
+                                safetyVerdict,
+                            };
                         }
                     }
 

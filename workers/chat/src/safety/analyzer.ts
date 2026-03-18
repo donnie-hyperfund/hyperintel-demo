@@ -13,10 +13,10 @@
  * 5. Stop monitoring when stream ends (stopMonitoring)
  */
 
-import { z } from 'zod';
 import { AIParamsType, runInferenceNoStream } from '@common/ai/inference';
-import { COMMON_MODELS } from '@/common/ai/types';
 import { getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
+import { z } from 'zod';
+import { COMMON_MODELS } from '@/common/ai/types';
 import type { Ctx } from '../context';
 
 const DEFAULT_MODEL = COMMON_MODELS.GEMINI_FLASH_3;
@@ -165,7 +165,7 @@ export function createSafetyMonitor(options: MonitorOptions): SafetyMonitor {
     let accumulatedContent = '';
     let lastCheckedLength = 0;
     let isRunning = true;
-    let isChecking = false;
+    const isChecking = false;
     let lastResult: AnalysisResult | null = null;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
@@ -203,7 +203,7 @@ export function createSafetyMonitor(options: MonitorOptions): SafetyMonitor {
                 onLeak(result);
                 return;
             }
-        } catch { }
+        } catch {}
 
         // Schedule next check only AFTER current one finishes (no overlap)
         scheduleNext();
