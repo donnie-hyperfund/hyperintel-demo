@@ -19,7 +19,12 @@ import { getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import type { Ctx } from '../context';
 
 const DEFAULT_MODEL = COMMON_MODELS.GEMINI_FLASH_3;
-const FALLBACK_MODELS = [COMMON_MODELS.GEMINI_FLASH, COMMON_MODELS.GPT_4_1_MINI, COMMON_MODELS.CLAUDE_HAIKU];
+const FALLBACK_MODELS = [
+    COMMON_MODELS.GEMINI_FLASH,
+    COMMON_MODELS.GPT_4_1_MINI,
+    COMMON_MODELS.MIMO_V2,
+    COMMON_MODELS.CLAUDE_HAIKU,
+];
 
 const GUARD_PROMPT_SLUG = 'safety/guard-prompt';
 

@@ -20,7 +20,12 @@ import { getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import type { Ctx } from '../context';
 
 const DEFAULT_MODEL = COMMON_MODELS.GEMINI_FLASH_3;
-const FALLBACK_MODELS = [COMMON_MODELS.GEMINI_FLASH, COMMON_MODELS.GPT_4_1_MINI];
+const FALLBACK_MODELS = [
+    COMMON_MODELS.GEMINI_FLASH,
+    COMMON_MODELS.GPT_4_1_MINI,
+    COMMON_MODELS.MIMO_V2,
+    COMMON_MODELS.CLAUDE_HAIKU,
+];
 
 const ANALYZER_PROMPT_SLUG = 'safety/analyzer-prompt';
 
@@ -162,18 +167,25 @@ export function createSafetyMonitor(options: MonitorOptions): SafetyMonitor {
     let isRunning = true;
     let isChecking = false;
     let lastResult: AnalysisResult | null = null;
-    let intervalHandle: ReturnType<typeof setInterval> | null = null;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
     // Pre-load the prompt so first check is fast
     const promptPromise = getAnalyzerPrompt(ctx);
 
-    async function check() {
-        // Skip if: already checking, stopped, no new content, or content too short
-        if (!isRunning || isChecking) return;
-        if (accumulatedContent.length < MIN_CONTENT_LENGTH) return;
-        if (accumulatedContent.length === lastCheckedLength) return;
+    function scheduleNext() {
+        if (!isRunning) return;
+        timeoutHandle = setTimeout(check, CHECK_INTERVAL_MS);
+    }
 
-        isChecking = true;
+    async function check() {
+        if (!isRunning) return;
+
+        // Skip if no new content or content too short
+        if (accumulatedContent.length < MIN_CONTENT_LENGTH || accumulatedContent.length === lastCheckedLength) {
+            scheduleNext();
+            return;
+        }
+
         const contentSnapshot = accumulatedContent;
         lastCheckedLength = contentSnapshot.length;
 
@@ -189,16 +201,17 @@ export function createSafetyMonitor(options: MonitorOptions): SafetyMonitor {
             if (result.leaked) {
                 isRunning = false;
                 onLeak(result);
+                return;
             }
-        } catch {
-        } finally {
-            isChecking = false;
-        }
+        } catch { }
+
+        // Schedule next check only AFTER current one finishes (no overlap)
+        scheduleNext();
     }
 
-    // Start periodic checks
+    // Start first check
     if (ctx.orouterSdk) {
-        intervalHandle = setInterval(check, CHECK_INTERVAL_MS);
+        scheduleNext();
     }
 
     return {
@@ -207,9 +220,9 @@ export function createSafetyMonitor(options: MonitorOptions): SafetyMonitor {
         },
         stop() {
             isRunning = false;
-            if (intervalHandle) {
-                clearInterval(intervalHandle);
-                intervalHandle = null;
+            if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = null;
             }
         },
         getLastResult() {

@@ -299,8 +299,6 @@ export async function loadChatHistory(em: any, chatId: string) {
     const dbMessages = await em.createQueryBuilder(ChatMessageEntity, 'm')
         .select('m.*')
         .where({ chat: chatId })
-        // Exclude messages flagged as leaked by safety analyzer
-        .andWhere("(m.metadata IS NULL OR m.metadata->'safetyAnalysis'->>'leaked' IS NULL OR m.metadata->'safetyAnalysis'->>'leaked' != 'true')")
         .orderBy({ 'm.created_at': 'ASC' })
         .getResult();
     return dbMessages.map((m: ChatMessageEntity) => {

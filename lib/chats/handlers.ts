@@ -352,8 +352,6 @@ export async function handleGetMessages(
         .createQueryBuilder(ChatMessageEntity, 'm')
         .select('m.*')
         .where(where)
-        // Exclude messages flagged as leaked by safety analyzer
-        .andWhere("(m.metadata->>'safetyAnalysis' IS NULL OR m.metadata->'safetyAnalysis'->>'leaked' != 'true')")
         .orderBy({ 'm.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
