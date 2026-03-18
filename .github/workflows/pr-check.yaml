@@ -22,8 +22,11 @@ jobs:
             - name: Get changed files
               id: changed
               run: |
-                  FILES=$(git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' ':!common/' ':!workers/_common/' | tr '\n' ' ')
-                  echo "files=$FILES" >> "$GITHUB_OUTPUT"
+                  {
+                      echo "files<<EOF"
+                      git diff --name-only --diff-filter=ACMR origin/${{ github.base_ref }}...HEAD -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' ':!common/' ':!workers/_common/'
+                      echo "EOF"
+                  } >> "$GITHUB_OUTPUT"
 
 # TODO: typecheck will fail currently
 #            - name: Typecheck
@@ -31,7 +34,11 @@ jobs:
 
             - name: Biome fix changed files
               if: steps.changed.outputs.files != ''
-              run: pnpm biome check --write ${{ steps.changed.outputs.files }}
+              run: |
+                  mapfile -t files <<'EOF'
+                  ${{ steps.changed.outputs.files }}
+                  EOF
+                  pnpm biome check --write "${files[@]}"
 
             - name: Commit fixes
               uses: stefanzweifel/git-auto-commit-action@v5
