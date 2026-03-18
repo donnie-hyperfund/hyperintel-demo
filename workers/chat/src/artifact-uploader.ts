@@ -37,6 +37,28 @@ const MIME_TYPES: Record<string, string> = {
 
 const PRESIGN_EXPIRY_SECONDS = 60 * 10;
 
+function extractTextFromRtf(content: string): string {
+    // Lightweight RTF-to-text pass for common clipboard/exported files.
+    return content
+        .replace(/\\par[d]?/g, '\n')
+        .replace(/\\tab/g, '\t')
+        .replace(/\\'[0-9a-fA-F]{2}/g, (match) => String.fromCharCode(Number.parseInt(match.slice(2), 16)))
+        .replace(/\\[a-zA-Z]+-?\d* ?/g, '')
+        .replace(/[{}]/g, '')
+        .replace(/\\~/g, ' ')
+        .replace(/\\\\/g, '\\')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+function normalizeTextUploadContent(filename: string, content: string): string {
+    const ext = getExtension(filename);
+    if (ext !== '.rtf') return content;
+
+    const extracted = extractTextFromRtf(content);
+    return extracted || content;
+}
+
 function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-artifacts-dev' : 'hi-artifacts';
 }
@@ -193,11 +215,18 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
 function broadcastArtifactCreated(ctx: Ctx, result: UpsertResult, normalizedKey: string) {
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, ctx.previewAlias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    ugStub.broadcastToAll({
-        type: 'user_event',
-        eventType: 'artifact_version_created',
-        payload: { artifactId: result.artifactId, versionId: result.versionId, version: result.version, artifactName: normalizedKey },
-    }).catch(console.error);
+    ugStub
+        .broadcastToAll({
+            type: 'user_event',
+            eventType: 'artifact_version_created',
+            payload: {
+                artifactId: result.artifactId,
+                versionId: result.versionId,
+                version: result.version,
+                artifactName: normalizedKey,
+            },
+        })
+        .catch(console.error);
 }
 
 export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
@@ -211,7 +240,8 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         throw new PublicError(400, { message: validation.message, code: validation.code });
     }
 
-    const content = await file.text();
+    const rawContent = await file.text();
+    const content = normalizeTextUploadContent(file.name, rawContent);
     if (!content.trim()) {
         throw new PublicError(400, {
             message: 'The uploaded file has no content',

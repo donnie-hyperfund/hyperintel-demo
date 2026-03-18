@@ -2,6 +2,7 @@ import {
     ALLOWED_ARTIFACT_EXTENSIONS,
     type ArtifactDto,
     isBinaryArtifactExtension,
+    isTextArtifactExtension,
     MAX_ARTIFACT_UPLOAD_SIZE,
 } from '@/lib/schema/artifact';
 
@@ -65,7 +66,7 @@ export function normalizeArtifactKey(key: string): string {
 export function normalizeUploadedFileKey(filename: string): string {
     const trimmed = filename.trim();
     const ext = trimmed.slice(trimmed.lastIndexOf('.')).toLowerCase();
-    if (isBinaryArtifactExtension(ext)) return trimmed;
+    if (isBinaryArtifactExtension(ext) || isTextArtifactExtension(ext)) return trimmed;
     return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
 }
 
