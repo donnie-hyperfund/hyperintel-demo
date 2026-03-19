@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
-import { TokenDrip, chunkText } from '@/lib/token-drip';
-import type { ActiveDocument, StreamBlock, StreamEvent, StreamStatus, TokenUsage } from '@/lib/schema/stream';
+import type { ActiveDocument, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import type {
     ChatMessageCreatedMessage,
     ServerMessage,
@@ -14,6 +13,7 @@ import type {
     SubscribeResponseStreaming,
 } from '@/lib/schema/ws-protocol';
 import { ServerMsg } from '@/lib/schema/ws-protocol';
+import { chunkText, TokenDrip } from '@/lib/token-drip';
 import { useWebsocket } from '@/lib/websocket/provider';
 import type { ArtifactContextValue } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactContent } from '@/modules/artifacts/utils';
@@ -30,6 +30,12 @@ type StreamingState = {
     currentTextBlockId: string | null;
     currentReasoningBlockId: string | null;
     streamingDocs: Map<string, StreamingDoc>;
+};
+
+export type ToolDocumentDecision = {
+    action: 'approve' | 'reject';
+    artifactKey: string;
+    version: number;
 };
 
 export type UseStreamOptions = {
@@ -60,6 +66,8 @@ export type UseStreamOptions = {
     onMessageCreated?: (message: unknown, tempId?: string) => void;
     /** Called once when the initial subscribe_response arrives — useful for clearing stale generating state */
     onSubscribeResponse?: (status: 'idle' | 'streaming' | 'stale') => void;
+    /** Called when approve_document/reject_document tool completes during stream (for project flow redirect) */
+    onToolDocumentDecision?: (decision: ToolDocumentDecision) => Promise<void>;
 };
 
 export type UseStreamReturn = {
@@ -133,6 +141,16 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     // Mutable streaming state (mutated in place, then flushed to React state)
     const stateRef = useRef<StreamingState>(createStreamingState());
     const documentQueueRef = useRef<AsyncEventQueue<{ type: string; payload: any }> | null>(null);
+    const pendingDocumentDecisionsRef = useRef<Map<string, ToolDocumentDecision>>(new Map());
+
+    const flushDocumentDecisions = (callback: NonNullable<UseStreamOptions['onToolDocumentDecision']>) => {
+        if (pendingDocumentDecisionsRef.current.size === 0) return;
+        const decisions = [...pendingDocumentDecisionsRef.current.values()];
+        pendingDocumentDecisionsRef.current.clear();
+        for (const decision of decisions) {
+            callback(decision).catch(console.error);
+        }
+    };
 
     // ---- Token drips (adaptive rAF — proportional drain + TPS tracking) ----
 
@@ -149,9 +167,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             s.blocks[idx] = { ...s.blocks[idx], content: s.blocks[idx].content + item.text } as StreamBlock;
         }
     };
-    const dripRef = useRef(
-        new TokenDrip<DripItem>(applyDrip, () => setBlocks([...stateRef.current.blocks])),
-    );
+    const dripRef = useRef(new TokenDrip<DripItem>(applyDrip, () => setBlocks([...stateRef.current.blocks])));
     const enqueueDrip = (blockId: string, text: string, blockType: 'text' | 'reasoning') => {
         const chunks = chunkText(text);
         if (chunks.length === 1) {
@@ -169,12 +185,14 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         const doc = s.streamingDocs.get(item.name);
         if (doc) {
             doc.content += item.content;
-            o.artifactContext?.updateArtifact(doc.artifactId, { proposed_version: { content: doc.content } }, doc.version);
+            o.artifactContext?.updateArtifact(
+                doc.artifactId,
+                { proposed_version: { content: doc.content } },
+                doc.version,
+            );
         }
     };
-    const docDripRef = useRef(
-        new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()),
-    );
+    const docDripRef = useRef(new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()));
 
     // Flush mutable state to React state (rAF-coalesced for rapid deltas)
     const flushRaf = useRef(0);
@@ -620,13 +638,25 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                 flush();
                             }
 
-                            // Handle approve_document tool result
+                            // Handle approve_document / reject_document tool results
                             if (event.success === true) {
                                 try {
                                     const parsed =
                                         typeof event.result === 'string' ? JSON.parse(event.result) : event.result;
                                     if (parsed?.name && parsed?.version) {
                                         o.revalidateArtifact?.(parsed.name, parsed.version);
+
+                                        // Queue document decision for flush on stream done
+                                        const matchedBlock = idx !== -1 ? s.blocks[idx] : undefined;
+                                        const toolName =
+                                            matchedBlock?.type === 'tool_call' ? matchedBlock.toolName : undefined;
+                                        if (toolName === 'approve_document' || toolName === 'reject_document') {
+                                            pendingDocumentDecisionsRef.current.set(event.id, {
+                                                action: toolName === 'approve_document' ? 'approve' : 'reject',
+                                                artifactKey: parsed.name,
+                                                version: parsed.version,
+                                            });
+                                        }
                                     }
                                 } catch {
                                     // ignore parse errors
@@ -711,9 +741,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             if (event.outputType === 'tool' && event.outputTool) o.onTerminalTool?.(event.outputTool);
                             setDisplayStatus(null);
                             // Don't override aborted/error — stream_status is authoritative
-                            setStatus((prev) =>
-                                prev === 'aborted' || prev === 'error' ? prev : 'done',
-                            );
+                            setStatus((prev) => (prev === 'aborted' || prev === 'error' ? prev : 'done'));
+                            if (o.onToolDocumentDecision) flushDocumentDecisions(o.onToolDocumentDecision);
                             o.onDone?.('done', event);
                             break;
 

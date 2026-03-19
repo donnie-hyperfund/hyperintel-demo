@@ -19,6 +19,7 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { useChatStream } from '../hooks/use-chat-stream';
+import type { ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock } from '../types';
@@ -53,12 +54,6 @@ export type BaseChatContextValue = {
     clearPendingPhaseTransition: () => void;
     /** Check if there are other pending artifacts */
     hasOtherPendingArtifacts: (excludeArtifactKey: string) => boolean;
-};
-
-type ToolDocumentDecision = {
-    action: 'approve' | 'reject';
-    artifactKey: string;
-    version: number;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -313,7 +308,6 @@ export function ChatProvider({
         [chatType, clearPendingChanges, fetchArtifact, handleApprovedArtifact, hasOtherPendingArtifacts, isProjectFlow],
     );
 
-
     /** Convert API message to internal Message format */
     const mapApiMessage = useCallback((m: ChatMessageDto, activeAgentMessageId?: string | null): Message => {
         // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
@@ -432,6 +426,7 @@ export function ChatProvider({
         onStreamStarted: handleStreamStarted,
         onTerminalTool,
         onMessageCreated: handleMessageCreated,
+        onToolDocumentDecision: handleToolDocumentDecision,
         // Clear stale isGenerating/isSummarizing set from DB's active_agent_message_id
         // when the initial WS subscribe_response confirms no active stream.
         onSubscribeResponse: (status: 'idle' | 'streaming' | 'stale') => {
@@ -871,7 +866,18 @@ export function ChatProvider({
                 }));
             }
         },
-        [api, cache, chatId, getToken, globalMutate, chatType, projectId, buildChatRoute, selectedModel, state.isGenerating],
+        [
+            api,
+            cache,
+            chatId,
+            getToken,
+            globalMutate,
+            chatType,
+            projectId,
+            buildChatRoute,
+            selectedModel,
+            state.isGenerating,
+        ],
     );
 
     // ========================================================================
