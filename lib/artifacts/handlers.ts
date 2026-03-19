@@ -7,6 +7,7 @@ import { validatePayload } from '@/lib/api/validation';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
 import { loadVersionsForArtifacts } from '@/lib/artifacts/queries';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { handleListChatArtifacts } from '@/lib/chats/handlers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
@@ -16,6 +17,7 @@ import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { GetArtifactQuerySchema, ListArtifactsQuerySchema, ListUserResourcesQuerySchema } from '@/lib/schema/artifact';
 import { ImportArtifactsBodySchema } from '@/lib/schema/project';
+import { UserEventType } from '@/lib/schema/user-events';
 
 // ---------------------------------------------------------------------------
 // Project artifact handlers
@@ -525,6 +527,10 @@ export async function handleRemoveProjectResource(
         await txEm.nativeDelete(ArtifactVersionEntity, { artifact: artifact.id });
         await txEm.nativeDelete(ArtifactEntity, { id: artifact.id });
     });
+
+    if (user.clerkId) {
+        broadcastUserEvent(user.clerkId, UserEventType.ProjectResourceDeleted, { projectId, artifactId });
+    }
 
     return NextResponse.json({ success: true, message: 'Resource removed from project' });
 }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const UserEventType = {
     ProjectResourceUploadUpdated: 'project_resource_upload_updated',
+    ProjectResourceDeleted: 'project_resource_deleted',
 } as const;
 
 export const ProjectResourceUploadUpdatedPayloadSchema = z.object({
@@ -15,3 +16,10 @@ export const ProjectResourceUploadUpdatedPayloadSchema = z.object({
 });
 
 export type ProjectResourceUploadUpdatedPayload = z.infer<typeof ProjectResourceUploadUpdatedPayloadSchema>;
+
+export const ProjectResourceDeletedPayloadSchema = z.object({
+    projectId: z.string().uuid(),
+    artifactId: z.string().uuid(),
+});
+
+export type ProjectResourceDeletedPayload = z.infer<typeof ProjectResourceDeletedPayloadSchema>;
