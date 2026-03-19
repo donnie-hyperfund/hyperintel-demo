@@ -14,15 +14,28 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatHandlerOptions } from './chat-handler';
 import type { Ctx } from './context';
+import { createSafetyMonitor } from './safety/analyzer';
+import { safetyCheck } from './safety/guard';
+import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
-import { createKnowledgeTools, KnowledgeSearchToolGroup, type KnowledgeSearchContext } from './tools/knowledge-search';
-import { branchDoName } from '@/workers/_common/util/preview-alias';
+import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
-import { cleanupStreamDO, createEnqueue, createEventCollector, createPusher, createSSEStream, handleCommonStreamEvent, loadChatHistory, persistErrorMessage, wireAbort } from './utils/stream-utils';
+import {
+    cleanupStreamDO,
+    createEnqueue,
+    createEventCollector,
+    createPusher,
+    createSSEStream,
+    handleCommonStreamEvent,
+    loadChatHistory,
+    persistErrorMessage,
+    wireAbort,
+} from './utils/stream-utils';
 
 // ============================================================================
 // SYSTEM PROMPT
@@ -158,16 +171,27 @@ export async function intakeActionHandler(
     await ugStub.systemAction(`intake:${chatId}`, 'messageCreated', messagePayload, alias ?? undefined);
 
     // Register stream via UG → IntakeTopicHandler → ChatStream DO init
-    await ugStub.systemAction(`intake:${chatId}`, 'registerStream', {
-        agentMessageId,
-        userId: ctx.user.userId,
-        userMessageId,
-    }, alias ?? undefined);
+    await ugStub.systemAction(
+        `intake:${chatId}`,
+        'registerStream',
+        {
+            agentMessageId,
+            userId: ctx.user.userId,
+            userMessageId,
+        },
+        alias ?? undefined,
+    );
 
     // --- Test mode: keep existing direct-call behavior ---
     if (options.onEvent) {
         const generationPromise = runIntakeGeneration({
-            data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub,
+            data,
+            ctx,
+            options,
+            chat,
+            agentMessageId,
+            requestStartedAt,
+            ugStub,
         });
         return { userMessageId, agentMessageId, generation: generationPromise };
     }
@@ -182,7 +206,11 @@ export async function intakeActionHandler(
         // Run generation inline — Worker stays alive because the DO reads this stream
         await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
 
-        try { controller.close(); } catch { /* already closed */ }
+        try {
+            controller.close();
+        } catch {
+            /* already closed */
+        }
     }, ctx);
 }
 
@@ -226,9 +254,13 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         const category = chat.metadata?.category as string | undefined;
         if (!framework) throw new Error('Chat metadata missing framework type');
 
-        // Load history from database
-        const historyMessages = await loadChatHistory(em!, chatId);
-        const allMessages = [...historyMessages, { role: 'user' as const, content: message }];
+        // Load history + safety check in parallel (doesn't slow happy path)
+        const [historyMessages, safetyVerdict] = await Promise.all([
+            loadChatHistory(em!, chatId),
+            safetyCheck(ctx, message),
+        ]);
+
+        const allMessages = injectSafetyContext(historyMessages, safetyVerdict);
 
         // Track version IDs created during this turn
         const createdVersionIds: string[] = [];
@@ -242,7 +274,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             draftManager: new DraftManager(),
             createdVersionIds,
             onVersionCreated: (event) => {
-                ugStub.broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event }).catch(console.error);
+                ugStub
+                    .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
+                    .catch(console.error);
             },
         };
 
@@ -299,6 +333,23 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         const fireAndForgetPush = pusher.push;
 
+        // Inline safety monitor — checks content every few seconds, aborts on leak
+        const safetyMonitor = createSafetyMonitor({
+            ctx,
+            userMessage: message,
+            onLeak: (result) => {
+                abortController.abort();
+                fireAndForgetPush([
+                    {
+                        type: 'safety_retract',
+                        reason: result.category,
+                        severity: result.severity,
+                        evidence: result.evidence,
+                    } as any,
+                ]);
+            },
+        });
+
         // Document events queue — batched into the main push instead of separate RPCs
         const pendingDocEvents: StreamEvent[] = [];
         const docEvents = createDocumentEventHandler({ em: em! }, (docEvent) => {
@@ -309,6 +360,11 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         // Stream loop — push events to ChatStream DO instead of SSE
         for await (const event of stream) {
+            // Feed content deltas to safety monitor
+            if (event.type === 'delta') {
+                safetyMonitor.appendContent(event.content);
+            }
+
             await docEvents.handle(event);
 
             if (handleCommonStreamEvent(collector.enqueue, event, state)) {
@@ -401,6 +457,8 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         }
 
         await historyPromise;
+
+        await finalizeSafetyMonitor(safetyMonitor, em!, agentMessageId);
 
         // done() → persist (above) → finalize() → clearStream (Decision #20)
         try {

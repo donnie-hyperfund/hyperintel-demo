@@ -11,17 +11,30 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from './context';
+import { createSafetyMonitor } from './safety/analyzer';
+import { safetyCheck } from './safety/guard';
+import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
-import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
-import { cleanupStreamDO, createEnqueue, createEventCollector, createPusher, createSSEStream, handleCommonStreamEvent, loadChatHistory, persistErrorMessage, wireAbort } from './utils/stream-utils';
+import {
+    cleanupStreamDO,
+    createEnqueue,
+    createEventCollector,
+    createPusher,
+    createSSEStream,
+    handleCommonStreamEvent,
+    loadChatHistory,
+    persistErrorMessage,
+    wireAbort,
+} from './utils/stream-utils';
 
 // ============================================================================
 // CONTEXT PREPROCESSING
@@ -130,6 +143,12 @@ const WEB_SEARCH_GUIDANCE = `## Web Search
 You have access to web_search for real-time information. Use it when you need current data, recent events, or facts you're uncertain about.`;
 
 // ============================================================================
+// SECURITY BOUNDARY
+// ============================================================================
+
+const BOUNDARY_PROMPT_SLUG = 'safety/boundary-prompt';
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
@@ -179,6 +198,12 @@ async function buildSystemPrompt(
     // Append server tools guidance if provided
     if (serverToolsGuidance) {
         systemPrompt += `\n\n---\n\n${serverToolsGuidance}`;
+    }
+
+    // Security boundary — appended last so it takes precedence
+    const boundary = await getPromptContent(ctx, BOUNDARY_PROMPT_SLUG, localPath);
+    if (boundary) {
+        systemPrompt += `\n\n---\n\n${boundary}`;
     }
 
     return systemPrompt;
@@ -238,16 +263,27 @@ export async function chatActionHandler(
 
     // Register stream via UG → ChatTopicHandler → ChatStream DO init
     // Pass userId so the handler can auto-subscribe the initiator to the ChatStream DO
-    await ugStub.systemAction(`chat:${chatId}`, 'registerStream', {
-        agentMessageId,
-        userId: ctx.user.userId,
-        userMessageId,
-    }, alias ?? undefined);
+    await ugStub.systemAction(
+        `chat:${chatId}`,
+        'registerStream',
+        {
+            agentMessageId,
+            userId: ctx.user.userId,
+            userMessageId,
+        },
+        alias ?? undefined,
+    );
 
     // --- Test mode: keep existing direct-call behavior ---
     if (options.onEvent) {
         const generationPromise = runGeneration({
-            data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub,
+            data,
+            ctx,
+            options,
+            chat,
+            agentMessageId,
+            requestStartedAt,
+            ugStub,
         });
         return { userMessageId, agentMessageId, generation: generationPromise };
     }
@@ -262,7 +298,11 @@ export async function chatActionHandler(
         // Run generation inline — Worker stays alive because the DO reads this stream
         await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
 
-        try { controller.close(); } catch { /* already closed */ }
+        try {
+            controller.close();
+        } catch {
+            /* already closed */
+        }
     }, ctx);
 }
 
@@ -302,9 +342,13 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             throw new Error('Anthropic and Langfuse clients are required');
         }
 
-        // Load history from database
-        const allMessages = await loadChatHistory(em!, chatId);
-        // const allMessages = [...historyMessages, { role: 'user' as const, content: message }];
+        // Load history + safety check in parallel (doesn't slow happy path)
+        const [historyMessages, safetyVerdict] = await Promise.all([
+            loadChatHistory(em!, chatId),
+            safetyCheck(ctx, message),
+        ]);
+
+        const allMessages = injectSafetyContext(historyMessages, safetyVerdict);
 
         // Load previously loaded prompts from chat metadata
         const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
@@ -329,7 +373,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             embeddingQueue,
             createdVersionIds,
             onVersionCreated: (event) => {
-                ugStub.broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event }).catch(console.error);
+                ugStub
+                    .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
+                    .catch(console.error);
             },
         };
 
@@ -416,6 +462,24 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
         const fireAndForgetPush = pusher.push;
 
+        // Inline safety monitor — checks content every few seconds, aborts on leak
+        const safetyMonitor = createSafetyMonitor({
+            ctx,
+            userMessage: message,
+            onLeak: (result) => {
+                abortController.abort();
+                // Push retract event to frontend
+                fireAndForgetPush([
+                    {
+                        type: 'safety_retract',
+                        reason: result.category,
+                        severity: result.severity,
+                        evidence: result.evidence,
+                    } as any,
+                ]);
+            },
+        });
+
         // Document events queue — batched into the main push instead of separate RPCs
         const pendingDocEvents: StreamEvent[] = [];
         const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) => {
@@ -426,6 +490,11 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
         // Stream loop — push events to ChatStream DO instead of SSE
         for await (const event of stream) {
+            // Feed content deltas to safety monitor
+            if (event.type === 'delta') {
+                safetyMonitor.appendContent(event.content);
+            }
+
             // Let document handler process the event (queues doc events locally)
             await docEvents.handle(event);
 
@@ -521,6 +590,22 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                     chat.token_usage = { tokenBreakdown, usedTokens };
                     chat.active_agent_message_id = null;
 
+                    // Save safety verdict to user message debug_data
+                    if (safetyVerdict && safetyVerdict.score > 0) {
+                        // Find the user message we just persisted (last user msg in chat)
+                        const userMsgs = await em!.find(
+                            ChatMessageEntity,
+                            { chat: chatId, role: 'user' },
+                            { orderBy: { created_at: 'DESC' }, limit: 1 },
+                        );
+                        if (userMsgs[0]) {
+                            userMsgs[0].debug_data = {
+                                ...((userMsgs[0].debug_data as Record<string, unknown>) ?? {}),
+                                safetyVerdict,
+                            };
+                        }
+                    }
+
                     // Flush assistant message before linking versions (FK requires row to exist)
                     await em!.flush();
 
@@ -573,6 +658,8 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         }
 
         await historyPromise;
+
+        await finalizeSafetyMonitor(safetyMonitor, em!, agentMessageId);
 
         // done() → persist (above) → finalize() → clearStream (Decision #20)
         try {
