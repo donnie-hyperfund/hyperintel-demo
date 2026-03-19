@@ -331,7 +331,12 @@ export async function listDocuments(
 
     const artifacts = await em.find(
         ArtifactEntity,
-        { $and: [scopeFilter(scope), { $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] }] } as any,
+        {
+            $and: [
+                scopeFilter(scope),
+                { $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
+            ],
+        } as any,
         { populate: ['current_version', 'versions'] },
     );
 

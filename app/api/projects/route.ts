@@ -5,10 +5,10 @@ import { withAuth } from '@/lib/api/auth-guard';
 import { validatePayload } from '@/lib/api/validation';
 import { importPublicArtifactsToProject } from '@/lib/artifacts/import';
 import { broadcastUserEvent } from '@/lib/broadcast/user-event';
-import { handleListProjects } from '@/lib/projects/handlers';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
+import { handleListProjects } from '@/lib/projects/handlers';
 import { CreateProjectBodySchema, type ProjectDto } from '@/lib/schema/project';
 
 export function GET(req: NextRequest): Promise<NextResponse> {
