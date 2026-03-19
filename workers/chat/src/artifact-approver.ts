@@ -7,38 +7,13 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
-import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
-import type { UserGatewayStub } from './utils/do-stubs';
+import { broadcastUserEvent } from './utils/broadcast';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
-
-async function broadcastArtifactUserEvent(
-    ctx: Pick<Ctx, 'eCtx'>,
-    ugStub: UserGatewayStub,
-    eventType: string,
-    payload: Record<string, unknown>,
-): Promise<void> {
-    const task = ugStub
-        .broadcastToAll({
-            type: 'user_event',
-            eventType,
-            payload,
-        })
-        .catch((error) => {
-            console.error(`[artifact-approver] Failed to broadcast ${eventType}:`, error);
-        });
-
-    if (ctx.eCtx) {
-        ctx.eCtx.waitUntil(task);
-        return;
-    }
-
-    await task;
-}
 
 async function generateYAMLForArtifact(content: string, messages: ChatMessageEntity[], ctx: Ctx): Promise<string> {
     const localPath = resolveLocalPromptPath();
@@ -129,11 +104,8 @@ export async function approveArtifactHandler(
     }
 
     const previousStatus = version.status;
-    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
-    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
 
-    // Keep the request-scoped broadcast alive on Workers until it is delivered.
-    await broadcastArtifactUserEvent(ctx, ugStub, 'artifact_version_update_started', {
+    await broadcastUserEvent(ctx, 'artifact_version_update_started', {
         artifactId: version.artifact.id,
         artifactName: version.artifact.key,
         versionId,
@@ -219,7 +191,7 @@ export async function approveArtifactHandler(
         }
     }
 
-    await broadcastArtifactUserEvent(ctx, ugStub, 'artifact_version_updated', {
+    await broadcastUserEvent(ctx, 'artifact_version_updated', {
         artifactId: version.artifact.id,
         artifactName: version.artifact.key,
         versionId,
@@ -287,10 +259,8 @@ export async function rejectArtifactHandler(
     }
 
     const previousStatus = version.status;
-    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(user.userId, ctx.previewAlias));
-    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
 
-    await broadcastArtifactUserEvent(ctx, ugStub, 'artifact_version_update_started', {
+    await broadcastUserEvent(ctx, 'artifact_version_update_started', {
         artifactId: version.artifact.id,
         artifactName: version.artifact.key,
         versionId,
@@ -308,7 +278,7 @@ export async function rejectArtifactHandler(
 
     await em.flush();
 
-    await broadcastArtifactUserEvent(ctx, ugStub, 'artifact_version_updated', {
+    await broadcastUserEvent(ctx, 'artifact_version_updated', {
         artifactId: version.artifact.id,
         artifactName: version.artifact.key,
         versionId,

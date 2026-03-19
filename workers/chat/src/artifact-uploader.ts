@@ -16,9 +16,8 @@ import {
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
 import { type ProjectResourceUploadUpdatedPayload, UserEventType } from '@/lib/schema/user-events';
-import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from './context';
-import type { UserGatewayStub } from './utils/do-stubs';
+import { broadcastUserEvent } from './utils/broadcast';
 
 function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
@@ -212,34 +211,17 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
     return result;
 }
 
-/** Broadcast artifact version creation to user's WS connections */
 function broadcastArtifactCreated(ctx: Ctx, result: UpsertResult, normalizedKey: string) {
-    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, ctx.previewAlias));
-    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    ugStub
-        .broadcastToAll({
-            type: 'user_event',
-            eventType: 'artifact_version_created',
-            payload: {
-                artifactId: result.artifactId,
-                versionId: result.versionId,
-                version: result.version,
-                artifactName: normalizedKey,
-            },
-        })
-        .catch(console.error);
+    return broadcastUserEvent(ctx, 'artifact_version_created', {
+        artifactId: result.artifactId,
+        versionId: result.versionId,
+        version: result.version,
+        artifactName: normalizedKey,
+    });
 }
 
 function broadcastProjectResourceUploadUpdated(ctx: Ctx, payload: ProjectResourceUploadUpdatedPayload) {
-    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, ctx.previewAlias));
-    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    ugStub
-        .broadcastToAll({
-            type: 'user_event',
-            eventType: UserEventType.ProjectResourceUploadUpdated,
-            payload,
-        })
-        .catch(console.error);
+    return broadcastUserEvent(ctx, UserEventType.ProjectResourceUploadUpdated, payload);
 }
 
 export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
