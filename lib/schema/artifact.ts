@@ -102,6 +102,7 @@ export const ArtifactDtoSchema = z.object({
         .union([z.string().uuid(), z.object({}).passthrough()])
         .nullable()
         .optional(),
+    is_public: z.boolean().optional(),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),

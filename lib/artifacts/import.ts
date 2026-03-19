@@ -1,10 +1,11 @@
 /**
  * Artifact Import Service
  *
- * Copies user-scoped artifacts into a project scope.
- * Used when creating a project from intake results (CPF/HPF).
+ * Copies user-scoped or public artifacts into a project scope.
+ * Used when creating a project from intake results (CPF/HPF)
+ * and for auto-importing public artifacts (e.g. Company Profile).
  *
- * - Non-destructive: originals stay in user scope
+ * - Non-destructive: originals stay in their source scope
  * - Auto-approved: imported versions are immediately approved
  * - Duplicate-safe: skips artifacts whose key already exists in the target project
  */
@@ -151,6 +152,104 @@ export async function importArtifactsToProject(
 
             details.push({
                 sourceArtifactId: artifactId,
+                newArtifactId: artifact.id,
+                newVersionId: version.id,
+                key: source.key,
+                content: bestVersion.content,
+                status: 'imported',
+            });
+            imported++;
+        }
+    });
+
+    return { imported, skipped, details };
+}
+
+/**
+ * Copy all public artifacts (is_public=true) into a project.
+ *
+ * Called automatically when a project is created.
+ * Only imports public artifacts that have an approved version
+ * and whose key doesn't already exist in the target project.
+ */
+export async function importPublicArtifactsToProject(em: EntityManager, projectId: string): Promise<ImportResult> {
+    const details: ImportDetail[] = [];
+    let imported = 0;
+    let skipped = 0;
+
+    // Find all public artifacts with their versions
+    const publicArtifacts = await em.find(ArtifactEntity, { is_public: true }, { populate: ['versions'] });
+
+    if (publicArtifacts.length === 0) {
+        return { imported: 0, skipped: 0, details: [] };
+    }
+
+    // Check which keys already exist in the target project
+    const sourceKeys = publicArtifacts.map((a) => a.key);
+    const existingInProject = await em.find(ArtifactEntity, { project: projectId, key: { $in: sourceKeys } });
+    const existingKeys = new Set(existingInProject.map((a) => a.key));
+
+    await em.transactional(async (txEm) => {
+        for (const source of publicArtifacts) {
+            if (existingKeys.has(source.key)) {
+                details.push({
+                    sourceArtifactId: source.id,
+                    key: source.key,
+                    status: 'skipped_duplicate',
+                });
+                skipped++;
+                continue;
+            }
+
+            // Find best version: latest approved
+            const versions = source.versions.getItems();
+            const bestVersion = versions
+                .filter((v) => v.status === 'approved')
+                .sort((a, b) => b.version - a.version)[0];
+
+            if (!bestVersion) {
+                details.push({
+                    sourceArtifactId: source.id,
+                    key: source.key,
+                    status: 'error',
+                    error: 'No approved version found — public artifact must be approved before importing',
+                });
+                skipped++;
+                continue;
+            }
+
+            // Phase 1: Create project-scoped artifact
+            const artifact = new ArtifactEntity();
+            artifact.key = source.key;
+            artifact.title = source.title;
+            artifact.version = 1;
+            artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
+            artifact.metadata = { importedFrom: source.id, importedFromPublic: true };
+
+            txEm.persist(artifact);
+            await txEm.flush();
+
+            // Phase 2: Create approved version
+            const version = new ArtifactVersionEntity();
+            version.artifact = artifact;
+            version.version = 1;
+            version.content = bestVersion.content;
+            version.document_type = bestVersion.document_type;
+            version.is_internal = bestVersion.is_internal;
+            version.status = 'approved';
+            version.status_changed_at = new Date();
+
+            txEm.persist(version);
+            await txEm.flush();
+
+            // Phase 3: Set current_version
+            artifact.current_version = version;
+            await txEm.flush();
+
+            existingKeys.add(source.key);
+
+            details.push({
+                sourceArtifactId: source.id,
                 newArtifactId: artifact.id,
                 newVersionId: version.id,
                 key: source.key,
