@@ -1,8 +1,8 @@
-import { Collection, Entity, ManyToOne, OneToMany, OneToOne, Opt, Property } from '@mikro-orm/core';
+import { Collection, Entity, ManyToOne, OneToMany, OneToOne, type Opt, Property } from '@mikro-orm/core';
 import type { Nullable } from '@/common/orm/utils';
 import type { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
-import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import type { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 
@@ -35,6 +35,10 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
         (v: ArtifactVersionEntity) => v.artifact,
     )
     versions = new Collection<ArtifactVersionEntity>(this);
+
+    /** Public artifacts are global read-only resources available to all projects (e.g. Company Profile) */
+    @Property({ type: 'boolean', default: false })
+    is_public!: boolean & Opt;
 
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;

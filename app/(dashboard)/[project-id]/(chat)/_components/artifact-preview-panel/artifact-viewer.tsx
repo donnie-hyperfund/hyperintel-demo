@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { ChevronDown, EyeOff, Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
@@ -118,6 +118,7 @@ export const ArtifactViewer = ({
     }, [isStreaming, title, containerRef]);
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
+    const showInternalEmptyState = !markdownContent && !!isInternal && !isStreaming;
 
     // TODO: Remove the !!projectId when backend is updated and we can use a unified artifact API
     const deleteAction = canDelete && !!projectId && (
@@ -157,6 +158,20 @@ export const ArtifactViewer = ({
                                 directives={diffDirectives}
                                 scrollContainerRef={containerRef}
                             />
+                        </div>
+                    ) : showInternalEmptyState ? (
+                        <div className="flex items-center justify-center h-full px-6">
+                            <div className="max-w-md rounded-2xl border border-border bg-background/30 p-6 text-center text-muted-foreground">
+                                <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-full border border-border bg-background/40">
+                                    <EyeOff className="size-5" />
+                                </div>
+                                <p className="font-medium text-foreground">Preview unavailable</p>
+                                <p className="mt-2 text-sm leading-6">
+                                    This document type is tracked in the workflow and version history, but it is not
+                                    presented as a reviewable preview. Use the visible outputs and status indicators to
+                                    track progress.
+                                </p>
+                            </div>
                         </div>
                     ) : (
                         <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -207,6 +222,7 @@ export const ArtifactViewer = ({
                     artifactKey={artifactKey}
                     artifactVersion={version}
                     artifactVersionId={artifactVersionId!}
+                    isInternal={isInternal}
                     disabled={isUpdating}
                     onProcessingChange={setIsProcessingApproval}
                 />

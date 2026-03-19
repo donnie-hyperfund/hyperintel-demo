@@ -16,6 +16,7 @@ type ArtifactApprovalBarProps = {
     artifactKey: string;
     artifactVersion: number;
     artifactVersionId: string;
+    isInternal?: boolean;
     disabled?: boolean;
     onProcessingChange?: (isProcessing: boolean) => void;
 };
@@ -25,6 +26,7 @@ export function ArtifactApprovalBar({
     artifactKey,
     artifactVersion,
     artifactVersionId,
+    isInternal = false,
     disabled = false,
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
@@ -96,7 +98,11 @@ export function ArtifactApprovalBar({
 
     return (
         <div className="border-t border-border px-4 pt-4 pb-6 space-y-2.5">
-            <p className="text-xs text-muted-foreground text-center">This document is awaiting your approval</p>
+            <p className="text-xs text-muted-foreground text-center">
+                {isInternal
+                    ? 'This workflow item is ready for confirmation.'
+                    : 'This document is awaiting your approval'}
+            </p>
             <div className="flex items-center justify-center gap-2">
                 <Button size="sm" variant="outline" onClick={handleReject} disabled={isProcessing}>
                     {isRejecting ? <Loader2 className="size-3 animate-spin mr-1" /> : <XIcon className="size-3 mr-1" />}
