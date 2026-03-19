@@ -5,12 +5,18 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useR
 import { useSWRConfig } from 'swr';
 import { toast } from '@/hooks/use-toast';
 import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
+import type { PaginatedResponse } from '@/lib/api/client/types';
 import { confirmUpload, deleteArtifact, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
-import { isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
-import { safeGetJsonItem, safeRemoveItem, safeSetJsonItem } from '@/lib/storage/local-storage';
+import { type ArtifactDto, isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
 import { getUploadStorageKey } from '@/lib/storage/storage-keys';
-import { usePendingUploads } from './pending-uploads-provider';
+import { useCrossTabUploadSync } from '../hooks/use-cross-tab-upload-sync';
+import { usePendingUploads } from '../providers/pending-uploads-provider';
+import {
+    normalizePersistedUploadState,
+    readPersistedUploadState,
+    writePersistedUploadState,
+} from '../utils/persisted-upload-state';
 
 const BINARY_MIME_TYPES: Record<string, string> = {
     '.pdf': 'application/pdf',
@@ -31,7 +37,6 @@ export type FileEntry = {
     presignData?: PresignUploadResponseDto;
 };
 
-type PersistedFileEntry = Omit<FileEntry, 'file'>;
 type UploadBatch = { pendingIds: Set<string>; total: number; firstName: string };
 
 export type FileUploadContextValue = {
@@ -53,23 +58,115 @@ type FileUploadProviderProps = {
 };
 
 export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
-    const { addPendingArtifactId: _addPending, clearPendingArtifactIds: _clearPending } = usePendingUploads();
+    const {
+        pendingArtifactIds,
+        addPendingArtifactId: _addPending,
+        removePendingArtifactId: _removePending,
+        replacePendingArtifactIds: _replacePending,
+        clearPendingArtifactIds: _clearPending,
+    } = usePendingUploads();
     const addPendingArtifactId: (id: string) => void = trackAsPending ? _addPending : () => {};
+    const removePendingArtifactId: (id: string) => void = trackAsPending ? _removePending : () => {};
+    const replacePendingArtifactIds: (ids: string[]) => void = trackAsPending ? _replacePending : () => {};
     const clearPendingArtifactIds: () => void = trackAsPending ? _clearPending : () => {};
     const uploadsStorageKey = getUploadStorageKey(scope, trackAsPending);
+    const initialPersistedStateRef = useRef(uploadsStorageKey ? readPersistedUploadState(uploadsStorageKey) : null);
+    const initialPersistedState = initialPersistedStateRef.current;
 
-    const [files, setFiles] = useState<FileEntry[]>(
-        () => (uploadsStorageKey ? safeGetJsonItem<PersistedFileEntry[]>(uploadsStorageKey) : null) ?? [],
-    );
+    const [files, setFiles] = useState<FileEntry[]>(() => initialPersistedState?.entries ?? []);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const filesRef = useRef(files);
     filesRef.current = files;
+    const hiddenArtifactIdsRef = useRef(trackAsPending ? (initialPersistedState?.hiddenArtifactIds ?? []) : []);
+    hiddenArtifactIdsRef.current = trackAsPending ? pendingArtifactIds : [];
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
     const batchesRef = useRef<UploadBatch[]>([]);
     const resumedProcessingIdsRef = useRef<Set<string>>(new Set());
 
+    const invalidateResources = useCallback(() => {
+        if (scope?.projectId) {
+            globalMutate(serializeProjectResourceListKey(scope.projectId));
+        }
+    }, [globalMutate, scope?.projectId]);
+
+    const syncPendingArtifactIds = useCallback(
+        (artifactIds: string[]) => {
+            replacePendingArtifactIds(artifactIds);
+        },
+        [replacePendingArtifactIds],
+    );
+
+    const pruneRemovedArtifactsFromResourceCache = useCallback(
+        (artifactIds: string[]) => {
+            if (!scope?.projectId || artifactIds.length === 0) return;
+
+            const removedIds = new Set(artifactIds);
+            void globalMutate<PaginatedResponse<ArtifactDto>[]>(
+                serializeProjectResourceListKey(scope.projectId),
+                (currentPages) => {
+                    if (!currentPages) return currentPages;
+
+                    let changed = false;
+                    const nextPages = currentPages.map((page) => {
+                        const nextData = page.data.filter((artifact) => !removedIds.has(artifact.id));
+                        if (nextData.length === page.data.length) return page;
+                        changed = true;
+                        return { ...page, data: nextData };
+                    });
+
+                    return changed ? nextPages : currentPages;
+                },
+                { revalidate: false },
+            );
+        },
+        [globalMutate, scope?.projectId],
+    );
+
+    const clearFiles = useCallback(() => {
+        setFiles([]);
+        clearPendingArtifactIds();
+    }, [clearPendingArtifactIds]);
+
+    const syncFilesFromStorage = useCallback(
+        (serializedState: string | null) => {
+            const previousHiddenArtifactIds = hiddenArtifactIdsRef.current;
+
+            if (serializedState === null) {
+                pruneRemovedArtifactsFromResourceCache(previousHiddenArtifactIds);
+                clearFiles();
+                invalidateResources();
+                return;
+            }
+
+            try {
+                const parsedState = normalizePersistedUploadState(JSON.parse(serializedState));
+                if (!parsedState) {
+                    clearFiles();
+                    return;
+                }
+
+                const nextHiddenArtifactIds = new Set(parsedState.hiddenArtifactIds);
+                const removedArtifactIds = previousHiddenArtifactIds.filter(
+                    (artifactId) => !nextHiddenArtifactIds.has(artifactId),
+                );
+
+                pruneRemovedArtifactsFromResourceCache(removedArtifactIds);
+                setFiles(parsedState.entries);
+                syncPendingArtifactIds(parsedState.hiddenArtifactIds);
+                invalidateResources();
+            } catch {
+                clearFiles();
+            }
+        },
+        [clearFiles, invalidateResources, pruneRemovedArtifactsFromResourceCache, syncPendingArtifactIds],
+    );
+
+    // Sync persisted upload state across tabs so stale chips do not linger.
+    useCrossTabUploadSync(trackAsPending ? uploadsStorageKey : null, syncFilesFromStorage);
+
+    // Persist upload entries and resource-hiding state for cross-tab draft sync.
     useEffect(() => {
         if (!uploadsStorageKey) return;
 
@@ -81,27 +178,17 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             )
             .map(({ file: _file, ...entry }) => entry);
 
-        if (persistable.length > 0) {
-            safeSetJsonItem(uploadsStorageKey, persistable);
-            return;
-        }
-
-        safeRemoveItem(uploadsStorageKey);
-    }, [files, uploadsStorageKey]);
+        writePersistedUploadState(uploadsStorageKey, {
+            entries: persistable,
+            hiddenArtifactIds: trackAsPending ? pendingArtifactIds : [],
+        });
+    }, [files, pendingArtifactIds, trackAsPending, uploadsStorageKey]);
 
     // Re-populate pending artifact IDs from restored file entries on mount
     useEffect(() => {
         if (!trackAsPending) return;
-        for (const entry of filesRef.current) {
-            if (entry.artifactId) addPendingArtifactId(entry.artifactId);
-        }
-    }, []);
-
-    const invalidateResources = useCallback(() => {
-        if (scope?.projectId) {
-            globalMutate(serializeProjectResourceListKey(scope.projectId));
-        }
-    }, [globalMutate, scope?.projectId]);
+        syncPendingArtifactIds(initialPersistedState?.hiddenArtifactIds ?? []);
+    }, [initialPersistedState?.hiddenArtifactIds, syncPendingArtifactIds, trackAsPending]);
 
     const updateEntry = useCallback((entryId: string, update: Partial<FileEntry>) => {
         setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
@@ -129,7 +216,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     const failEntry = useCallback(
         (entryId: string, description?: string) => {
+            const failedEntry = filesRef.current.find((entry) => entry.id === entryId);
             setFiles((prev) => prev.filter((e) => e.id !== entryId));
+            if (failedEntry?.artifactId) {
+                removePendingArtifactId(failedEntry.artifactId);
+            }
             invalidateResources();
             toast({ title: 'Upload failed', description, variant: 'destructive' });
 
@@ -140,7 +231,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 if (batch.pendingIds.size === 0) batchesRef.current.splice(i, 1);
             }
         },
-        [invalidateResources],
+        [invalidateResources, removePendingArtifactId],
     );
 
     const pollFileStatus = useCallback(
@@ -313,8 +404,19 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
             if (entry?.artifactId) {
                 getToken().then(async (token) => {
-                    if (token) {
+                    if (!token) {
+                        removePendingArtifactId(entry.artifactId!);
+                        invalidateResources();
+                        return;
+                    }
+
+                    try {
                         await deleteArtifact({ artifactId: entry.artifactId! }, token);
+                        pruneRemovedArtifactsFromResourceCache([entry.artifactId!]);
+                    } catch {
+                        toast({ title: 'Remove failed', description: entry.name, variant: 'destructive' });
+                    } finally {
+                        removePendingArtifactId(entry.artifactId!);
                         invalidateResources();
                     }
                 });
@@ -322,13 +424,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
             setFiles((prev) => prev.filter((_, i) => i !== index));
         },
-        [getToken, invalidateResources],
+        [getToken, invalidateResources, pruneRemovedArtifactsFromResourceCache, removePendingArtifactId],
     );
-
-    const clearFiles = useCallback(() => {
-        setFiles([]);
-        clearPendingArtifactIds();
-    }, [clearPendingArtifactIds]);
 
     const waitForStatus = useCallback((entryId: string, target: FileEntryStatus): Promise<void> => {
         return new Promise((resolve, reject) => {
@@ -356,8 +453,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 }),
             );
 
-            setFiles([]);
-            clearPendingArtifactIds();
+            pruneRemovedArtifactsFromResourceCache(hiddenArtifactIdsRef.current);
+            clearFiles();
             invalidateResources();
         } catch (err) {
             toast({
@@ -368,26 +465,15 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         } finally {
             setIsSubmitting(false);
         }
-    }, [clearPendingArtifactIds, invalidateResources, waitForStatus]);
+    }, [waitForStatus, pruneRemovedArtifactsFromResourceCache, clearFiles, invalidateResources]);
 
     useEffect(() => {
-        const resumed: FileEntry[] = [];
-
         for (const entry of files) {
             if (entry.status !== 'processing' || !entry.presignData) continue;
             if (resumedProcessingIdsRef.current.has(entry.id)) continue;
 
             resumedProcessingIdsRef.current.add(entry.id);
-            resumed.push(entry);
             void pollFileStatus(entry.presignData.fileId, entry.id);
-        }
-
-        if (resumed.length > 0) {
-            batchesRef.current.push({
-                pendingIds: new Set(resumed.map((e) => e.id)),
-                total: resumed.length,
-                firstName: resumed[0].name,
-            });
         }
     }, [files, pollFileStatus]);
 
