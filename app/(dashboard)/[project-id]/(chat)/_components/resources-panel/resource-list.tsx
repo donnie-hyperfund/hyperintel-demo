@@ -12,7 +12,7 @@ import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-res
 import { deleteArtifact } from '@/lib/api/requests/worker/chat';
 import { getLatestArtifactVersion } from '@/lib/artifacts/utils';
 import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
-import { useProjectResourceDeleteSync } from '@/modules/file-uploads/hooks/use-project-resource-delete-sync';
+import { useProjectResourceMutationSync } from '@/modules/file-uploads/hooks/use-project-resource-mutation-sync';
 import { useUploadEntries } from '@/modules/file-uploads/hooks/use-upload-entries';
 import { usePendingUploads } from '@/modules/file-uploads/providers/pending-uploads-provider';
 import { mergeByDate } from '@/modules/file-uploads/utils/merge-resource-list';
@@ -44,11 +44,11 @@ export function ResourceList() {
         return rawItems.filter((a) => !pendingSet.has(a.id));
     }, [rawItems, pendingArtifactIds]);
 
-    // Cross-tab sync: re-fetch when another tab deletes a resource
-    const handleDeleteSync = useCallback(() => {
+    // Cross-tab sync: re-fetch when another tab deletes or imports resources
+    const handleMutationSync = useCallback(() => {
         mutate();
     }, [mutate]);
-    useProjectResourceDeleteSync(projectId, handleDeleteSync);
+    useProjectResourceMutationSync(projectId, handleMutationSync);
 
     const knownArtifactIds = useMemo(() => new Set(allItems.map((a) => a.id)), [allItems]);
     const uploadEntries = useUploadEntries(knownArtifactIds);
