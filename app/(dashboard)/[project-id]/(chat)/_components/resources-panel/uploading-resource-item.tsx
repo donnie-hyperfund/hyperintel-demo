@@ -1,6 +1,6 @@
 import { FileText, Loader2 } from 'lucide-react';
 import { formatFileSize, getFileExtension } from '@/lib/files';
-import type { FileEntryStatus } from '@/modules/file-uploads/providers/file-upload-provider';
+import type { FileEntryStatus } from '@/modules/file-uploads/types';
 
 type UploadingResourceItemProps = {
     name: string;

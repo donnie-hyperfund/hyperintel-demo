@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
-import { type FileEntry, useFileUploadContext } from '../providers/file-upload-provider';
+import { useFileUploadContext } from '../providers/file-upload-provider';
+import type { FileEntry } from '../types';
 
 /**
  * Returns upload entries not yet present in the API response (placeholders).

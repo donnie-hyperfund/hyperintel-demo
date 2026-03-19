@@ -1,5 +1,5 @@
 import type { ArtifactDto } from '@/lib/schema/artifact';
-import type { FileEntry } from '../providers/file-upload-provider';
+import type { FileEntry } from '../types';
 
 export type ResourceListItem = { kind: 'upload'; entry: FileEntry } | { kind: 'artifact'; artifact: ArtifactDto };
 

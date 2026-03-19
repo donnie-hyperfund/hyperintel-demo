@@ -8,6 +8,7 @@ type PersistedUploadEntry = {
     status: 'pending' | 'uploading' | 'processing' | 'ready';
     createdAt: number;
     artifactId?: string;
+    fileId?: string;
     presignData?: PresignUploadResponseDto;
 };
 
@@ -32,7 +33,10 @@ export function normalizePersistedUploadState(value: unknown): PersistedUploadSt
 
     if (isPersistedUploadState(value)) {
         return {
-            entries: value.entries,
+            entries: value.entries.map((entry) => ({
+                ...entry,
+                fileId: entry.fileId ?? entry.presignData?.fileId,
+            })),
             hiddenArtifactIds: dedupeArtifactIds(
                 value.hiddenArtifactIds.filter((artifactId): artifactId is string => typeof artifactId === 'string'),
             ),
@@ -42,7 +46,10 @@ export function normalizePersistedUploadState(value: unknown): PersistedUploadSt
     if (Array.isArray(value)) {
         const entries = value as PersistedUploadEntry[];
         return {
-            entries,
+            entries: entries.map((entry) => ({
+                ...entry,
+                fileId: entry.fileId ?? entry.presignData?.fileId,
+            })),
             hiddenArtifactIds: dedupeArtifactIds(
                 entries.flatMap((entry) => (typeof entry.artifactId === 'string' ? [entry.artifactId] : [])),
             ),

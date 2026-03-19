@@ -9,9 +9,13 @@ import type { PaginatedResponse } from '@/lib/api/client/types';
 import { confirmUpload, deleteArtifact, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
 import { type ArtifactDto, isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
+import type { ProjectResourceUploadUpdatedPayload } from '@/lib/schema/user-events';
 import { getUploadStorageKey } from '@/lib/storage/storage-keys';
 import { useCrossTabUploadSync } from '../hooks/use-cross-tab-upload-sync';
+import { useProjectResourceUploadSync } from '../hooks/use-project-resource-upload-sync';
 import { usePendingUploads } from '../providers/pending-uploads-provider';
+import type { FileEntry, FileEntryStatus } from '../types';
+import { findFileEntryIndex, mergeFileEntry } from '../utils/file-entry';
 import {
     normalizePersistedUploadState,
     readPersistedUploadState,
@@ -22,19 +26,6 @@ const BINARY_MIME_TYPES: Record<string, string> = {
     '.pdf': 'application/pdf',
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-};
-
-export type FileEntryStatus = 'pending' | 'uploading' | 'processing' | 'ready';
-
-export type FileEntry = {
-    id: string;
-    name: string;
-    size: number;
-    status: FileEntryStatus;
-    createdAt: number;
-    file?: File;
-    artifactId?: string;
-    presignData?: PresignUploadResponseDto;
 };
 
 type UploadBatch = { pendingIds: Set<string>; total: number; firstName: string };
@@ -83,7 +74,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const { mutate: globalMutate } = useSWRConfig();
 
     const batchesRef = useRef<UploadBatch[]>([]);
-    const resumedProcessingIdsRef = useRef<Set<string>>(new Set());
+    const pollingEntryIdsRef = useRef<Set<string>>(new Set());
 
     const invalidateResources = useCallback(() => {
         if (scope?.projectId) {
@@ -91,12 +82,16 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         }
     }, [globalMutate, scope?.projectId]);
 
-    const syncPendingArtifactIds = useCallback(
-        (artifactIds: string[]) => {
-            replacePendingArtifactIds(artifactIds);
-        },
-        [replacePendingArtifactIds],
-    );
+    const upsertFileEntry = useCallback((incoming: FileEntry) => {
+        setFiles((prev) => {
+            const index = findFileEntryIndex(prev, incoming);
+            if (index === -1) return [...prev, incoming];
+
+            const next = [...prev];
+            next[index] = mergeFileEntry(prev[index], incoming);
+            return next;
+        });
+    }, []);
 
     const pruneRemovedArtifactsFromResourceCache = useCallback(
         (artifactIds: string[]) => {
@@ -154,17 +149,41 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
                 pruneRemovedArtifactsFromResourceCache(removedArtifactIds);
                 setFiles(parsedState.entries);
-                syncPendingArtifactIds(parsedState.hiddenArtifactIds);
+                replacePendingArtifactIds(parsedState.hiddenArtifactIds);
                 invalidateResources();
             } catch {
                 clearFiles();
             }
         },
-        [clearFiles, invalidateResources, pruneRemovedArtifactsFromResourceCache, syncPendingArtifactIds],
+        [clearFiles, invalidateResources, pruneRemovedArtifactsFromResourceCache, replacePendingArtifactIds],
     );
 
-    // Sync persisted upload state across tabs so stale chips do not linger.
+    // Cross-tab sync for draft uploads (chat input chips) via localStorage StorageEvent.
     useCrossTabUploadSync(trackAsPending ? uploadsStorageKey : null, syncFilesFromStorage);
+
+    // Cross-tab sync for Project Intel uploads via WS user_event broadcast.
+    // Server broadcasts status at each stage (uploading → processing). Final 'ready'
+    // status is discovered by each tab's polling loop since extraction runs async.
+    const handleResourceUploadEvent = useCallback(
+        (payload: ProjectResourceUploadUpdatedPayload) => {
+            upsertFileEntry({
+                id: payload.entryId,
+                name: payload.name,
+                size: payload.size,
+                status: payload.status,
+                createdAt: Date.now(),
+                artifactId: payload.artifactId,
+                fileId: payload.fileId,
+            });
+
+            if (payload.status === 'ready') {
+                invalidateResources();
+            }
+        },
+        [invalidateResources, upsertFileEntry],
+    );
+
+    useProjectResourceUploadSync(trackAsPending ? undefined : scope?.projectId, handleResourceUploadEvent);
 
     // Persist upload entries and resource-hiding state for cross-tab draft sync.
     useEffect(() => {
@@ -173,10 +192,13 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         const persistable = files
             .filter(
                 (entry) =>
-                    (entry.status === 'processing' && entry.presignData) ||
+                    (entry.status === 'processing' && (entry.fileId || entry.presignData?.fileId)) ||
                     (entry.status === 'ready' && entry.artifactId),
             )
-            .map(({ file: _file, ...entry }) => entry);
+            .map(({ file: _file, presignData, ...rest }) => ({
+                ...rest,
+                fileId: rest.fileId ?? presignData?.fileId,
+            }));
 
         writePersistedUploadState(uploadsStorageKey, {
             entries: persistable,
@@ -187,8 +209,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     // Re-populate pending artifact IDs from restored file entries on mount
     useEffect(() => {
         if (!trackAsPending) return;
-        syncPendingArtifactIds(initialPersistedState?.hiddenArtifactIds ?? []);
-    }, [initialPersistedState?.hiddenArtifactIds, syncPendingArtifactIds, trackAsPending]);
+        replacePendingArtifactIds(initialPersistedState?.hiddenArtifactIds ?? []);
+    }, [initialPersistedState?.hiddenArtifactIds, replacePendingArtifactIds, trackAsPending]);
 
     const updateEntry = useCallback((entryId: string, update: Partial<FileEntry>) => {
         setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
@@ -196,6 +218,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     const finalizeEntry = useCallback(
         (entryId: string, extra?: Partial<FileEntry>) => {
+            pollingEntryIdsRef.current.delete(entryId);
             updateEntry(entryId, { ...extra, status: 'ready' });
             invalidateResources();
 
@@ -216,6 +239,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     const failEntry = useCallback(
         (entryId: string, description?: string) => {
+            pollingEntryIdsRef.current.delete(entryId);
             const failedEntry = filesRef.current.find((entry) => entry.id === entryId);
             setFiles((prev) => prev.filter((e) => e.id !== entryId));
             if (failedEntry?.artifactId) {
@@ -236,17 +260,58 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     const pollFileStatus = useCallback(
         async (fileId: string, entryId: string) => {
+            let failures = 0;
+            const MAX_FAILURES = 30; // ~60s of consecutive errors before giving up
+
             const poll = async () => {
                 const token = await getToken();
-                if (!token) return;
+                if (!token) {
+                    pollingEntryIdsRef.current.delete(entryId);
+                    return;
+                }
 
-                const res = await fetch(`/api/artifacts/files/status?fileIds=${fileId}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (!res.ok) return;
+                let fileStatus: string | undefined;
+                try {
+                    const res = await fetch(`/api/artifacts/files/status?fileIds=${fileId}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    });
+                    if (!res.ok) {
+                        if (++failures >= MAX_FAILURES) {
+                            failEntry(entryId, 'Upload timed out — please try again');
+                            return;
+                        }
+                        setTimeout(poll, 2000);
+                        return;
+                    }
 
-                const data: { files: { fileId: string; status: string }[] } = await res.json();
-                const fileStatus = data.files.find((f) => f.fileId === fileId)?.status;
+                    const data: { files: { fileId: string; status: string }[] } = await res.json();
+                    fileStatus = data.files.find((f) => f.fileId === fileId)?.status;
+                    failures = 0; // reset on successful response
+                } catch {
+                    if (++failures >= MAX_FAILURES) {
+                        failEntry(entryId, 'Upload timed out — please try again');
+                        return;
+                    }
+                    setTimeout(poll, 2000);
+                    return;
+                }
+
+                if (!filesRef.current.some((entry) => entry.id === entryId)) {
+                    pollingEntryIdsRef.current.delete(entryId);
+                    return;
+                }
+
+                if (fileStatus === 'pending_upload') {
+                    updateEntry(entryId, { status: 'uploading' });
+                    setTimeout(poll, 1000);
+                    return;
+                }
+
+                if (fileStatus === 'uploaded') {
+                    updateEntry(entryId, { status: 'processing' });
+                    setTimeout(poll, 2000);
+                    return;
+                }
 
                 if (fileStatus === 'processed') {
                     finalizeEntry(entryId);
@@ -263,7 +328,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
             await poll();
         },
-        [getToken, finalizeEntry, failEntry],
+        [getToken, finalizeEntry, failEntry, updateEntry],
     );
 
     const startEagerUpload = useCallback(
@@ -281,6 +346,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         {
                             filename: file.name,
                             fileSize: file.size,
+                            clientEntryId: entryId,
+                            source: trackAsPending ? 'chat-input' : 'project-resources',
                             ...scope,
                         },
                         token,
@@ -292,6 +359,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     }
 
                     const presignData: PresignUploadResponseDto = await presignRes.json();
+                    updateEntry(entryId, {
+                        artifactId: presignData.artifactId,
+                        fileId: presignData.fileId,
+                        presignData,
+                    });
 
                     invalidateResources();
 
@@ -305,7 +377,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     if (!putRes.ok) throw new Error('Upload to storage failed');
 
                     const confirmRes = await confirmUpload(
-                        { fileId: presignData.fileId, versionId: presignData.versionId },
+                        {
+                            fileId: presignData.fileId,
+                            versionId: presignData.versionId,
+                            clientEntryId: entryId,
+                            source: trackAsPending ? 'chat-input' : 'project-resources',
+                        },
                         token,
                     );
                     if (!confirmRes.ok) {
@@ -316,13 +393,20 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     updateEntry(entryId, {
                         status: 'processing',
                         artifactId: presignData.artifactId,
+                        fileId: presignData.fileId,
                         presignData,
                     });
                     addPendingArtifactId(presignData.artifactId);
-                    resumedProcessingIdsRef.current.add(entryId);
-                    pollFileStatus(presignData.fileId, entryId);
                 } else {
-                    const res = await uploadArtifact({ file, ...scope }, token);
+                    const res = await uploadArtifact(
+                        {
+                            file,
+                            clientEntryId: entryId,
+                            source: trackAsPending ? 'chat-input' : 'project-resources',
+                            ...scope,
+                        },
+                        token,
+                    );
 
                     if (!res.ok) {
                         const err = await res.json();
@@ -346,9 +430,9 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             finalizeEntry,
             getToken,
             invalidateResources,
-            pollFileStatus,
             scope,
             updateEntry,
+            trackAsPending,
         ],
     );
 
@@ -467,13 +551,17 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         }
     }, [waitForStatus, pruneRemovedArtifactsFromResourceCache, clearFiles, invalidateResources]);
 
+    // Poll server for file status once an entry reaches 'processing' (i.e. after confirm).
+    // Entries at 'uploading' or 'pending' are still in-flight on the client — no need to poll yet.
     useEffect(() => {
         for (const entry of files) {
-            if (entry.status !== 'processing' || !entry.presignData) continue;
-            if (resumedProcessingIdsRef.current.has(entry.id)) continue;
+            if (entry.status !== 'processing') continue;
+            const fileId = entry.fileId ?? entry.presignData?.fileId;
+            if (!fileId) continue;
+            if (pollingEntryIdsRef.current.has(entry.id)) continue;
 
-            resumedProcessingIdsRef.current.add(entry.id);
-            void pollFileStatus(entry.presignData.fileId, entry.id);
+            pollingEntryIdsRef.current.add(entry.id);
+            void pollFileStatus(fileId, entry.id);
         }
     }, [files, pollFileStatus]);
 
