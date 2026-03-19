@@ -2,12 +2,10 @@ import { workerHonoOnError, wrapWorker } from '@common/common/common.helpers';
 import { zValidator } from '@hono/zod-validator';
 import { getCorsHonoMiddleware } from '@worker/cors.helpers';
 import { HonoEnv, honoMiddlewareAuthedWithOrm, honoMiddlewareWithOrm } from '@worker/hono.helpers';
-import { branchDoName, getPreviewAlias } from '@/workers/_common/util/preview-alias';
 import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import { ChatEntity } from '@/lib/orm/entities';
-import type { Ctx } from './context';
 import {
     ApproveArtifactActionSchema,
     ConfirmUploadSchema,
@@ -24,6 +22,7 @@ import {
     SummarizeActionSchema,
 } from '@/lib/schema/chat';
 import { ImportArtifactsActionSchema } from '@/lib/schema/project';
+import { branchDoName, getPreviewAlias } from '@/workers/_common/util/preview-alias';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
 import { deleteArtifactHandler } from './artifact-deleter';
 import { exportArtifactHandler } from './artifact-exporter';
@@ -31,6 +30,7 @@ import { importArtifactsHandler } from './artifact-importer';
 import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './artifact-uploader';
 import { chatActionHandler } from './chat-handler';
 import { cleanupStaleUploads } from './cleanup';
+import type { Ctx } from './context';
 import { intakeActionHandler } from './intake-handler';
 import { summarizeActionHandler } from './summarizer';
 
@@ -174,7 +174,7 @@ app.post('/artifacts/reject', zValidator('json', RejectArtifactActionSchema), as
 
 app.post('/artifacts/delete', zValidator('json', DeleteArtifactSchema), async (c) => {
     return wrapWorker(async () => {
-        return await deleteArtifactHandler(c.req.valid('json'), c.var);
+        return await deleteArtifactHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
