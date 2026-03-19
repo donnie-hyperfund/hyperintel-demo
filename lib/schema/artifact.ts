@@ -148,6 +148,8 @@ export const UploadArtifactSchema = zfd.formData({
     projectId: zfd.text(z4.string().uuid().optional()),
     chatId: zfd.text(z4.string().uuid().optional()),
     title: zfd.text(z4.string().min(1).optional()),
+    clientEntryId: zfd.text(z4.string().min(1).optional()),
+    source: zfd.text(z4.enum(['chat-input', 'project-resources']).optional()),
 });
 export type UploadArtifactDto = z4.infer<typeof UploadArtifactSchema>;
 
@@ -168,6 +170,8 @@ export const PresignUploadSchema = z.object({
     projectId: z.string().uuid().optional(),
     chatId: z.string().uuid().optional(),
     title: z.string().min(1).optional(),
+    clientEntryId: z.string().min(1).optional(),
+    source: z.enum(['chat-input', 'project-resources']).optional(),
 });
 export type PresignUploadDto = z.infer<typeof PresignUploadSchema>;
 
@@ -184,6 +188,8 @@ export type PresignUploadResponseDto = z.infer<typeof PresignUploadResponseSchem
 export const ConfirmUploadSchema = z.object({
     fileId: z.string().uuid(),
     versionId: z.string().uuid(),
+    clientEntryId: z.string().min(1).optional(),
+    source: z.enum(['chat-input', 'project-resources']).optional(),
 });
 export type ConfirmUploadDto = z.infer<typeof ConfirmUploadSchema>;
 

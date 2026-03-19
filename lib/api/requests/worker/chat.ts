@@ -138,7 +138,14 @@ export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: strin
 };
 
 export const uploadArtifact = (
-    data: { file: File; projectId?: string | null; chatId?: string | null; title?: string },
+    data: {
+        file: File;
+        projectId?: string | null;
+        chatId?: string | null;
+        title?: string;
+        clientEntryId?: string;
+        source?: 'chat-input' | 'project-resources';
+    },
     accessToken: string,
 ) => {
     const body = toFormData(data);

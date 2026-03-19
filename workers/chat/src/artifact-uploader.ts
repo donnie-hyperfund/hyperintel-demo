@@ -15,6 +15,7 @@ import {
     type PresignUploadDto,
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
+import { type ProjectResourceUploadUpdatedPayload, UserEventType } from '@/lib/schema/user-events';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from './context';
 import type { UserGatewayStub } from './utils/do-stubs';
@@ -229,8 +230,20 @@ function broadcastArtifactCreated(ctx: Ctx, result: UpsertResult, normalizedKey:
         .catch(console.error);
 }
 
+function broadcastProjectResourceUploadUpdated(ctx: Ctx, payload: ProjectResourceUploadUpdatedPayload) {
+    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, ctx.previewAlias));
+    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+    ugStub
+        .broadcastToAll({
+            type: 'user_event',
+            eventType: UserEventType.ProjectResourceUploadUpdated,
+            payload,
+        })
+        .catch(console.error);
+}
+
 export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
-    const { file, projectId, chatId, title: titleInput } = data;
+    const { file, projectId, chatId, title: titleInput, clientEntryId, source } = data;
     const { em, user } = ctx;
 
     requireScope(projectId, chatId);
@@ -266,12 +279,22 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
     await queueEmbedding(ctx, result.versionId, content, normalizedKey, projectId, chatId);
 
     broadcastArtifactCreated(ctx, result, normalizedKey);
+    if (projectId && source === 'project-resources') {
+        broadcastProjectResourceUploadUpdated(ctx, {
+            projectId,
+            entryId: clientEntryId ?? result.artifactId,
+            artifactId: result.artifactId,
+            name: file.name,
+            size: file.size,
+            status: 'ready',
+        });
+    }
 
     return { success: true, ...result, key: normalizedKey };
 }
 
 export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
-    const { filename, fileSize, projectId, chatId, title: titleInput } = data;
+    const { filename, fileSize, projectId, chatId, title: titleInput, clientEntryId, source } = data;
     const { em, user } = ctx;
 
     requireScope(projectId, chatId);
@@ -324,6 +347,17 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: PRESIGN_EXPIRY_SECONDS });
 
     broadcastArtifactCreated(ctx, result, normalizedKey);
+    if (projectId && source === 'project-resources') {
+        broadcastProjectResourceUploadUpdated(ctx, {
+            projectId,
+            entryId: clientEntryId ?? result.artifactId,
+            artifactId: result.artifactId,
+            fileId: artifactFile.id,
+            name: filename,
+            size: fileSize,
+            status: 'uploading',
+        });
+    }
 
     return {
         uploadUrl,
@@ -335,7 +369,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
 }
 
 export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
-    const { fileId, versionId } = data;
+    const { fileId, versionId, clientEntryId, source } = data;
     const { em } = ctx;
 
     const artifactFile = await em.findOneOrFail(ArtifactFileEntity, { id: fileId, artifact_version: versionId });
@@ -365,6 +399,18 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
     const version = await em.findOneOrFail(ArtifactVersionEntity, versionId, {
         populate: ['artifact.project', 'artifact.chat'],
     });
+
+    if (source === 'project-resources' && version.artifact.project?.id) {
+        broadcastProjectResourceUploadUpdated(ctx, {
+            projectId: version.artifact.project.id,
+            entryId: clientEntryId ?? version.artifact.id,
+            artifactId: version.artifact.id,
+            fileId: artifactFile.id,
+            name: artifactFile.original_name,
+            size: artifactFile.size_bytes,
+            status: 'processing',
+        });
+    }
 
     if (ctx.env.EXTRACTION_QUEUE) {
         try {
