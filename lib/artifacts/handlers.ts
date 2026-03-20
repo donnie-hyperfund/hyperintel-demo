@@ -527,6 +527,13 @@ export async function handleRemoveProjectResource(
         return NextResponse.json({ message: 'Resource not found', code: 'RESOURCE_NOT_FOUND' }, { status: 404 });
     }
 
+    if ((artifact.metadata as Record<string, unknown> | null)?.importedFromPublic === true) {
+        return NextResponse.json(
+            { message: 'Cannot remove a permanently attached resource', code: 'RESOURCE_PROTECTED' },
+            { status: 403 },
+        );
+    }
+
     await em.transactional(async (txEm) => {
         await txEm.nativeDelete(ArtifactVersionEntity, { artifact: artifact.id });
         await txEm.nativeDelete(ArtifactEntity, { id: artifact.id });
