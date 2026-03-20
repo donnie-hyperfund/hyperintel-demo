@@ -1,8 +1,7 @@
 'use client';
 
-import { X } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { SidePanel } from '@/components/side-panel';
 import {
     EMPTY_FILTERS,
     ProjectArtifactFilterDropdown,
@@ -22,19 +21,14 @@ export default function ProjectArtifactsPanel({ onClose }: ProjectArtifactsPanel
     }, []);
 
     return (
-        <div className="flex flex-col h-full bg-neutral-975 animate-in fade-in duration-300">
-            <div className="flex items-center justify-between px-4 h-14 border-b border-border shrink-0">
-                <h2 className="text-sm font-medium">Artifacts</h2>
-                <div className="flex items-center gap-1">
-                    <ProjectArtifactFilterDropdown filters={filters} onChange={handleFilterChange} />
-                    <Button variant="ghost" size="icon" className="size-7" onClick={onClose}>
-                        <X className="size-4" />
-                    </Button>
-                </div>
-            </div>
-            <div className="flex flex-1 flex-col overflow-y-auto p-4">
-                <ProjectArtifactList filters={filters} />
-            </div>
-        </div>
+        <SidePanel
+            title="Artifacts"
+            onClose={onClose}
+            actions={
+                <ProjectArtifactFilterDropdown filters={filters} onChange={handleFilterChange} />
+            }
+        >
+            <ProjectArtifactList filters={filters} />
+        </SidePanel>
     );
 }

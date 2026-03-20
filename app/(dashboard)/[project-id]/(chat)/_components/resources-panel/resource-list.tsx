@@ -10,9 +10,14 @@ import { useHighlightResourceParam } from '@/hooks/use-highlight-resource-param'
 import { createProjectResourceApi } from '@/lib/api/client/fetchers/project-resources';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
 import { deleteArtifact } from '@/lib/api/requests/worker/chat';
+import { getLatestArtifactVersion } from '@/lib/artifacts/utils';
 import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { useProjectResourceMutationSync } from '@/modules/file-uploads/hooks/use-project-resource-mutation-sync';
+import { useUploadEntries } from '@/modules/file-uploads/hooks/use-upload-entries';
 import { usePendingUploads } from '@/modules/file-uploads/providers/pending-uploads-provider';
+import { mergeByDate } from '@/modules/file-uploads/utils/merge-resource-list';
 import { ResourceItem } from './resource-item';
+import { UploadingResourceItem } from './uploading-resource-item';
 
 type ResourceListParams = PageParams<'/[project-id]'>;
 
@@ -21,8 +26,7 @@ const PAGE_SIZE = 20;
 export function ResourceList() {
     const { 'project-id': projectId } = useParams<ResourceListParams>();
     const { getToken } = useAuth();
-
-    const pendingUploads = usePendingUploads();
+    const { pendingArtifactIds } = usePendingUploads();
 
     const {
         allItems: rawItems,
@@ -35,11 +39,21 @@ export function ResourceList() {
     } = useFetchProjectResources(projectId, { limit: PAGE_SIZE });
 
     const allItems = useMemo(() => {
-        const pendingIds = pendingUploads?.pendingArtifactIds;
-        if (!pendingIds || pendingIds.length === 0) return rawItems;
-        const pendingSet = new Set(pendingIds);
+        if (pendingArtifactIds.length === 0) return rawItems;
+        const pendingSet = new Set(pendingArtifactIds);
         return rawItems.filter((a) => !pendingSet.has(a.id));
-    }, [rawItems, pendingUploads?.pendingArtifactIds]);
+    }, [rawItems, pendingArtifactIds]);
+
+    // Cross-tab sync: re-fetch when another tab deletes or imports resources
+    const handleMutationSync = useCallback(() => {
+        mutate();
+    }, [mutate]);
+    useProjectResourceMutationSync(projectId, handleMutationSync);
+
+    const knownArtifactIds = useMemo(() => new Set(allItems.map((a) => a.id)), [allItems]);
+    const uploadEntries = useUploadEntries(knownArtifactIds);
+
+    const mergedItems = useMemo(() => mergeByDate(uploadEntries, allItems), [uploadEntries, allItems]);
 
     const { highlightedKey, registerRef } = useHighlightResourceParam(allItems);
 
@@ -53,7 +67,8 @@ export function ResourceList() {
     const handleRemove = useCallback(
         async (artifactId: string) => {
             const artifact = allItems.find((a) => a.id === artifactId);
-            if (artifact?.current_version?.is_uploaded) {
+            const version = artifact && getLatestArtifactVersion(artifact);
+            if (version?.is_uploaded) {
                 const token = await getToken();
                 if (token) await deleteArtifact({ artifactId }, token);
             } else {
@@ -86,7 +101,7 @@ export function ResourceList() {
         );
     }
 
-    if (allItems.length === 0) {
+    if (mergedItems.length === 0) {
         return (
             <div className="flex flex-1 items-center justify-center">
                 <EmptyState
@@ -100,15 +115,24 @@ export function ResourceList() {
 
     return (
         <div className="space-y-1.5">
-            {allItems.map((artifact) => (
-                <ResourceItem
-                    key={artifact.id}
-                    artifact={artifact}
-                    onRemove={handleRemove}
-                    isHighlighted={highlightedKey === artifact.key}
-                    itemRef={(element) => registerRef(artifact.id, element)}
-                />
-            ))}
+            {mergedItems.map((item) =>
+                item.kind === 'upload' ? (
+                    <UploadingResourceItem
+                        key={item.entry.id}
+                        name={item.entry.name}
+                        size={item.entry.size}
+                        status={item.entry.status}
+                    />
+                ) : (
+                    <ResourceItem
+                        key={item.artifact.id}
+                        artifact={item.artifact}
+                        onRemove={handleRemove}
+                        isHighlighted={highlightedKey === item.artifact.key}
+                        itemRef={(element) => registerRef(item.artifact.id, element)}
+                    />
+                ),
+            )}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />

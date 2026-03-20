@@ -1,6 +1,7 @@
 'use client';
 
 import { type ReactNode, Suspense } from 'react';
+import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
 import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
 import { PendingUploadsProvider } from '../../file-uploads/providers/pending-uploads-provider';
 import type { Message } from '../types';
@@ -16,7 +17,7 @@ type ChatModuleBaseProps = {
 };
 
 type PhaseChatModuleProps = ChatModuleBaseProps & {
-    chatType?: 'phase';
+    chatType: 'phase';
     projectId: string;
 };
 
@@ -39,17 +40,19 @@ export function ChatModule({
         <ActivePanelProvider>
             <ArtifactProvider>
                 <PendingUploadsProvider>
-                    <ChatProvider
-                        projectId={projectId}
-                        chatType={chatType}
-                        initialChatId={initialChatId}
-                        initialMessages={initialMessages}
-                        chatRouteBuilder={chatRouteBuilder}
-                    >
-                        <Suspense>
-                            <ScrollTargetProvider>{children}</ScrollTargetProvider>
-                        </Suspense>
-                    </ChatProvider>
+                    <ModelSelectionProvider>
+                        <ChatProvider
+                            projectId={projectId}
+                            chatType={chatType}
+                            initialChatId={initialChatId}
+                            initialMessages={initialMessages}
+                            chatRouteBuilder={chatRouteBuilder}
+                        >
+                            <Suspense>
+                                <ScrollTargetProvider>{children}</ScrollTargetProvider>
+                            </Suspense>
+                        </ChatProvider>
+                    </ModelSelectionProvider>
                 </PendingUploadsProvider>
             </ArtifactProvider>
         </ActivePanelProvider>

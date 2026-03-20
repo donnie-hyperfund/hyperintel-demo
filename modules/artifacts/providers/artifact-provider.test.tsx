@@ -3,7 +3,7 @@
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import type { Artifact } from '@/modules/chat/types';
-import { ArtifactProvider, useArtifactContext } from './artifact-provider';
+import { ArtifactProvider, useArtifactActions } from './artifact-provider';
 
 function wrapper({ children }: { children: ReactNode }) {
     return <ArtifactProvider>{children}</ArtifactProvider>;
@@ -38,13 +38,13 @@ function buildArtifact(id: string, content = 'initial'): Artifact {
 
 describe('ArtifactProvider', () => {
     it('throws when hook is used outside provider', () => {
-        expect(() => renderHook(() => useArtifactContext())).toThrow(
+        expect(() => renderHook(() => useArtifactActions())).toThrow(
             'useArtifacts must be used within an ArtifactProvider',
         );
     });
 
     it('adds and reads artifacts by id and version key', () => {
-        const { result } = renderHook(() => useArtifactContext(), { wrapper });
+        const { result } = renderHook(() => useArtifactActions(), { wrapper });
         const artifact = buildArtifact('artifact-1', 'v1-content');
 
         act(() => {
@@ -56,7 +56,7 @@ describe('ArtifactProvider', () => {
     });
 
     it('deep merges version updates by default', () => {
-        const { result } = renderHook(() => useArtifactContext(), { wrapper });
+        const { result } = renderHook(() => useArtifactActions(), { wrapper });
         const artifact = buildArtifact('artifact-2', 'before');
 
         act(() => {
@@ -84,7 +84,7 @@ describe('ArtifactProvider', () => {
     });
 
     it('supports replacement updates when merge is false', () => {
-        const { result } = renderHook(() => useArtifactContext(), { wrapper });
+        const { result } = renderHook(() => useArtifactActions(), { wrapper });
         const original = buildArtifact('artifact-3', 'old');
         const replacement = buildArtifact('artifact-3', 'new');
 
@@ -100,24 +100,24 @@ describe('ArtifactProvider', () => {
     });
 
     it('ignores updates for missing artifacts', () => {
-        const { result } = renderHook(() => useArtifactContext(), { wrapper });
-        const before = result.current.artifacts;
+        const { result } = renderHook(() => useArtifactActions(), { wrapper });
+        const before = result.current.getStore();
 
         act(() => {
             result.current.updateArtifact('missing-artifact', { isStreaming: true });
         });
 
-        expect(result.current.artifacts).toBe(before);
+        expect(result.current.getStore()).toBe(before);
     });
 
     it('does not rewrite state when artifact content and streaming flags are unchanged', () => {
-        const { result } = renderHook(() => useArtifactContext(), { wrapper });
+        const { result } = renderHook(() => useArtifactActions(), { wrapper });
         const artifact = buildArtifact('artifact-4', 'same-content');
 
         act(() => {
             result.current.addArtifact(artifact);
         });
-        const firstStore = result.current.artifacts;
+        const firstStore = result.current.getStore();
 
         act(() => {
             result.current.addArtifact({
@@ -127,6 +127,6 @@ describe('ArtifactProvider', () => {
             });
         });
 
-        expect(result.current.artifacts).toBe(firstStore);
+        expect(result.current.getStore()).toBe(firstStore);
     });
 });

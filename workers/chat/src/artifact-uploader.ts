@@ -15,7 +15,9 @@ import {
     type PresignUploadDto,
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
+import { type ProjectResourceUploadUpdatedPayload, UserEventType } from '@/lib/schema/user-events';
 import type { Ctx } from './context';
+import { broadcastUserEvent } from './utils/broadcast';
 
 function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
@@ -34,6 +36,28 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 const PRESIGN_EXPIRY_SECONDS = 60 * 10;
+
+function extractTextFromRtf(content: string): string {
+    // Lightweight RTF-to-text pass for common clipboard/exported files.
+    return content
+        .replace(/\\par[d]?/g, '\n')
+        .replace(/\\tab/g, '\t')
+        .replace(/\\'[0-9a-fA-F]{2}/g, (match) => String.fromCharCode(Number.parseInt(match.slice(2), 16)))
+        .replace(/\\[a-zA-Z]+-?\d* ?/g, '')
+        .replace(/[{}]/g, '')
+        .replace(/\\~/g, ' ')
+        .replace(/\\\\/g, '\\')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+function normalizeTextUploadContent(filename: string, content: string): string {
+    const ext = getExtension(filename);
+    if (ext !== '.rtf') return content;
+
+    const extracted = extractTextFromRtf(content);
+    return extracted || content;
+}
 
 function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-artifacts-dev' : 'hi-artifacts';
@@ -187,8 +211,21 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
     return result;
 }
 
+function broadcastArtifactCreated(ctx: Ctx, result: UpsertResult, normalizedKey: string) {
+    return broadcastUserEvent(ctx, 'artifact_version_created', {
+        artifactId: result.artifactId,
+        versionId: result.versionId,
+        version: result.version,
+        artifactName: normalizedKey,
+    });
+}
+
+function broadcastProjectResourceUploadUpdated(ctx: Ctx, payload: ProjectResourceUploadUpdatedPayload) {
+    return broadcastUserEvent(ctx, UserEventType.ProjectResourceUploadUpdated, payload);
+}
+
 export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
-    const { file, projectId, chatId, title: titleInput } = data;
+    const { file, projectId, chatId, title: titleInput, clientEntryId, source } = data;
     const { em, user } = ctx;
 
     requireScope(projectId, chatId);
@@ -198,7 +235,8 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         throw new PublicError(400, { message: validation.message, code: validation.code });
     }
 
-    const content = await file.text();
+    const rawContent = await file.text();
+    const content = normalizeTextUploadContent(file.name, rawContent);
     if (!content.trim()) {
         throw new PublicError(400, {
             message: 'The uploaded file has no content',
@@ -222,11 +260,23 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
 
     await queueEmbedding(ctx, result.versionId, content, normalizedKey, projectId, chatId);
 
+    broadcastArtifactCreated(ctx, result, normalizedKey);
+    if (projectId && source === 'project-resources') {
+        broadcastProjectResourceUploadUpdated(ctx, {
+            projectId,
+            entryId: clientEntryId ?? result.artifactId,
+            artifactId: result.artifactId,
+            name: file.name,
+            size: file.size,
+            status: 'ready',
+        });
+    }
+
     return { success: true, ...result, key: normalizedKey };
 }
 
 export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
-    const { filename, fileSize, projectId, chatId, title: titleInput } = data;
+    const { filename, fileSize, projectId, chatId, title: titleInput, clientEntryId, source } = data;
     const { em, user } = ctx;
 
     requireScope(projectId, chatId);
@@ -278,6 +328,19 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
 
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: PRESIGN_EXPIRY_SECONDS });
 
+    broadcastArtifactCreated(ctx, result, normalizedKey);
+    if (projectId && source === 'project-resources') {
+        broadcastProjectResourceUploadUpdated(ctx, {
+            projectId,
+            entryId: clientEntryId ?? result.artifactId,
+            artifactId: result.artifactId,
+            fileId: artifactFile.id,
+            name: filename,
+            size: fileSize,
+            status: 'uploading',
+        });
+    }
+
     return {
         uploadUrl,
         storageKey,
@@ -288,7 +351,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
 }
 
 export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
-    const { fileId, versionId } = data;
+    const { fileId, versionId, clientEntryId, source } = data;
     const { em } = ctx;
 
     const artifactFile = await em.findOneOrFail(ArtifactFileEntity, { id: fileId, artifact_version: versionId });
@@ -318,6 +381,18 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
     const version = await em.findOneOrFail(ArtifactVersionEntity, versionId, {
         populate: ['artifact.project', 'artifact.chat'],
     });
+
+    if (source === 'project-resources' && version.artifact.project?.id) {
+        broadcastProjectResourceUploadUpdated(ctx, {
+            projectId: version.artifact.project.id,
+            entryId: clientEntryId ?? version.artifact.id,
+            artifactId: version.artifact.id,
+            fileId: artifactFile.id,
+            name: artifactFile.original_name,
+            size: artifactFile.size_bytes,
+            status: 'processing',
+        });
+    }
 
     if (ctx.env.EXTRACTION_QUEUE) {
         try {

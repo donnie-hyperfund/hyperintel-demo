@@ -5,9 +5,17 @@ export const SendChatActionSchema = z.object({
     message: z.string(),
     chatId: z.string().uuid(),
     model: z.nativeEnum(ANTHROPIC_MODELS).optional(),
+    tempId: z.string().uuid('tempId must be a valid UUID').optional(),
 });
 
 export type SendChatActionDto = z.infer<typeof SendChatActionSchema>;
+
+export const AbortActionSchema = z.object({
+    chatId: z.string().uuid(),
+    agentMessageId: z.string(),
+});
+
+export type AbortActionDto = z.infer<typeof AbortActionSchema>;
 
 export const SummarizeActionSchema = z.object({
     chatId: z.string().uuid(),

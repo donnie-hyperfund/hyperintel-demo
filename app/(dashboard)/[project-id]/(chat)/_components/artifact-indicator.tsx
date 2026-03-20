@@ -8,7 +8,7 @@ import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
 import { cn } from '@/lib/utils';
 import { DEFAULT_DOCUMENT_TYPE_ICON } from '@/modules/artifacts/constants';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifact, useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getDocumentTypeIcon, isDocumentType } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -41,14 +41,14 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
     const { getToken } = useAuth();
 
     const { panelState, openPanel, closePanel } = useActivePanelContext();
-    const { getArtifact, addArtifact, updateArtifact } = useArtifactContext();
+    const { addArtifact, updateArtifact } = useArtifactActions();
+    const { projectId } = useChatContext();
     const { target: scrollTarget, markFound, clear: clearScrollTarget } = useScrollTargetContext();
     const Icon = isDocumentType(documentType) ? getDocumentTypeIcon(documentType) : DEFAULT_DOCUMENT_TYPE_ICON;
-    const { projectId } = useChatContext();
 
     const buttonRef = useRef<HTMLButtonElement>(null);
 
-    const artifact = getArtifact(documentName, documentVersion);
+    const artifact = useArtifact(documentName, documentVersion);
     const isLoading = artifact?.isLoading ?? false;
 
     const isScrollTarget = scrollTarget?.key === documentName && scrollTarget.version === documentVersion;
@@ -92,7 +92,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
             console.error('Failed to fetch artifact:', error);
             updateArtifact(documentName, { isLoading: false }, documentVersion);
         }
-    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, openPanel]);
+    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, openPanel, projectId]);
 
     const handleClick = () => {
         if (isSelected) {

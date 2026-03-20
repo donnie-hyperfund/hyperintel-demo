@@ -1,6 +1,7 @@
 'use client';
 
-import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { memo } from 'react';
+import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
 import type { Message } from '@/modules/chat/types';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
@@ -18,7 +19,7 @@ const chatDirectives = {
     upload: UploadDirective,
 };
 
-export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps) {
+export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessageProps) => {
     const { blocks, role, isStreaming } = message;
 
     if (role === 'user') {
@@ -34,6 +35,16 @@ export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps
                     ) : (
                         <p className="text-sm whitespace-pre-wrap">{text}</p>
                     )}
+                </div>
+            </div>
+        );
+    }
+
+    if (message.isRetracted) {
+        return (
+            <div className="max-w-[90%] min-w-0">
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-400">
+                    Response removed for safety reasons.
                 </div>
             </div>
         );
@@ -73,7 +84,15 @@ export function ChatMessage({ message, renderMarkdown = true }: ChatMessageProps
                         Sorry, there was an error processing your request. Please try again.
                     </div>
                 )}
+
+                {message.isAborted && (
+                    <div className="mt-3 rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-2.5 text-sm text-blue-400/80">
+                        This response was stopped by the user.
+                    </div>
+                )}
             </div>
         </div>
     );
-}
+});
+
+ChatMessage.displayName = 'ChatMessage';

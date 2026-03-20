@@ -214,6 +214,42 @@ export async function handleDeleteChat(chatId: string, user: UserEntity, project
     return NextResponse.json({ message: 'Chat deleted successfully' });
 }
 
+/**
+ * Update a chat's selected model preset.
+ */
+export async function handleUpdateChatModel(
+    req: NextRequest,
+    chatId: string,
+    user: UserEntity,
+): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const body = await req.json();
+    const parsed = validatePayload(UpdateChatModelSchema.omit({ chatId: true }), body);
+    if (parsed instanceof NextResponse) return parsed;
+
+    // Validate preset exists and is allowed by env filtering
+    const available = getAvailablePresets(process.env.ALLOWED_PRESETS, process.env.BLOCKED_PRESETS);
+    if (!available.some((p) => p.id === parsed.model)) {
+        return NextResponse.json(
+            { error: `Preset '${parsed.model}' is not available`, code: 'INVALID_PRESET' },
+            { status: 400 },
+        );
+    }
+
+    const chat = await verifyChatAccess(em, chatId, user.id);
+    if (!chat) return chatNotFound();
+
+    chat.selected_model = parsed.model;
+    await em.flush();
+
+    workerSystemAction(user.clerkId!, `chat:${chatId}`, 'modelChanged', {
+        identifier: chatId,
+        model: parsed.model,
+    });
+
+    return NextResponse.json({ selected_model: parsed.model });
+}
 // ---------------------------------------------------------------------------
 // Chat list handler
 // ---------------------------------------------------------------------------

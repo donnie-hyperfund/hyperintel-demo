@@ -124,7 +124,7 @@ export function LinkResourceDialog() {
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <Tooltip>
-                <DialogTrigger>
+                <DialogTrigger asChild>
                     <TooltipTrigger asChild>
                         <Button variant="ghost" size="icon" className="size-7">
                             <Link className="size-4" />

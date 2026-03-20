@@ -102,6 +102,7 @@ export const ArtifactDtoSchema = z.object({
         .union([z.string().uuid(), z.object({}).passthrough()])
         .nullable()
         .optional(),
+    is_public: z.boolean().optional(),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),
@@ -124,12 +125,16 @@ export type RejectArtifactActionDto = z.infer<typeof RejectArtifactActionSchema>
 
 export const MAX_ARTIFACT_UPLOAD_SIZE = 50 * 1024 * 1024;
 
-export const TEXT_ARTIFACT_EXTENSIONS = ['.md'] as const;
+export const TEXT_ARTIFACT_EXTENSIONS = ['.md', '.txt', '.rtf'] as const;
 export const BINARY_ARTIFACT_EXTENSIONS = ['.pdf', '.docx', '.pptx'] as const;
 export const ALLOWED_ARTIFACT_EXTENSIONS = [...TEXT_ARTIFACT_EXTENSIONS, ...BINARY_ARTIFACT_EXTENSIONS] as string[];
 
 export function isBinaryArtifactExtension(ext: string): boolean {
     return (BINARY_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
+}
+
+export function isTextArtifactExtension(ext: string): boolean {
+    return (TEXT_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
 }
 
 export const UploadArtifactSchema = zfd.formData({
@@ -143,6 +148,8 @@ export const UploadArtifactSchema = zfd.formData({
     projectId: zfd.text(z4.string().uuid().optional()),
     chatId: zfd.text(z4.string().uuid().optional()),
     title: zfd.text(z4.string().min(1).optional()),
+    clientEntryId: zfd.text(z4.string().min(1).optional()),
+    source: zfd.text(z4.enum(['chat-input', 'project-resources']).optional()),
 });
 export type UploadArtifactDto = z4.infer<typeof UploadArtifactSchema>;
 
@@ -163,6 +170,8 @@ export const PresignUploadSchema = z.object({
     projectId: z.string().uuid().optional(),
     chatId: z.string().uuid().optional(),
     title: z.string().min(1).optional(),
+    clientEntryId: z.string().min(1).optional(),
+    source: z.enum(['chat-input', 'project-resources']).optional(),
 });
 export type PresignUploadDto = z.infer<typeof PresignUploadSchema>;
 
@@ -179,6 +188,8 @@ export type PresignUploadResponseDto = z.infer<typeof PresignUploadResponseSchem
 export const ConfirmUploadSchema = z.object({
     fileId: z.string().uuid(),
     versionId: z.string().uuid(),
+    clientEntryId: z.string().min(1).optional(),
+    source: z.enum(['chat-input', 'project-resources']).optional(),
 });
 export type ConfirmUploadDto = z.infer<typeof ConfirmUploadSchema>;
 

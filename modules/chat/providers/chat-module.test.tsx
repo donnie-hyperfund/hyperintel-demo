@@ -46,7 +46,7 @@ vi.mock('./scroll-target-provider', () => ({
 describe('ChatModule', () => {
     it('renders children and passes provider-critical props to ChatProvider', () => {
         render(
-            <ChatModule projectId="project-1" initialChatId="chat-1">
+            <ChatModule chatType="phase" projectId="project-1" initialChatId="chat-1">
                 <span>module-child</span>
             </ChatModule>,
         );

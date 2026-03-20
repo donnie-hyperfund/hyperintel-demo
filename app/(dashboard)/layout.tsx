@@ -1,12 +1,16 @@
 import { DashboardLayout } from '@/components/layouts/dashboard-layout';
-import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
+import { UserEventsInvalidator } from '@/components/user-events-invalidator';
+import { WebsocketProvider } from '@/lib/websocket/provider';
 
 type DashboardLayoutProps = LayoutProps<'/'>;
 
 export default function Layout({ children }: DashboardLayoutProps) {
     return (
         <DashboardLayout>
-            <ModelSelectionProvider>{children}</ModelSelectionProvider>
+            <WebsocketProvider>
+                <UserEventsInvalidator />
+                {children}
+            </WebsocketProvider>
         </DashboardLayout>
     );
 }

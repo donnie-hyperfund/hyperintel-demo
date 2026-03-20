@@ -4,7 +4,9 @@ import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-e
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import type { DeleteArtifactDto } from '@/lib/schema/artifact';
+import { UserEventType } from '@/lib/schema/user-events';
 import type { Ctx } from './context';
+import { broadcastUserEvent } from './utils/broadcast';
 
 export async function deleteArtifactHandler(data: DeleteArtifactDto, ctx: Ctx) {
     const { artifactId } = data;
@@ -48,6 +50,11 @@ export async function deleteArtifactHandler(data: DeleteArtifactDto, ctx: Ctx) {
     // R2 cleanup after commit — best-effort (orphaned blobs are harmless)
     if (storageKeys.length > 0 && ctx.env.ARTIFACTS_BUCKET) {
         await Promise.allSettled(storageKeys.map((key) => ctx.env.ARTIFACTS_BUCKET.delete(key)));
+    }
+
+    const projectId = artifact.project?.id;
+    if (projectId) {
+        await broadcastUserEvent(ctx, UserEventType.ProjectResourceDeleted, { projectId, artifactId });
     }
 
     return { success: true, artifactId };

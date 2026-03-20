@@ -29,6 +29,7 @@ export type DocumentEvent =
           title: string;
           mode: 'create' | 'edit';
           isInternal: boolean;
+          pendingVersion: number;
           documentType?: string;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           loadedVersion?: number;
@@ -109,12 +110,15 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         isInternal: result.is_internal ?? true,
                     };
 
+                    const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
+
                     const startEvent: DocumentEvent = {
                         type: 'document_start',
                         name: activeDoc.name,
                         title: activeDoc.title,
                         mode: result.mode || 'create',
                         isInternal: activeDoc.isInternal,
+                        pendingVersion,
                     };
 
                     if (result.document_type) {

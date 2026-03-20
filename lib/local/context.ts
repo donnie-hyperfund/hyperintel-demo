@@ -22,7 +22,7 @@ import { waitUntil } from '@vercel/functions';
 import { Langfuse } from 'langfuse';
 import type postgres from 'postgres';
 import { assertClerkAuth } from '@/lib/api/auth-guard';
-import { envSecretMocks } from '@/lib/local/cf-env-secret-mock';
+import { ensureDevWsServer, envSecretMocks } from '@/lib/local/cf-env-secret-mock';
 import { getOrm } from '@/lib/orm';
 import type { ClerkUser } from '@/lib/types/clerk';
 import { anthropic } from '@/lib/vendor/anthropic';
@@ -62,8 +62,13 @@ const projectDeps = {
 
 /**
  * Context factory with inferred types - no explicit generic needed.
+ * Wraps the base factory to lazily start the dev WS server on first call.
  */
-export const initNextjsWorkerContext = createContextFactory(projectDeps);
+const _baseFactory = createContextFactory(projectDeps);
+export const initNextjsWorkerContext: typeof _baseFactory = (async (...args: any[]) => {
+    ensureDevWsServer();
+    return (_baseFactory as any)(...args);
+}) as any;
 
 // Type alias for common use
 export type ProjectContext = InferredLocalContext<typeof projectDeps>;

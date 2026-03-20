@@ -27,7 +27,6 @@ import { shouldGenerateAiContent } from './document-classifier';
 import {
     applyEdits,
     countLines,
-    type DocumentInfo,
     type DocumentListItem,
     type DocumentScope,
     type EditOperation,
@@ -58,6 +57,13 @@ export interface DocumentToolsContext {
     embeddingQueue?: EmbeddingQueueAdapter;
     /** Version IDs created during this turn - will be linked to assistant message after persist */
     createdVersionIds: string[];
+    /** Optional callback fired when a new artifact version is created (for user-scoped broadcasts) */
+    onVersionCreated?: (event: {
+        artifactName: string;
+        versionId: string;
+        version: number;
+        action: 'created' | 'proposed';
+    }) => void;
 }
 
 /** Derive DocumentScope from context. */
@@ -260,6 +266,13 @@ You MUST call finalize_document when done or content will be lost.`,
 
                 // Check for existing document
                 const existing = await findDocumentByName(em, scope, normalizedName);
+
+                // Block editing of read-only (public) artifacts
+                if (existing?.isReadOnly) {
+                    return {
+                        error: `Document "${normalizedName}" is a read-only public resource and cannot be edited. You can only read it using read_document.`,
+                    };
+                }
 
                 // Validate based on mode
                 // Allow create on deleted artifacts (overwrites / restores them)
@@ -498,6 +511,14 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
 
+                    // Notify listener (user-scoped broadcast) — fire-and-forget
+                    ctx.onVersionCreated?.({
+                        artifactName: draft.name,
+                        versionId: result.versionId,
+                        version: result.version,
+                        action: result.action,
+                    });
+
                     // Only clear draft after successful persist
                     draftManager.discard();
 
@@ -704,6 +725,7 @@ Shows for each document:
                         latestVersion: d.latestVersion,
                         latestStatus: d.latestStatus,
                         hasProposed: d.hasProposed,
+                        ...(d.isReadOnly && { isReadOnly: true }),
                     })),
                 };
             },

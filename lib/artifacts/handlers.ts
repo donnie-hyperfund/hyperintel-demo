@@ -7,6 +7,7 @@ import { validatePayload } from '@/lib/api/validation';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
 import { loadVersionsForArtifacts } from '@/lib/artifacts/queries';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { handleListChatArtifacts } from '@/lib/chats/handlers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
@@ -16,6 +17,7 @@ import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { GetArtifactQuerySchema, ListArtifactsQuerySchema, ListUserResourcesQuerySchema } from '@/lib/schema/artifact';
 import { ImportArtifactsBodySchema } from '@/lib/schema/project';
+import { UserEventType } from '@/lib/schema/user-events';
 
 // ---------------------------------------------------------------------------
 // Project artifact handlers
@@ -348,6 +350,10 @@ export async function handleImportArtifacts(
         Promise.all(embedPromises).catch(() => {});
     }
 
+    if (result.imported > 0 && user.clerkId) {
+        broadcastUserEvent(user.clerkId, UserEventType.ProjectResourceImported, { projectId: resolvedProjectId });
+    }
+
     // Strip content from response
     const responseDetails = result.details.map(({ content: _content, ...rest }) => rest);
 
@@ -420,7 +426,7 @@ export async function handleListResources(
             .join(' ');
         query.orderBy({ [raw(`CASE ${cases} ELSE ${documentType.length} END`)]: 'ASC', 'a.created_at': 'DESC' });
     } else {
-        query.orderBy({ 'cv.document_type': 'ASC', 'a.created_at': 'DESC' });
+        query.orderBy({ 'a.created_at': 'DESC' });
     }
 
     const { nodes, totalCount } = await getPaginatedResult(query, { page, perPage: limit });
@@ -521,10 +527,21 @@ export async function handleRemoveProjectResource(
         return NextResponse.json({ message: 'Resource not found', code: 'RESOURCE_NOT_FOUND' }, { status: 404 });
     }
 
+    if ((artifact.metadata as Record<string, unknown> | null)?.importedFromPublic === true) {
+        return NextResponse.json(
+            { message: 'Cannot remove a permanently attached resource', code: 'RESOURCE_PROTECTED' },
+            { status: 403 },
+        );
+    }
+
     await em.transactional(async (txEm) => {
         await txEm.nativeDelete(ArtifactVersionEntity, { artifact: artifact.id });
         await txEm.nativeDelete(ArtifactEntity, { id: artifact.id });
     });
+
+    if (user.clerkId) {
+        await broadcastUserEvent(user.clerkId, UserEventType.ProjectResourceDeleted, { projectId, artifactId });
+    }
 
     return NextResponse.json({ success: true, message: 'Resource removed from project' });
 }

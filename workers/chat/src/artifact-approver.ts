@@ -9,6 +9,7 @@ import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/sc
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
+import { broadcastUserEvent } from './utils/broadcast';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
@@ -102,6 +103,18 @@ export async function approveArtifactHandler(
         });
     }
 
+    const previousStatus = version.status;
+
+    await broadcastUserEvent(ctx, 'artifact_version_update_started', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'approve',
+        previousStatus,
+        nextStatus: 'approved',
+    });
+
     // Classify document to determine if AI-readable YAML should be generated
     const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.artifact.title);
 
@@ -178,6 +191,16 @@ export async function approveArtifactHandler(
         }
     }
 
+    await broadcastUserEvent(ctx, 'artifact_version_updated', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'approve',
+        previousStatus,
+        status: 'approved',
+    });
+
     return {
         success: true,
         version: version.version,
@@ -235,6 +258,18 @@ export async function rejectArtifactHandler(
         });
     }
 
+    const previousStatus = version.status;
+
+    await broadcastUserEvent(ctx, 'artifact_version_update_started', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'reject',
+        previousStatus,
+        nextStatus: 'rejected',
+    });
+
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
@@ -242,6 +277,16 @@ export async function rejectArtifactHandler(
     version.artifact.current_version = version;
 
     await em.flush();
+
+    await broadcastUserEvent(ctx, 'artifact_version_updated', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'reject',
+        previousStatus,
+        status: 'rejected',
+    });
 
     return {
         success: true,
