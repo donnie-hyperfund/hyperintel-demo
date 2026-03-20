@@ -46,6 +46,7 @@ type ArtifactListItemProps = VariantProps<typeof containerVariants> & {
     icon?: LucideIcon;
     isSelected?: boolean;
     shouldDisplayVersionInfo?: boolean;
+    badge?: React.ReactNode;
     href?: string;
     onClick?: () => void;
 };
@@ -56,6 +57,7 @@ export const ArtifactListItem = ({
     icon,
     isSelected,
     shouldDisplayVersionInfo = true,
+    badge,
     href,
     onClick,
 }: ArtifactListItemProps) => {
@@ -77,6 +79,7 @@ export const ArtifactListItem = ({
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                     <span className="line-clamp-1 text-sm font-medium">{artifact.title}</span>
+                    {badge}
                     {shouldDisplayVersionInfo && (
                         <VersionStatusBadge
                             status={artifactVersion?.status}

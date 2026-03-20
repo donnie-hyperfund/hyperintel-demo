@@ -1,6 +1,8 @@
-import { Loader2, Trash2 } from 'lucide-react';
+import { Info, Loader2, Trash2 } from 'lucide-react';
 import { type Ref, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getArtifactDocumentType } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
@@ -10,6 +12,10 @@ const borderColorByType: Record<string, string> = {
     'Company Profile': 'border-l-emerald-500',
     'Human Persona': 'border-l-blue-500',
 };
+
+export function isPublicImport(artifact: ArtifactDto): boolean {
+    return artifact.metadata?.importedFromPublic === true;
+}
 
 export function ResourceItem({
     artifact,
@@ -25,6 +31,7 @@ export function ResourceItem({
     const [isRemoving, setIsRemoving] = useState(false);
     const docType = getArtifactDocumentType(artifact);
     const borderClass = (docType && borderColorByType[docType]) ?? 'border-l-transparent';
+    const alwaysAttached = isPublicImport(artifact);
 
     const handleRemove = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -42,18 +49,54 @@ export function ResourceItem({
             ref={itemRef}
             className={cn('group relative rounded-lg border-l-2', borderClass, isHighlighted && 'highlight-pulse')}
         >
-            <ArtifactListItem size="sm" artifact={artifact} shouldDisplayVersionInfo={false} />
-            {onRemove && (
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 size-7 opacity-0 group-hover:opacity-100 transition-opacity text-neutral-500 hover:text-red-400"
-                    onClick={handleRemove}
-                    disabled={isRemoving}
-                >
-                    {isRemoving ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-                </Button>
+            <ArtifactListItem
+                size="sm"
+                artifact={artifact}
+                shouldDisplayVersionInfo={false}
+                badge={alwaysAttached && <AlwaysAttachedBadge />}
+            />
+            {alwaysAttached ? (
+                <AlwaysAttachedInfo />
+            ) : (
+                onRemove && <RemoveButton onClick={handleRemove} disabled={isRemoving} />
             )}
         </div>
+    );
+}
+
+function AlwaysAttachedBadge() {
+    return (
+        <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px] px-1.5 py-0">
+            Always attached
+        </Badge>
+    );
+}
+
+function AlwaysAttachedInfo() {
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 text-neutral-500 cursor-default">
+                    <Info className="size-3.5" />
+                </span>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-52">
+                Attached to every project.
+            </TooltipContent>
+        </Tooltip>
+    );
+}
+
+function RemoveButton({ onClick, disabled }: { onClick: (e: React.MouseEvent) => void; disabled: boolean }) {
+    return (
+        <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-1/2 -translate-y-1/2 size-7 opacity-0 group-hover:opacity-100 transition-opacity text-neutral-500 hover:text-red-400"
+            onClick={onClick}
+            disabled={disabled}
+        >
+            {disabled ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+        </Button>
     );
 }
