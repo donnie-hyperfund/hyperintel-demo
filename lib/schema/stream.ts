@@ -43,7 +43,8 @@ export type StreamEventType =
     | 'status_update'
     | 'error'
     | 'done'
-    | 'done_ext';
+    | 'done_ext'
+    | 'safety_retract';
 
 /**
  * StreamEvent — discriminated union of all streaming events.
@@ -106,7 +107,9 @@ export type StreamEvent =
           /** Set by summarizer when summary completes — ID of the new continuation chat */
           newChatId?: string;
       }
-    | { type: 'done_ext' };
+    | { type: 'done_ext' }
+    // Safety
+    | { type: 'safety_retract'; reason: string; severity: string; evidence: string | null };
 
 // ============================================================================
 // STREAM DO STATE

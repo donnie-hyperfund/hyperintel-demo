@@ -26,6 +26,7 @@ export type Message = {
     isStreaming?: boolean;
     isError?: boolean;
     isAborted?: boolean;
+    isRetracted?: boolean;
     status?: string;
     createdAt?: Date;
 };

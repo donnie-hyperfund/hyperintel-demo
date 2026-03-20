@@ -40,6 +40,16 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
         );
     }
 
+    if (message.isRetracted) {
+        return (
+            <div className="max-w-[90%] min-w-0">
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-400">
+                    Response removed for safety reasons.
+                </div>
+            </div>
+        );
+    }
+
     const thinkingBlocks = blocks.filter((b) => b.type === 'reasoning' || b.type === 'tool_call');
     const { fullText: textContent, citations } = convertBlocksToGlobalAnnotations(blocks, '\n');
 

@@ -79,6 +79,8 @@ export type UseStreamReturn = {
     /** Set when a summary stream is active (streamType: 'summary' on stream_started or subscribe_response snapshot) */
     streamType: 'chat' | 'summary' | null;
     error: string | null;
+    /** True when a safety_retract event was received — message content has been wiped */
+    isRetracted: boolean;
     abort: () => void;
     sendAction: (type: string, payload?: unknown) => void;
 };
@@ -137,6 +139,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const [agentMessageId, setAgentMessageId] = useState<string | null>(null);
     const [streamType, setStreamType] = useState<'chat' | 'summary' | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [isRetracted, setIsRetracted] = useState(false);
 
     // Mutable streaming state (mutated in place, then flushed to React state)
     const stateRef = useRef<StreamingState>(createStreamingState());
@@ -448,6 +451,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         setAgentMessageId(null);
         setStreamType(null);
         setError(null);
+        setIsRetracted(false);
 
         // Subscribe (ref-counted in WS client)
         const unsub = ws.subscribe(topic);
@@ -750,6 +754,17 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             o.onDone?.('done', event);
                             break;
 
+                        case 'safety_retract':
+                            // Safety leak detected — wipe streamed text and flag as retracted.
+                            // Keep streamingDocs intact so the abort cleanup effect can
+                            // remove transient artifacts and close the side panel.
+                            stateRef.current.blocks = [];
+                            dripRef.current.dispose();
+                            docDripRef.current.dispose();
+                            flushSync();
+                            setIsRetracted(true);
+                            break;
+
                         case 'created':
                             // No-op — handled by WS protocol (stream_started, POST response)
                             break;
@@ -821,5 +836,16 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         ws.sendAction(`${domain}:${id}`, type, payload);
     };
 
-    return { blocks, activeDocuments, status, displayStatus, agentMessageId, streamType, error, abort, sendAction };
+    return {
+        blocks,
+        activeDocuments,
+        status,
+        displayStatus,
+        agentMessageId,
+        streamType,
+        error,
+        isRetracted,
+        abort,
+        sendAction,
+    };
 }

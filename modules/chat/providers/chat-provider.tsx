@@ -310,13 +310,22 @@ export function ChatProvider({
 
     /** Convert API message to internal Message format */
     const mapApiMessage = useCallback((m: ChatMessageDto, activeAgentMessageId?: string | null): Message => {
+        // Detect safety-retracted messages persisted by finalizeSafetyMonitor:
+        // 1. metadata.safetyAnalysis.leaked (always set by finalizeSafetyMonitor)
+        // 2. fallback: content marker + empty blocks
+        const isRetracted =
+            m.role === 'assistant' &&
+            ((m.metadata as Record<string, any>)?.safetyAnalysis?.leaked === true ||
+                ((!m.blocks || m.blocks.length === 0) && m.content === '[omitted due to security/policy violation]'));
+
         // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
-        const blocks: StreamBlock[] =
-            m.blocks && m.blocks.length > 0
-                ? (m.blocks as StreamBlock[])
-                : m.content
-                  ? [{ id: m.id, type: 'text' as const, content: m.content }]
-                  : [];
+        const blocks: StreamBlock[] = isRetracted
+            ? []
+            : m.blocks && m.blocks.length > 0
+              ? (m.blocks as StreamBlock[])
+              : m.content
+                ? [{ id: m.id, type: 'text' as const, content: m.content }]
+                : [];
         return {
             id: m.id,
             role: m.role as 'user' | 'assistant',
@@ -324,6 +333,7 @@ export function ChatProvider({
             isStreaming: activeAgentMessageId === m.id,
             ...(m.is_error && { isError: true }),
             ...(m.is_aborted && { isAborted: true }),
+            ...(isRetracted && { isRetracted: true }),
         };
     }, []);
 
@@ -400,7 +410,7 @@ export function ChatProvider({
                               isStreaming: false,
                               status: undefined,
                               ...(status === 'error' && { isError: true }),
-                              ...(status === 'aborted' && { isAborted: true }),
+                              ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
                           }
                         : msg,
                 ),
@@ -563,11 +573,11 @@ export function ChatProvider({
         [artifactContext, closePanel],
     );
 
-    // If stream aborts (also from another tab), remove transient unsaved artifacts.
+    // If stream aborts or is retracted (safety_retract), remove transient unsaved artifacts.
     useEffect(() => {
-        if (stream.status !== 'aborted') return;
+        if (stream.status !== 'aborted' && !stream.isRetracted) return;
         cleanupTransientArtifacts(stream.activeDocuments);
-    }, [stream.status, stream.activeDocuments, cleanupTransientArtifacts]);
+    }, [stream.status, stream.isRetracted, stream.activeDocuments, cleanupTransientArtifacts]);
 
     // Ref to latest stream values so rAF callbacks read fresh data
     const streamRef = useRef(stream);
@@ -597,7 +607,8 @@ export function ChatProvider({
                     isStreaming: active,
                     ...(active && s.displayStatus && { status: s.displayStatus }),
                     ...(s.status === 'error' && { isError: true }),
-                    ...(s.status === 'aborted' && { isAborted: true }),
+                    ...(s.status === 'aborted' && !s.isRetracted && { isAborted: true }),
+                    ...(s.isRetracted && { isRetracted: true }),
                 };
 
                 const exists = prev.messages.some((m) => m.id === msgId);
@@ -630,7 +641,14 @@ export function ChatProvider({
                 }
             });
         }
-    }, [stream.blocks, stream.agentMessageId, stream.status, stream.displayStatus, stream.streamType]);
+    }, [
+        stream.blocks,
+        stream.agentMessageId,
+        stream.status,
+        stream.displayStatus,
+        stream.streamType,
+        stream.isRetracted,
+    ]);
 
     useEffect(
         () => () => {
