@@ -2,9 +2,9 @@ import type { Cache, ScopedMutator } from 'swr';
 import type { ChatDto } from '@/lib/schema/message';
 import type { PaginatedResponse } from '../types';
 
-export function insertChatToCache(cache: Cache, mutate: ScopedMutator, newChat: ChatDto) {
+export function insertChatToCache(cache: Cache, mutate: ScopedMutator, projectId: string, newChat: ChatDto) {
     for (const key of cache.keys()) {
-        if (!key.includes('"chats"') || !key.includes('"list"')) continue;
+        if (!key.includes('"chats"') || !key.includes('"list"') || !key.includes(projectId)) continue;
 
         mutate(
             key,

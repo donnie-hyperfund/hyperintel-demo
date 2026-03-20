@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 import { SWRConfig, unstable_serialize } from 'swr';
 import { assertAuthPage } from '@/lib/api/auth-guard';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
@@ -10,11 +11,11 @@ export default async function ChatLayout({ children, params }: ChatLayoutProps) 
     const user = await assertAuthPage();
     const chat = await fetchChat(projectId, chatId, user);
 
-    const fallback: Record<string, unknown> = {};
+    if (!chat) notFound();
 
-    if (chat) {
-        fallback[unstable_serialize(chatKeys.detail(chatId))] = chat;
-    }
+    const fallback: Record<string, unknown> = {
+        [unstable_serialize(chatKeys.detail(chatId))]: chat,
+    };
 
     return <SWRConfig value={{ fallback }}>{children}</SWRConfig>;
 }

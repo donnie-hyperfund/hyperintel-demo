@@ -15,7 +15,7 @@ export function useFetchChats(
     const { getToken } = useAuth();
 
     return useSWR<PaginatedResponse<ChatDto>>(
-        projectId ? chatKeys.list(params) : null,
+        projectId ? chatKeys.list(projectId, params) : null,
         () => {
             if (!projectId) throw new Error('Project ID is required');
             return createChatApi(getToken).list(projectId, params);
@@ -35,7 +35,7 @@ export function useFetchChatsInfinite(
         (pageIndex, previousPageData) => {
             if (!projectId) return null;
             if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
-            return chatKeys.list({ page: pageIndex + 1, limit: params.limit });
+            return chatKeys.list(projectId, { page: pageIndex + 1, limit: params.limit });
         },
         (key) => {
             if (!projectId) throw new Error('Project ID is required');

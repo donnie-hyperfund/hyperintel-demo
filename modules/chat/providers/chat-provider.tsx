@@ -806,7 +806,7 @@ export function ChatProvider({
                         // Update URL without navigation using history API
                         window.history.replaceState(null, '', buildChatRoute(chatIdToUse));
 
-                        insertChatToCache(cache, globalMutate, newChat);
+                        insertChatToCache(cache, globalMutate, projectId!, newChat);
                     } else {
                         // Intake chat — unified creation
                         const newChat = await api.chats.createIntake({
