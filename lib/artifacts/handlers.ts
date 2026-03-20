@@ -533,7 +533,7 @@ export async function handleRemoveProjectResource(
     });
 
     if (user.clerkId) {
-        broadcastUserEvent(user.clerkId, UserEventType.ProjectResourceDeleted, { projectId, artifactId });
+        await broadcastUserEvent(user.clerkId, UserEventType.ProjectResourceDeleted, { projectId, artifactId });
     }
 
     return NextResponse.json({ success: true, message: 'Resource removed from project' });
