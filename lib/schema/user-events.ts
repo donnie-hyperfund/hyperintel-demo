@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const UserEventType = {
     ProjectResourceUploadUpdated: 'project_resource_upload_updated',
     ProjectResourceDeleted: 'project_resource_deleted',
+    ProjectResourceImported: 'project_resource_imported',
 } as const;
 
 export const ProjectResourceUploadUpdatedPayloadSchema = z.object({
@@ -23,3 +24,9 @@ export const ProjectResourceDeletedPayloadSchema = z.object({
 });
 
 export type ProjectResourceDeletedPayload = z.infer<typeof ProjectResourceDeletedPayloadSchema>;
+
+export const ProjectResourceImportedPayloadSchema = z.object({
+    projectId: z.string().uuid(),
+});
+
+export type ProjectResourceImportedPayload = z.infer<typeof ProjectResourceImportedPayloadSchema>;

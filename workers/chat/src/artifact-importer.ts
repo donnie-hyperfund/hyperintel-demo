@@ -1,14 +1,16 @@
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import type { ImportArtifactsActionDto } from '@/lib/schema/project';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import type { ImportArtifactsActionDto } from '@/lib/schema/project';
+import { UserEventType } from '@/lib/schema/user-events';
 import { Ctx } from './context';
+import { broadcastUserEvent } from './utils/broadcast';
 
 export async function importArtifactsHandler(
     data: ImportArtifactsActionDto,
     ctx: Ctx,
-): Promise<{ imported: number; skipped: number; details: Array<Record<string, unknown>> }> {
+): Promise<{ imported: number; skipped: number; details: Record<string, unknown>[] }> {
     const { projectId, artifactIds } = data;
     const { em, user } = ctx;
 
@@ -20,10 +22,14 @@ export async function importArtifactsHandler(
     }
 
     // Verify project ownership via clerkId
-    const project = await em.findOne(ProjectEntity, {
-        id: projectId,
-        user: { clerkId: user.userId },
-    }, { populate: ['user'] });
+    const project = await em.findOne(
+        ProjectEntity,
+        {
+            id: projectId,
+            user: { clerkId: user.userId },
+        },
+        { populate: ['user'] },
+    );
 
     if (!project) {
         throw new PublicError(404, {
@@ -61,6 +67,10 @@ export async function importArtifactsHandler(
         } catch (err) {
             console.error('[import] Embedding queue setup failed:', err);
         }
+    }
+
+    if (result.imported > 0) {
+        await broadcastUserEvent(ctx, UserEventType.ProjectResourceImported, { projectId });
     }
 
     // Strip content from response (not needed by client)

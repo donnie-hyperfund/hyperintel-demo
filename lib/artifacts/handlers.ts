@@ -350,6 +350,10 @@ export async function handleImportArtifacts(
         Promise.all(embedPromises).catch(() => {});
     }
 
+    if (result.imported > 0 && user.clerkId) {
+        broadcastUserEvent(user.clerkId, UserEventType.ProjectResourceImported, { projectId: resolvedProjectId });
+    }
+
     // Strip content from response
     const responseDetails = result.details.map(({ content: _content, ...rest }) => rest);
 
