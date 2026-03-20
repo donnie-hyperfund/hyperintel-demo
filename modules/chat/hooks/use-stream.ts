@@ -552,6 +552,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     setStatus('streaming');
                     setDisplayStatus(null);
                     setError(null);
+                    setIsRetracted(false);
                     setAgentMessageId(started.agentMessageId);
                     setStreamType(started.streamType ?? null);
                     o.onStreamStarted?.(
