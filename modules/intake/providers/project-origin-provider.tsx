@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
+import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { importArtifacts } from '@/lib/api/requests/worker/projects';
 import { buildProjectReturnHref, type ProjectOrigin } from '@/lib/intake/project-origin';
 import { ImportResultSchema } from '@/lib/schema/project';
@@ -45,6 +46,7 @@ export function ProjectOriginProvider({ origin, resourceType, children }: Projec
     const { getToken } = useAuth();
     const router = useRouter();
     const [isLinking, setIsLinking] = useState(false);
+    const { data: project } = useFetchProject(origin?.projectId);
 
     const resourceLabel = resourceLabels[resourceType];
     const backHref = origin ? buildProjectReturnHref(origin) : null;
@@ -112,12 +114,12 @@ export function ProjectOriginProvider({ origin, resourceType, children }: Projec
             origin,
             isProjectFlow: !!origin,
             backHref,
-            parent: backHref ? { label: 'Project', href: backHref } : null,
+            parent: backHref ? { label: project?.name ?? 'Project', href: backHref } : null,
             infoText: origin ? `After approval, we'll add this ${resourceLabel.toLowerCase()} to Project Intel.` : null,
             isLinking,
             handleApprovedArtifact,
         }),
-        [backHref, handleApprovedArtifact, isLinking, origin, resourceLabel],
+        [backHref, handleApprovedArtifact, isLinking, origin, project?.name, resourceLabel],
     );
 
     return <ProjectOriginContext.Provider value={value}>{children}</ProjectOriginContext.Provider>;
