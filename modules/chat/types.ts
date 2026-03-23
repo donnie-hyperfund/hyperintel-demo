@@ -56,6 +56,8 @@ export type ChatState = {
     activeResponseId: string | null;
     /** Live blocks from the summary stream — available for rendering in the summary modal */
     summaryBlocks: StreamBlock[];
+    /** True while an artifact approval/rejection API call is in flight */
+    isProcessingArtifactAction: boolean;
 };
 
 export type PaginationState = {

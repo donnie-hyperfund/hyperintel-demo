@@ -31,7 +31,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         chatId,
         projectId,
         stopGeneration,
-        state: { isGenerating, isSummarizing, isLoading, tokenUsage, activeResponseId },
+        state: { isGenerating, isSummarizing, isLoading, isProcessingArtifactAction, tokenUsage, activeResponseId },
     } = useChatContext();
 
     const { files, removeFile, submitFiles, isSubmitting } = useFileUploadContext();
@@ -54,7 +54,8 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
     const message = watch('message');
     const hasContent = message && message.trim().length > 0;
     const hasProcessingFiles = files.some((f) => f.status === 'uploading' || f.status === 'processing');
-    const isBusy = isGenerating || isSummarizing || isLoading || isSubmitting || hasProcessingFiles;
+    const isBusy =
+        isGenerating || isSummarizing || isLoading || isSubmitting || hasProcessingFiles || isProcessingArtifactAction;
     const isDisabled = !hasContent || isBusy;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {

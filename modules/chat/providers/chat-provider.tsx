@@ -54,6 +54,8 @@ export type BaseChatContextValue = {
     clearPendingPhaseTransition: () => void;
     /** Check if there are other pending artifacts */
     hasOtherPendingArtifacts: (excludeArtifactKey: string) => boolean;
+    /** Set artifact action processing state (approve/reject in flight) */
+    setProcessingArtifactAction: (isProcessing: boolean) => void;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -162,6 +164,7 @@ export function ChatProvider({
             pendingPhaseTransition: false,
             activeResponseId: null,
             summaryBlocks: [],
+            isProcessingArtifactAction: false,
         };
     });
 
@@ -247,6 +250,10 @@ export function ChatProvider({
         },
         [artifactContext],
     );
+
+    const setProcessingArtifactAction = useCallback((isProcessing: boolean) => {
+        setState((prev) => ({ ...prev, isProcessingArtifactAction: isProcessing }));
+    }, []);
 
     const onTerminalTool = useCallback((toolName: string) => {
         if (toolName === 'generate_summary') {
@@ -981,6 +988,7 @@ export function ChatProvider({
                 clearPendingChanges,
                 clearPendingPhaseTransition,
                 hasOtherPendingArtifacts,
+                setProcessingArtifactAction,
             })}
         >
             {children}
