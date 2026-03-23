@@ -31,7 +31,7 @@ export function ArtifactApprovalBar({
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
     const { updateArtifact } = useArtifactActions();
-    const { clearPendingChanges, chatType, hasOtherPendingArtifacts } = useChatContext();
+    const { clearPendingChanges, chatType, hasOtherPendingArtifacts, sendMessage } = useChatContext();
     const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
     const isIntake = chatType !== 'phase';
 
@@ -68,6 +68,9 @@ export function ArtifactApprovalBar({
                 if (isIntake && isProjectFlow) {
                     await handleApprovedArtifact(updated);
                 }
+
+                // Auto-send "approved" message to continue the conversation
+                await sendMessage('approved');
             }
         } catch (err) {
             console.error('Failed to approve:', err);
