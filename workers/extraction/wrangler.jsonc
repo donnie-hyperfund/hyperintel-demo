@@ -84,7 +84,7 @@
 	"services": [
 		{
 			"binding": "EXTRACT_RUST",
-			"service": "extract-rust"
+			"service": "hi-extract-rust"
 		}
 	],
 	"queues": {
@@ -170,7 +170,7 @@
 			"services": [
 				{
 					"binding": "EXTRACT_RUST",
-					"service": "extract-rust-dev"
+					"service": "hi-extract-rust-dev"
 				}
 			],
 			"queues": {
@@ -262,7 +262,7 @@
 			"services": [
 				{
 					"binding": "EXTRACT_RUST",
-					"service": "extract-rust-experimental"
+					"service": "hi-extract-rust-experimental"
 				}
 			],
 			"queues": {
