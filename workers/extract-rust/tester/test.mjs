@@ -137,7 +137,15 @@ if (fileArg) {
   }
   if (useV2) console.error(`[v2] Using docx-parser/pptx-to-md for .${ext}`);
   try {
-    console.log(fn(bytes));
+    const raw = fn(bytes);
+    try {
+      const parsed = JSON.parse(raw);
+      console.log(parsed.content);
+      console.error(`\n[imageText: ${parsed.imageText}]`);
+    } catch {
+      // not JSON, just dump as-is
+      console.log(raw);
+    }
   } catch (e) {
     console.error("Extraction failed:", e.message);
     process.exit(1);

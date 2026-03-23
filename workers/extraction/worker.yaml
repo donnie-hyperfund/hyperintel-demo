@@ -30,6 +30,9 @@ queues:
     - binding: EMBEDDING_QUEUE
       queue: hi-embedding-queue
 
+unstub:
+  - reductoai
+
 services:
   - binding: EXTRACT_RUST
     service: hi-extract-rust

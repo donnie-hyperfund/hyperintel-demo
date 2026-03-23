@@ -476,8 +476,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "extract-tester"
-version = "0.0.0"
+name = "extract-core"
+version = "0.1.0"
 dependencies = [
  "base64",
  "docx-parser",
@@ -485,6 +485,15 @@ dependencies = [
  "imageproc",
  "markdownify",
  "pptx-to-md",
+ "unpdf",
+ "zip 8.2.0",
+]
+
+[[package]]
+name = "extract-tester"
+version = "0.0.0"
+dependencies = [
+ "extract-core",
  "unpdf",
  "wasm-bindgen",
 ]
