@@ -31,7 +31,8 @@ export function ArtifactApprovalBar({
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
     const { updateArtifact } = useArtifactActions();
-    const { clearPendingChanges, chatType, hasOtherPendingArtifacts } = useChatContext();
+    const { clearPendingChanges, chatType, hasOtherPendingArtifacts, sendMessage, setProcessingArtifactAction } =
+        useChatContext();
     const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
     const isIntake = chatType !== 'phase';
 
@@ -56,6 +57,7 @@ export function ArtifactApprovalBar({
     const handleApprove = async () => {
         try {
             onProcessingChange?.(true);
+            setProcessingArtifactAction(true);
             const updated = await approve();
 
             if (updated) {
@@ -68,18 +70,23 @@ export function ArtifactApprovalBar({
                 if (isIntake && isProjectFlow) {
                     await handleApprovedArtifact(updated);
                 }
+
+                // Auto-send "approved" message to continue the conversation
+                await sendMessage('approved');
             }
         } catch (err) {
             console.error('Failed to approve:', err);
             toast({ title: 'Failed to approve document.', variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);
+            setProcessingArtifactAction(false);
         }
     };
 
     const handleReject = async () => {
         try {
             onProcessingChange?.(true);
+            setProcessingArtifactAction(true);
             const updated = await reject('rejected');
             if (updated) {
                 updateArtifact(artifactId, updated, artifactVersion, { merge: false });
@@ -93,6 +100,7 @@ export function ArtifactApprovalBar({
             toast({ title: 'Failed to reject document.', variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);
+            setProcessingArtifactAction(false);
         }
     };
 
