@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { FileDropOverlay } from '@/modules/file-uploads/components/file-drop-overlay';
 import { FileUploadProvider } from '@/modules/file-uploads/providers/file-upload-provider';
@@ -15,11 +15,19 @@ type ChatPanelProps = {
 };
 
 export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }: ChatPanelProps) {
-    const { chatId, projectId } = useChatContext();
+    const { chatId, chatType, projectId, ensureChatId } = useChatContext();
     const isEmpty = !chatId;
+    const allowUploadBeforeFirstMessage = chatType !== 'phase';
 
     const conversationRef = useRef<HTMLDivElement>(null);
     const formRef = useRef<HTMLDivElement>(null);
+    const resolveUploadScope = useCallback(async () => {
+        if (chatType === 'phase') {
+            return null;
+        }
+
+        return { chatId: await ensureChatId() };
+    }, [chatType, ensureChatId]);
 
     useEffect(() => {
         if (isEmpty) return;
@@ -45,9 +53,14 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
     }, [isEmpty]);
 
     return (
-        <FileUploadProvider scope={{ projectId, chatId: chatId ?? undefined }} trackAsPending>
+        <FileUploadProvider
+            scope={{ projectId, chatId: chatId ?? undefined }}
+            resolveUploadScope={allowUploadBeforeFirstMessage ? resolveUploadScope : undefined}
+            trackAsPending
+        >
             <ChatPanelContent
                 isEmpty={isEmpty}
+                allowUploadBeforeFirstMessage={allowUploadBeforeFirstMessage}
                 HeaderComponent={HeaderComponent}
                 emptyTitle={emptyTitle}
                 emptySubtitle={emptySubtitle}
@@ -60,6 +73,7 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
 
 function ChatPanelContent({
     isEmpty,
+    allowUploadBeforeFirstMessage,
     HeaderComponent,
     emptyTitle,
     emptySubtitle,
@@ -67,20 +81,27 @@ function ChatPanelContent({
     formRef,
 }: ChatPanelProps & {
     isEmpty: boolean;
+    allowUploadBeforeFirstMessage: boolean;
     conversationRef: React.RefObject<HTMLDivElement | null>;
     formRef: React.RefObject<HTMLDivElement | null>;
 }) {
     if (isEmpty) {
-        return (
-            <div className="flex flex-col relative h-full">
+        const content = (
+            <>
                 {HeaderComponent}
 
                 <div className="flex flex-1 flex-col items-center justify-center px-4">
                     <ChatEmptyTitle title={emptyTitle} subtitle={emptySubtitle} className="mb-12" />
                     <ChatMessageForm ref={formRef} className="w-full" showGradientFade={false} />
                 </div>
-            </div>
+            </>
         );
+
+        if (allowUploadBeforeFirstMessage) {
+            return <FileDropOverlay className="flex flex-col relative h-full">{content}</FileDropOverlay>;
+        }
+
+        return <div className="flex flex-col relative h-full">{content}</div>;
     }
 
     return (

@@ -44,11 +44,17 @@ const FileUploadContext = createContext<FileUploadContextValue | null>(null);
 type FileUploadProviderProps = {
     children: ReactNode;
     scope?: { projectId?: string; chatId?: string };
+    resolveUploadScope?: () => Promise<{ projectId?: string; chatId?: string } | null>;
     /** When true, uploaded artifact IDs are tracked as "pending" so the resource list hides them until the message is sent. */
     trackAsPending?: boolean;
 };
 
-export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
+export function FileUploadProvider({
+    children,
+    scope,
+    resolveUploadScope,
+    trackAsPending = false,
+}: FileUploadProviderProps) {
     const {
         pendingArtifactIds,
         addPendingArtifactId: _addPending,
@@ -67,7 +73,9 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const [files, setFiles] = useState<FileEntry[]>(() => initialPersistedState?.entries ?? []);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const filesRef = useRef(files);
+    const scopeRef = useRef(scope);
     filesRef.current = files;
+    scopeRef.current = scope;
     const hiddenArtifactIdsRef = useRef(trackAsPending ? (initialPersistedState?.hiddenArtifactIds ?? []) : []);
     hiddenArtifactIdsRef.current = trackAsPending ? pendingArtifactIds : [];
     const { getToken } = useAuth();
@@ -216,6 +224,16 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
     }, []);
 
+    const getEffectiveScope = useCallback(async () => {
+        const currentScope = scopeRef.current;
+        if (currentScope?.projectId || currentScope?.chatId) {
+            return currentScope;
+        }
+
+        const resolvedScope = await resolveUploadScope?.();
+        return resolvedScope ?? scopeRef.current;
+    }, [resolveUploadScope]);
+
     const finalizeEntry = useCallback(
         (entryId: string, extra?: Partial<FileEntry>) => {
             pollingEntryIdsRef.current.delete(entryId);
@@ -338,6 +356,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             updateEntry(entryId, { status: 'uploading' });
 
             try {
+                const effectiveScope = await getEffectiveScope();
+                if (!effectiveScope?.projectId && !effectiveScope?.chatId) {
+                    throw new Error('Upload scope unavailable');
+                }
+
                 const token = await getToken();
                 if (!token) throw new Error('Not authenticated');
 
@@ -348,7 +371,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                             fileSize: file.size,
                             clientEntryId: entryId,
                             source: trackAsPending ? 'chat-input' : 'project-resources',
-                            ...scope,
+                            ...effectiveScope,
                         },
                         token,
                     );
@@ -403,7 +426,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                             file,
                             clientEntryId: entryId,
                             source: trackAsPending ? 'chat-input' : 'project-resources',
-                            ...scope,
+                            ...effectiveScope,
                         },
                         token,
                     );
@@ -430,7 +453,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             finalizeEntry,
             getToken,
             invalidateResources,
-            scope,
+            getEffectiveScope,
             updateEntry,
             trackAsPending,
         ],

@@ -176,7 +176,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                 minHeight={24}
                             />
 
-                            {chatId && <AttachFileButton />}
+                            {(chatId || chatType !== 'phase') && <AttachFileButton />}
 
                             <div className="flex items-end gap-2 ml-auto">
                                 {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
