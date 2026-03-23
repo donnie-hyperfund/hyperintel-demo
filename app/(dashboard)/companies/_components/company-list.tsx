@@ -6,13 +6,18 @@ import { useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useNotifyEmpty } from '@/hooks/use-notify-empty';
 import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { getArtifactChatId } from '@/modules/artifacts/utils';
 
 const PAGE_SIZE = 20;
 
-export const CompanyList = () => {
+type CompanyListProps = {
+    onEmptyChange?: (isEmpty: boolean) => void;
+};
+
+export const CompanyList = ({ onEmptyChange }: CompanyListProps) => {
     const { data, error, isLoading, size, setSize, hasNextPage } = useFetchArtifactsInfinite('Company Profile', {
         limit: PAGE_SIZE,
     });
@@ -21,6 +26,8 @@ export const CompanyList = () => {
         if (!data) return [];
         return data.flatMap((page) => page.data);
     }, [data]);
+
+    useNotifyEmpty({ isEmpty: artifacts.length === 0, enabled: !isLoading, onChange: onEmptyChange });
 
     const [sentryRef] = useInfiniteScroll({
         loading: isLoading,

@@ -7,6 +7,7 @@ import { useCallback, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useNotifyEmpty } from '@/hooks/use-notify-empty';
 import { useFetchProjectsInfinite } from '@/lib/api/client/hooks/use-projects';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
@@ -14,7 +15,11 @@ import { ProjectItem, ProjectItemSkeleton } from './project-item';
 
 const PAGE_SIZE = 20;
 
-export const ProjectList = () => {
+type ProjectListProps = {
+    onEmptyChange?: (isEmpty: boolean) => void;
+};
+
+export const ProjectList = ({ onEmptyChange }: ProjectListProps) => {
     const { user } = useUser();
     const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectsInfinite({ limit: PAGE_SIZE });
 
@@ -22,6 +27,8 @@ export const ProjectList = () => {
         if (!data) return [];
         return data.flatMap((page) => page.data);
     }, [data]);
+
+    useNotifyEmpty({ isEmpty: projects.length === 0, enabled: !isLoading, onChange: onEmptyChange });
 
     const [sentryRef] = useInfiniteScroll({
         loading: isLoading,

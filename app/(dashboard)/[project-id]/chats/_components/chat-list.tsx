@@ -5,17 +5,24 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useNotifyEmpty } from '@/hooks/use-notify-empty';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { sortChatsByCreatedAt } from '@/lib/phases';
 import { ChatItem, ChatItemSkeleton } from './chat-item';
 
 type ChatListParams = PageParams<'/[project-id]'>;
 
-export const ChatList = () => {
+type ChatListProps = {
+    onEmptyChange?: (isEmpty: boolean) => void;
+};
+
+export const ChatList = ({ onEmptyChange }: ChatListProps) => {
     const { 'project-id': projectId } = useParams<ChatListParams>();
 
     const { data, error, isLoading } = useFetchChats(projectId);
     const chats = sortChatsByCreatedAt(data?.data ?? []);
+
+    useNotifyEmpty({ isEmpty: chats.length === 0, enabled: !isLoading, onChange: onEmptyChange });
 
     if (error) {
         return (
