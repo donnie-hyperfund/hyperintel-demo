@@ -3,11 +3,10 @@
 import { useUser } from '@clerk/nextjs';
 import { FileCode, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
-import { useNotifyEmpty } from '@/hooks/use-notify-empty';
 import { useFetchProjectsInfinite } from '@/lib/api/client/hooks/use-projects';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
@@ -28,7 +27,11 @@ export const ProjectList = ({ onEmptyChange }: ProjectListProps) => {
         return data.flatMap((page) => page.data);
     }, [data]);
 
-    useNotifyEmpty({ isEmpty: projects.length === 0, enabled: !isLoading, onChange: onEmptyChange });
+    useEffect(() => {
+        if (!isLoading) {
+            onEmptyChange?.(projects.length === 0);
+        }
+    }, [projects.length, isLoading, onEmptyChange]);
 
     const [sentryRef] = useInfiniteScroll({
         loading: isLoading,

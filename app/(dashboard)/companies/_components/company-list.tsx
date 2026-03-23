@@ -2,11 +2,10 @@
 
 import { Building, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
-import { useNotifyEmpty } from '@/hooks/use-notify-empty';
 import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { getArtifactChatId } from '@/modules/artifacts/utils';
@@ -27,7 +26,11 @@ export const CompanyList = ({ onEmptyChange }: CompanyListProps) => {
         return data.flatMap((page) => page.data);
     }, [data]);
 
-    useNotifyEmpty({ isEmpty: artifacts.length === 0, enabled: !isLoading, onChange: onEmptyChange });
+    useEffect(() => {
+        if (!isLoading) {
+            onEmptyChange?.(artifacts.length === 0);
+        }
+    }, [artifacts.length, isLoading, onEmptyChange]);
 
     const [sentryRef] = useInfiniteScroll({
         loading: isLoading,

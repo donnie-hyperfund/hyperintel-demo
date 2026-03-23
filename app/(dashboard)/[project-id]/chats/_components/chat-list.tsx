@@ -3,9 +3,9 @@
 import { MessageSquare, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
-import { useNotifyEmpty } from '@/hooks/use-notify-empty';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { sortChatsByCreatedAt } from '@/lib/phases';
 import { ChatItem, ChatItemSkeleton } from './chat-item';
@@ -22,7 +22,11 @@ export const ChatList = ({ onEmptyChange }: ChatListProps) => {
     const { data, error, isLoading } = useFetchChats(projectId);
     const chats = sortChatsByCreatedAt(data?.data ?? []);
 
-    useNotifyEmpty({ isEmpty: chats.length === 0, enabled: !isLoading, onChange: onEmptyChange });
+    useEffect(() => {
+        if (!isLoading) {
+            onEmptyChange?.(chats.length === 0);
+        }
+    }, [chats.length, isLoading, onEmptyChange]);
 
     if (error) {
         return (
