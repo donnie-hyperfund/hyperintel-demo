@@ -74,6 +74,11 @@
 			"binding": "CF_ACCOUNT_ID",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "CF_ACCOUNT_ID"
+		},
+		{
+			"binding": "REDUCTO_API_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "REDUCTO_API_KEY"
 		}
 	],
 	"services": [
@@ -155,6 +160,11 @@
 					"binding": "CF_ACCOUNT_ID",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "CF_ACCOUNT_ID"
+				},
+				{
+					"binding": "REDUCTO_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "REDUCTO_API_KEY"
 				}
 			],
 			"services": [
@@ -242,6 +252,11 @@
 					"binding": "CF_ACCOUNT_ID",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "CF_ACCOUNT_ID"
+				},
+				{
+					"binding": "REDUCTO_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "REDUCTO_API_KEY"
 				}
 			],
 			"services": [
@@ -286,6 +301,7 @@
 		"@cerebras/cerebras_cloud_sdk": "../_common/vendor/stubs/cerebras.ts",
 		"mariadb/callback": "../_common/vendor/stubs/empty.ts",
 		"better-sqlite3": "../_common/vendor/stubs/empty.ts",
-		"libsql": "../_common/vendor/stubs/empty.ts"
+		"libsql": "../_common/vendor/stubs/empty.ts",
+		"reductoai": "../_common/vendor/stubs/reductoai.ts"
 	}
 }

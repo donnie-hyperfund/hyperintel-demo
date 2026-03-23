@@ -187,6 +187,7 @@
 		"@cerebras/cerebras_cloud_sdk": "../_common/vendor/stubs/cerebras.ts",
 		"mariadb/callback": "../_common/vendor/stubs/empty.ts",
 		"better-sqlite3": "../_common/vendor/stubs/empty.ts",
-		"libsql": "../_common/vendor/stubs/empty.ts"
+		"libsql": "../_common/vendor/stubs/empty.ts",
+		"reductoai": "../_common/vendor/stubs/reductoai.ts"
 	}
 }

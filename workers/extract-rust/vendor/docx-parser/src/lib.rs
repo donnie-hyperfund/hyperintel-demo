@@ -16,16 +16,18 @@ mod utils;
 
 use docx_rust::document::BodyContent::{Paragraph, Sdt, SectionProperty, Table, TableCell};
 use docx_rust::document::{ParagraphContent, RunContent, TableCellContent, TableRowContent};
-use docx_rust::formatting::{NumberFormat, OnOffOnlyType, ParagraphProperty};
+use docx_rust::formatting::{OnOffOnlyType, ParagraphProperty};
 use docx_rust::media::MediaType;
 use docx_rust::styles::StyleType;
 use docx_rust::DocxFile;
 use serde::Serialize;
 use serde_json;
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::path::Path;
-use std::str::FromStr;
-use utils::{max_lengths_per_column, save_image_to_file, serialize_images, table_row_to_markdown};
+#[cfg(not(target_arch = "wasm32"))]
+use utils::save_image_to_file;
+use utils::{max_lengths_per_column, serialize_images, table_row_to_markdown};
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -302,17 +304,14 @@ impl MarkdownParagraph {
                 }
             }
             if let Some(id) = numbering.id {
-                let format = match &doc.numberings[&id].format {
-                    Some(entry) => NumberFormat::from_str(entry).unwrap_or(NumberFormat::Decimal),
-                    None => NumberFormat::Decimal,
-                };
+                let format_str = doc.numberings[&id].format.as_deref().unwrap_or("decimal");
                 let count = numberings.entry(id).or_insert(0); // Start numbering from 1
-                let numbering_symbol = match format {
-                    NumberFormat::UpperRoman => format!("{}.", ((*count) as u8 + b'I') as char),
-                    NumberFormat::LowerRoman => format!("{}.", ((*count) as u8 + b'i') as char),
-                    NumberFormat::UpperLetter => format!("{}.", ((*count) as u8 + b'A') as char),
-                    NumberFormat::LowerLetter => format!("{}.", ((*count) as u8 + b'a') as char),
-                    NumberFormat::Bullet => match &doc.numberings[&id].level_text {
+                let numbering_symbol = match format_str {
+                    "upperRoman" => format!("{}.", ((*count) as u8 + b'I') as char),
+                    "lowerRoman" => format!("{}.", ((*count) as u8 + b'i') as char),
+                    "upperLetter" => format!("{}.", ((*count) as u8 + b'A') as char),
+                    "lowerLetter" => format!("{}.", ((*count) as u8 + b'a') as char),
+                    "bullet" => match &doc.numberings[&id].level_text {
                         Some(level_text) if level_text.trim().is_empty() => " ".to_string(),
                         _ => "-".to_string(),
                     },
@@ -393,18 +392,20 @@ impl MarkdownParagraph {
                             RunContent::Drawing(drawing) => {
                                 if let Some(inline) = &drawing.inline {
                                     if let Some(graphic) = &inline.graphic {
-                                        let id = graphic.data.pic.fill.blip.embed.to_string();
-                                        if let Some(relationships) = &docx.document_rels {
-                                            if let Some(target) = relationships.get_target(&id) {
-                                                let descr = match &inline.doc_property.descr {
-                                                    Some(descr) => descr.to_string(),
-                                                    None => "".to_string(),
-                                                };
-                                                let img_text =
-                                                    format!("![{}](./{})", descr, target);
-                                                let text_block =
-                                                    TextBlock::new(img_text, None, TextType::Image);
-                                                markdown_paragraph.blocks.push(text_block);
+                                        if let Some(pic) = graphic.data.children.first() {
+                                            let id = pic.fill.blip.embed.to_string();
+                                            if let Some(relationships) = &docx.document_rels {
+                                                if let Some(target) = relationships.get_target(&id) {
+                                                    let descr = match &inline.doc_property.descr {
+                                                        Some(descr) => descr.to_string(),
+                                                        None => "".to_string(),
+                                                    };
+                                                    let img_text =
+                                                        format!("![{}](./{})", descr, target);
+                                                    let text_block =
+                                                        TextBlock::new(img_text, None, TextType::Image);
+                                                    markdown_paragraph.blocks.push(text_block);
+                                                }
                                             }
                                         }
                                     }
@@ -415,7 +416,7 @@ impl MarkdownParagraph {
                     }
                 }
                 ParagraphContent::Link(link) => {
-                    let descr = link.content.content.first();
+                    let descr = link.content.as_ref().and_then(|run| run.content.first());
                     let target = match &link.anchor {
                         Some(anchor) => Some(format!("#{}", anchor.to_string())),
                         None => match &link.id {
@@ -496,25 +497,37 @@ impl MarkdownDocument {
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P) -> Self {
+        let docx_file = match DocxFile::from_file(path) {
+            Ok(docx_file) => docx_file,
+            Err(err) => panic!("Error processing file: {:?}", err),
+        };
+        Self::from_docx_file(docx_file)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let docx_file = match DocxFile::from_reader(Cursor::new(bytes)) {
+            Ok(docx_file) => docx_file,
+            Err(err) => panic!("Error processing bytes: {:?}", err),
+        };
+        Self::from_docx_file(docx_file)
+    }
+
+    fn from_docx_file(docx_file: DocxFile) -> Self {
         let mut markdown_doc = MarkdownDocument::new();
 
-        let docx = match DocxFile::from_file(path) {
-            Ok(docx_file) => docx_file,
-            Err(err) => {
-                panic!("Error processing file: {:?}", err)
-            }
-        };
-        let docx = match docx.parse() {
+        let docx = match docx_file.parse() {
             Ok(docx) => docx,
             Err(err) => {
                 panic!("Exiting: {:?}", err);
             }
         };
 
-        // println!("{:?}", &docx);
-
         if let Some(app) = &docx.app {
-            if let Some(company) = &app.company {
+            let company = match app {
+                docx_rust::app::App::AppNoApNamespace(a) => &a.company,
+                docx_rust::app::App::AppWithApNamespace(a) => &a.company,
+            };
+            if let Some(company) = company {
                 if !company.is_empty() {
                     markdown_doc.company = Some(company.to_string());
                 }
@@ -522,32 +535,41 @@ impl MarkdownDocument {
         }
 
         if let Some(core) = &docx.core {
-            if let Some(title) = &core.title {
+            macro_rules! extract_core_field {
+                ($field:ident) => {
+                    match core {
+                        docx_rust::core::Core::CoreNamespace(c) => &c.$field,
+                        docx_rust::core::Core::CoreNoNamespace(c) => &c.$field,
+                    }
+                };
+            }
+
+            if let Some(title) = extract_core_field!(title) {
                 if !title.is_empty() {
                     markdown_doc.title = Some(title.to_string());
                 }
             }
-            if let Some(subject) = &core.subject {
+            if let Some(subject) = extract_core_field!(subject) {
                 if !subject.is_empty() {
                     markdown_doc.subject = Some(subject.to_string());
                 }
             }
-            if let Some(keywords) = &core.keywords {
+            if let Some(keywords) = extract_core_field!(keywords) {
                 if !keywords.is_empty() {
                     markdown_doc.keywords = Some(keywords.to_string());
                 }
             }
-            if let Some(description) = &core.description {
+            if let Some(description) = extract_core_field!(description) {
                 if !description.is_empty() {
                     markdown_doc.description = Some(description.to_string());
                 }
             }
-            if let Some(creator) = &core.creator {
+            if let Some(creator) = extract_core_field!(creator) {
                 if !creator.is_empty() {
                     markdown_doc.creator = Some(creator.to_string());
                 }
             }
-            if let Some(last_modified_by) = &core.last_modified_by {
+            if let Some(last_modified_by) = extract_core_field!(last_modified_by) {
                 if !last_modified_by.is_empty() {
                     markdown_doc.last_editor = Some(last_modified_by.to_string());
                 }
@@ -570,7 +592,7 @@ impl MarkdownDocument {
                                 level_text: details.levels[0]
                                     .level_text
                                     .as_ref()
-                                    .map(|i| i.value.to_string()),
+                                    .and_then(|i| i.value.as_ref().map(|v| v.to_string())),
                             },
                         );
                         ()
@@ -661,6 +683,7 @@ impl MarkdownDocument {
                 TableCell(tc) => {
                     println!("TableCell: {:?}", tc);
                 }
+                _ => {}
             }
         }
 
@@ -758,6 +781,7 @@ impl MarkdownDocument {
             }
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         if export_images {
             for (image, data) in &self.images {
                 match save_image_to_file(image, data) {
