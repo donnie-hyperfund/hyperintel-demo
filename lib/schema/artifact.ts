@@ -29,6 +29,26 @@ export const DOCUMENT_TYPES = [
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
 export type DocumentType = z.infer<typeof DocumentTypeSchema>;
 
+/**
+ * Estimated character counts per document type, derived from production data.
+ * Used for approximate progress tracking during document generation streaming.
+ * Values represent average content length in characters.
+ */
+export const DOCUMENT_CHAR_ESTIMATES: Record<DocumentType, number> = {
+    'Genesis DNA': 16000,
+    'Legacy DNA': 28000,
+    'Team Specification': 18000,
+    MID: 26000,
+    PSEB: 13000,
+    'Action Plan': 20000,
+    'Completion Brief': 20000,
+    'Company Profile': 15000,
+    'Human Persona': 8000,
+    'Research Report': 14000,
+    'Executive Summary': 10000,
+    Other: 14000,
+};
+
 /** Document types that should be published to user scope on approval */
 export const PUBLISHABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['Legacy DNA'] as const;
 
