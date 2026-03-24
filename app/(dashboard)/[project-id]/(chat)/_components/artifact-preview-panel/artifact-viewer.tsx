@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, EyeOff, Loader2 } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
@@ -13,6 +13,7 @@ import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
 import { DiffControlBar } from './diff-control-bar';
+import { InternalDocumentContent } from './internal-document-content';
 
 type ArtifactViewerProps = {
     title: string;
@@ -45,6 +46,8 @@ type ArtifactViewerProps = {
     isStreaming?: boolean;
     /** Whether an existing document is being patched */
     isUpdating?: boolean;
+    /** Generation progress percentage (0-100) */
+    progress?: number;
 };
 
 const diffDirectives: Record<string, DirectiveHandler> = {
@@ -78,6 +81,7 @@ export const ArtifactViewer = ({
     onCloseAction,
     isStreaming = false,
     isUpdating = false,
+    progress,
 }: ArtifactViewerProps) => {
     const prevTitleRef = useRef<string | null>(null);
     const [isDiffVisible, setIsDiffVisible] = useState(false);
@@ -118,7 +122,6 @@ export const ArtifactViewer = ({
     }, [isStreaming, title, containerRef]);
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
-    const showInternalEmptyState = !markdownContent && !!isInternal && !isStreaming;
 
     // TODO: Remove the !!projectId when backend is updated and we can use a unified artifact API
     const deleteAction = canDelete && !!projectId && (
@@ -151,27 +154,15 @@ export const ArtifactViewer = ({
             {/* Preview */}
             <div className="relative flex-1 min-h-0">
                 <div ref={containerRef} className="h-full overflow-y-auto">
-                    {markdownContent ? (
+                    {isInternal ? (
+                        <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming} />
+                    ) : markdownContent ? (
                         <div className="p-6">
                             <MarkdownRenderer
                                 markdown={markdownContent}
                                 directives={diffDirectives}
                                 scrollContainerRef={containerRef}
                             />
-                        </div>
-                    ) : showInternalEmptyState ? (
-                        <div className="flex items-center justify-center h-full px-6">
-                            <div className="max-w-md rounded-2xl border border-border bg-background/30 p-6 text-center text-muted-foreground">
-                                <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-full border border-border bg-background/40">
-                                    <EyeOff className="size-5" />
-                                </div>
-                                <p className="font-medium text-foreground">Preview unavailable</p>
-                                <p className="mt-2 text-sm leading-6">
-                                    This document type is tracked in the workflow and version history, but it is not
-                                    presented as a reviewable preview. Use the visible outputs and status indicators to
-                                    track progress.
-                                </p>
-                            </div>
                         </div>
                     ) : (
                         <div className="flex items-center justify-center h-full text-muted-foreground">
