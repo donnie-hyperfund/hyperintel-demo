@@ -81,10 +81,19 @@ export const CompanyList = ({ onEmptyChange }: CompanyListProps) => {
     return (
         <div className="space-y-2 flex-1">
             {artifacts.map((artifact) => {
+                const isShared = artifact.is_own === false;
                 const chatId = getArtifactChatId(artifact);
-                const href = chatId ? `/companies/${chatId}` : undefined;
+                const href = !isShared && chatId ? `/companies/${chatId}` : undefined;
 
-                return <ArtifactListItem key={artifact.id} artifact={artifact} icon={Building} href={href} />;
+                return (
+                    <ArtifactListItem
+                        key={artifact.id}
+                        artifact={artifact}
+                        icon={Building}
+                        href={href}
+                        isShared={isShared}
+                    />
+                );
             })}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">

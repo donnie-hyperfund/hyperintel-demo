@@ -81,10 +81,19 @@ export const StakeholderList = ({ onEmptyChange }: StakeholderListProps) => {
     return (
         <div className="space-y-2 flex-1">
             {artifacts.map((artifact) => {
+                const isShared = artifact.is_own === false;
                 const chatId = getArtifactChatId(artifact);
-                const href = chatId ? `/stakeholders/${chatId}` : undefined;
+                const href = !isShared && chatId ? `/stakeholders/${chatId}` : undefined;
 
-                return <ArtifactListItem key={artifact.id} artifact={artifact} icon={Users} href={href} />;
+                return (
+                    <ArtifactListItem
+                        key={artifact.id}
+                        artifact={artifact}
+                        icon={Users}
+                        href={href}
+                        isShared={isShared}
+                    />
+                );
             })}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">
