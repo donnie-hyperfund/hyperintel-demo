@@ -78,6 +78,7 @@ export type Artifact = Partial<ArtifactDto> & {
     isLoading?: boolean;
     isStreaming?: boolean;
     isUpdating?: boolean;
+    progress?: number;
 };
 
 // =============================================================================

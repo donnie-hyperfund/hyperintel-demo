@@ -291,7 +291,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                 version: 1,
                                 content: '',
                                 status: 'proposed',
-                                document_type: payload.document_type,
+                                document_type: payload.documentType,
+                                is_internal: payload.isInternal,
                                 created_at: now,
                                 updated_at: now,
                             },
@@ -300,6 +301,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             isStreaming: true,
                             isUpdating: false,
                             isLoading: false,
+                            progress: 0,
                         },
                         1,
                     );
@@ -339,7 +341,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                 version: newVersion,
                                 content: loadedContent,
                                 status: 'proposed',
-                                document_type: payload.document_type,
+                                document_type: payload.documentType,
+                                is_internal: payload.isInternal,
                                 created_at: now,
                                 updated_at: now,
                             },
@@ -347,6 +350,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             updated_at: now,
                             isStreaming: true,
                             isUpdating: true,
+                            progress: 0,
                         },
                         newVersion,
                     );
@@ -402,6 +406,14 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 break;
             }
 
+            case 'document_progress': {
+                const doc = s.streamingDocs.get(payload.name);
+                if (doc) {
+                    ac?.updateArtifact(doc.artifactId, { progress: payload.progress }, doc.version);
+                }
+                break;
+            }
+
             case 'document_complete': {
                 // Flush pending drip deltas before marking complete
                 docDripRef.current.drain();
@@ -413,6 +425,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     {
                         isStreaming: false,
                         isUpdating: false,
+                        progress: 100,
                         version: doc.version,
                         proposed_version: { version: doc.version, status: 'proposed' },
                     },
@@ -516,6 +529,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         isStreaming: true,
                                         isUpdating: doc.mode === 'edit',
                                         isLoading: false,
+                                        progress: 0,
                                     },
                                     doc.pendingVersion,
                                 );
@@ -722,6 +736,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         case 'document_start':
                         case 'document_delta':
                         case 'document_edit':
+                        case 'document_progress':
                         case 'document_complete':
                             documentQueueRef.current?.push({ type: event.type, payload: event });
                             break;
