@@ -142,8 +142,8 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     lastEmittedProgress = 0;
                     const docType = result.document_type as DocumentType | undefined;
                     estimatedChars = docType
-                        ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES['Other'])
-                        : DOCUMENT_CHAR_ESTIMATES['Other'];
+                        ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES.Other)
+                        : DOCUMENT_CHAR_ESTIMATES.Other;
 
                     const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
 
