@@ -39,6 +39,7 @@ export type StreamEventType =
     | 'document_delta'
     | 'document_patch'
     | 'document_edit'
+    | 'document_progress'
     | 'document_complete'
     | 'status_update'
     | 'error'
@@ -86,12 +87,15 @@ export type StreamEvent =
           loadedVersion?: number;
           /** document_type from begin_document tool result */
           documentType?: string;
+          /** Estimated content size in characters for progress tracking */
+          estimatedChars?: number;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           rejectionReason?: string;
           isInternal?: boolean;
       }
     | { type: 'document_delta'; name: string; pendingVersion?: number; content: string }
     | { type: 'document_edit'; name: string; pendingVersion?: number; edits: DocumentEdit[] }
+    | { type: 'document_progress'; name: string; progress: number }
     | { type: 'document_complete'; name: string; version: number; lines?: number; action?: string }
     // Status & control
     | { type: 'status_update'; status: string }

@@ -3,7 +3,7 @@
  *
  * Handles the new multi-call document tools:
  * - begin_document → document_start
- * - write_document → document_delta (streamed)
+ * - write_document → document_delta (streamed) + document_progress
  * - patch_document → document_edit
  * - finalize_document → document_complete
  */
@@ -11,6 +11,7 @@
 import { createStreamFieldParser } from '@common/ai/agent';
 import type { AgentStreamEvent } from '@common/ai/agent/types';
 import type { EntityManager } from '@mikro-orm/postgresql';
+import { DOCUMENT_CHAR_ESTIMATES, type DocumentType } from '@/lib/schema/artifact';
 
 export type DocumentEventEmitter = (event: DocumentEvent) => void;
 
@@ -31,11 +32,13 @@ export type DocumentEvent =
           isInternal: boolean;
           pendingVersion: number;
           documentType?: string;
+          estimatedChars?: number;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           loadedVersion?: number;
           rejectionReason?: string;
       }
     | { type: 'document_delta'; name: string; content: string }
+    | { type: 'document_progress'; name: string; progress: number }
     | {
           type: 'document_edit';
           name: string;
@@ -63,7 +66,7 @@ export interface DocumentContext {
  *
  * Flow:
  * 1. begin_document result → emit document_start
- * 2. write_document deltas → emit document_delta
+ * 2. write_document deltas → emit document_delta + document_progress
  * 3. patch_document result → emit document_edit
  * 4. finalize_document result → emit document_complete
  *
@@ -78,6 +81,30 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
 
     // Accumulator for patch_document input (to capture the edits array)
     let editBuffer = '';
+
+    // Progress tracking state
+    let accumulatedChars = 0;
+    let estimatedChars = 0;
+    let lastEmittedProgress = 0;
+
+    /**
+     * Calculate and emit progress if the change is significant enough.
+     * Progress is capped at 99 during streaming — 100 is implied by document_complete.
+     */
+    function maybeEmitProgress(): void {
+        if (!activeDoc || estimatedChars <= 0) return;
+
+        const rawProgress = Math.min(Math.floor((accumulatedChars / estimatedChars) * 100), 99);
+        if (rawProgress !== lastEmittedProgress) {
+            lastEmittedProgress = rawProgress;
+            console.log(`[doc-progress] ${activeDoc.name}: ${rawProgress}% (${accumulatedChars}/${estimatedChars} chars)`);
+            emit({
+                type: 'document_progress',
+                name: activeDoc.name,
+                progress: rawProgress,
+            });
+        }
+    }
 
     /**
      * Process an agent stream event and emit document events as appropriate.
@@ -110,6 +137,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         isInternal: result.is_internal ?? true,
                     };
 
+                    // Reset progress tracking
+                    accumulatedChars = 0;
+                    lastEmittedProgress = 0;
+                    const docType = result.document_type as DocumentType | undefined;
+                    estimatedChars = docType
+                        ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES['Other'])
+                        : DOCUMENT_CHAR_ESTIMATES['Other'];
+
                     const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
 
                     const startEvent: DocumentEvent = {
@@ -119,6 +154,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         mode: result.mode || 'create',
                         isInternal: activeDoc.isInternal,
                         pendingVersion,
+                        estimatedChars,
                     };
 
                     if (result.document_type) {
@@ -186,6 +222,9 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     activeDoc = null;
                     writeParser = null;
                     editBuffer = '';
+                    accumulatedChars = 0;
+                    estimatedChars = 0;
+                    lastEmittedProgress = 0;
                 }
                 break;
             }
@@ -198,7 +237,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             toolName: 'write_document',
                             field: 'content',
                             onDelta: (delta) => {
-                                if (activeDoc && !activeDoc.isInternal) {
+                                if (!activeDoc) return;
+
+                                // Track chars for progress (always, even for internal docs)
+                                accumulatedChars += delta.length;
+                                maybeEmitProgress();
+
+                                // Only emit content deltas for non-internal docs
+                                if (!activeDoc.isInternal) {
                                     emit({
                                         type: 'document_delta',
                                         name: activeDoc.name,
