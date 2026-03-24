@@ -266,6 +266,7 @@ async function processExtraction(
     // Mark file as processed
     const artifactFile = await ctx.em.findOneOrFail(ArtifactFileEntity, fileId);
     artifactFile.status = 'processed';
+    artifactFile.extracted_content = markdown;
 
     await ctx.em.flush();
 
