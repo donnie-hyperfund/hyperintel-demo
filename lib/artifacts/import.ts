@@ -13,6 +13,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { SHARED_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 
 export interface ImportDetail {
     sourceArtifactId: string;
@@ -50,10 +51,15 @@ export async function importArtifactsToProject(
     let skipped = 0;
 
     // Load all source artifacts in one query
+    // Own artifacts always allowed; other users' artifacts only for shared document types
     const sources = await em.find(
         ArtifactEntity,
-        { id: { $in: artifactIds }, user: userId, project: null },
-        { populate: ['versions'] },
+        {
+            id: { $in: artifactIds },
+            project: null,
+            $or: [{ user: userId }, { current_version: { document_type: { $in: [...SHARED_DOCUMENT_TYPES] } } }],
+        },
+        { populate: ['versions', 'current_version'] },
     );
 
     const sourceMap = new Map(sources.map((a) => [a.id, a]));

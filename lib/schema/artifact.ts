@@ -59,6 +59,9 @@ export const RESOURCE_DOCUMENT_TYPES: readonly DocumentType[] = [
     'Human Persona',
 ] as const;
 
+/** Document types visible and importable across all users (not restricted to owner) */
+export const SHARED_DOCUMENT_TYPES: readonly DocumentType[] = ['Company Profile', 'Human Persona'] as const;
+
 export const FILTERABLE_STATUSES = ['proposed', 'approved', 'rejected', 'superseded'] as const;
 export const FilterableStatusSchema = z.enum(FILTERABLE_STATUSES);
 export type FilterableStatus = z.infer<typeof FilterableStatusSchema>;
@@ -123,6 +126,8 @@ export const ArtifactDtoSchema = z.object({
         .nullable()
         .optional(),
     is_public: z.boolean().optional(),
+    /** Whether this artifact belongs to the current authenticated user */
+    is_own: z.boolean().optional(),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),
