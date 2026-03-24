@@ -48,12 +48,12 @@ const DOCUMENT_INSTRUCTIONS: Record<
     cpf: {
         documentType: 'Company Profile',
         namePattern: 'company-profile-[company-name-slug].md',
-        titlePattern: 'Company Profile: [Company Name]',
+        titlePattern: '[Company Name]',
     },
     hpf: {
         documentType: 'Human Persona',
         namePattern: 'human-persona-[person-name-slug].md',
-        titlePattern: 'Human Persona: [Person Name] ([Category])',
+        titlePattern: '[Person Name] ([Category])',
     },
 };
 
