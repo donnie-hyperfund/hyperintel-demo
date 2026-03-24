@@ -57,10 +57,7 @@ export async function importArtifactsToProject(
         {
             id: { $in: artifactIds },
             project: null,
-            $or: [
-                { user: userId },
-                { current_version: { document_type: { $in: [...SHARED_DOCUMENT_TYPES] } } },
-            ],
+            $or: [{ user: userId }, { current_version: { document_type: { $in: [...SHARED_DOCUMENT_TYPES] } } }],
         },
         { populate: ['versions', 'current_version'] },
     );

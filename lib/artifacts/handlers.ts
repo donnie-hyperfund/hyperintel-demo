@@ -196,11 +196,10 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
             document_type: queryData.document_type,
             artifact: { project: null, ...(isSharedType ? {} : { user: user.id }) },
         };
-        const matchingVersions = await em.find(
-            ArtifactVersionEntity,
-            versionFilter,
-            { fields: ['artifact'], populate: ['artifact'] },
-        );
+        const matchingVersions = await em.find(ArtifactVersionEntity, versionFilter, {
+            fields: ['artifact'],
+            populate: ['artifact'],
+        });
         const matchingArtifactIds = [...new Set(matchingVersions.map((v) => v.artifact.id))];
         if (matchingArtifactIds.length === 0) {
             return NextResponse.json(createPaginatedResponse([], 0, queryData.page ?? 1, queryData.limit ?? 20));
@@ -428,7 +427,13 @@ export async function handleListResources(
                 { 'a.user': user.id },
                 // Other users' artifacts — only shared document types with approved status
                 ...(hasSharedTypes
-                    ? [{ 'a.user': { $ne: user.id }, 'cv.document_type': { $in: SHARED_DOCUMENT_TYPES }, 'cv.status': 'approved' }]
+                    ? [
+                          {
+                              'a.user': { $ne: user.id },
+                              'cv.document_type': { $in: SHARED_DOCUMENT_TYPES },
+                              'cv.status': 'approved',
+                          },
+                      ]
                     : []),
             ],
         });

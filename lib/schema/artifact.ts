@@ -60,10 +60,7 @@ export const RESOURCE_DOCUMENT_TYPES: readonly DocumentType[] = [
 ] as const;
 
 /** Document types visible and importable across all users (not restricted to owner) */
-export const SHARED_DOCUMENT_TYPES: readonly DocumentType[] = [
-    'Company Profile',
-    'Human Persona',
-] as const;
+export const SHARED_DOCUMENT_TYPES: readonly DocumentType[] = ['Company Profile', 'Human Persona'] as const;
 
 export const FILTERABLE_STATUSES = ['proposed', 'approved', 'rejected', 'superseded'] as const;
 export const FilterableStatusSchema = z.enum(FILTERABLE_STATUSES);
