@@ -47,7 +47,7 @@ export function FileDropOverlay({ children, className }: FileDropZoneProps) {
 
     return (
         <div
-            className={cn('relative', className)}
+            className={cn('relative h-full', className)}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
