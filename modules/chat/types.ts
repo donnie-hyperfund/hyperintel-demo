@@ -27,8 +27,13 @@ export type Message = {
     isError?: boolean;
     isAborted?: boolean;
     isRetracted?: boolean;
-    /** Synthetic system event message (e.g. artifact approved via UI) — hidden from user */
-    isSystemEvent?: boolean;
+    /** Synthetic system event injected by the backend (e.g. artifact approved via UI) */
+    systemEvent?: {
+        type: string;
+        artifactKey?: string;
+        versionNumber?: number;
+        reason?: string;
+    };
     status?: string;
     createdAt?: Date;
 };

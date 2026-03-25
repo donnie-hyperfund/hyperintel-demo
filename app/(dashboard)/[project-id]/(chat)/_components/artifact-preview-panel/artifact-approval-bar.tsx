@@ -94,6 +94,9 @@ export function ArtifactApprovalBar({
                 if (!hasOtherPendingArtifacts(artifactKey)) {
                     clearPendingChanges();
                 }
+
+                // Nudge the agent to react to the rejection (system event already injected by backend)
+                await sendNudge();
             }
         } catch (err) {
             console.error('Failed to reject:', err);
