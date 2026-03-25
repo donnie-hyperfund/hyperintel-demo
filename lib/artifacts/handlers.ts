@@ -170,20 +170,36 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
 
     if (queryData instanceof NextResponse) return queryData;
 
+    const SHARED_DOCUMENT_TYPES: string[] = ['Company Profile', 'Human Persona'];
+    const isSharedType = queryData.document_type && SHARED_DOCUMENT_TYPES.includes(queryData.document_type);
+
     const query = em
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
         .leftJoinAndSelect('a.current_version', 'cv')
-        .where({ 'a.user': user.id, 'a.project': null })
+        .where({
+            'a.project': null,
+            $or: isSharedType
+                ? [
+                      // Own artifacts — any status
+                      { 'a.user': user.id },
+                      // Other users' artifacts — only approved
+                      { 'a.user': { $ne: user.id }, 'cv.status': 'approved' },
+                  ]
+                : [{ 'a.user': user.id }],
+        })
         .orderBy({ 'a.created_at': 'DESC' });
 
     // Filter by document_type through versions (an artifact may have the type on any version)
     if (queryData.document_type) {
-        const matchingVersions = await em.find(
-            ArtifactVersionEntity,
-            { document_type: queryData.document_type, artifact: { user: user.id, project: null } },
-            { fields: ['artifact'], populate: ['artifact'] },
-        );
+        const versionFilter: Record<string, unknown> = {
+            document_type: queryData.document_type,
+            artifact: { project: null, ...(isSharedType ? {} : { user: user.id }) },
+        };
+        const matchingVersions = await em.find(ArtifactVersionEntity, versionFilter, {
+            fields: ['artifact'],
+            populate: ['artifact'],
+        });
         const matchingArtifactIds = [...new Set(matchingVersions.map((v) => v.artifact.id))];
         if (matchingArtifactIds.length === 0) {
             return NextResponse.json(createPaginatedResponse([], 0, queryData.page ?? 1, queryData.limit ?? 20));
@@ -201,9 +217,11 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
 
     const mappedNodes = nodes.map((artifact: ArtifactEntity) => {
         const latest = latestByArtifact.get(artifact.id);
+        const ownerId = typeof artifact.user === 'object' && artifact.user ? artifact.user.id : artifact.user;
         return {
             ...wrap(artifact).toJSON(),
             proposed_version: latest ? wrap(latest).toJSON() : undefined,
+            is_own: ownerId === user.id,
         };
     });
 
@@ -398,15 +416,34 @@ export async function handleListResources(
                 $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
             });
     } else {
-        // User-scoped: global resources
-        const where: Record<string, unknown> = { user: user.id, project: null };
+        // User-scoped: own resources + shared Company Profile / Human Persona from other users
+        const SHARED_DOCUMENT_TYPES: string[] = ['Company Profile', 'Human Persona'];
+        const hasSharedTypes = documentType?.some((dt) => SHARED_DOCUMENT_TYPES.includes(dt));
+
+        query.leftJoinAndSelect('a.current_version', 'cv').where({
+            'a.project': null,
+            $or: [
+                // Own artifacts (any document type, any status)
+                { 'a.user': user.id },
+                // Other users' artifacts — only shared document types with approved status
+                ...(hasSharedTypes
+                    ? [
+                          {
+                              'a.user': { $ne: user.id },
+                              'cv.document_type': { $in: SHARED_DOCUMENT_TYPES },
+                              'cv.status': 'approved',
+                          },
+                      ]
+                    : []),
+            ],
+        });
+
         if (documentType?.length) {
-            where.current_version = { document_type: { $in: documentType } };
+            query.andWhere({ 'cv.document_type': { $in: documentType } });
         }
         if (approvedOnly) {
-            where['cv.status'] = 'approved';
+            query.andWhere({ 'cv.status': 'approved' });
         }
-        query.leftJoinAndSelect('a.current_version', 'cv').where(where);
 
         // Exclude artifacts published from a specific project
         if (excludeProjectId) {
@@ -434,10 +471,14 @@ export async function handleListResources(
     const artifactIds = nodes.map((a: ArtifactEntity) => a.id);
     const proposedMap = await loadVersionsForArtifacts(em, artifactIds, 'proposed');
 
-    const data = nodes.map((a: ArtifactEntity) => ({
-        ...wrap(a).toJSON(),
-        proposed_version: proposedMap.get(a.id) ? wrap(proposedMap.get(a.id)!).toJSON() : undefined,
-    }));
+    const data = nodes.map((a: ArtifactEntity) => {
+        const ownerId = typeof a.user === 'object' && a.user ? a.user.id : a.user;
+        return {
+            ...wrap(a).toJSON(),
+            proposed_version: proposedMap.get(a.id) ? wrap(proposedMap.get(a.id)!).toJSON() : undefined,
+            is_own: ownerId === user.id,
+        };
+    });
 
     return NextResponse.json(createPaginatedResponse(data, totalCount, page, limit));
 }

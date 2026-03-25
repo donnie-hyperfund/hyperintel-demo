@@ -14,6 +14,9 @@ pub enum ImageHandlingMode {
     InMarkdown,
     Manually,
     Save,
+    /// Images are referenced by ID in the markdown (`![name](rId2)`).
+    /// The caller retrieves image data separately from `Slide.image_data`.
+    Reference,
 }
 
 /// Configuration options for the PPTX parser.

@@ -13,6 +13,7 @@ secrets:
   - R2_ACCESS_KEY_ID
   - R2_SECRET_ACCESS_KEY
   - CF_ACCOUNT_ID
+  - REDUCTO_API_KEY
 
 r2_buckets:
   - binding: ARTIFACTS_BUCKET
@@ -28,6 +29,9 @@ queues:
   producers:
     - binding: EMBEDDING_QUEUE
       queue: hi-embedding-queue
+
+unstub:
+  - reductoai
 
 services:
   - binding: EXTRACT_RUST

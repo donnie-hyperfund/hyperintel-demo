@@ -14,6 +14,12 @@ pub fn to_markdown(doc: &Document, options: &RenderOptions) -> Result<String> {
     renderer.render(doc)
 }
 
+/// Convert a document to Markdown, returning one string per page.
+pub fn to_markdown_pages(doc: &Document, options: &RenderOptions) -> Result<Vec<String>> {
+    let renderer = MarkdownRenderer::new(options.clone());
+    renderer.render_pages(doc)
+}
+
 /// Convert a document to Markdown with statistics.
 pub fn to_markdown_with_stats(doc: &Document, options: &RenderOptions) -> Result<RenderResult> {
     let mut options = options.clone();
@@ -41,6 +47,27 @@ impl MarkdownRenderer {
     pub fn render(mut self, doc: &Document) -> Result<String> {
         let result = self.render_internal(doc)?;
         Ok(result)
+    }
+
+    /// Render a document to Markdown, returning one string per page.
+    pub fn render_pages(mut self, doc: &Document) -> Result<Vec<String>> {
+        let mut pages = Vec::with_capacity(doc.pages.len());
+
+        for page in &doc.pages {
+            if self.options.page_selection.includes(page.number) {
+                let mut output = String::new();
+                self.render_page(&mut output, page);
+
+                if let Some(ref cleanup_options) = self.options.cleanup {
+                    let pipeline = CleanupPipeline::new(cleanup_options.clone());
+                    output = pipeline.process(&output);
+                }
+
+                pages.push(output.trim().to_string());
+            }
+        }
+
+        Ok(pages)
     }
 
     /// Render a document to Markdown with extraction statistics.

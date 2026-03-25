@@ -244,6 +244,7 @@ function SelectableSection({
                         icon={icon}
                         size="sm"
                         isSelected={selectedIds.includes(artifact.id)}
+                        isShared={artifact.is_own === false}
                         shouldDisplayVersionInfo={false}
                         onClick={() => onToggle(artifact.id)}
                     />
