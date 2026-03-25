@@ -320,14 +320,15 @@ export function ChatProvider({
     /** Convert API message to internal Message format */
     const mapApiMessage = useCallback((m: ChatMessageDto, activeAgentMessageId?: string | null): Message => {
         // Detect system event messages injected by backend (e.g. artifact approved via UI)
-        const isSystemEvent = !!(m.metadata as Record<string, any>)?.systemEvent;
+        const meta = (m.metadata ?? {}) as Record<string, unknown>;
+        const systemEventType = meta.systemEvent as string | undefined;
 
         // Detect safety-retracted messages persisted by finalizeSafetyMonitor:
         // 1. metadata.safetyAnalysis.leaked (always set by finalizeSafetyMonitor)
         // 2. fallback: content marker + empty blocks
         const isRetracted =
             m.role === 'assistant' &&
-            ((m.metadata as Record<string, any>)?.safetyAnalysis?.leaked === true ||
+            ((meta as Record<string, any>).safetyAnalysis?.leaked === true ||
                 ((!m.blocks || m.blocks.length === 0) && m.content === '[omitted due to security/policy violation]'));
 
         // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
@@ -346,7 +347,14 @@ export function ChatProvider({
             ...(m.is_error && { isError: true }),
             ...(m.is_aborted && { isAborted: true }),
             ...(isRetracted && { isRetracted: true }),
-            ...(isSystemEvent && { isSystemEvent: true }),
+            ...(systemEventType && {
+                systemEvent: {
+                    type: systemEventType,
+                    artifactKey: meta.artifactKey as string | undefined,
+                    versionNumber: meta.versionNumber as number | undefined,
+                    reason: meta.reason as string | undefined,
+                },
+            }),
         };
     }, []);
 
@@ -384,6 +392,15 @@ export function ChatProvider({
                 if (existingIdx !== -1) {
                     const next = [...prev.messages];
                     next[existingIdx] = { ...mapped, tempId: next[existingIdx].tempId || tempId };
+                    return { ...prev, messages: next };
+                }
+
+                // Insert before any streaming message to maintain chronological order
+                // (e.g. system event arriving via WS while AI response is already streaming)
+                const streamingIdx = prev.messages.findIndex((m) => m.isStreaming);
+                if (streamingIdx !== -1) {
+                    const next = [...prev.messages];
+                    next.splice(streamingIdx, 0, { ...mapped, tempId });
                     return { ...prev, messages: next };
                 }
 
