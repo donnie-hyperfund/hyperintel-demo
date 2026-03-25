@@ -110,11 +110,9 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
                     </div>
                 )}
 
-                {/* Render all messages with animations (system events are hidden) */}
+                {/* Render all messages with animations */}
                 <AnimatePresence initial={false}>
-                    {messages
-                        .filter((m) => !m.isSystemEvent)
-                        .map((message, index) => (
+                    {messages.map((message, index) => (
                             <motion.div
                                 key={message.tempId ?? message.id ?? index}
                                 initial={{ opacity: 0, y: 8, scale: 0.98 }}

@@ -12,10 +12,14 @@
 
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { EntityManager } from '@mikro-orm/postgresql';
+import type { Ctx } from '../context';
+import { getUserGatewayStub } from './broadcast';
 
 export interface SystemEventOptions {
     /** Chat to inject the message into */
     chatId: string;
+    /** Chat type — determines the WS topic prefix ('intake' vs 'chat') */
+    chatType?: string;
     /** Short event name, e.g. 'artifact_approved', 'artifact_rejected' */
     event: string;
     /** Human-readable description the model will see inside <system> tags */
@@ -26,13 +30,14 @@ export interface SystemEventOptions {
 
 /**
  * Inject a synthetic system-event message into a chat.
- * Returns the persisted ChatMessageEntity (already flushed).
+ * Persists to DB and broadcasts via WebSocket so the frontend receives it.
  */
 export async function injectSystemEvent(
+    ctx: Pick<Ctx, 'env' | 'user' | 'previewAlias'>,
     em: EntityManager,
     options: SystemEventOptions,
 ): Promise<ChatMessageEntity> {
-    const { chatId, event, description, extra } = options;
+    const { chatId, chatType = 'phase', event, description, extra } = options;
 
     const msg = em.create(ChatMessageEntity, {
         id: crypto.randomUUID(),
@@ -47,6 +52,13 @@ export async function injectSystemEvent(
 
     em.persist(msg);
     await em.flush();
+
+    // Broadcast to WS subscribers so frontend can display / filter the event
+    const ugStub = getUserGatewayStub(ctx);
+    const topic = chatType === 'intake' ? `intake:${chatId}` : `chat:${chatId}`;
+    await ugStub
+        .systemAction(topic, 'messageCreated', { message: msg.toJSON() }, ctx.previewAlias ?? undefined)
+        .catch(console.error);
 
     return msg;
 }
