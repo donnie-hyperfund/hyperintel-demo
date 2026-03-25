@@ -29,10 +29,14 @@ path = "examples/save_images.rs"
 name = "slide_elements"
 path = "examples/slide_elements.rs"
 
+[features]
+default = []
+parallel = ["dep:rayon"]
+
 [dependencies]
-zip = "2.2.2"
+zip = { version = "2.2.2", default-features = false, features = ["deflate"] }
 roxmltree = "0.20.0"
 thiserror = "2.0.11"
 base64 = "0.22.1"
 image = "0.24.9"
-rayon = "1.10.0"
+rayon = { version = "1.10.0", optional = true }

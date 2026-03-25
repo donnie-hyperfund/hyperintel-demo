@@ -3,9 +3,8 @@ use crate::{ElementPosition, ImageReference, ParserConfig, SlideElement};
 use base64::{engine::general_purpose, Engine as _};
 use image::ImageOutputFormat;
 use std::collections::HashMap;
-use std::fs;
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Encapsulates images for manual extraction of images from slides
 #[derive(Debug)]
@@ -130,6 +129,7 @@ impl Slide {
                                 slide_txt.push_str(format!("![{}](data:image/{};base64,{})", image_name, file_ext, base64_string).as_str());
                             }
                         }
+                        #[cfg(not(target_arch = "wasm32"))]
                         ImageHandlingMode::Save => {
                             if let Some(image_data) = self.image_data.get(&image_ref.id) {
                                 let image_data = self.config.compress_images
@@ -143,15 +143,15 @@ impl Slide {
                                 let output_dir = self.config
                                     .image_output_path
                                     .clone()
-                                    .unwrap_or_else(|| PathBuf::from("."));
+                                    .unwrap_or_else(|| std::path::PathBuf::from("."));
 
-                                let _ = fs::create_dir_all(&output_dir);
+                                let _ = std::fs::create_dir_all(&output_dir);
 
                                 let mut image_path = output_dir.clone();
                                 let file_name = format!("slide{}_image{}_{}.{}", self.slide_number, image_count + 1, &image_ref.id, ext);
                                 image_path.push(&file_name);
 
-                                let _ = fs::write(&image_path, image_data?);
+                                let _ = std::fs::write(&image_path, image_data?);
 
                                 let abs_file_url = self.path_to_file_url(&image_path);
                                 let html_link = format!(r#"<a href={:?}>{file_name}</a>"#, abs_file_url?);
@@ -160,7 +160,15 @@ impl Slide {
                                 slide_txt.push('\n');
                             }
                         }
+                        ImageHandlingMode::Reference => {
+                            if self.image_data.contains_key(&image_ref.id) {
+                                let image_name = image_ref.target.split('/').last().unwrap_or(&image_ref.id);
+                                slide_txt.push_str(&format!("![{}]({})", image_name, image_ref.id));
+                            }
+                        }
                         ImageHandlingMode::Manually => { slide_txt.push('\n'); continue; }
+                        #[cfg(target_arch = "wasm32")]
+                        ImageHandlingMode::Save => { slide_txt.push('\n'); continue; }
                     }
                     slide_txt.push('\n');
                 }
@@ -317,6 +325,7 @@ impl Slide {
         Some(images)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn path_to_file_url(&self, path: &Path) -> Option<String> {
         let abs_path = path.canonicalize().ok()?;
         let mut path_str = abs_path.to_string_lossy().replace('\\', "/");

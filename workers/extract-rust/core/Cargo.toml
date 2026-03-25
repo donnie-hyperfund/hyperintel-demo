@@ -1,0 +1,20 @@
+[package]
+name = "extract-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Image extraction from DOCX/PPTX zip archives
+zip = { version = "8.1.0", default-features = false, features = ["deflate"] }
+
+# Text-in-image detection heuristic
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp"] }
+imageproc = { version = "0.24", default-features = false }
+
+# Vendored extraction crates
+markdownify = { path = "../vendor/markdownify" }
+unpdf = { path = "../vendor/unpdf", default-features = false, features = ["fast-parse"] }
+docx-parser = { path = "../vendor/docx-parser" }
+pptx-to-md = { path = "../vendor/pptx-to-md", default-features = false }
+base64 = "0.22"

@@ -1,8 +1,9 @@
 use base64::prelude::*;
 use serde::ser::SerializeMap;
 use serde::Serializer;
+use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
-    collections::HashMap,
     env,
     fs::{create_dir_all, File},
     io::{self, Write},
@@ -91,6 +92,7 @@ fn test_table_row_to_markdown() {
     );
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn save_image_to_file(path: &str, image_data: &[u8]) -> io::Result<()> {
     // Get the current working directory
     let current_dir = env::current_dir()?;
