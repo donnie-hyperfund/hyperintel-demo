@@ -1,6 +1,6 @@
 'use client';
 
-import { Building, FileCode, Users } from 'lucide-react';
+import { Building, FileCode, LayoutDashboard, Users } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { DashboardSidebarFooter } from './dashboard-sidebar-footer';
 
 const navItems = [
+    { icon: LayoutDashboard, label: 'Launch Pad', href: '/launch-pad' },
     { icon: FileCode, label: 'Projects', href: '/projects' },
     { icon: Building, label: 'Companies', href: '/companies' },
     { icon: Users, label: 'Stakeholders', href: '/stakeholders' },
@@ -43,11 +44,11 @@ export function DashboardSidebar() {
             >
                 {isExpanded ? (
                     <>
-                        <div className="overflow-visible w-full">
+                        <Link href="/launch-pad" className="overflow-visible w-full">
                             <div className="w-[143px] h-[28px] flex items-center justify-center overflow-visible">
                                 <Image src="/logo.svg" alt="HYPERINTEL" width={143} height={28} className="shrink-0" />
                             </div>
-                        </div>
+                        </Link>
                         <SidebarTrigger />
                     </>
                 ) : (
@@ -61,7 +62,10 @@ export function DashboardSidebar() {
                         <SidebarMenu className="gap-1.5">
                             {navItems.map((item) => {
                                 const Icon = item.icon;
-                                const isActive = pathname?.startsWith(item.href);
+                                const isActive =
+                                    item.href === '/launch-pad'
+                                        ? pathname === '/launch-pad'
+                                        : pathname?.startsWith(item.href);
 
                                 return (
                                     <SidebarMenuItem key={item.label}>

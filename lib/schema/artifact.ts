@@ -18,6 +18,8 @@ export const INTERNAL_DOCUMENTS = [
     'PSEB',
     'Action Plan',
     'Completion Brief',
+    'Company Profile',
+    'Human Persona',
 ] as const;
 
 export const DOCUMENT_TYPES = [
@@ -25,12 +27,30 @@ export const DOCUMENT_TYPES = [
     // 'Analysis',
     'Research Report',
     'Executive Summary',
-    'Company Profile',
-    'Human Persona',
     'Other',
 ] as const;
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
 export type DocumentType = z.infer<typeof DocumentTypeSchema>;
+
+/**
+ * Estimated character counts per document type, derived from production data.
+ * Used for approximate progress tracking during document generation streaming.
+ * Values represent average content length in characters.
+ */
+export const DOCUMENT_CHAR_ESTIMATES: Record<DocumentType, number> = {
+    'Genesis DNA': 16000,
+    'Legacy DNA': 28000,
+    'Team Specification': 18000,
+    MID: 26000,
+    PSEB: 13000,
+    'Action Plan': 20000,
+    'Completion Brief': 20000,
+    'Company Profile': 15000,
+    'Human Persona': 8000,
+    'Research Report': 14000,
+    'Executive Summary': 10000,
+    Other: 14000,
+};
 
 /** Document types that should be published to user scope on approval */
 export const PUBLISHABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['Legacy DNA'] as const;
@@ -41,6 +61,9 @@ export const RESOURCE_DOCUMENT_TYPES: readonly DocumentType[] = [
     'Company Profile',
     'Human Persona',
 ] as const;
+
+/** Document types visible and importable across all users (not restricted to owner) */
+export const SHARED_DOCUMENT_TYPES: readonly DocumentType[] = ['Company Profile', 'Human Persona'] as const;
 
 export const FILTERABLE_STATUSES = ['proposed', 'approved', 'rejected', 'superseded'] as const;
 export const FilterableStatusSchema = z.enum(FILTERABLE_STATUSES);
@@ -110,6 +133,9 @@ export const ArtifactDtoSchema = z.object({
         .union([z.string().uuid(), z.object({}).passthrough()])
         .nullable()
         .optional(),
+    is_public: z.boolean().optional(),
+    /** Whether this artifact belongs to the current authenticated user */
+    is_own: z.boolean().optional(),
     current_version: ArtifactVersionDtoSchema.optional(),
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),
@@ -161,9 +187,19 @@ export const RestoreArtifactResponseSchema = z.object({
 });
 export type RestoreArtifactResponseDto = z.infer<typeof RestoreArtifactResponseSchema>;
 
-export const MAX_ARTIFACT_UPLOAD_SIZE = 5 * 1024 * 1024; // 5MB
-// TODO: Add '.docx' once we have conversion (e.g. mammoth)
-export const ALLOWED_ARTIFACT_EXTENSIONS = ['.md'];
+export const MAX_ARTIFACT_UPLOAD_SIZE = 50 * 1024 * 1024;
+
+export const TEXT_ARTIFACT_EXTENSIONS = ['.md', '.txt', '.rtf'] as const;
+export const BINARY_ARTIFACT_EXTENSIONS = ['.pdf', '.docx', '.pptx'] as const;
+export const ALLOWED_ARTIFACT_EXTENSIONS = [...TEXT_ARTIFACT_EXTENSIONS, ...BINARY_ARTIFACT_EXTENSIONS] as string[];
+
+export function isBinaryArtifactExtension(ext: string): boolean {
+    return (BINARY_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
+}
+
+export function isTextArtifactExtension(ext: string): boolean {
+    return (TEXT_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
+}
 
 export const UploadArtifactSchema = zfd.formData({
     file: zfd.file(
@@ -173,9 +209,11 @@ export const UploadArtifactSchema = zfd.formData({
             `File too large (max ${MAX_ARTIFACT_UPLOAD_SIZE / 1024 / 1024}MB)`,
         ),
     ),
-    projectId: zfd.text(z4.string().uuid()),
+    projectId: zfd.text(z4.string().uuid().optional()),
     chatId: zfd.text(z4.string().uuid().optional()),
     title: zfd.text(z4.string().min(1).optional()),
+    clientEntryId: zfd.text(z4.string().min(1).optional()),
+    source: zfd.text(z4.enum(['chat-input', 'project-resources']).optional()),
 });
 export type UploadArtifactDto = z4.infer<typeof UploadArtifactSchema>;
 
@@ -190,6 +228,46 @@ export const UploadArtifactResponseSchema = z.object({
 });
 export type UploadArtifactResponseDto = z.infer<typeof UploadArtifactResponseSchema>;
 
+export const PresignUploadSchema = z.object({
+    filename: z.string().min(1),
+    fileSize: z.number().int().positive().max(MAX_ARTIFACT_UPLOAD_SIZE),
+    projectId: z.string().uuid().optional(),
+    chatId: z.string().uuid().optional(),
+    title: z.string().min(1).optional(),
+    clientEntryId: z.string().min(1).optional(),
+    source: z.enum(['chat-input', 'project-resources']).optional(),
+});
+export type PresignUploadDto = z.infer<typeof PresignUploadSchema>;
+
+export const PresignUploadResponseSchema = z.object({
+    uploadUrl: z.string().url(),
+    storageKey: z.string(),
+    artifactId: z.string().uuid(),
+    versionId: z.string().uuid(),
+    fileId: z.string().uuid(),
+    key: z.string(),
+});
+export type PresignUploadResponseDto = z.infer<typeof PresignUploadResponseSchema>;
+
+export const ConfirmUploadSchema = z.object({
+    fileId: z.string().uuid(),
+    versionId: z.string().uuid(),
+    clientEntryId: z.string().min(1).optional(),
+    source: z.enum(['chat-input', 'project-resources']).optional(),
+});
+export type ConfirmUploadDto = z.infer<typeof ConfirmUploadSchema>;
+
+export const ConfirmUploadResponseSchema = z.object({
+    success: z.boolean(),
+    action: z.enum(['created', 'new_version']),
+    artifactId: z.string().uuid(),
+    versionId: z.string().uuid(),
+    version: z.number().int().positive(),
+    key: z.string(),
+    supersededVersion: z.number().int().positive().optional(),
+});
+export type ConfirmUploadResponseDto = z.infer<typeof ConfirmUploadResponseSchema>;
+
 export const EXPORT_FORMATS = ['docx'] as const;
 export const ExportFormatSchema = z.enum(EXPORT_FORMATS);
 export type ExportFormat = z.infer<typeof ExportFormatSchema>;
@@ -198,8 +276,20 @@ export const ListUserResourcesQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional().default(1),
     limit: z.coerce.number().int().positive().max(100).optional().default(20),
     documentType: csvOf(DocumentTypeSchema).optional(),
+    /** When true, only return resources whose current_version is approved */
+    approvedOnly: z
+        .enum(['true', 'false'])
+        .transform((v) => v === 'true')
+        .optional(),
+    /** Exclude resources originally published from this project */
+    excludeProjectId: z.string().uuid().optional(),
 });
 export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
+
+export const DeleteArtifactSchema = z.object({
+    artifactId: z.string().uuid(),
+});
+export type DeleteArtifactDto = z.infer<typeof DeleteArtifactSchema>;
 
 export const ExportArtifactQuerySchema = z.object({
     artifactVersionId: z.string().uuid(),

@@ -1,93 +1,26 @@
-import { wrap } from '@mikro-orm/core';
-import { type NextRequest, NextResponse } from 'next/server';
-import { PROJECT_ERRORS } from '@/app/api/projects/errors';
+import type { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { validatePayload } from '@/lib/api/validation';
-import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { getOrm } from '@/lib/orm/orm';
-import { type ProjectDto, UpdateProjectBodySchema } from '@/lib/schema/project';
+import { handleDeleteProject, handleGetProject, handleUpdateProject } from '@/lib/projects/handlers';
 
-async function handleGetProject(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
-    const { em } = await getOrm();
+type RouteParams = { projectId: string };
 
-    const project = await em.findOne(ProjectEntity, { id: projectId, user: { id: user.id } });
-    if (!project) {
-        return PROJECT_ERRORS.PROJECT_NOT_FOUND;
-    }
-
-    const dto: ProjectDto = wrap(project).toJSON();
-    return NextResponse.json(dto);
-}
-
-async function handleUpdateProject(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
-    const { em } = await getOrm();
-
-    const project = await em.findOne(ProjectEntity, { id: projectId, user: { id: user.id } });
-    if (!project) {
-        return PROJECT_ERRORS.PROJECT_NOT_FOUND;
-    }
-
-    const body = await req.json();
-    const bodyData = validatePayload(UpdateProjectBodySchema, body);
-
-    if (bodyData instanceof NextResponse) return bodyData;
-
-    const { name, description } = bodyData;
-
-    if (name !== undefined) {
-        project.name = name;
-    }
-
-    if (description !== undefined) {
-        project.description = description;
-    }
-
-    await em.persistAndFlush(project);
-
-    const dto: ProjectDto = wrap(project).toJSON();
-    return NextResponse.json(dto);
-}
-
-async function handleDeleteProject(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
-    const { em } = await getOrm();
-
-    const project = await em.findOne(ProjectEntity, { id: projectId, user: { id: user.id } });
-    if (!project) {
-        return PROJECT_ERRORS.PROJECT_NOT_FOUND;
-    }
-
-    await em.removeAndFlush(project);
-
-    return NextResponse.json({ message: 'Project deleted successfully' }, { status: 200 });
-}
-
-export async function GET(
-    req: NextRequest,
-    { params }: { params: Promise<{ projectId: string }> },
-): Promise<NextResponse> {
-    return withAuth(async (request, user) => {
+export function GET(req: NextRequest, { params }: { params: Promise<RouteParams> }): Promise<NextResponse> {
+    return withAuth(async (_request, user) => {
         const { projectId } = await params;
-        return await handleGetProject(request, projectId, user);
+        return handleGetProject(projectId, user);
     })(req);
 }
 
-export async function PATCH(
-    req: NextRequest,
-    { params }: { params: Promise<{ projectId: string }> },
-): Promise<NextResponse> {
+export function PATCH(req: NextRequest, { params }: { params: Promise<RouteParams> }): Promise<NextResponse> {
     return withAuth(async (request, user) => {
         const { projectId } = await params;
-        return await handleUpdateProject(request, projectId, user);
+        return handleUpdateProject(request, projectId, user);
     })(req);
 }
 
-export async function DELETE(
-    req: NextRequest,
-    { params }: { params: Promise<{ projectId: string }> },
-): Promise<NextResponse> {
-    return withAuth(async (request, user) => {
+export function DELETE(req: NextRequest, { params }: { params: Promise<RouteParams> }): Promise<NextResponse> {
+    return withAuth(async (_request, user) => {
         const { projectId } = await params;
-        return await handleDeleteProject(request, projectId, user);
+        return handleDeleteProject(projectId, user);
     })(req);
 }

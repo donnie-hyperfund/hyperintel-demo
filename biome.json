@@ -3,7 +3,16 @@
     "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
     "files": {
         "ignoreUnknown": false,
-        "includes": ["**/*.ts", "**/*.tsx", "**/*.json", "!**/node_modules", "!common", "!**/dist", "!workers/_common"]
+        "includes": [
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.json",
+            "!**/node_modules",
+            "!common",
+            "!**/dist",
+            "!workers/_common",
+            "!**/worker-configuration.d.ts"
+        ]
     },
     "formatter": {
         "enabled": true,
@@ -114,7 +123,7 @@
             },
             "style": {
                 "noInferrableTypes": "error",
-                "noNamespace": "error",
+                "noNamespace": "off",
                 "noNegationElse": "error",
                 "noNonNullAssertion": "off",
                 "noParameterAssign": "warn",

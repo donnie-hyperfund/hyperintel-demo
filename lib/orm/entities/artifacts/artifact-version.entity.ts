@@ -38,8 +38,8 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'int' })
     version!: number;
 
-    @Property({ type: 'text' })
-    content!: string;
+    @Property({ type: 'text', nullable: true })
+    content?: string;
 
     @Property({ type: 'text', nullable: true })
     ai_content?: string & Opt;

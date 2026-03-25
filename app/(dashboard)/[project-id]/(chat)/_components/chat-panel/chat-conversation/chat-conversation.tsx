@@ -114,7 +114,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
                 <AnimatePresence initial={false}>
                     {messages.map((message, index) => (
                         <motion.div
-                            key={message.id ?? index}
+                            key={message.tempId ?? message.id ?? index}
                             initial={{ opacity: 0, y: 8, scale: 0.98 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: -6, scale: 0.98 }}

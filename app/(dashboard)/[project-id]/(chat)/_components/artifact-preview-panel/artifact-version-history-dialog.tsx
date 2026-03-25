@@ -25,7 +25,7 @@ import {
     useRestoreProjectArtifactVersion,
 } from '@/lib/api/client/hooks/use-project-artifacts';
 import { type ArtifactVersionDto, TERMINAL_VERSION_STATUSES } from '@/lib/schema/artifact';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -51,7 +51,7 @@ export function ArtifactVersionHistoryDialog({
     const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
 
     const { projectId } = useChatContext<'phase'>();
-    const { addArtifact } = useArtifactContext();
+    const { addArtifact } = useArtifactActions();
 
     const { openPanel } = useActivePanelContext();
 

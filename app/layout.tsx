@@ -2,6 +2,7 @@ import { Analytics } from '@vercel/analytics/next';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import type React from 'react';
+import 'katex/dist/katex.min.css';
 import './globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
 import NextTopLoader from 'nextjs-toploader';
@@ -10,25 +11,11 @@ import { Toaster } from '@/components/ui/toaster';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-    title: 'HYPERINTEL™ - AI Chatbot Demo',
+    title: 'HYPERINTEL™',
     description: 'Dual-panel AI chatbot comparison interface',
     generator: 'v0.app',
     icons: {
-        icon: [
-            {
-                url: '/icon-light-32x32.png',
-                media: '(prefers-color-scheme: light)',
-            },
-            {
-                url: '/icon-dark-32x32.png',
-                media: '(prefers-color-scheme: dark)',
-            },
-            {
-                url: '/icon.svg',
-                type: 'image/svg+xml',
-            },
-        ],
-        apple: '/apple-icon.png',
+        icon: '/favicon.ico',
     },
 };
 

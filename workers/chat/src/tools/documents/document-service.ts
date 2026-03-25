@@ -23,12 +23,13 @@ import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/ar
 // SCOPE — project-scoped or user-scoped artifacts
 // ============================================================================
 
-export type DocumentScope = { projectId: string } | { userId: string };
+export type DocumentScope = { projectId: string } | { userId: string; chatId?: string };
 
 /** Build a MikroORM where-clause fragment from a scope. */
-function scopeFilter(scope: DocumentScope): Record<string, string> {
+function scopeFilter(scope: DocumentScope): Record<string, unknown> {
     if ('projectId' in scope) return { project: scope.projectId };
-    return { user: scope.userId };
+    if (scope.chatId) return { $or: [{ user: scope.userId, project: null }, { chat: scope.chatId }] };
+    return { user: scope.userId, project: null };
 }
 
 /** Set the owner (project or user) on a new artifact entity. */
@@ -259,6 +260,8 @@ export interface DocumentInfo {
     rejectedDocumentType: string | null;
     rejectionReason: string | null;
     lineCount: number;
+    /** Whether this artifact is a read-only public resource (or imported from one) */
+    isReadOnly: boolean;
 }
 
 /**
@@ -284,8 +287,12 @@ export async function findDocumentByName(
     const rejected = versions.filter((v) => v.status === 'rejected').sort((a, b) => b.version - a.version)[0];
     const lastApproved = versions.filter((v) => v.status === 'approved').sort((a, b) => b.version - a.version)[0];
 
+    const currentContent = artifact.current_version?.content ?? null;
     const proposedContent = proposed?.content ?? null;
     const approvedContent = lastApproved?.content ?? null;
+
+    // Public artifacts and copies imported from public artifacts are read-only
+    const isReadOnly = artifact.is_public || !!(artifact.metadata as any)?.importedFromPublic;
 
     return {
         id: artifact.id,
@@ -307,6 +314,7 @@ export async function findDocumentByName(
         rejectedDocumentType: rejected?.document_type ?? null,
         rejectionReason: rejected?.rejection_reason ?? null,
         lineCount: countLines(proposedContent ?? approvedContent ?? ''),
+        isReadOnly,
     };
 }
 
@@ -319,6 +327,8 @@ export interface DocumentListItem {
     latestVersion: number;
     latestStatus: VersionStatus;
     hasProposed: boolean;
+    /** Whether this artifact is a read-only public resource (or imported from one) */
+    isReadOnly: boolean;
 }
 
 /**
@@ -333,11 +343,12 @@ export async function listDocuments(
 
     const artifacts = await em.find(
         ArtifactEntity,
-        // TODO allow including deleted artifacts
         {
-            ...scopeFilter(scope),
-            $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }],
-        },
+            $and: [
+                scopeFilter(scope),
+                { $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
+            ],
+        } as any,
         { populate: ['current_version', 'versions'] },
     );
 
@@ -347,6 +358,7 @@ export async function listDocuments(
         const proposed = versions.find((v) => v.status === 'proposed');
 
         const contentForLines = proposed?.content ?? a.current_version?.content ?? '';
+        const isReadOnly = a.is_public || !!(a.metadata as any)?.importedFromPublic;
 
         return {
             name: a.key,
@@ -357,6 +369,7 @@ export async function listDocuments(
             latestVersion: latest?.version ?? 0,
             latestStatus: latest?.status ?? 'approved',
             hasProposed: !!proposed,
+            isReadOnly,
         };
     });
 }

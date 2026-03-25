@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.idea
+.vscode
+target/
+vendor/**/tests/
+vendor/**/test/
+vendor/**/examples/
+vendor/**/target/
+vendor/**/.github/

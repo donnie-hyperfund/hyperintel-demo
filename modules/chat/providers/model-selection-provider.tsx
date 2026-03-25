@@ -2,6 +2,7 @@
 
 import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { createContext, type ReactNode, useContext, useState } from 'react';
+import { IS_DEV } from '@/lib/config';
 
 type ModelSelectionContextValue = {
     selectedModel: ANTHROPIC_MODELS;
@@ -10,8 +11,10 @@ type ModelSelectionContextValue = {
 
 const ModelSelectionContext = createContext<ModelSelectionContextValue | null>(null);
 
+const DEFAULT_MODEL = IS_DEV ? ANTHROPIC_MODELS.SONNET : ANTHROPIC_MODELS.OPUS;
+
 export function ModelSelectionProvider({ children }: { children: ReactNode }) {
-    const [selectedModel, setSelectedModel] = useState<ANTHROPIC_MODELS>(ANTHROPIC_MODELS.SONNET);
+    const [selectedModel, setSelectedModel] = useState<ANTHROPIC_MODELS>(DEFAULT_MODEL);
 
     return (
         <ModelSelectionContext.Provider value={{ selectedModel, setSelectedModel }}>

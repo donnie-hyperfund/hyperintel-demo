@@ -10,9 +10,10 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
+import { useClipboardAction } from '@/hooks/use-clipboard-action';
 import { exportArtifact } from '@/lib/api/requests/worker/chat';
-import { isIntakeDocument } from '@/lib/artifacts/utils';
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
+import { downloadBlob } from '@/lib/utils';
 import { getDocumentTypeIcon } from '@/modules/artifacts/utils';
 
 type ArtifactHeaderProps = {
@@ -49,7 +50,7 @@ export function ArtifactHeader({
     isStreaming,
 }: ArtifactHeaderProps) {
     const { getToken } = useAuth();
-    const [copied, setCopied] = useState(false);
+    const { copied, copy } = useClipboardAction();
     const [downloaded, setDownloaded] = useState(false);
     const [exporting, setExporting] = useState(false);
 
@@ -57,30 +58,14 @@ export function ArtifactHeader({
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : undefined;
     const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;
-
-    const shouldDisplayVersion = !isIntakeDocument(documentType);
-    const shouldDisplayCopyButton = !!content && !isStreaming;
-    const shouldDisplayDownloadButton = !!content && !isStreaming;
-
-    const handleCopy = async () => {
-        await navigator.clipboard.writeText(content);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1000);
-    };
+    const showCopy = !!content && !isStreaming;
+    const showDownload = !!content && !isStreaming;
 
     const handleDownload = () => {
         const blob = new Blob([content], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = title.endsWith('.md') ? title : `${title}.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
+        downloadBlob(blob, title.endsWith('.md') ? title : `${title}.md`);
         setDownloaded(true);
-        setTimeout(() => setDownloaded(false), 1000);
+        setTimeout(() => setDownloaded(false), 2000);
     };
 
     const handleExportDocx = async () => {
@@ -89,22 +74,13 @@ export function ArtifactHeader({
         try {
             const token = await getToken();
             if (!token) throw new Error('Not authenticated');
-
             const res = await exportArtifact(artifactVersionId, token);
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ message: 'Export failed' }));
                 throw new Error(err.message ?? 'Export failed');
             }
-
             const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${title.replace(/\.md$/, '')}.docx`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            downloadBlob(blob, `${title.replace(/\.md$/, '')}.docx`);
         } catch (err) {
             console.error('[exportDocx] Failed:', err);
         } finally {
@@ -129,13 +105,13 @@ export function ArtifactHeader({
                             <span title={title} className="line-clamp-1 text-sm font-medium">
                                 {title}
                             </span>
-                            {shouldDisplayVersion && <VersionStatusBadge status={status} isUploaded={isUploaded} />}
+                            <VersionStatusBadge status={status} isUploaded={isUploaded} />
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
-                            {shouldDisplayVersion && <span>v{version}</span>}
+                            <span>v{version}</span>
                             {timeAgo && updatedAtFormatted && (
                                 <>
-                                    {shouldDisplayVersion && <span>·</span>}
+                                    <span>·</span>
                                     <span title={updatedAtFormatted}>{timeAgo}</span>
                                 </>
                             )}
@@ -145,10 +121,10 @@ export function ArtifactHeader({
             </div>
 
             <div className="flex items-center gap-1">
-                {shouldDisplayCopyButton && (
+                {showCopy && (
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon-sm" onClick={handleCopy} disabled={!content}>
+                            <Button variant="ghost" size="icon-sm" onClick={() => copy(content)} disabled={!content}>
                                 {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
                             </Button>
                         </TooltipTrigger>
@@ -156,7 +132,7 @@ export function ArtifactHeader({
                     </Tooltip>
                 )}
 
-                {shouldDisplayDownloadButton && (
+                {showDownload && (
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon-sm" onClick={handleDownload} disabled={!content}>

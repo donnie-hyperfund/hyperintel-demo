@@ -1,8 +1,8 @@
 'use client';
 
 import { FileText, Loader2 } from 'lucide-react';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
-import { getLatestArtifactVersion, getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
+import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
+import { getLatestArtifactVersionContent, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
 type ArtifactPreviewPanelProps = {
@@ -12,9 +12,7 @@ type ArtifactPreviewPanelProps = {
 };
 
 export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactPreviewPanelProps) => {
-    const { getArtifact } = useArtifactContext();
-
-    const currentArtifact = artifactId && version ? getArtifact(artifactId, version) : null;
+    const currentArtifact = useArtifact(artifactId, version);
 
     const updatedAt = currentArtifact?.proposed_version?.updated_at
         ? new Date(currentArtifact?.proposed_version?.updated_at)
@@ -28,7 +26,7 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
     const isInternal = activeVersion?.is_internal;
     const documentType = activeVersion?.document_type;
     const artifactVersionId = activeVersion?.id;
-    const showSkeleton = (isLoading || isStreaming) && !content;
+    const showSkeleton = (isLoading || (isStreaming && !isInternal)) && !content;
 
     // Get previous content for diff comparison (current_version when viewing proposed)
     const previousContent =
@@ -85,6 +83,7 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
                 documentType={documentType}
                 isStreaming={!!isStreaming}
                 isUpdating={!!isUpdating}
+                progress={currentArtifact.progress}
             />
         </div>
     );

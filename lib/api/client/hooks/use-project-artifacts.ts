@@ -1,9 +1,10 @@
 import { useAuth } from '@clerk/nextjs';
 import { useRef, useState } from 'react';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
-import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
+import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { toast } from '@/hooks/use-toast';
+import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import {
     createProjectArtifactApi,
     getProjectArtifactListInfiniteKey,
@@ -12,6 +13,7 @@ import {
     projectArtifactKeys,
     serializeProjectArtifactListKey,
 } from '@/lib/api/client/fetchers/project-artifacts';
+import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
 import type {
     InfinitePaginationParams,
     PaginatedResponse,
@@ -27,6 +29,7 @@ import type {
     UploadArtifactResponseDto,
 } from '@/lib/schema/artifact';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
+import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
 export function useFetchProjectArtifacts(
     projectId: string | undefined,
@@ -53,7 +56,7 @@ export function useFetchProjectArtifactsInfinite(
     const { getToken } = useAuth();
     const { limit, ...filters } = params;
 
-    const result = useSWRInfinite<PaginatedResponse<ArtifactDto>>(
+    return useSWRInfinitePaginated<ArtifactDto>(
         getProjectArtifactListInfiniteKey(projectId, limit, filters),
         (key) => {
             if (!projectId) throw new Error('Project ID is required');
@@ -62,11 +65,6 @@ export function useFetchProjectArtifactsInfinite(
         },
         { revalidateOnFocus: false, ...config },
     );
-
-    const lastPage = result.data?.[result.data.length - 1];
-    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
-
-    return { ...result, hasNextPage };
 }
 
 export function useFetchProjectArtifact(
@@ -121,54 +119,62 @@ export function useFetchProjectArtifactVersions(
     );
 }
 
-export function useApproveProjectArtifactVersion(projectId: string, artifactKey: string, artifactVersion: number) {
+export function useApproveProjectArtifactVersion(
+    projectId: string | undefined,
+    artifactKey: string,
+    artifactVersion: number,
+    versionId: string,
+) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
     return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[]>(
-        [...projectArtifactKeys.byKey(projectId, artifactKey)],
+        [...projectArtifactKeys.byKey(projectId ?? '_user', artifactKey)],
         async () => {
-            const api = createProjectArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
-            if (!artifact.proposed_version) throw new Error('No proposed version');
-
             const token = await getToken();
             if (!token) throw new Error('Not authenticated');
 
-            const response = await approveArtifact({ versionId: artifact.proposed_version.id }, token);
+            const response = await approveArtifact({ versionId }, token);
             if (!response.ok) {
                 const error = await response.json();
                 throw new Error(error.message || 'Failed to approve artifact');
             }
 
-            globalMutate(serializeProjectArtifactListKey(projectId));
-            return api.getByKey(projectId, artifactKey, artifactVersion);
+            if (projectId) {
+                globalMutate(serializeProjectArtifactListKey(projectId));
+                return createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, artifactVersion);
+            }
+            return createArtifactApi(getToken).getByKey(artifactKey, artifactVersion);
         },
     );
 }
 
-export function useRejectProjectArtifactVersion(projectId: string, artifactKey: string, artifactVersion: number) {
+export function useRejectProjectArtifactVersion(
+    projectId: string | undefined,
+    artifactKey: string,
+    artifactVersion: number,
+    versionId: string,
+) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
     return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[], string>(
-        [...projectArtifactKeys.byKey(projectId, artifactKey)],
+        [...projectArtifactKeys.byKey(projectId ?? '_user', artifactKey)],
         async (_, { arg: reason }) => {
-            const api = createProjectArtifactApi(getToken);
-            const artifact = await api.getByKey(projectId, artifactKey, artifactVersion);
-            if (!artifact.proposed_version) throw new Error('No proposed version');
-
             const token = await getToken();
             if (!token) throw new Error('Not authenticated');
 
-            const response = await rejectArtifact({ versionId: artifact.proposed_version.id, reason }, token);
+            const response = await rejectArtifact({ versionId, reason }, token);
             if (!response.ok) {
                 const error = await response.json();
                 throw new Error(error.message || 'Failed to reject artifact');
             }
 
-            globalMutate(serializeProjectArtifactListKey(projectId));
-            return api.getByKey(projectId, artifactKey, artifactVersion);
+            if (projectId) {
+                globalMutate(serializeProjectArtifactListKey(projectId));
+                return createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, artifactVersion);
+            }
+            return createArtifactApi(getToken).getByKey(artifactKey, artifactVersion);
         },
     );
 }
@@ -248,7 +254,7 @@ export function useUploadProjectArtifact(projectId: string, chatId: string | nul
                 throw new Error(error.message || 'Upload failed');
             }
 
-            globalMutate(serializeProjectArtifactListKey(projectId));
+            globalMutate(serializeProjectResourceListKey(projectId));
             return response.json();
         },
     );

@@ -9,12 +9,22 @@ secrets:
   - LANGFUSE_SECRET_KEY
   - AUTH_SECRET
   - FIRECRAWL_API_KEY
+  - R2_ACCESS_KEY_ID
+  - R2_SECRET_ACCESS_KEY
+  - CF_ACCOUNT_ID
 
-# Queue producer for embedding jobs
+r2_buckets:
+  - binding: ARTIFACTS_BUCKET
+    bucket_name:
+      production: hi-artifacts
+      dev: hi-artifacts-dev
+
 queues:
   producers:
     - binding: EMBEDDING_QUEUE
       queue: hi-embedding-queue
+    - binding: EXTRACTION_QUEUE
+      queue: hi-extraction-queue
 
 # vars:
 #   - SOME_VAR
@@ -26,10 +36,16 @@ queues:
 #   - binding: SOME_SERVICE
 #     entrypoint: SomeEntrypoint
 
-# durable_objects:
-#   - name: SOME_DO
-#     class_name: SomeClass
-#     script_name: services  # external, or local: true
+durable_objects:
+  - name: USER_GATEWAY
+    class_name: UserGateway
+    script_name: hi-objects
+  - name: CHAT_STREAM_DO
+    class_name: ChatStreamDO
+    script_name: hi-objects
+  - name: GENERATION_PROXY
+    class_name: GenerationProxyDO
+    script_name: hi-objects
 
-# triggers:
-#   crons: ["0 * * * *"]
+triggers:
+  crons: ["0 * * * *"]

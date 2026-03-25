@@ -2,18 +2,20 @@ import { wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { validatePayload } from '@/lib/api/validation';
+import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { handleListChats } from '@/lib/chats/handlers';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
-import { type ChatDto, CreateChatBodySchema } from '@/lib/schema/message';
+import { CreateUnifiedChatBodySchema } from '@/lib/schema/chat';
+import type { ChatDto } from '@/lib/schema/message';
 
 async function handleCreateChat(req: NextRequest, projectId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const json = await req.json();
-    const bodyData = validatePayload(CreateChatBodySchema, json);
+    const bodyData = validatePayload(CreateUnifiedChatBodySchema, json);
 
     if (bodyData instanceof NextResponse) return bodyData;
 
@@ -35,6 +37,11 @@ async function handleCreateChat(req: NextRequest, projectId: string, user: UserE
     });
 
     await em.persistAndFlush(chat);
+
+    // Broadcast chat_created to all user WS connections (fire-and-forget)
+    if (user.clerkId) {
+        broadcastUserEvent(user.clerkId, 'chat_created', { chatId: chat.id, projectId }).catch(console.error);
+    }
 
     const chatDto: ChatDto = wrap(chat).toJSON();
     return NextResponse.json(chatDto, { status: 201 });

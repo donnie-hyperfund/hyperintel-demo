@@ -37,9 +37,16 @@ const nextConfig = {
         parallelServerCompiles: true,
     },
     productionBrowserSourceMaps: true,
+    serverExternalPackages: ['cloudflare:workers'],
     webpack(config, { dev, isServer }) {
         if (!dev /*&& !isServer*/) {
             config.devtool = 'source-map';
+        }
+        // Cloudflare-specific modules — never bundled by Next.js
+        // (pulled in via dynamic import in cf-env-secret-mock.ts → chat-stream-do.ts)
+        if (isServer) {
+            config.externals = config.externals || [];
+            config.externals.push(/^cloudflare:/);
         }
         config.module.rules.push({
             test: /\.svg$/,
@@ -61,6 +68,20 @@ const nextConfig = {
             ];
         }
         return config;
+    },
+    async redirects() {
+        return [
+            {
+                source: '/workspace',
+                destination: '/launch-pad',
+                permanent: true,
+            },
+            {
+                source: '/select-project',
+                destination: '/launch-pad',
+                permanent: true,
+            },
+        ];
     },
     async headers() {
         return isProd

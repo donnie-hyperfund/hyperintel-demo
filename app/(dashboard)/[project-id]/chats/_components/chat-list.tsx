@@ -3,6 +3,7 @@
 import { MessageSquare, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
@@ -11,11 +12,21 @@ import { ChatItem, ChatItemSkeleton } from './chat-item';
 
 type ChatListParams = PageParams<'/[project-id]'>;
 
-export const ChatList = () => {
+type ChatListProps = {
+    onEmptyChange?: (isEmpty: boolean) => void;
+};
+
+export const ChatList = ({ onEmptyChange }: ChatListProps) => {
     const { 'project-id': projectId } = useParams<ChatListParams>();
 
     const { data, error, isLoading } = useFetchChats(projectId);
     const chats = sortChatsByCreatedAt(data?.data ?? []);
+
+    useEffect(() => {
+        if (!isLoading) {
+            onEmptyChange?.(chats.length === 0);
+        }
+    }, [chats.length, isLoading, onEmptyChange]);
 
     if (error) {
         return (

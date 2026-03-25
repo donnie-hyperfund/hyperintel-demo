@@ -10,8 +10,9 @@ import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
 import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
+import { SEARCH_PARAMS } from '@/lib/search-params';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersionChatId } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -54,7 +55,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     });
     const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
 
-    const { addArtifact, updateArtifact } = useArtifactContext();
+    const { addArtifact, updateArtifact } = useArtifactActions();
     const { openPanel } = useActivePanelContext();
 
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -96,8 +97,8 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         (targetChatId: string, artifactKey: string, artifactVersion: number) => {
             if (!projectId) return;
             const search = new URLSearchParams({
-                scrollArtifactKey: artifactKey,
-                scrollArtifactVersion: String(artifactVersion),
+                [SEARCH_PARAMS.SCROLL_ARTIFACT_KEY]: artifactKey,
+                [SEARCH_PARAMS.SCROLL_ARTIFACT_VERSION]: String(artifactVersion),
             });
             router.push(`/${projectId}/${targetChatId}?${search}`);
         },
@@ -149,8 +150,8 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         return (
             <EmptyState
                 icon={FileText}
-                title="Failed to load deliverables"
-                error={error instanceof Error ? error.message : 'An error occurred while loading deliverables.'}
+                title="Failed to load artifacts"
+                error={error instanceof Error ? error.message : 'An error occurred while loading artifacts.'}
             />
         );
     }
@@ -171,8 +172,12 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         return (
             <EmptyState
                 icon={FileText}
-                title={hasActiveFilters ? 'No deliverables match these filters' : 'No deliverables yet'}
-                description={hasActiveFilters ? undefined : 'Deliverables created during your phases will appear here.'}
+                title={hasActiveFilters ? 'No artifacts match these filters' : 'No artifacts yet'}
+                description={
+                    hasActiveFilters
+                        ? undefined
+                        : 'Artifacts will appear here as they are generated throughout the project journey.'
+                }
             />
         );
     }

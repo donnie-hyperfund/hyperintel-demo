@@ -43,7 +43,7 @@ export function ArtifactDeleteDocument({
             onDeleted?.();
         } catch (err) {
             console.error('Failed to delete artifact:', err);
-            toast({ title: 'Failed to delete deliverable', variant: 'destructive' });
+            toast({ title: 'Failed to delete artifact', variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);
         }
@@ -59,11 +59,11 @@ export function ArtifactDeleteDocument({
                         </Button>
                     </AlertDialogTrigger>
                 </TooltipTrigger>
-                <TooltipContent>{isMutating ? 'Deleting...' : 'Delete deliverable'}</TooltipContent>
+                <TooltipContent>{isMutating ? 'Deleting...' : 'Delete artifact'}</TooltipContent>
             </Tooltip>
             <AlertDialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Delete deliverable</AlertDialogTitle>
+                    <AlertDialogTitle>Delete artifact</AlertDialogTitle>
                     <AlertDialogDescription>
                         Are you sure you want to permanently delete <strong>{title}</strong>? This action cannot be
                         undone.

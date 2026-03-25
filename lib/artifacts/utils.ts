@@ -1,9 +1,29 @@
-import { ALLOWED_ARTIFACT_EXTENSIONS, type DocumentType, MAX_ARTIFACT_UPLOAD_SIZE } from '@/lib/schema/artifact';
+import {
+    ALLOWED_ARTIFACT_EXTENSIONS,
+    type ArtifactDto,
+    isBinaryArtifactExtension,
+    isTextArtifactExtension,
+    MAX_ARTIFACT_UPLOAD_SIZE,
+} from '@/lib/schema/artifact';
 
-const INTAKE_DOCUMENT_TYPES: readonly DocumentType[] = ['Company Profile', 'Human Persona'];
+// ── Artifact DTO helpers ────────────────────────────────────────────────────
 
-export function isIntakeDocument(documentType: DocumentType | undefined): boolean {
-    return !!documentType && INTAKE_DOCUMENT_TYPES.includes(documentType);
+export function getLatestArtifactVersion(artifact: ArtifactDto) {
+    return artifact.proposed_version ?? artifact.current_version;
+}
+
+export function getArtifactDocumentType(artifact: ArtifactDto) {
+    return getLatestArtifactVersion(artifact)?.document_type;
+}
+
+export function isApprovedArtifact(artifact: ArtifactDto) {
+    return getLatestArtifactVersion(artifact)?.status === 'approved';
+}
+
+/** Extract the source project name from a published artifact's metadata (Legacy DNA). */
+export function getSourceProjectName(artifact: ArtifactDto): string | undefined {
+    const publishedFrom = artifact.metadata?.publishedFrom as { projectName?: string } | undefined;
+    return publishedFrom?.projectName;
 }
 
 // ── Upload error codes (shared between FE & BE) ────────────────────────────
@@ -36,11 +56,17 @@ export class UploadValidationError extends Error {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/**
- * Normalize artifact key - ensure .md extension.
- */
 export function normalizeArtifactKey(key: string): string {
     const trimmed = key.trim();
+    const ext = trimmed.slice(trimmed.lastIndexOf('.')).toLowerCase();
+    if (isBinaryArtifactExtension(ext)) return trimmed;
+    return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
+}
+
+export function normalizeUploadedFileKey(filename: string): string {
+    const trimmed = filename.trim();
+    const ext = trimmed.slice(trimmed.lastIndexOf('.')).toLowerCase();
+    if (isBinaryArtifactExtension(ext) || isTextArtifactExtension(ext)) return trimmed;
     return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
 }
 

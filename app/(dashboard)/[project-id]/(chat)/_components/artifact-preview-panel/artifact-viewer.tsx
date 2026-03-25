@@ -5,15 +5,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
-import { isIntakeDocument } from '@/lib/artifacts/utils';
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
+import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
 import { ArtifactVersionHistoryDialog } from './artifact-version-history-dialog';
 import { DiffControlBar } from './diff-control-bar';
+import { InternalDocumentContent } from './internal-document-content';
 
 type ArtifactViewerProps = {
     title: string;
@@ -46,6 +47,8 @@ type ArtifactViewerProps = {
     isStreaming?: boolean;
     /** Whether an existing document is being patched */
     isUpdating?: boolean;
+    /** Generation progress percentage (0-100) */
+    progress?: number;
 };
 
 const diffDirectives: Record<string, DirectiveHandler> = {
@@ -79,6 +82,7 @@ export const ArtifactViewer = ({
     onCloseAction,
     isStreaming = false,
     isUpdating = false,
+    progress,
 }: ArtifactViewerProps) => {
     const prevTitleRef = useRef<string | null>(null);
     const [isDiffVisible, setIsDiffVisible] = useState(false);
@@ -89,14 +93,10 @@ export const ArtifactViewer = ({
         state: { messages },
         projectId,
     } = useChatContext();
+    const { isLinking: isLinkingToProject } = useOptionalProjectOrigin();
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
-    const showApprovalBar =
-        !isIntakeDocument(documentType) &&
-        status === 'proposed' &&
-        !isStreaming &&
-        !!artifactKey &&
-        !isLastMessageStreaming;
+    const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
     const canDelete = !!artifactKey && !!isUploaded && !isStreaming && status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
     const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
@@ -166,7 +166,9 @@ export const ArtifactViewer = ({
             {/* Preview */}
             <div className="relative flex-1 min-h-0">
                 <div ref={containerRef} className="h-full overflow-y-auto">
-                    {markdownContent ? (
+                    {isInternal ? (
+                        <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming} />
+                    ) : markdownContent ? (
                         <div className="p-6">
                             <MarkdownRenderer
                                 markdown={markdownContent}
@@ -188,9 +190,11 @@ export const ArtifactViewer = ({
                             <Loader2 className="size-5 animate-spin" />
                             {isProcessingDelete
                                 ? 'Deleting...'
-                                : isProcessingApproval
-                                  ? 'Processing...'
-                                  : 'Making changes...'}
+                                : isLinkingToProject
+                                  ? 'Adding to Project Intel...'
+                                  : isProcessingApproval || status === 'proposed'
+                                    ? 'Processing...'
+                                    : 'Making changes...'}
                         </div>
                     </div>
                 )}
@@ -220,6 +224,9 @@ export const ArtifactViewer = ({
                     artifactId={artifactId!}
                     artifactKey={artifactKey}
                     artifactVersion={version}
+                    artifactVersionId={artifactVersionId!}
+                    isInternal={isInternal}
+                    disabled={isUpdating}
                     onProcessingChange={setIsProcessingApproval}
                 />
             )}

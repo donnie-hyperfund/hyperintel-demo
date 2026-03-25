@@ -5,11 +5,13 @@ import { cva } from 'class-variance-authority';
 
 import { useCallback, useEffect, useRef } from 'react';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
+import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
 import { cn } from '@/lib/utils';
 import { DEFAULT_DOCUMENT_TYPE_ICON } from '@/modules/artifacts/constants';
-import { useArtifactContext } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifact, useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getDocumentTypeIcon, isDocumentType } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
 
 const indicatorVariants = cva(
@@ -39,13 +41,14 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
     const { getToken } = useAuth();
 
     const { panelState, openPanel, closePanel } = useActivePanelContext();
-    const { getArtifact, addArtifact, updateArtifact } = useArtifactContext();
+    const { addArtifact, updateArtifact } = useArtifactActions();
+    const { projectId } = useChatContext();
     const { target: scrollTarget, markFound, clear: clearScrollTarget } = useScrollTargetContext();
     const Icon = isDocumentType(documentType) ? getDocumentTypeIcon(documentType) : DEFAULT_DOCUMENT_TYPE_ICON;
 
     const buttonRef = useRef<HTMLButtonElement>(null);
 
-    const artifact = getArtifact(documentName, documentVersion);
+    const artifact = useArtifact(documentName, documentVersion);
     const isLoading = artifact?.isLoading ?? false;
 
     const isScrollTarget = scrollTarget?.key === documentName && scrollTarget.version === documentVersion;
@@ -65,8 +68,9 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
         openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
 
         try {
-            const api = createArtifactApi(getToken);
-            const fetchedArtifact = await api.getByKey(documentName, documentVersion);
+            const fetchedArtifact = projectId
+                ? await createProjectArtifactApi(getToken).getByKey(projectId, documentName, documentVersion)
+                : await createArtifactApi(getToken).getByKey(documentName, documentVersion);
 
             if (fetchedArtifact) {
                 updateArtifact(
@@ -88,7 +92,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
             console.error('Failed to fetch artifact:', error);
             updateArtifact(documentName, { isLoading: false }, documentVersion);
         }
-    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, openPanel]);
+    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, openPanel, projectId]);
 
     const handleClick = () => {
         if (isSelected) {
@@ -122,7 +126,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
 
         // Clear scroll target when the CSS highlight animation actually finishes
         const handleAnimationEnd = (e: AnimationEvent) => {
-            if (e.animationName === 'artifact-scroll-highlight') {
+            if (e.animationName === 'highlight-pulse') {
                 clearScrollTarget();
             }
         };
@@ -145,7 +149,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
             title={documentName}
             className={cn(
                 indicatorVariants({ state: isSelected ? 'selected' : 'default' }),
-                isScrollTarget && 'artifact-scroll-highlight',
+                isScrollTarget && 'highlight-pulse',
                 className,
             )}
         >

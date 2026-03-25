@@ -9,6 +9,7 @@ import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/sc
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
+import { broadcastUserEvent } from './utils/broadcast';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
@@ -87,6 +88,7 @@ export async function publishToUserScopeAndIndexVersion(
                 sourceVersion: version,
                 userId: projectUser.id,
                 projectId: project.id,
+                projectName: project.name,
             });
             console.log('[publishToUserScopeAndIndexVersion] Published to user scope:', publishResult);
         } catch (err) {
@@ -134,10 +136,11 @@ export async function approveArtifactHandler(
         .leftJoinAndSelect('v.artifact', 'a')
         .leftJoinAndSelect('v.chat', 'c')
         .leftJoinAndSelect('a.project', 'p')
-        .leftJoinAndSelect('p.user', 'u')
+        .leftJoinAndSelect('p.user', 'pu')
+        .leftJoinAndSelect('a.user', 'au')
         .where({
             'v.id': versionId,
-            'u.clerkId': user.userId,
+            $or: [{ 'pu.clerkId': user.userId }, { 'au.clerkId': user.userId }],
         })
         .getSingleResult();
 
@@ -161,6 +164,18 @@ export async function approveArtifactHandler(
             code: 'NO_CHAT_CONTEXT',
         });
     }
+
+    const previousStatus = version.status;
+
+    await broadcastUserEvent(ctx, 'artifact_version_update_started', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'approve',
+        previousStatus,
+        nextStatus: 'approved',
+    });
 
     // Classify document to determine if AI-readable YAML should be generated
     const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.artifact.title);
@@ -199,7 +214,7 @@ export async function approveArtifactHandler(
 
     version.status = 'approved';
     version.status_changed_at = new Date();
-    version.status_changed_by = projectUser?.id;
+    version.status_changed_by = projectUser?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
 
     await em.flush();
@@ -208,6 +223,16 @@ export async function approveArtifactHandler(
     await publishToUserScopeAndIndexVersion(version, ctx, {
         content: isInternalDocument && yamlContent ? yamlContent : version.content,
         isAiContent: isInternalDocument,
+    });
+
+    await broadcastUserEvent(ctx, 'artifact_version_updated', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'approve',
+        previousStatus,
+        status: 'approved',
     });
 
     return {
@@ -236,11 +261,13 @@ export async function rejectArtifactHandler(
         .createQueryBuilder(ArtifactVersionEntity, 'v')
         .select('v.*')
         .leftJoinAndSelect('v.artifact', 'a')
+        .leftJoinAndSelect('v.chat', 'c')
         .leftJoinAndSelect('a.project', 'p')
-        .leftJoinAndSelect('p.user', 'u')
+        .leftJoinAndSelect('p.user', 'pu')
+        .leftJoinAndSelect('a.user', 'au')
         .where({
             'v.id': versionId,
-            'u.clerkId': user.userId,
+            $or: [{ 'pu.clerkId': user.userId }, { 'au.clerkId': user.userId }],
         })
         .getSingleResult();
 
@@ -265,13 +292,35 @@ export async function rejectArtifactHandler(
         });
     }
 
+    const previousStatus = version.status;
+
+    await broadcastUserEvent(ctx, 'artifact_version_update_started', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'reject',
+        previousStatus,
+        nextStatus: 'rejected',
+    });
+
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
-    version.status_changed_by = version.artifact.project?.user?.id;
+    version.status_changed_by = version.artifact.project?.user?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
 
     await em.flush();
+
+    await broadcastUserEvent(ctx, 'artifact_version_updated', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId,
+        version: version.version,
+        action: 'reject',
+        previousStatus,
+        status: 'rejected',
+    });
 
     return {
         success: true,

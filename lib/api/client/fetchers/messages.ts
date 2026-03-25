@@ -4,6 +4,7 @@ import type { PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
     root: (chatId: string) => `/api/chats/${chatId}/messages`,
+    byId: (chatId: string, messageId: string) => `/api/chats/${chatId}/messages/${messageId}`,
 } as const;
 
 export const messageKeys = {
@@ -20,6 +21,11 @@ export function createMessageApi(getToken: TokenGetter) {
             const { data } = await axios.get<PaginatedResponse<ChatMessageDto>>(
                 buildUrl(ENDPOINTS.root(chatId), params as Record<string, string | number | undefined>),
             );
+            return data;
+        },
+
+        get: async (chatId: string, messageId: string) => {
+            const { data } = await axios.get<ChatMessageDto>(ENDPOINTS.byId(chatId, messageId));
             return data;
         },
     };

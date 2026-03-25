@@ -1,4 +1,4 @@
-import { type NextRequest } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { BadRequestError } from '@/common/common/error.helpers';
 import { assertAuth } from '@/lib/api/auth-guard';
 import { initNextjsWorkerContext } from '@/lib/local/context';
@@ -20,13 +20,8 @@ export async function POST(req: NextRequest) {
     }
 
     const ctx = await initNextjsWorkerContext({ skipAI: false });
-    const stream = await summarizeActionHandler(parsed.data, ctx);
+    // Pass no-op onEvent to get direct result (not SSE stream — no proxy DO locally)
+    const result = await summarizeActionHandler(parsed.data, ctx, { onEvent: () => {} });
 
-    return new Response(stream, {
-        headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-        },
-    });
+    return NextResponse.json(result);
 }

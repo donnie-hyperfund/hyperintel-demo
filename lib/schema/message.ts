@@ -81,6 +81,14 @@ export const SearchStreamBlockSchema = BaseStreamBlockSchema.extend({
     serverToolInput: z.record(z.unknown()).optional(),
 });
 
+export const TerminalToolStreamBlockSchema = BaseStreamBlockSchema.extend({
+    type: z.literal('terminal_tool'),
+    content: z.string(),
+    toolName: z.string(),
+    toolInput: z.any(),
+    toolCallId: z.string(),
+});
+
 export const CitationStreamBlockSchema = BaseStreamBlockSchema.extend({
     type: z.literal('citation'),
     content: z.string(),
@@ -91,6 +99,7 @@ export const StreamBlockSchema = z.discriminatedUnion('type', [
     TextStreamBlockSchema,
     ReasoningStreamBlockSchema,
     ToolCallStreamBlockSchema,
+    TerminalToolStreamBlockSchema,
     SearchStreamBlockSchema,
     CitationStreamBlockSchema,
 ]);
@@ -150,8 +159,14 @@ export const ChatDtoSchema = z.object({
     phase: z.string(),
     phase_index: z.number().int(),
     summary: z.string().nullable().optional(),
-    project: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
-    user: z.union([z.string().uuid(), z.object({}).passthrough()]).nullable().optional(),
+    project: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
+    user: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
     message_count: z.number().optional(),
     first_message_content: z.string().nullable().optional(),
     /** Synthetic array of documents with version metadata */
@@ -160,6 +175,7 @@ export const ChatDtoSchema = z.object({
     token_usage: TokenUsageSchema.nullable().optional(),
     /** Whether the chat has any pending document changes awaiting approval */
     has_pending_changes: z.boolean().optional(),
+    active_agent_message_id: z.string().nullable().optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),
 });
@@ -172,6 +188,7 @@ export const ChatMessageDtoSchema = z.object({
     reasoning: z.string().nullable().optional(),
     blocks: z.array(StreamBlockSchema).nullable().optional(),
     is_error: z.boolean().optional(),
+    is_aborted: z.boolean().optional(),
     chat: z.union([z.string().uuid(), z.object({}).passthrough()]),
     metadata: z.record(z.unknown()).nullable().optional(),
     created_at: z.union([z.string(), z.date()]),

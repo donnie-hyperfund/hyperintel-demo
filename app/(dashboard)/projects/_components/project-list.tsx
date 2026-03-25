@@ -1,20 +1,44 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { FileCode, Plus } from 'lucide-react';
+import { FileCode, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
-import { useFetchProjects } from '@/lib/api/client/hooks/use-projects';
+import { useFetchProjectsInfinite } from '@/lib/api/client/hooks/use-projects';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 import { ProjectItem, ProjectItemSkeleton } from './project-item';
 
-export const ProjectList = () => {
+const PAGE_SIZE = 20;
+
+type ProjectListProps = {
+    onEmptyChange?: (isEmpty: boolean) => void;
+};
+
+export const ProjectList = ({ onEmptyChange }: ProjectListProps) => {
     const { user } = useUser();
-    const { data, error, isLoading } = useFetchProjects();
-    const projects = data?.data ?? [];
+    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectsInfinite({ limit: PAGE_SIZE });
+
+    const projects = useMemo(() => {
+        if (!data) return [];
+        return data.flatMap((page) => page.data);
+    }, [data]);
+
+    useEffect(() => {
+        if (!isLoading) {
+            onEmptyChange?.(projects.length === 0);
+        }
+    }, [projects.length, isLoading, onEmptyChange]);
+
+    const [sentryRef] = useInfiniteScroll({
+        loading: isLoading,
+        hasNextPage,
+        onLoadMore: () => setSize(size + 1),
+        rootMargin: '0px 0px 100px 0px',
+    });
 
     const handleProjectNavigate = useCallback(
         (project: ProjectDto) => {
@@ -41,12 +65,12 @@ export const ProjectList = () => {
                 className="flex-1"
                 icon={FileCode}
                 title="No projects yet"
-                description="Create your first project to start organizing your chats and deliverables."
+                description="Create your first project to start organizing your chats and artifacts."
             >
                 <Button asChild className="mt-2">
                     <Link href="/projects/new">
                         <Plus className="size-4" />
-                        Create project
+                        New project
                     </Link>
                 </Button>
             </EmptyState>
@@ -73,6 +97,11 @@ export const ProjectList = () => {
                     onNavigate={() => handleProjectNavigate(project)}
                 />
             ))}
+            {(isLoading || hasNextPage) && (
+                <div ref={sentryRef} className="flex items-center justify-center py-3 sm:col-span-2">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                </div>
+            )}
         </div>
     );
 };

@@ -4,8 +4,10 @@ import { enUS } from 'date-fns/locale';
 import type { LucideIcon } from 'lucide-react';
 import { Lock } from 'lucide-react';
 import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
+import { getSourceProjectName } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
 import { getDocumentTypeIcon, getLatestArtifactVersion } from '@/modules/artifacts/utils';
@@ -44,7 +46,9 @@ type ArtifactListItemProps = VariantProps<typeof containerVariants> & {
     artifact: ArtifactDto;
     icon?: LucideIcon;
     isSelected?: boolean;
+    isShared?: boolean;
     shouldDisplayVersionInfo?: boolean;
+    badge?: React.ReactNode;
     href?: string;
     onClick?: () => void;
 };
@@ -54,7 +58,9 @@ export const ArtifactListItem = ({
     size = 'md',
     icon,
     isSelected,
+    isShared,
     shouldDisplayVersionInfo = true,
+    badge,
     href,
     onClick,
 }: ArtifactListItemProps) => {
@@ -68,7 +74,7 @@ export const ArtifactListItem = ({
             title={artifact.title}
             className={cn(
                 containerVariants({ size }),
-                isSelected ? 'bg-neutral-900 border-neutral-500/40' : 'border-border',
+                isSelected ? 'bg-neutral-900 border-primary/50' : 'border-border',
                 (href || onClick) && 'cursor-pointer hover:bg-accent/50',
             )}
         >
@@ -76,6 +82,8 @@ export const ArtifactListItem = ({
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                     <span className="line-clamp-1 text-sm font-medium">{artifact.title}</span>
+                    {isShared && <Badge variant="secondary">Shared</Badge>}
+                    {badge}
                     {shouldDisplayVersionInfo && (
                         <VersionStatusBadge
                             status={artifactVersion?.status}
@@ -87,7 +95,7 @@ export const ArtifactListItem = ({
                 {shouldDisplayVersionInfo ? (
                     <ArtifactListItemVersionMeta artifact={artifact} />
                 ) : (
-                    <ArtifactListItemDateMeta createdAt={artifact.created_at} />
+                    <ArtifactListItemDateMeta artifact={artifact} />
                 )}
             </div>
         </ArtifactListItemContainer>
@@ -159,17 +167,22 @@ function ArtifactListItemVersionMeta({ artifact }: ArtifactListItemVersionMetaPr
     );
 }
 
-type ArtifactListItemDateMetaProps = {
-    createdAt: string | Date;
-};
-
-function ArtifactListItemDateMeta({ createdAt }: ArtifactListItemDateMetaProps) {
-    const createdDate = createdAt ? new Date(createdAt) : null;
+function ArtifactListItemDateMeta({ artifact }: { artifact: ArtifactDto }) {
+    const createdDate = artifact.created_at ? new Date(artifact.created_at) : null;
     const formattedDate = createdDate ? format(createdDate, 'MMM d, yyyy') : null;
+    const projectName = getSourceProjectName(artifact);
 
     return (
         <div className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500">
             <span>{formattedDate ?? '-'}</span>
+            {projectName && (
+                <>
+                    <span>·</span>
+                    <span title={`Resource from "${projectName}" project.`} className="line-clamp-1">
+                        {projectName}
+                    </span>
+                </>
+            )}
         </div>
     );
 }

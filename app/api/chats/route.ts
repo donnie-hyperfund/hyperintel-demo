@@ -2,6 +2,7 @@ import { wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
 import { validatePayload } from '@/lib/api/validation';
+import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { handleListChats } from '@/lib/chats/handlers';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
@@ -9,6 +10,10 @@ import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { CreateUnifiedChatBodySchema } from '@/lib/schema/chat';
 import type { ChatDto } from '@/lib/schema/message';
+
+export function GET(req: NextRequest): Promise<NextResponse> {
+    return withAuth((request, user) => handleListChats(request, user))(req);
+}
 
 async function handleCreateChat(req: NextRequest, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
@@ -47,9 +52,15 @@ async function handleCreateChat(req: NextRequest, user: UserEntity): Promise<Nex
             project: projectId,
             user,
             phase: 'active',
+            phase_index: await em.count(ChatEntity, { project: projectId }),
             ...(title && { summary: title }),
         });
         await em.persistAndFlush(chat);
+
+        // Broadcast chat_created to all user WS connections (fire-and-forget)
+        if (user.clerkId) {
+            broadcastUserEvent(user.clerkId, 'chat_created', { chatId: chat.id, projectId }).catch(console.error);
+        }
 
         const chatDto: ChatDto = wrap(chat).toJSON();
         return NextResponse.json(chatDto, { status: 201 });
@@ -59,6 +70,7 @@ async function handleCreateChat(req: NextRequest, user: UserEntity): Promise<Nex
     const chat = em.create(ChatEntity, {
         type: 'intake',
         phase: 'active',
+        phase_index: 0,
         user,
         metadata: {
             framework,
@@ -67,18 +79,15 @@ async function handleCreateChat(req: NextRequest, user: UserEntity): Promise<Nex
     });
     await em.persistAndFlush(chat);
 
+    // Broadcast chat_created to all user WS connections (fire-and-forget)
+    if (user.clerkId) {
+        broadcastUserEvent(user.clerkId, 'chat_created', { chatId: chat.id }).catch(console.error);
+    }
+
     const chatDto: ChatDto = wrap(chat).toJSON();
     return NextResponse.json(chatDto, { status: 201 });
 }
 
-export async function GET(req: NextRequest): Promise<NextResponse> {
-    return withAuth(async (request, user) => {
-        return handleListChats(request, user);
-    })(req);
-}
-
-export async function POST(req: NextRequest): Promise<NextResponse> {
-    return withAuth(async (request, user) => {
-        return handleCreateChat(request, user);
-    })(req);
+export function POST(req: NextRequest): Promise<NextResponse> {
+    return withAuth((request, user) => handleCreateChat(request, user))(req);
 }
