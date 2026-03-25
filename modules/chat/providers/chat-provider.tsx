@@ -40,6 +40,8 @@ export type BaseChatContextValue = {
     loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
     sendMessage: (content: string) => Promise<void>;
+    /** Send a nudge (message: null) to trigger generation on last injected system event */
+    sendNudge: () => Promise<void>;
     /** Stop the current generation */
     stopGeneration: () => void;
     /** Set the current chat ID */
@@ -317,6 +319,9 @@ export function ChatProvider({
 
     /** Convert API message to internal Message format */
     const mapApiMessage = useCallback((m: ChatMessageDto, activeAgentMessageId?: string | null): Message => {
+        // Detect system event messages injected by backend (e.g. artifact approved via UI)
+        const isSystemEvent = !!(m.metadata as Record<string, any>)?.systemEvent;
+
         // Detect safety-retracted messages persisted by finalizeSafetyMonitor:
         // 1. metadata.safetyAnalysis.leaked (always set by finalizeSafetyMonitor)
         // 2. fallback: content marker + empty blocks
@@ -341,6 +346,7 @@ export function ChatProvider({
             ...(m.is_error && { isError: true }),
             ...(m.is_aborted && { isAborted: true }),
             ...(isRetracted && { isRetracted: true }),
+            ...(isSystemEvent && { isSystemEvent: true }),
         };
     }, []);
 
@@ -906,6 +912,38 @@ export function ChatProvider({
     );
 
     // ========================================================================
+    // NUDGE — trigger generation on last injected system event (no user message)
+    // ========================================================================
+
+    const sendNudge = useCallback(async () => {
+        if (!chatId || state.isGenerating) return;
+
+        setState((prev) => ({ ...prev, isGenerating: true, error: null }));
+
+        const accessToken = (await getToken()) ?? '';
+
+        try {
+            const send = chatType === 'phase' ? sendAction : sendIntakeAction;
+            const response = await send(
+                { message: null, chatId, model: selectedModel },
+                accessToken,
+            );
+
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => 'Unknown error');
+                throw new Error(`Nudge failed: ${response.status} — ${errorText}`);
+            }
+        } catch (error) {
+            console.error('Error sending nudge:', error);
+            setState((prev) => ({
+                ...prev,
+                isGenerating: false,
+                error: error instanceof Error ? error : new Error('Failed to send nudge'),
+            }));
+        }
+    }, [chatId, chatType, getToken, selectedModel, state.isGenerating]);
+
+    // ========================================================================
     // SUMMARIZE
     // ========================================================================
 
@@ -981,6 +1019,7 @@ export function ChatProvider({
                 loadMessages,
                 loadMoreMessages,
                 sendMessage,
+                sendNudge,
                 stopGeneration,
                 setChatId,
                 summarizeChat,

@@ -9,8 +9,9 @@ import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/sc
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
-import { broadcastUserEvent } from './utils/broadcast';
+import { broadcastUserEvent, getUserGatewayStub } from './utils/broadcast';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
+import { injectSystemEvent } from './utils/system-events';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
@@ -57,7 +58,7 @@ async function generateYAMLForArtifact(content: string, messages: ChatMessageEnt
 export async function approveArtifactHandler(
     data: ApproveArtifactActionDto,
     ctx: Ctx,
-): Promise<{ success: boolean; version: number; status: string; yamlGenerated: boolean }> {
+): Promise<{ success: boolean; version: number; status: string; yamlGenerated: boolean; chatId: string; chatType: string }> {
     const { versionId } = data;
     const { em, user } = ctx;
 
@@ -201,18 +202,42 @@ export async function approveArtifactHandler(
         status: 'approved',
     });
 
+    // Inject system event so the agent knows the user approved via UI
+    const chatId = version.chat.id;
+    const chatType = version.chat.type ?? 'phase';
+    const eventMsg = await injectSystemEvent(em, {
+        chatId,
+        event: 'artifact_approved',
+        description: `User has approved artifact [${version.artifact.key}] v${version.version}`,
+        extra: {
+            artifactId: version.artifact.id,
+            artifactKey: version.artifact.key,
+            versionId,
+            versionNumber: version.version,
+        },
+    });
+
+    // Broadcast the system event message so the frontend can display it
+    const ugStub = getUserGatewayStub(ctx);
+    const topic = chatType === 'intake' ? `intake:${chatId}` : `chat:${chatId}`;
+    await ugStub
+        .systemAction(topic, 'messageCreated', { message: eventMsg.toJSON() }, ctx.previewAlias ?? undefined)
+        .catch(console.error);
+
     return {
         success: true,
         version: version.version,
         status: 'approved',
         yamlGenerated,
+        chatId,
+        chatType,
     };
 }
 
 export async function rejectArtifactHandler(
     data: RejectArtifactActionDto,
     ctx: Ctx,
-): Promise<{ success: boolean; version: number; status: string; reason: string }> {
+): Promise<{ success: boolean; version: number; status: string; reason: string; chatId: string; chatType: string }> {
     const { versionId, reason } = data;
     const { em, user } = ctx;
 
@@ -288,10 +313,35 @@ export async function rejectArtifactHandler(
         status: 'rejected',
     });
 
+    // Inject system event so the agent knows the user rejected via UI
+    const chatId = version.chat.id;
+    const chatType = version.chat.type ?? 'phase';
+    const eventMsg = await injectSystemEvent(em, {
+        chatId,
+        event: 'artifact_rejected',
+        description: `User has rejected artifact [${version.artifact.key}] v${version.version}. Reason: ${reason}`,
+        extra: {
+            artifactId: version.artifact.id,
+            artifactKey: version.artifact.key,
+            versionId,
+            versionNumber: version.version,
+            reason,
+        },
+    });
+
+    // Broadcast the system event message so the frontend can display it
+    const ugStub = getUserGatewayStub(ctx);
+    const topic = chatType === 'intake' ? `intake:${chatId}` : `chat:${chatId}`;
+    await ugStub
+        .systemAction(topic, 'messageCreated', { message: eventMsg.toJSON() }, ctx.previewAlias ?? undefined)
+        .catch(console.error);
+
     return {
         success: true,
         version: version.version,
         status: 'rejected',
         reason,
+        chatId,
+        chatType,
     };
 }

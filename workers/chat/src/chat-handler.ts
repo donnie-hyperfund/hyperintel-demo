@@ -222,7 +222,7 @@ export async function chatActionHandler(
     data: SendChatActionDto,
     ctx: Ctx,
     options: ChatHandlerOptions = {},
-): Promise<ChatActionResult | ReadableStream> {
+): Promise<ChatActionResult | ReadableStream | Response> {
     const { chatId, message, tempId } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
@@ -237,29 +237,50 @@ export async function chatActionHandler(
         project: { user: { clerkId: ctx.user.userId } },
     });
 
-    // Save user message immediately (Decision #37)
-    const userMsg = em!.create(ChatMessageEntity, {
-        id: userMessageId,
-        chat: chatId,
-        role: 'user',
-        content: message,
-        created_at: requestStartedAt,
-    });
-    em!.persist(userMsg);
+    const isNudge = message === null;
+
+    // Nudge mode: skip user message creation, check if last message is a user message
+    if (isNudge) {
+        const [lastMsg] = await em!.find(
+            ChatMessageEntity,
+            { chat: chatId },
+            { orderBy: { created_at: 'DESC' }, limit: 1 },
+        );
+        if (!lastMsg || lastMsg.role !== 'user') {
+            return new Response(JSON.stringify({ ok: true, nudge: 'skipped' }), {
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+    }
+
+    let userMsg: ChatMessageEntity | null = null;
+    if (!isNudge) {
+        // Save user message immediately (Decision #37)
+        userMsg = em!.create(ChatMessageEntity, {
+            id: userMessageId,
+            chat: chatId,
+            role: 'user',
+            content: message!,
+            created_at: requestStartedAt,
+        });
+        em!.persist(userMsg);
+    }
 
     // Set activeAgentMessageId on chat entity
     chat.active_agent_message_id = agentMessageId;
     await em!.flush();
 
-    // Broadcast message_created to all subscribers
+    // Broadcast message_created to all subscribers (skip for nudge — event already sent)
     const alias = ctx.previewAlias;
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    const messagePayload: Record<string, unknown> = { message: userMsg.toJSON() };
-    if (tempId) {
-        messagePayload.tempId = tempId;
+    if (userMsg) {
+        const messagePayload: Record<string, unknown> = { message: userMsg.toJSON() };
+        if (tempId) {
+            messagePayload.tempId = tempId;
+        }
+        await ugStub.systemAction(`chat:${chatId}`, 'messageCreated', messagePayload, alias ?? undefined);
     }
-    await ugStub.systemAction(`chat:${chatId}`, 'messageCreated', messagePayload, alias ?? undefined);
 
     // Register stream via UG → ChatTopicHandler → ChatStream DO init
     // Pass userId so the handler can auto-subscribe the initiator to the ChatStream DO
@@ -343,9 +364,10 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         }
 
         // Load history + safety check in parallel (doesn't slow happy path)
+        // For nudge (message=null), skip safety check — the system event was injected server-side
         const [historyMessages, safetyVerdict] = await Promise.all([
             loadChatHistory(em!, chatId),
-            safetyCheck(ctx, message),
+            message ? safetyCheck(ctx, message) : Promise.resolve(null),
         ]);
 
         const allMessages = injectSafetyContext(historyMessages, safetyVerdict);
@@ -465,7 +487,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         // Inline safety monitor — checks content every few seconds, aborts on leak
         const safetyMonitor = createSafetyMonitor({
             ctx,
-            userMessage: message,
+            userMessage: message ?? '',
             onLeak: (result) => {
                 abortController.abort();
                 // Push retract event to frontend
