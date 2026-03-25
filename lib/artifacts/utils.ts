@@ -64,9 +64,11 @@ export function normalizeArtifactKey(key: string): string {
 }
 
 export function normalizeUploadedFileKey(filename: string): string {
-    const trimmed = filename.trim();
+    let trimmed = filename.trim();
     const ext = trimmed.slice(trimmed.lastIndexOf('.')).toLowerCase();
-    if (isBinaryArtifactExtension(ext) || isTextArtifactExtension(ext)) return trimmed;
+    if (isBinaryArtifactExtension(ext)) return trimmed;
+    // Strip any text extension (.txt, .rtf, etc.) so everything normalizes to .md
+    if (isTextArtifactExtension(ext) && ext !== '.md') trimmed = trimmed.slice(0, trimmed.lastIndexOf('.'));
     return trimmed.endsWith('.md') ? trimmed : `${trimmed}.md`;
 }
 

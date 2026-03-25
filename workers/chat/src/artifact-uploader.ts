@@ -51,12 +51,18 @@ function extractTextFromRtf(content: string): string {
         .trim();
 }
 
-function normalizeTextUploadContent(filename: string, content: string): string {
-    const ext = getExtension(filename);
-    if (ext !== '.rtf') return content;
+function stripBomAndNullBytes(text: string): string {
+    // Remove BOM (UTF-8/UTF-16 LE/BE) and null bytes which PostgreSQL text columns reject
+    return text.replace(/^\uFEFF/, '').replace(/\0/g, '');
+}
 
-    const extracted = extractTextFromRtf(content);
-    return extracted || content;
+function normalizeTextUploadContent(filename: string, content: string): string {
+    const cleaned = stripBomAndNullBytes(content);
+    const ext = getExtension(filename);
+    if (ext !== '.rtf') return cleaned;
+
+    const extracted = extractTextFromRtf(cleaned);
+    return extracted || cleaned;
 }
 
 function getBucketName(env: Env): string {
