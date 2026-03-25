@@ -451,6 +451,43 @@ export async function handleGetMessage(chatId: string, messageId: string, user: 
 }
 
 // ---------------------------------------------------------------------------
+// Dev-only: Message feedback
+// ---------------------------------------------------------------------------
+
+export async function handleSetMessageFeedback(
+    chatId: string,
+    messageId: string,
+    user: UserEntity,
+    body: { feedback_score: boolean | null; feedback?: string | null },
+): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const message = await em
+        .createQueryBuilder(ChatMessageEntity, 'm')
+        .select('m.*')
+        .leftJoinAndSelect('m.chat', 'c')
+        .leftJoin('c.project', 'p')
+        .where({
+            'm.id': messageId,
+            'c.id': chatId,
+            $or: [{ 'c.user': user.id }, { 'p.user': user.id }],
+        })
+        .getSingleResult();
+
+    if (!message) {
+        return NextResponse.json({ error: 'Message not found', code: 'MESSAGE_NOT_FOUND' }, { status: 404 });
+    }
+
+    wrap(message).assign({
+        feedback_score: body.feedback_score,
+        feedback: body.feedback ?? null,
+    });
+    await em.flush();
+
+    return NextResponse.json({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
 // Chat artifact handlers
 // ---------------------------------------------------------------------------
 

@@ -406,6 +406,8 @@ export function ChatProvider({
                     reason: meta.reason as string | undefined,
                 },
             }),
+            feedbackScore: (m as any).feedback_score ?? null,
+            feedbackComment: (m as any).feedback ?? null,
         };
     }, []);
 

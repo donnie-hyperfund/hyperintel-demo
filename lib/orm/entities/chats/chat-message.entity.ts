@@ -30,6 +30,12 @@ export class ChatMessageEntity extends IdCreatedColumns {
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
 
+    @Property({ type: 'boolean', nullable: true })
+    feedback_score?: Nullable<boolean>;
+
+    @Property({ type: 'text', nullable: true })
+    feedback?: Nullable<string>;
+
     /** Internal debug data (serialized errors, raw responses, inference logs). Never sent to frontend. */
     @Property({ type: 'json', nullable: true })
     debug_data?: Nullable<Record<string, unknown>>;

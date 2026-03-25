@@ -5,6 +5,7 @@ import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdow
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
 import { DevSlot } from '@/lib/dev-slots';
 import type { Message } from '@/modules/chat/types';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
 import { DocumentDirective } from './document-directive';
 import { UploadDirective } from './file-directive';
@@ -21,6 +22,7 @@ const chatDirectives = {
 };
 
 export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessageProps) => {
+    const { chatId } = useChatContext();
     const { blocks, role, isStreaming } = message;
 
     if (role === 'user') {
@@ -40,7 +42,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                     </div>
                 </div>
                 <div className="flex justify-end">
-                    <DevSlot name="message-actions" messageId={message.id} content={text} role="user" blocks={blocks} />
+                    <DevSlot name="message-actions" chatId={chatId} messageId={message.id} content={text} role="user" blocks={blocks} feedbackScore={message.feedbackScore} feedbackComment={message.feedbackComment} />
                 </div>
             </div>
         );
@@ -97,7 +99,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                     </div>
                 )}
             </div>
-            <DevSlot name="message-actions" messageId={message.id} content={textContent} role="assistant" blocks={blocks} />
+            <DevSlot name="message-actions" chatId={chatId} messageId={message.id} content={textContent} role="assistant" blocks={blocks} feedbackScore={message.feedbackScore} feedbackComment={message.feedbackComment} />
         </div>
     );
 });

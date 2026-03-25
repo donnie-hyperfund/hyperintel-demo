@@ -6,10 +6,13 @@ import type { StreamBlock } from '@/lib/schema/stream';
 /** Props forwarded to components registered in each named slot. */
 export type DevSlotProps = {
 	'message-actions': {
+		chatId: string | null;
 		messageId: string;
 		content: string;
 		role: 'user' | 'assistant';
 		blocks?: StreamBlock[];
+		feedbackScore?: boolean | null;
+		feedbackComment?: string | null;
 	};
 	'dev-panel': Record<string, never>;
 	'chat-header': {

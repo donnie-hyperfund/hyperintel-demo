@@ -36,6 +36,8 @@ export type Message = {
     };
     status?: string;
     createdAt?: Date;
+    feedbackScore?: boolean | null;
+    feedbackComment?: string | null;
 };
 
 export type Conversation = {
