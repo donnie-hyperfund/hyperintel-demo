@@ -113,17 +113,17 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
                 {/* Render all messages with animations */}
                 <AnimatePresence initial={false}>
                     {messages.map((message, index) => (
-                            <motion.div
-                                key={message.tempId ?? message.id ?? index}
-                                initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                                transition={{ duration: 0.3, ease: 'easeInOut' }}
-                                className={messageContainerVariants({ role: message.role })}
-                            >
-                                <ChatMessage message={message} />
-                            </motion.div>
-                        ))}
+                        <motion.div
+                            key={message.tempId ?? message.id ?? index}
+                            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                            className={messageContainerVariants({ role: message.role })}
+                        >
+                            <ChatMessage message={message} />
+                        </motion.div>
+                    ))}
                 </AnimatePresence>
 
                 {/* Loading indicator when waiting for response */}

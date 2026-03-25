@@ -10,8 +10,8 @@
  * - Carry `metadata.systemEvent` for frontend filtering / display
  */
 
-import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { EntityManager } from '@mikro-orm/postgresql';
+import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { Ctx } from '../context';
 import { getUserGatewayStub } from './broadcast';
 

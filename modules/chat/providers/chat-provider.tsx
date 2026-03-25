@@ -924,10 +924,7 @@ export function ChatProvider({
 
         try {
             const send = chatType === 'phase' ? sendAction : sendIntakeAction;
-            const response = await send(
-                { message: null, chatId, model: selectedModel },
-                accessToken,
-            );
+            const response = await send({ message: null, chatId, model: selectedModel }, accessToken);
 
             if (!response.ok) {
                 const errorText = await response.text().catch(() => 'Unknown error');

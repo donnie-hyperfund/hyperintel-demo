@@ -58,7 +58,14 @@ async function generateYAMLForArtifact(content: string, messages: ChatMessageEnt
 export async function approveArtifactHandler(
     data: ApproveArtifactActionDto,
     ctx: Ctx,
-): Promise<{ success: boolean; version: number; status: string; yamlGenerated: boolean; chatId: string; chatType: string }> {
+): Promise<{
+    success: boolean;
+    version: number;
+    status: string;
+    yamlGenerated: boolean;
+    chatId: string;
+    chatType: string;
+}> {
     const { versionId } = data;
     const { em, user } = ctx;
 
