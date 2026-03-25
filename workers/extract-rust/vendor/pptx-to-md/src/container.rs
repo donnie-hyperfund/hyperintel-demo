@@ -1,11 +1,13 @@
 ﻿use super::{Result, Slide};
 use crate::parser_config::ParserConfig;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::{
     collections::HashMap,
-    io::Read,
+    io::{Cursor, Read},
     path::Path,
 };
+#[cfg(feature = "parallel")]
 use std::sync::Arc;
 
 /// Holds the internal representation of a loaded PowerPoint (pptx) container.
@@ -15,7 +17,7 @@ use std::sync::Arc;
 /// relationships (`rels`) files, and associated resources such as images.
 pub struct PptxContainer {
     pub config: ParserConfig,
-    archive: zip::ZipArchive<std::fs::File>,
+    archive: zip::ZipArchive<Cursor<Vec<u8>>>,
     pub slide_paths: Vec<String>,
     pub slide_count: u32,
 }
@@ -40,8 +42,13 @@ impl PptxContainer {
     ///
     /// Errors are returned on file access problems or failures during the unzipping process.
     pub fn open(path: &Path, config: ParserConfig) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
+        let bytes = std::fs::read(path)?;
+        Self::from_bytes(bytes, config)
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>, config: ParserConfig) -> Result<Self> {
+        let cursor = Cursor::new(bytes);
+        let mut archive = zip::ZipArchive::new(cursor)?;
 
         let mut slide_paths: Vec<String> = Vec::new();
         let mut slide_count = 0;
@@ -89,6 +96,7 @@ impl PptxContainer {
     /// # Returns
     ///
     /// * `Result<Vec<Slide>>` - List of all parsed slides
+    #[cfg(feature = "parallel")]
     pub fn parse_all_multi_threaded(&mut self) -> Result<Vec<Slide>> {
         // Clone paths upfront to avoid holding reference to self
         let slide_paths = self.slide_paths.clone();

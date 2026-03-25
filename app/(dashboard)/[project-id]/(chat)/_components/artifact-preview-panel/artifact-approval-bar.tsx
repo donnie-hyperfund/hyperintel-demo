@@ -31,7 +31,7 @@ export function ArtifactApprovalBar({
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
     const { updateArtifact } = useArtifactActions();
-    const { clearPendingChanges, chatType, hasOtherPendingArtifacts, sendMessage, setProcessingArtifactAction } =
+    const { clearPendingChanges, chatType, hasOtherPendingArtifacts, sendNudge, setProcessingArtifactAction } =
         useChatContext();
     const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
     const isIntake = chatType !== 'phase';
@@ -73,8 +73,8 @@ export function ArtifactApprovalBar({
                     await handleApprovedArtifact(updated);
                 }
 
-                // Auto-send "approved" message to continue the conversation
-                await sendMessage('approved');
+                // Nudge the agent to react to the approval (system event already injected by backend)
+                await sendNudge();
             }
         } catch (err) {
             console.error('Failed to approve:', err);
@@ -98,6 +98,9 @@ export function ArtifactApprovalBar({
                 if (!hasOtherPendingArtifacts(artifactKey)) {
                     clearPendingChanges();
                 }
+
+                // Nudge the agent to react to the rejection (system event already injected by backend)
+                await sendNudge();
             }
         } catch (err) {
             console.error('Failed to reject:', err);

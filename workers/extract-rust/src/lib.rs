@@ -1,5 +1,15 @@
 use worker::*;
 
+use extract_core::ExtractOptions;
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct ExtractResponse {
+    content: String,
+    #[serde(rename = "imageText")]
+    image_text: bool,
+}
+
 fn json_response(status: u16, body: &str) -> Result<HttpResponse> {
     let bytes = body.as_bytes().to_vec();
     let stream = futures_util::stream::once(async move { Ok::<_, worker::Error>(bytes) });
@@ -9,13 +19,14 @@ fn json_response(status: u16, body: &str) -> Result<HttpResponse> {
         .body(Body::from_stream(stream)?)?)
 }
 
-fn text_response(status: u16, body: &str) -> Result<HttpResponse> {
-    let bytes = body.as_bytes().to_vec();
-    let stream = futures_util::stream::once(async move { Ok::<_, worker::Error>(bytes) });
-    Ok(http::Response::builder()
-        .status(status)
-        .header("content-type", "text/markdown; charset=utf-8")
-        .body(Body::from_stream(stream)?)?)
+fn extract_response(result: extract_core::ExtractResult) -> Result<HttpResponse> {
+    let resp = ExtractResponse {
+        content: result.content,
+        image_text: result.image_text,
+    };
+    let body = serde_json::to_string(&resp)
+        .unwrap_or_else(|_| r#"{"error":"Failed to serialize response"}"#.to_string());
+    json_response(200, &body)
 }
 
 #[event(fetch)]
@@ -36,16 +47,53 @@ async fn fetch(req: HttpRequest, _env: Env, _ctx: Context) -> Result<HttpRespons
                 .unwrap_or("")
                 .to_string();
 
+            let opts = parse_options(&req);
             let body = collect_body(req).await?;
 
-            match filetype.as_str() {
-                "docx" => extract_docx(&body),
-                "pptx" => extract_pptx(&body),
-                "pdf" => extract_pdf(&body),
-                _ => json_response(
-                    400,
-                    r#"{"error":"Missing or invalid X-File-Type header. Expected: docx | pptx | pdf"}"#,
-                ),
+            let result = match filetype.as_str() {
+                "docx" => extract_core::extract_docx(&body, &opts),
+                "pptx" => extract_core::extract_pptx(&body, &opts),
+                "pdf" => extract_core::extract_pdf(&body, &opts),
+                _ => {
+                    return json_response(
+                        400,
+                        r#"{"error":"Missing or invalid X-File-Type header. Expected: docx | pptx | pdf"}"#,
+                    )
+                }
+            };
+
+            match result {
+                Ok(r) => extract_response(r),
+                Err(e) => json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
+            }
+        }
+
+        (http::Method::POST, "/extract/v2") => {
+            let filetype = req
+                .headers()
+                .get("x-file-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+
+            let opts = parse_options(&req);
+            let body = collect_body(req).await?;
+
+            let result = match filetype.as_str() {
+                "docx" => extract_core::extract_docx_v2(&body, &opts),
+                "pptx" => extract_core::extract_pptx_v2(&body, &opts),
+                "pdf" => extract_core::extract_pdf(&body, &opts),
+                _ => {
+                    return json_response(
+                        400,
+                        r#"{"error":"Missing or invalid X-File-Type header. Expected: docx | pptx | pdf"}"#,
+                    )
+                }
+            };
+
+            match result {
+                Ok(r) => extract_response(r),
+                Err(e) => json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
             }
         }
 
@@ -64,34 +112,22 @@ async fn collect_body(req: HttpRequest) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn extract_docx(bytes: &[u8]) -> Result<HttpResponse> {
-    match markdownify::docx::parse_docx(bytes) {
-        Ok(md) => text_response(200, &md),
-        Err(e) => json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
+/// Parse options from headers, falling back to defaults.
+/// X-Text-Score: f32 (0.0–1.0), X-Text-Min-Chars: usize, X-Embed-Images: "true"/"false"
+fn parse_options(req: &HttpRequest) -> ExtractOptions {
+    let mut opts = ExtractOptions::default();
+    if let Some(v) = req.headers().get("x-text-score").and_then(|v| v.to_str().ok()) {
+        if let Ok(s) = v.parse::<f32>() {
+            opts.threshold.score = s;
+        }
     }
-}
-
-fn extract_pptx(bytes: &[u8]) -> Result<HttpResponse> {
-    match markdownify::pptx::parse_pptx(bytes) {
-        Ok(md) => text_response(200, &md),
-        Err(e) => json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
+    if let Some(v) = req.headers().get("x-text-min-chars").and_then(|v| v.to_str().ok()) {
+        if let Ok(c) = v.parse::<usize>() {
+            opts.threshold.min_chars = c;
+        }
     }
-}
-
-fn extract_pdf(bytes: &[u8]) -> Result<HttpResponse> {
-    let doc = match unpdf::parse_bytes(bytes) {
-        Ok(d) => d,
-        Err(e) => return json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
-    };
-    let options = unpdf::render::RenderOptions {
-        cleanup: Some(unpdf::render::CleanupOptions {
-            max_consecutive_newlines: 2,
-            ..unpdf::render::CleanupOptions::standard()
-        }),
-        ..unpdf::render::RenderOptions::default()
-    };
-    match unpdf::render::to_markdown(&doc, &options) {
-        Ok(md) => text_response(200, &md),
-        Err(e) => json_response(500, &format!(r#"{{"error":"{}"}}"#, e)),
+    if let Some(v) = req.headers().get("x-embed-images").and_then(|v| v.to_str().ok()) {
+        opts.embed_images = v == "true" || v == "1";
     }
+    opts
 }
