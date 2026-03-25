@@ -18,6 +18,7 @@ type BreakpointState = {
 type UseBreakpointOptions = {
     /** When true, reads window.innerWidth for the initial value. Only use in client-only components. */
     eager?: boolean;
+    defaultBreakpoint?: BreakpointName | 'base';
 };
 
 function resolve(width: number): BreakpointName | 'base' {
@@ -29,13 +30,16 @@ function resolve(width: number): BreakpointName | 'base' {
     return 'base';
 }
 
-export function useBreakpoint({ eager = false }: UseBreakpointOptions = {}): BreakpointState {
+export function useBreakpoint({
+    eager = false,
+    defaultBreakpoint = 'base',
+}: UseBreakpointOptions = {}): BreakpointState {
     const [state, setState] = useState<BreakpointState>(() => {
         if (eager && typeof window !== 'undefined') {
             const w = window.innerWidth;
             return { breakpoint: resolve(w), width: w };
         }
-        return { breakpoint: 'base', width: 0 };
+        return { breakpoint: defaultBreakpoint, width: 0 };
     });
 
     useEffect(() => {

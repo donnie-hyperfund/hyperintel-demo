@@ -27,7 +27,7 @@ export const PhaseHeader = () => {
     const { panelState, togglePanel } = useActivePanelContext();
 
     return (
-        <header className="border-b border-border">
+        <header className="border-b border-border max-sm:sticky max-sm:top-0 max-sm:left-0 max-sm:right-0 max-sm:z-10 bg-neutral-975">
             {/* Desktop */}
             <div className="hidden md:flex h-14 items-center px-6 gap-4">
                 <div className="flex items-center gap-3 min-w-0">

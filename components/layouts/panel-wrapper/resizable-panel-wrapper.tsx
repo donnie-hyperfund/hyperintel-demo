@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, type ReactNode, useEffect } from 'react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
 import { cn } from '@/lib/utils';
@@ -18,16 +18,24 @@ export const ResizablePanelWrapper = ({
     rightPaneDefaultSize = 35,
 }: ResizablePanelWrapperProps) => {
     const { panelState } = useActivePanelContext();
-    const { breakpoint } = useBreakpoint();
+    const { breakpoint } = useBreakpoint({ defaultBreakpoint: 'lg' });
 
-    const isLgViewportOrSmaller = !isAboveBreakpoint(breakpoint, 'lg');
+    const isMdViewportOrSmaller = !isAboveBreakpoint(breakpoint, 'md');
 
     const isPanelOpen = panelState !== null;
     const activePanel = panelState?.panel;
 
-    if (isLgViewportOrSmaller) {
+    useEffect(() => {
+        if (!isMdViewportOrSmaller) return;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = '';
+        };
+    }, [isMdViewportOrSmaller]);
+
+    if (isMdViewportOrSmaller) {
         return (
-            <div className="h-full flex flex-col">
+            <div className="fixed inset-0 flex flex-col">
                 {LeftPaneComponent}
                 {isPanelOpen && (
                     <div className="fixed inset-0 z-50 bg-neutral-975 animate-in fade-in slide-in-from-bottom-4 duration-200">
@@ -39,14 +47,14 @@ export const ResizablePanelWrapper = ({
     }
 
     return (
-        <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-full">
+        <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-dvh">
             <ResizablePanel
                 id="chat-panel"
                 order={1}
                 defaultSize={60}
                 minSize={60}
                 maxSize={80}
-                className={cn(isPanelOpen && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]')}
+                className={cn(isPanelOpen && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]', 'h-dvh')}
             >
                 {LeftPaneComponent}
             </ResizablePanel>
@@ -55,7 +63,13 @@ export const ResizablePanelWrapper = ({
                 <Fragment key={activePanel}>
                     <ResizableHandle />
 
-                    <ResizablePanel id="right-panel" order={2} defaultSize={rightPaneDefaultSize} minSize={20}>
+                    <ResizablePanel
+                        id="right-panel"
+                        order={2}
+                        defaultSize={rightPaneDefaultSize}
+                        minSize={20}
+                        className="h-dvh flex flex-col"
+                    >
                         {RightPaneComponent}
                     </ResizablePanel>
                 </Fragment>

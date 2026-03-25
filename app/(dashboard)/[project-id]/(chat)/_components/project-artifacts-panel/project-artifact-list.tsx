@@ -146,16 +146,6 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         navigateToArtifact(targetChatId, artifactKey, artifactVersion);
     }, [dialogData, navigateToArtifact]);
 
-    if (error) {
-        return (
-            <EmptyState
-                icon={FileText}
-                title="Failed to load artifacts"
-                error={error instanceof Error ? error.message : 'An error occurred while loading artifacts.'}
-            />
-        );
-    }
-
     if (isLoading) {
         return (
             <div className="space-y-2">
@@ -166,19 +156,33 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         );
     }
 
+    if (error) {
+        return (
+            <div className="flex flex-1 items-center justify-center">
+                <EmptyState
+                    icon={FileText}
+                    title="Failed to load artifacts"
+                    error={error instanceof Error ? error.message : 'An error occurred while loading artifacts.'}
+                />
+            </div>
+        );
+    }
+
     const hasActiveFilters = getActiveFilterCount(filters) > 0;
 
     if (artifacts.length === 0) {
         return (
-            <EmptyState
-                icon={FileText}
-                title={hasActiveFilters ? 'No artifacts match these filters' : 'No artifacts yet'}
-                description={
-                    hasActiveFilters
-                        ? undefined
-                        : 'Artifacts will appear here as they are generated throughout the project journey.'
-                }
-            />
+            <div className="flex flex-1 items-center justify-center">
+                <EmptyState
+                    icon={FileText}
+                    title={hasActiveFilters ? 'No artifacts match these filters' : 'No artifacts yet'}
+                    description={
+                        hasActiveFilters
+                            ? undefined
+                            : 'Artifacts will appear here as they are generated throughout the project journey.'
+                    }
+                />
+            </div>
         );
     }
 
