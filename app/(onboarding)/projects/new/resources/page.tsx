@@ -1,12 +1,11 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { motion } from 'motion/react';
 import { useRouter } from 'nextjs-toploader/app';
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
+import { OnboardingStep } from '@/components/layouts/onboarding-layout/onboarding-steps';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { useProjectCreationWizard } from '../_providers/project-creation-wizard-provider';
 import { ResourceFormSchema } from '../_schema';
 import type { ResourceFormData } from '../_types';
@@ -44,42 +43,22 @@ export default function LinkResourcesPage() {
     if (!data.name) return null;
 
     return (
-        <div className="mx-auto w-full max-w-xl">
-            <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, ease: 'easeOut' }}
-                className="mb-8 space-y-2 text-center"
-            >
-                <h1 className="text-3xl font-semibold tracking-tight">Add to Project Intel</h1>
-                <p className="text-muted-foreground text-sm leading-relaxed">
-                    {"Select existing resources to include in your project's intel."}
-                </p>
-            </motion.div>
+        <OnboardingStep.Root maxWidth="xl">
+            <OnboardingStep.Header
+                title="Add to Project Intel"
+                description="Select existing resources to include in your project's intel."
+            />
 
             <form onSubmit={onSubmit}>
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
-                >
-                    <Card className="border-neutral-900 bg-neutral-900/50 shadow-xl backdrop-blur mb-10 py-0">
-                        <CardContent className="px-0">
-                            <ResourceSelectList
-                                selectedIds={selectedResourceIds}
-                                onToggle={handleToggle}
-                                onClearAll={handleClearAll}
-                            />
-                        </CardContent>
-                    </Card>
-                </motion.div>
+                <OnboardingStep.Card showPadding={false}>
+                    <ResourceSelectList
+                        selectedIds={selectedResourceIds}
+                        onToggle={handleToggle}
+                        onClearAll={handleClearAll}
+                    />
+                </OnboardingStep.Card>
 
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.4, ease: 'easeOut' }}
-                    className="flex flex-col items-center gap-7"
-                >
+                <OnboardingStep.Footer>
                     <Button
                         type="submit"
                         size="xl"
@@ -96,8 +75,8 @@ export default function LinkResourcesPage() {
                     >
                         Skip, create without intel
                     </button>
-                </motion.div>
+                </OnboardingStep.Footer>
             </form>
-        </div>
+        </OnboardingStep.Root>
     );
 }

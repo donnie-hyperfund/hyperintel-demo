@@ -2,6 +2,7 @@
 
 import { Fragment, type ReactNode } from 'react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
 import { cn } from '@/lib/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 
@@ -17,9 +18,25 @@ export const ResizablePanelWrapper = ({
     rightPaneDefaultSize = 35,
 }: ResizablePanelWrapperProps) => {
     const { panelState } = useActivePanelContext();
+    const { breakpoint } = useBreakpoint();
+
+    const isLgViewportOrSmaller = !isAboveBreakpoint(breakpoint, 'lg');
 
     const isPanelOpen = panelState !== null;
     const activePanel = panelState?.panel;
+
+    if (isLgViewportOrSmaller) {
+        return (
+            <div className="h-full flex flex-col">
+                {LeftPaneComponent}
+                {isPanelOpen && (
+                    <div className="fixed inset-0 z-50 bg-neutral-975 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                        {RightPaneComponent}
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     return (
         <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-full">

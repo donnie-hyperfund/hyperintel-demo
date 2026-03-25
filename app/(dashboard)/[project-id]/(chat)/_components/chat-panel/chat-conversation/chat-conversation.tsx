@@ -89,7 +89,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
     }, [scrollTarget, scrollTargetFoundRef, pagination.hasMore, pagination.isLoadingMore, isLoading, loadMoreMessages]);
 
     return (
-        <div ref={containerRef} className="relative flex-1 overflow-y-auto p-6">
+        <div ref={containerRef} className="relative flex-1 overflow-y-auto py-6 px-4 lg:px-6">
             <div className="w-full max-w-3xl mx-auto min-w-0 min-h-full flex flex-col">
                 {/* Loading indicator for older messages */}
                 {pagination?.isLoadingMore && (

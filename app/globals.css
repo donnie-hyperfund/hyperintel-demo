@@ -460,6 +460,25 @@
   margin-top: 0.4em;
 }
 
+/* Mobile header scaling for prose variants */
+@media (max-width: 767px) {
+  .prose-message :where(h1):not(:where([class~="not-prose"] *)) {
+    font-size: 1.25em;
+  }
+
+  .prose-message :where(h2):not(:where([class~="not-prose"] *)) {
+    font-size: 1.125em;
+  }
+
+  .prose-document :where(h1):not(:where([class~="not-prose"] *)) {
+    font-size: 1.25em;
+  }
+
+  .prose-document :where(h2):not(:where([class~="not-prose"] *)) {
+    font-size: 1.125em;
+  }
+}
+
 /* Long === chains from AI dividers — keep text but contain overflow */
 .md-divider {
   display: block;
