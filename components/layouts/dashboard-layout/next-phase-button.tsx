@@ -109,7 +109,10 @@ export function NextPhaseButton() {
                     disabled={state.isSummarizing}
                     className="gap-1.5"
                 >
-                    Start next phase
+                    {/* Mobile */}
+                    <span className="md:hidden">Next phase</span>
+                    {/* Desktop */}
+                    <span className="hidden md:inline">Start next phase</span>
                     <ArrowRight className="size-3.5" />
                 </Button>
             )}

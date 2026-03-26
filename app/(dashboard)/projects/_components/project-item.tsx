@@ -1,6 +1,5 @@
 import { format } from 'date-fns';
 import Link from 'next/link';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { ProjectDto } from '@/lib/schema/project';
 import { cn } from '@/lib/utils';
@@ -17,39 +16,30 @@ export const ProjectItem = ({ project, href, isSelected, onNavigate }: ProjectIt
     const formattedDate = createdDate ? format(createdDate, 'MMM d, yyyy') : null;
 
     return (
-        <Link href={href} className="block" onNavigate={onNavigate}>
-            <Card
-                className={cn(
-                    'cursor-pointer transition-colors hover:bg-neutral-400/8',
-                    isSelected ? 'bg-neutral-900 border-neutral-500/30' : 'border-border',
-                )}
-            >
-                <CardHeader className="mb-1 gap-2">
-                    <div className="line-clamp-1 text-base font-semibold leading-none">{project.name}</div>
-                    <div className="line-clamp-2 text-sm text-neutral-500">
-                        {project.description || <span className="text-neutral-600">No description</span>}
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    <div className="text-xs text-neutral-500">
-                        {formattedDate && <span>Created {formattedDate}</span>}
-                    </div>
-                </CardContent>
-            </Card>
+        <Link
+            href={href}
+            onNavigate={onNavigate}
+            className={cn(
+                'flex flex-col rounded-2 p-3.5 md:rounded-3 md:p-5 border transition-colors',
+                isSelected ? 'bg-neutral-900 border-neutral-500/30' : 'border-border',
+                'cursor-pointer hover:bg-accent/50',
+            )}
+        >
+            <div className="line-clamp-1 text-sm md:text-md font-medium mb-1.5">{project.name}</div>
+            <div className="line-clamp-2 text-xs md:text-sm text-neutral-500 mb-3">
+                {project.description || <span className="text-neutral-600">No description</span>}
+            </div>
+            {formattedDate && <div className="text-xs text-neutral-500 mt-0.5">Created {formattedDate}</div>}
         </Link>
     );
 };
 
 export const ProjectItemSkeleton = () => {
     return (
-        <Card>
-            <CardHeader className="mb-1 gap-2">
-                <Skeleton className="h-5 w-3/4" />
-                <Skeleton className="h-4 w-full" />
-            </CardHeader>
-            <CardContent>
-                <Skeleton className="h-3 w-24" />
-            </CardContent>
-        </Card>
+        <div className="flex flex-col gap-2 rounded-2 p-3.5 md:rounded-3 md:p-5 border">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-24" />
+        </div>
     );
 };

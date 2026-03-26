@@ -21,7 +21,7 @@ export default function ResourcesPanel({ onClose }: ResourcesPanelProps) {
 
     return (
         <FileUploadProvider scope={{ projectId, chatId: chatId ?? undefined }}>
-            <FileDropOverlay>
+            <FileDropOverlay className="flex h-full flex-col">
                 <SidePanel
                     title="Project Intel"
                     onClose={onClose}
