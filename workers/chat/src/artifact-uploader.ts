@@ -1,9 +1,9 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { raw } from '@mikro-orm/core';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { ExtractionQueueAdapter } from '@common/queue/extraction-queue.adapter';
+import { raw } from '@mikro-orm/core';
 import { normalizeUploadedFileKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
@@ -170,7 +170,9 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
           ? { project: projectId, key: normalizedKey }
           : { chat: chatId, key: normalizedKey, project: null };
 
-    const existing = scopeFilter ? await em.findOne(ArtifactEntity, scopeFilter, { populate: ['current_version', 'versions'] }) : null;
+    const existing = scopeFilter
+        ? await em.findOne(ArtifactEntity, scopeFilter, { populate: ['current_version', 'versions'] })
+        : null;
 
     if (existing) {
         const versions = existing.versions.getItems();
