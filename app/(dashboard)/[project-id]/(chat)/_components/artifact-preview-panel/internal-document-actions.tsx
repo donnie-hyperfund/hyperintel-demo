@@ -6,19 +6,19 @@ import { useArtifactApproval } from '@/modules/artifacts/hooks/use-artifact-appr
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 
-type ArtifactApprovalBarProps = {
+type InternalDocumentActionsProps = {
     artifactId: string;
     version: number;
     disabled?: boolean;
     onProcessingChange?: (isProcessing: boolean) => void;
 };
 
-export function ArtifactApprovalBar({
+export function InternalDocumentActions({
     artifactId,
     version,
     disabled = false,
     onProcessingChange,
-}: ArtifactApprovalBarProps) {
+}: InternalDocumentActionsProps) {
     const artifact = useArtifact(artifactId, version);
     const activeVersion = artifact ? getLatestArtifactVersion(artifact) : undefined;
 
@@ -30,6 +30,7 @@ export function ArtifactApprovalBar({
         artifactKey,
         version,
         artifactVersionId,
+        entityLabel: 'workflow item',
         disabled,
         onProcessingChange,
     });
@@ -37,9 +38,9 @@ export function ArtifactApprovalBar({
     if (!artifact || !artifactKey || !artifactVersionId) return null;
 
     return (
-        <div className="border-t border-border px-4 pt-4 pb-6 space-y-2.5">
-            <p className="text-xs text-muted-foreground text-center">This document is awaiting your approval.</p>
-            <div className="flex items-center justify-center gap-3">
+        <div className="mt-5 pt-5 border-t border-border text-foreground">
+            <p className="text-sm text-muted-foreground">This workflow item is ready for your confirmation.</p>
+            <div className="mt-3 flex items-center justify-center gap-3">
                 <Button size="sm" variant="outline" onClick={reject} disabled={isProcessing}>
                     {isRejecting ? (
                         <Loader2 className="size-3 animate-spin mr-1.5" />
