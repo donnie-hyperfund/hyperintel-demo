@@ -3,6 +3,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { ExtractionQueueAdapter } from '@common/queue/extraction-queue.adapter';
+import { raw } from '@mikro-orm/core';
 import { normalizeUploadedFileKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
@@ -162,14 +163,12 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
     const statusChangedBy = projectId ?? chatId;
     const isStaged = !projectId && !chatId;
 
-    // Staged uploads always create a fresh artifact — unique key via UUID suffix
-    const effectiveKey = isStaged ? `${normalizedKey}__${crypto.randomUUID().slice(0, 8)}` : normalizedKey;
-
+    // Staged uploads skip upsert — always create fresh (no user_id set, so no unique constraint hit)
     const scopeFilter = isStaged
-        ? null // never upsert staged uploads
+        ? null
         : projectId
-          ? { project: projectId, key: effectiveKey }
-          : { chat: chatId, key: effectiveKey, project: null };
+          ? { project: projectId, key: normalizedKey }
+          : { chat: chatId, key: normalizedKey, project: null };
 
     const existing = scopeFilter
         ? await em.findOne(ArtifactEntity, scopeFilter, { populate: ['current_version', 'versions'] })
@@ -219,12 +218,17 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
 
     await em.transactional(async (txEm) => {
         const artifact = new ArtifactEntity();
-        artifact.key = effectiveKey;
+        artifact.key = normalizedKey;
         artifact.title = title;
         artifact.version = 1;
         if (projectId) artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
         if (chatId) artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
-        if (userId) artifact.user = txEm.getReference('UserEntity', userId) as any;
+        if (isStaged) {
+            // No user_id — avoids unique constraint (user_id, key). Ownership tracked via metadata.
+            artifact.metadata = { stagedBy: userId };
+        } else if (userId) {
+            artifact.user = txEm.getReference('UserEntity', userId) as any;
+        }
 
         txEm.persist(artifact);
         await txEm.flush();
@@ -476,17 +480,18 @@ export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx
         throw new PublicError(400, { message: 'Either chatId or projectId is required', code: 'MISSING_SCOPE' });
     }
 
-    // Validate ownership of the target scope
-    await resolveScope(em, user, projectId, chatId);
+    // Validate ownership of the target scope + resolve internal user ID
+    const { dbUserId } = await resolveScope(em, user, projectId, chatId);
 
-    // Load staged artifacts owned by this user with no existing scope
+    // Load staged artifacts owned by this user (identified via metadata.stagedBy)
     const artifacts = await em.find(
         ArtifactEntity,
         {
             id: { $in: artifactIds },
-            user: { clerkId: user.userId },
             project: null,
             chat: null,
+            user: null,
+            [raw("metadata->>'stagedBy'")]: dbUserId,
         },
         { populate: ['current_version', 'versions'] },
     );
@@ -495,10 +500,11 @@ export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx
         return { success: true, associated: 0 };
     }
 
-    // Associate each artifact with the target scope
+    // Associate each artifact with the target scope and clear staged metadata
     for (const artifact of artifacts) {
         if (projectId) artifact.project = em.getReference('ProjectEntity', projectId) as any;
         if (chatId) artifact.chat = em.getReference('ChatEntity', chatId) as any;
+        artifact.metadata = null;
     }
 
     await em.flush();
