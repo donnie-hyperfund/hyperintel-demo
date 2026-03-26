@@ -30,10 +30,7 @@ function resolve(width: number): BreakpointName | 'base' {
     return 'base';
 }
 
-export function useBreakpoint({
-    eager = false,
-    defaultBreakpoint = 'lg',
-}: UseBreakpointOptions = {}): BreakpointState {
+export function useBreakpoint({ eager = false, defaultBreakpoint = 'lg' }: UseBreakpointOptions = {}): BreakpointState {
     const [state, setState] = useState<BreakpointState>(() => {
         if (eager && typeof window !== 'undefined') {
             const w = window.innerWidth;
