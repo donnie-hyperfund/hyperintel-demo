@@ -1,9 +1,9 @@
 import { embedTexts } from '@common/ai/embeddings';
 import { chunkContent } from '@common/ai/utils/chunking';
-import type { Nullable } from '@/common/orm/utils';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type { OpenRouter } from '@openrouter/sdk';
 import type OpenAI from 'openai';
+import type { Nullable } from '@/common/orm/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import type { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -47,18 +47,17 @@ export async function indexArtifactVersion(
     is_ai_content: boolean,
 ): Promise<{ indexed: number; deleted: number }> {
     // Support both legacy string projectId and new scope object
-    const scope: IndexArtifactVersionScope = typeof projectIdOrScope === 'string'
-        ? { projectId: projectIdOrScope }
-        : projectIdOrScope;
+    const scope: IndexArtifactVersionScope =
+        typeof projectIdOrScope === 'string' ? { projectId: projectIdOrScope } : projectIdOrScope;
 
     const deleted = await em.nativeDelete(EmbeddingEntity, {
         artifact_version: artifactVersion.id,
     });
 
     // Verify the artifact version still exists (it may have been deleted between enqueue and processing)
-    const exists = await em.getConnection().execute(
-        `SELECT 1 FROM artifact_versions WHERE id = '${artifactVersion.id}' LIMIT 1`,
-    );
+    const exists = await em
+        .getConnection()
+        .execute(`SELECT 1 FROM artifact_versions WHERE id = '${artifactVersion.id}' LIMIT 1`);
     if (exists.length === 0) {
         return { indexed: 0, deleted };
     }
