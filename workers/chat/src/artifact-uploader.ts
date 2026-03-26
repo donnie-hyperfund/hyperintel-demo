@@ -162,13 +162,18 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
     const statusChangedBy = projectId ?? chatId;
     const isStaged = !projectId && !chatId;
 
-    const scopeFilter = isStaged
-        ? { user: userId, key: normalizedKey, project: null, chat: null }
-        : projectId
-          ? { project: projectId, key: normalizedKey }
-          : { chat: chatId, key: normalizedKey, project: null };
+    // Staged uploads always create a fresh artifact — unique key via UUID suffix
+    const effectiveKey = isStaged ? `${normalizedKey}__${crypto.randomUUID().slice(0, 8)}` : normalizedKey;
 
-    const existing = await em.findOne(ArtifactEntity, scopeFilter, { populate: ['current_version', 'versions'] });
+    const scopeFilter = isStaged
+        ? null // never upsert staged uploads
+        : projectId
+          ? { project: projectId, key: effectiveKey }
+          : { chat: chatId, key: effectiveKey, project: null };
+
+    const existing = scopeFilter
+        ? await em.findOne(ArtifactEntity, scopeFilter, { populate: ['current_version', 'versions'] })
+        : null;
 
     if (existing) {
         const versions = existing.versions.getItems();
@@ -214,7 +219,7 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
 
     await em.transactional(async (txEm) => {
         const artifact = new ArtifactEntity();
-        artifact.key = normalizedKey;
+        artifact.key = effectiveKey;
         artifact.title = title;
         artifact.version = 1;
         if (projectId) artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
