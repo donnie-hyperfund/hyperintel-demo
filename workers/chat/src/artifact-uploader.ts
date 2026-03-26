@@ -25,7 +25,11 @@ function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
 }
 
-function buildStorageKey(versionId: string, filename: string, scopeId: { projectId?: string; chatId?: string; userId?: string }): string {
+function buildStorageKey(
+    versionId: string,
+    filename: string,
+    scopeId: { projectId?: string; chatId?: string; userId?: string },
+): string {
     const scope = scopeId.projectId
         ? `project/${scopeId.projectId}`
         : scopeId.chatId
@@ -112,14 +116,23 @@ interface ResolvedScope {
     dbUserId: string;
 }
 
-async function resolveScope(em: Ctx['em'], user: Ctx['user'], projectId?: string, chatId?: string): Promise<ResolvedScope> {
+async function resolveScope(
+    em: Ctx['em'],
+    user: Ctx['user'],
+    projectId?: string,
+    chatId?: string,
+): Promise<ResolvedScope> {
     let project: InstanceType<typeof ProjectEntity> | null = null;
 
     if (projectId) {
-        project = await em.findOneOrFail(ProjectEntity, {
-            id: projectId,
-            user: { clerkId: user.userId },
-        }, { populate: ['user'] });
+        project = await em.findOneOrFail(
+            ProjectEntity,
+            {
+                id: projectId,
+                user: { clerkId: user.userId },
+            },
+            { populate: ['user'] },
+        );
         if (chatId) {
             await em.findOneOrFail(ChatEntity, { id: chatId, project: projectId });
         }
@@ -127,11 +140,15 @@ async function resolveScope(em: Ctx['em'], user: Ctx['user'], projectId?: string
     }
 
     if (chatId) {
-        const chat = await em.findOneOrFail(ChatEntity, {
-            id: chatId,
-            type: 'intake',
-            user: { clerkId: user.userId },
-        }, { populate: ['user'] });
+        const chat = await em.findOneOrFail(
+            ChatEntity,
+            {
+                id: chatId,
+                type: 'intake',
+                user: { clerkId: user.userId },
+            },
+            { populate: ['user'] },
+        );
         return { dbUserId: chat.user!.id };
     }
 
@@ -458,12 +475,16 @@ export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx
     await resolveScope(em, user, projectId, chatId);
 
     // Load staged artifacts owned by this user with no existing scope
-    const artifacts = await em.find(ArtifactEntity, {
-        id: { $in: artifactIds },
-        user: { clerkId: user.userId },
-        project: null,
-        chat: null,
-    }, { populate: ['current_version', 'versions'] });
+    const artifacts = await em.find(
+        ArtifactEntity,
+        {
+            id: { $in: artifactIds },
+            user: { clerkId: user.userId },
+            project: null,
+            chat: null,
+        },
+        { populate: ['current_version', 'versions'] },
+    );
 
     if (artifacts.length === 0) {
         return { success: true, associated: 0 };

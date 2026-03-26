@@ -50,11 +50,7 @@ type FileUploadProviderProps = {
     trackAsPending?: boolean;
 };
 
-export function FileUploadProvider({
-    children,
-    scope,
-    trackAsPending = false,
-}: FileUploadProviderProps) {
+export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
     const {
         pendingArtifactIds,
         addPendingArtifactId: _addPending,
@@ -587,7 +583,9 @@ export function FileUploadProvider({
     }, [files, pollFileStatus]);
 
     return (
-        <FileUploadContext.Provider value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting, consumeStagedArtifactIds }}>
+        <FileUploadContext.Provider
+            value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting, consumeStagedArtifactIds }}
+        >
             {children}
         </FileUploadContext.Provider>
     );

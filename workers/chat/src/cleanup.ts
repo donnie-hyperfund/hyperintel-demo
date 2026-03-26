@@ -52,9 +52,8 @@ async function processStagedArtifactsBatch(em: SqlEntityManager, env: Env, cutof
 
     // Collect file storage keys to delete from R2
     const versionIds = stagedArtifacts.flatMap((a) => a.versions.getItems().map((v) => v.id));
-    const files = versionIds.length > 0
-        ? await em.find(ArtifactFileEntity, { artifact_version: { $in: versionIds } })
-        : [];
+    const files =
+        versionIds.length > 0 ? await em.find(ArtifactFileEntity, { artifact_version: { $in: versionIds } }) : [];
 
     if (files.length > 0) {
         await Promise.allSettled(files.map((f) => env.ARTIFACTS_BUCKET.delete(f.storage_key)));
@@ -72,7 +71,12 @@ async function processStagedArtifactsBatch(em: SqlEntityManager, env: Env, cutof
     return stagedArtifacts.length;
 }
 
-async function drainBatches(fn: (em: SqlEntityManager, env: Env, cutoff: Date) => Promise<number>, em: SqlEntityManager, env: Env, cutoff: Date): Promise<number> {
+async function drainBatches(
+    fn: (em: SqlEntityManager, env: Env, cutoff: Date) => Promise<number>,
+    em: SqlEntityManager,
+    env: Env,
+    cutoff: Date,
+): Promise<number> {
     let total = 0;
     let removed: number;
     do {

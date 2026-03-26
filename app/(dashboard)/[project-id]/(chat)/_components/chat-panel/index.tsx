@@ -46,10 +46,7 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
     }, [isEmpty]);
 
     return (
-        <FileUploadProvider
-            scope={{ projectId, chatId: chatId ?? undefined }}
-            trackAsPending
-        >
+        <FileUploadProvider scope={{ projectId, chatId: chatId ?? undefined }} trackAsPending>
             <ChatPanelContent
                 isEmpty={isEmpty}
                 allowUploadBeforeFirstMessage={allowUploadBeforeFirstMessage}
