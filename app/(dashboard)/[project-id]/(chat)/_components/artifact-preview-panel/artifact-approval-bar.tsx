@@ -39,21 +39,13 @@ export function ArtifactApprovalBar({
     return (
         <div className="border-t border-border px-4 pt-4 pb-6 space-y-2.5">
             <p className="text-xs text-muted-foreground text-center">This document is awaiting your approval.</p>
-            <div className="flex items-center justify-center gap-3">
+            <div className="flex items-center justify-center gap-2">
                 <Button size="sm" variant="outline" onClick={reject} disabled={isProcessing}>
-                    {isRejecting ? (
-                        <Loader2 className="size-3 animate-spin mr-1.5" />
-                    ) : (
-                        <XIcon className="size-3 mr-1.5" />
-                    )}
+                    {isRejecting ? <Loader2 className="size-3 animate-spin mr-1" /> : <XIcon className="size-3 mr-1" />}
                     Reject
                 </Button>
                 <Button size="sm" onClick={approve} disabled={isProcessing}>
-                    {isApproving ? (
-                        <Loader2 className="size-3 animate-spin mr-1.5" />
-                    ) : (
-                        <Check className="size-3 mr-1.5" />
-                    )}
+                    {isApproving ? <Loader2 className="size-3 animate-spin mr-1" /> : <Check className="size-3 mr-1" />}
                     Approve
                 </Button>
             </div>

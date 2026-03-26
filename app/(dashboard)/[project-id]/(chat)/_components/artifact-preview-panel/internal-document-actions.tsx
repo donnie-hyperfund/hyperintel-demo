@@ -40,21 +40,13 @@ export function InternalDocumentActions({
     return (
         <div className="mt-5 pt-5 border-t border-border text-foreground">
             <p className="text-sm text-muted-foreground">This workflow item is ready for your confirmation.</p>
-            <div className="mt-3 flex items-center justify-center gap-3">
+            <div className="mt-3 flex items-center justify-center gap-2">
                 <Button size="sm" variant="outline" onClick={reject} disabled={isProcessing}>
-                    {isRejecting ? (
-                        <Loader2 className="size-3 animate-spin mr-1.5" />
-                    ) : (
-                        <XIcon className="size-3 mr-1.5" />
-                    )}
+                    {isRejecting ? <Loader2 className="size-3 animate-spin mr-1" /> : <XIcon className="size-3 mr-1" />}
                     Reject
                 </Button>
                 <Button size="sm" onClick={approve} disabled={isProcessing}>
-                    {isApproving ? (
-                        <Loader2 className="size-3 animate-spin mr-1.5" />
-                    ) : (
-                        <Check className="size-3 mr-1.5" />
-                    )}
+                    {isApproving ? <Loader2 className="size-3 animate-spin mr-1" /> : <Check className="size-3 mr-1" />}
                     Approve
                 </Button>
             </div>
