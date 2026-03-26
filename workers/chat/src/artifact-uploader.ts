@@ -9,7 +9,9 @@ import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.e
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import {
+    type AssociateArtifactsDto,
     type ConfirmUploadDto,
     isBinaryArtifactExtension,
     type PresignUploadDto,
@@ -23,8 +25,16 @@ function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
 }
 
-function buildStorageKey(versionId: string, filename: string, projectId?: string, chatId?: string): string {
-    const scope = projectId ? `project/${projectId}` : `chat/${chatId}`;
+function buildStorageKey(
+    versionId: string,
+    filename: string,
+    scopeId: { projectId?: string; chatId?: string; userId?: string },
+): string {
+    const scope = scopeId.projectId
+        ? `project/${scopeId.projectId}`
+        : scopeId.chatId
+          ? `chat/${scopeId.chatId}`
+          : `staged/${scopeId.userId}`;
     const ext = getExtension(filename);
     return `uploads/${scope}/${versionId}/${crypto.randomUUID()}${ext}`;
 }
@@ -90,6 +100,7 @@ interface UpsertInput {
     content?: string;
     projectId?: string;
     chatId?: string;
+    userId?: string;
 }
 
 interface UpsertResult {
@@ -100,41 +111,62 @@ interface UpsertResult {
     supersededVersion?: number;
 }
 
-function requireScope(projectId?: string, chatId?: string) {
-    if (!projectId && !chatId) {
-        throw new PublicError(400, { message: 'Either projectId or chatId is required', code: 'MISSING_SCOPE' });
-    }
+interface ResolvedScope {
+    project?: InstanceType<typeof ProjectEntity> | null;
+    dbUserId: string;
 }
 
-async function resolveScope(em: Ctx['em'], user: Ctx['user'], projectId?: string, chatId?: string) {
+async function resolveScope(
+    em: Ctx['em'],
+    user: Ctx['user'],
+    projectId?: string,
+    chatId?: string,
+): Promise<ResolvedScope> {
     let project: InstanceType<typeof ProjectEntity> | null = null;
 
     if (projectId) {
-        project = await em.findOneOrFail(ProjectEntity, {
-            id: projectId,
-            user: { clerkId: user.userId },
-        });
+        project = await em.findOneOrFail(
+            ProjectEntity,
+            {
+                id: projectId,
+                user: { clerkId: user.userId },
+            },
+            { populate: ['user'] },
+        );
         if (chatId) {
             await em.findOneOrFail(ChatEntity, { id: chatId, project: projectId });
         }
-    } else if (chatId) {
-        await em.findOneOrFail(ChatEntity, {
-            id: chatId,
-            type: 'intake',
-            user: { clerkId: user.userId },
-        });
+        return { project, dbUserId: project.user.id };
     }
 
-    return project;
+    if (chatId) {
+        const chat = await em.findOneOrFail(
+            ChatEntity,
+            {
+                id: chatId,
+                type: 'intake',
+                user: { clerkId: user.userId },
+            },
+            { populate: ['user'] },
+        );
+        return { dbUserId: chat.user!.id };
+    }
+
+    // Staged upload — no project or chat, resolve user directly
+    const dbUser = await em.findOneOrFail(UserEntity, { clerkId: user.userId });
+    return { dbUserId: dbUser.id };
 }
 
 async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise<UpsertResult> {
-    const { normalizedKey, title, status, content, projectId, chatId } = input;
+    const { normalizedKey, title, status, content, projectId, chatId, userId } = input;
     const statusChangedBy = projectId ?? chatId;
+    const isStaged = !projectId && !chatId;
 
-    const scopeFilter = projectId
-        ? { project: projectId, key: normalizedKey }
-        : { chat: chatId, key: normalizedKey, project: null };
+    const scopeFilter = isStaged
+        ? { user: userId, key: normalizedKey, project: null, chat: null }
+        : projectId
+          ? { project: projectId, key: normalizedKey }
+          : { chat: chatId, key: normalizedKey, project: null };
 
     const existing = await em.findOne(ArtifactEntity, scopeFilter, { populate: ['current_version', 'versions'] });
 
@@ -187,6 +219,7 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
         artifact.version = 1;
         if (projectId) artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
         if (chatId) artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
+        if (userId) artifact.user = txEm.getReference('UserEntity', userId) as any;
 
         txEm.persist(artifact);
         await txEm.flush();
@@ -234,8 +267,6 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
     const { file, projectId, chatId, title: titleInput, clientEntryId, source } = data;
     const { em, user } = ctx;
 
-    requireScope(projectId, chatId);
-
     const validation = validateArtifactFile(file);
     if (validation) {
         throw new PublicError(400, { message: validation.message, code: validation.code });
@@ -252,8 +283,9 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
 
     const title = titleInput || file.name.replace(/\.[^.]+$/, '');
     const normalizedKey = normalizeUploadedFileKey(file.name);
+    const isStaged = !projectId && !chatId;
 
-    await resolveScope(em, user, projectId, chatId);
+    const { dbUserId } = await resolveScope(em, user, projectId, chatId);
 
     const result = await upsertArtifactVersion(em, {
         normalizedKey,
@@ -262,9 +294,13 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         content,
         projectId,
         chatId,
+        userId: isStaged ? dbUserId : undefined,
     });
 
-    await queueEmbedding(ctx, result.versionId, content, normalizedKey, projectId, chatId);
+    // Only queue embedding when we have a scope — staged uploads defer embedding until association
+    if (!isStaged) {
+        await queueEmbedding(ctx, result.versionId, content, normalizedKey, projectId, chatId);
+    }
 
     broadcastArtifactCreated(ctx, result, normalizedKey);
     if (projectId && source === 'project-resources') {
@@ -285,8 +321,6 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     const { filename, fileSize, projectId, chatId, title: titleInput, clientEntryId, source } = data;
     const { em, user } = ctx;
 
-    requireScope(projectId, chatId);
-
     const ext = getExtension(filename);
     if (!isBinaryArtifactExtension(ext)) {
         throw new PublicError(400, {
@@ -298,8 +332,9 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     const mimeType = MIME_TYPES[ext] ?? 'application/octet-stream';
     const title = titleInput || filename.replace(/\.[^.]+$/, '');
     const normalizedKey = normalizeUploadedFileKey(filename);
+    const isStaged = !projectId && !chatId;
 
-    await resolveScope(em, user, projectId, chatId);
+    const { dbUserId } = await resolveScope(em, user, projectId, chatId);
 
     const result = await upsertArtifactVersion(em, {
         normalizedKey,
@@ -307,10 +342,11 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
         status: 'proposed',
         projectId,
         chatId,
+        userId: isStaged ? dbUserId : undefined,
     });
 
     // Create artifact_file record
-    const storageKey = buildStorageKey(result.versionId, filename, projectId, chatId);
+    const storageKey = buildStorageKey(result.versionId, filename, { projectId, chatId, userId: dbUserId });
 
     const artifactFile = new ArtifactFileEntity();
     artifactFile.artifact_version = em.getReference('ArtifactVersionEntity', result.versionId) as any;
@@ -425,6 +461,53 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
         version: version.version,
         key: version.artifact.key,
     };
+}
+
+export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx: Ctx) {
+    const { artifactIds, chatId, projectId } = data;
+    const { em, user } = ctx;
+
+    if (!chatId && !projectId) {
+        throw new PublicError(400, { message: 'Either chatId or projectId is required', code: 'MISSING_SCOPE' });
+    }
+
+    // Validate ownership of the target scope
+    await resolveScope(em, user, projectId, chatId);
+
+    // Load staged artifacts owned by this user with no existing scope
+    const artifacts = await em.find(
+        ArtifactEntity,
+        {
+            id: { $in: artifactIds },
+            user: { clerkId: user.userId },
+            project: null,
+            chat: null,
+        },
+        { populate: ['current_version', 'versions'] },
+    );
+
+    if (artifacts.length === 0) {
+        return { success: true, associated: 0 };
+    }
+
+    // Associate each artifact with the target scope
+    for (const artifact of artifacts) {
+        if (projectId) artifact.project = em.getReference('ProjectEntity', projectId) as any;
+        if (chatId) artifact.chat = em.getReference('ChatEntity', chatId) as any;
+    }
+
+    await em.flush();
+
+    // Queue embeddings for versions that have content (extraction already completed)
+    for (const artifact of artifacts) {
+        for (const version of artifact.versions.getItems()) {
+            if (version.content && version.status === 'approved') {
+                await queueEmbedding(ctx, version.id, version.content, artifact.key, projectId, chatId);
+            }
+        }
+    }
+
+    return { success: true, associated: artifacts.length };
 }
 
 async function queueEmbedding(

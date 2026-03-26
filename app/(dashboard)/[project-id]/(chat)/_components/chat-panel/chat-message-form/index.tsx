@@ -34,7 +34,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         state: { isGenerating, isSummarizing, isLoading, isProcessingArtifactAction, tokenUsage, activeResponseId },
     } = useChatContext();
 
-    const { files, removeFile, submitFiles, isSubmitting } = useFileUploadContext();
+    const { files, removeFile, submitFiles, isSubmitting, consumeStagedArtifactIds } = useFileUploadContext();
     const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
@@ -64,6 +64,9 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         // Capture file names before submitFiles clears them
         const uploadedFiles = files.map((entry) => ({ name: entry.name, size: entry.size }));
 
+        // Consume staged artifact IDs before submitFiles clears state
+        const stagedArtifactIds = consumeStagedArtifactIds();
+
         if (uploadedFiles.length > 0) {
             await submitFiles();
         }
@@ -78,7 +81,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         textareaRef.current?.updateTextareaHeight();
 
         if (message) {
-            await sendMessage(message);
+            await sendMessage(message, stagedArtifactIds.length > 0 ? { stagedArtifactIds } : undefined);
         }
     };
 
@@ -176,7 +179,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                 minHeight={24}
                             />
 
-                            {chatId && <AttachFileButton />}
+                            {(chatId || chatType !== 'phase') && <AttachFileButton />}
 
                             <div className="flex items-end gap-2 ml-auto">
                                 {IS_DEV && <SwitchModelSelector disabled={isBusy} />}

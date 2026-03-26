@@ -15,8 +15,9 @@ type ChatPanelProps = {
 };
 
 export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }: ChatPanelProps) {
-    const { chatId, projectId } = useChatContext();
+    const { chatId, chatType, projectId } = useChatContext();
     const isEmpty = !chatId;
+    const allowUploadBeforeFirstMessage = chatType !== 'phase';
 
     const conversationRef = useRef<HTMLDivElement>(null);
     const formRef = useRef<HTMLDivElement>(null);
@@ -48,6 +49,7 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
         <FileUploadProvider scope={{ projectId, chatId: chatId ?? undefined }} trackAsPending>
             <ChatPanelContent
                 isEmpty={isEmpty}
+                allowUploadBeforeFirstMessage={allowUploadBeforeFirstMessage}
                 HeaderComponent={HeaderComponent}
                 emptyTitle={emptyTitle}
                 emptySubtitle={emptySubtitle}
@@ -60,6 +62,7 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
 
 function ChatPanelContent({
     isEmpty,
+    allowUploadBeforeFirstMessage,
     HeaderComponent,
     emptyTitle,
     emptySubtitle,
@@ -67,20 +70,27 @@ function ChatPanelContent({
     formRef,
 }: ChatPanelProps & {
     isEmpty: boolean;
+    allowUploadBeforeFirstMessage: boolean;
     conversationRef: React.RefObject<HTMLDivElement | null>;
     formRef: React.RefObject<HTMLDivElement | null>;
 }) {
     if (isEmpty) {
-        return (
-            <div className="flex flex-col relative h-full">
+        const content = (
+            <>
                 {HeaderComponent}
 
                 <div className="flex flex-1 flex-col items-center justify-center">
                     <ChatEmptyTitle title={emptyTitle} subtitle={emptySubtitle} className="mb-12 px-4" />
                     <ChatMessageForm ref={formRef} className="w-full" showGradientFade={false} />
                 </div>
-            </div>
+            </>
         );
+
+        if (allowUploadBeforeFirstMessage) {
+            return <FileDropOverlay className="flex flex-col relative h-full">{content}</FileDropOverlay>;
+        }
+
+        return <div className="flex flex-col relative h-full">{content}</div>;
     }
 
     return (

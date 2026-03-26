@@ -270,8 +270,8 @@ async function processExtraction(
 
     await ctx.em.flush();
 
-    // 5. Queue embedding
-    if (ctx.env.EMBEDDING_QUEUE) {
+    // 5. Queue embedding (skip for staged uploads — embedding deferred until association)
+    if (ctx.env.EMBEDDING_QUEUE && (projectId || chatId)) {
         try {
             const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
             await embeddingQueue.send({
@@ -288,6 +288,8 @@ async function processExtraction(
             console.error(`${logPrefix} Failed to queue embedding:`, error);
             // Non-fatal — extraction succeeded, embedding can be retried
         }
+    } else if (!projectId && !chatId) {
+        console.log(`${logPrefix} Staged upload — skipping embedding until association`);
     }
 
     return { success: true };

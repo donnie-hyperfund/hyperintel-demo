@@ -8,6 +8,7 @@ import { requestId } from 'hono/request-id';
 import { ChatEntity } from '@/lib/orm/entities';
 import {
     ApproveArtifactActionSchema,
+    AssociateArtifactsSchema,
     ConfirmUploadSchema,
     DeleteArtifactSchema,
     ExportArtifactQuerySchema,
@@ -27,7 +28,12 @@ import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approv
 import { deleteArtifactHandler } from './artifact-deleter';
 import { exportArtifactHandler } from './artifact-exporter';
 import { importArtifactsHandler } from './artifact-importer';
-import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './artifact-uploader';
+import {
+    associateArtifactsHandler,
+    confirmUploadHandler,
+    presignUploadHandler,
+    uploadArtifactHandler,
+} from './artifact-uploader';
 import { chatActionHandler } from './chat-handler';
 import { cleanupStaleUploads } from './cleanup';
 import type { Ctx } from './context';
@@ -181,6 +187,12 @@ app.post('/artifacts/delete', zValidator('json', DeleteArtifactSchema), async (c
 app.post('/artifacts/import', zValidator('json', ImportArtifactsActionSchema), async (c) => {
     return wrapWorker(async () => {
         return await importArtifactsHandler(c.req.valid('json'), ctxWithAlias(c));
+    });
+});
+
+app.post('/artifacts/associate', zValidator('json', AssociateArtifactsSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await associateArtifactsHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
