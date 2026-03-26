@@ -8,6 +8,7 @@ const EXTENSION_ICONS: Record<string, string> = {
     docx: '/icons/extensions/docx.svg',
     xlsx: '/icons/extensions/xlsx.svg',
     pptx: '/icons/extensions/pptx.svg',
+    rtf: '/icons/extensions/rtf.svg',
 };
 
 type FileTypeIconProps = {
