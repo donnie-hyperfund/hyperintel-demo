@@ -457,6 +457,7 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
                 mimeType: artifactFile.mime_type,
                 projectId: version.artifact.project?.id ?? null,
                 chatId: version.artifact.chat?.id ?? null,
+                previewAlias: ctx.previewAlias,
             });
         } catch (error) {
             console.error('[artifact-uploader] Failed to queue extraction:', error);
@@ -542,6 +543,7 @@ async function queueEmbedding(
             content,
             documentName,
             is_ai_content: false,
+            previewAlias: ctx.previewAlias,
         });
     } catch (error) {
         console.error('[artifact-uploader] Failed to queue embedding:', error);

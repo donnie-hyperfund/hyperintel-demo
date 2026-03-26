@@ -7,15 +7,23 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
+import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { preprocessContext } from './chat-handler';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { approveVersion, listDocuments } from './tools/documents/document-service';
-import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
-import { cleanupStreamDO, createEnqueue, createEventCollector, createPusher, createSSEStream, handleCommonStreamEvent, wireAbort } from './utils/stream-utils';
+import {
+    cleanupStreamDO,
+    createEnqueue,
+    createEventCollector,
+    createPusher,
+    createSSEStream,
+    handleCommonStreamEvent,
+    wireAbort,
+} from './utils/stream-utils';
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
@@ -110,17 +118,27 @@ export async function summarizeActionHandler(
     const alias = ctx.previewAlias;
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    await ugStub.systemAction(`chat:${chatId}`, 'registerStream', {
-        agentMessageId,
-        userId: ctx.user.userId,
-        streamType: 'summary',
-        // summarizer does not have an initiating user message
-    }, alias ?? undefined);
+    await ugStub.systemAction(
+        `chat:${chatId}`,
+        'registerStream',
+        {
+            agentMessageId,
+            userId: ctx.user.userId,
+            streamType: 'summary',
+            // summarizer does not have an initiating user message
+        },
+        alias ?? undefined,
+    );
 
     // --- Test mode: keep existing direct-call behavior ---
     if (options.onEvent) {
         const generationPromise = runSummarizer({
-            data, ctx, options, chat, agentMessageId, ugStub,
+            data,
+            ctx,
+            options,
+            chat,
+            agentMessageId,
+            ugStub,
         });
         return { agentMessageId, generation: generationPromise };
     }
@@ -135,7 +153,11 @@ export async function summarizeActionHandler(
         // Run generation inline — Worker stays alive because the DO reads this stream
         await runSummarizer({ data, ctx, options, chat, agentMessageId, ugStub });
 
-        try { controller.close(); } catch { /* already closed */ }
+        try {
+            controller.close();
+        } catch {
+            /* already closed */
+        }
     }, ctx);
 }
 
@@ -250,6 +272,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             chatId: chat.id,
             draftManager: new DraftManager(),
             embeddingQueue,
+            previewAlias: ctx.previewAlias,
             createdVersionIds,
             onVersionCreated: (event) => {
                 ugStub

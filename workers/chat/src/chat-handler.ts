@@ -393,6 +393,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             chatId: chat.id,
             draftManager: new DraftManager(),
             embeddingQueue,
+            previewAlias: ctx.previewAlias,
             createdVersionIds,
             onVersionCreated: (event) => {
                 ugStub

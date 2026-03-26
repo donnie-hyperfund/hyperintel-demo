@@ -55,6 +55,8 @@ export interface DocumentToolsContext {
     draftManager: DraftManager;
     /** Embedding queue adapter for async indexing (optional) */
     embeddingQueue?: EmbeddingQueueAdapter;
+    /** Preview branch alias for queue messages (so downstream workers connect to the correct DB branch) */
+    previewAlias?: string | null;
     /** Version IDs created during this turn - will be linked to assistant message after persist */
     createdVersionIds: string[];
     /** Optional callback fired when a new artifact version is created (for user-scoped broadcasts) */
@@ -556,6 +558,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                                 content: draft.content,
                                 documentName: draft.name,
                                 is_ai_content: generateAiContent,
+                                previewAlias: ctx.previewAlias,
                             })
                             .catch((err) => console.error('[finalize_document] Embedding queue error:', err));
 

@@ -55,6 +55,14 @@ export async function indexArtifactVersion(
         artifact_version: artifactVersion.id,
     });
 
+    // Verify the artifact version still exists (it may have been deleted between enqueue and processing)
+    const exists = await em.getConnection().execute(
+        `SELECT 1 FROM artifact_versions WHERE id = '${artifactVersion.id}' LIMIT 1`,
+    );
+    if (exists.length === 0) {
+        return { indexed: 0, deleted };
+    }
+
     const chunks = await chunkContent(openrouterClient, artifactVersion.content);
     if (chunks.length === 0) {
         return { indexed: 0, deleted };
