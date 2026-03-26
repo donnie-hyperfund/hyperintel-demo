@@ -14,6 +14,7 @@ import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
 import { ArtifactVersionHistoryDialog } from './artifact-version-history-dialog';
 import { DiffControlBar } from './diff-control-bar';
+import { InternalDocumentActions } from './internal-document-actions';
 import { InternalDocumentContent } from './internal-document-content';
 
 type ArtifactViewerProps = {
@@ -96,7 +97,10 @@ export const ArtifactViewer = ({
     const { isLinking: isLinkingToProject } = useOptionalProjectOrigin();
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
-    const showApprovalBar = status === 'proposed' && !isStreaming && !!artifactKey && !isLastMessageStreaming;
+    const canApprove =
+        status === 'proposed' && !isStreaming && !!artifactId && !!artifactKey && !isLastMessageStreaming;
+    const showApprovalBar = canApprove && !isInternal;
+    const showInternalActions = canApprove && !!isInternal;
     const canDelete = !!artifactKey && !!isUploaded && !isStreaming && status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
     const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
@@ -167,7 +171,16 @@ export const ArtifactViewer = ({
             <div className="relative flex-1 min-h-0">
                 <div ref={containerRef} className="h-full overflow-y-auto">
                     {isInternal ? (
-                        <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming} />
+                        <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming}>
+                            {showInternalActions && (
+                                <InternalDocumentActions
+                                    artifactId={artifactId}
+                                    version={version}
+                                    disabled={isUpdating}
+                                    onProcessingChange={setIsProcessingApproval}
+                                />
+                            )}
+                        </InternalDocumentContent>
                     ) : markdownContent ? (
                         <div className="p-6">
                             <MarkdownRenderer
@@ -221,11 +234,8 @@ export const ArtifactViewer = ({
             {/* Approval bar */}
             {showApprovalBar && (
                 <ArtifactApprovalBar
-                    artifactId={artifactId!}
-                    artifactKey={artifactKey}
-                    artifactVersion={version}
-                    artifactVersionId={artifactVersionId!}
-                    isInternal={isInternal}
+                    artifactId={artifactId}
+                    version={version}
                     disabled={isUpdating}
                     onProcessingChange={setIsProcessingApproval}
                 />

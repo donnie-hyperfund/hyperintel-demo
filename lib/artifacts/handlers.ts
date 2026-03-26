@@ -17,8 +17,8 @@ import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import {
     GetArtifactQuerySchema,
-    ListArtifactVersionsQuerySchema,
     ListArtifactsQuerySchema,
+    ListArtifactVersionsQuerySchema,
     ListUserResourcesQuerySchema,
 } from '@/lib/schema/artifact';
 import { ImportArtifactsBodySchema } from '@/lib/schema/project';
@@ -668,7 +668,12 @@ export async function handleGetFileStatuses(req: NextRequest, user: UserEntity):
         .leftJoin('a.chat', 'c')
         .where({
             'f.id': { $in: fileIds },
-            $or: [{ 'p.user': user.id }, { 'c.user': user.id }, { 'a.user': user.id }],
+            $or: [
+                { 'p.user': user.id },
+                { 'c.user': user.id },
+                { 'a.user': user.id },
+                { [raw("a.metadata->>'stagedBy'")]: user.id },
+            ],
         })
         .getResultList();
 

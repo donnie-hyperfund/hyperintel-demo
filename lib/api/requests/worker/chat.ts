@@ -3,6 +3,7 @@ import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/route
 import { frontendEnv } from '@/lib/env';
 import {
     ApproveArtifactActionDto,
+    type AssociateArtifactsDto,
     type ConfirmUploadDto,
     type DeleteArtifactDto,
     type ExportFormat,
@@ -218,6 +219,25 @@ export const confirmUpload = (data: ConfirmUploadDto, accessToken: string) => {
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.ConfirmAction, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+};
+
+export const associateArtifacts = (data: AssociateArtifactsDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.AssociateAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.AssociateAction, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),

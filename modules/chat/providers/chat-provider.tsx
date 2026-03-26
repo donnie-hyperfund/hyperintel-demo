@@ -9,7 +9,7 @@ import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
-import { abort, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
+import { abort, associateArtifacts, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
@@ -39,7 +39,7 @@ export type BaseChatContextValue = {
     /** Load more (older) messages for infinite scroll */
     loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
-    sendMessage: (content: string) => Promise<void>;
+    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[] }) => Promise<void>;
     /** Send a nudge (message: null) to trigger generation on last injected system event */
     sendNudge: () => Promise<void>;
     /** Stop the current generation */
@@ -139,6 +139,7 @@ export function ChatProvider({
 
     const { mutate: globalMutate, cache, fallback } = useSWRConfig();
     const router = useRouter();
+    const chatCreationPromiseRef = useRef<Promise<string> | null>(null);
 
     // Create API client with auth
     const api = useMemo(() => createApiClient(getToken), [getToken]);
@@ -196,6 +197,51 @@ export function ChatProvider({
 
     // Forward ref for reconnect handler (loadMessages is defined later)
     const loadMessagesRef = useRef<() => void>(() => {});
+
+    const ensureChatId = useCallback(async () => {
+        if (chatId) return chatId;
+        if (chatCreationPromiseRef.current) return chatCreationPromiseRef.current;
+
+        const createChatPromise = (async () => {
+            if (chatType === 'phase') {
+                if (!projectId) {
+                    throw new Error('Project ID is required for phase chats');
+                }
+
+                const newChat = await api.chats.create(projectId);
+                const nextChatId = newChat.id;
+
+                skipNextLoad.current = true;
+                setChatId(nextChatId);
+                setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
+
+                window.history.replaceState(null, '', buildChatRoute(nextChatId));
+                insertChatToCache(cache, globalMutate, projectId, newChat);
+
+                return nextChatId;
+            }
+
+            const newChat = await api.chats.createIntake({
+                framework: intakeConfigMap[chatType].framework,
+                category: intakeConfigMap[chatType].category,
+            });
+            const nextChatId = newChat.id;
+
+            skipNextLoad.current = true;
+            setChatId(nextChatId);
+            window.history.replaceState(null, '', buildChatRoute(nextChatId));
+
+            return nextChatId;
+        })();
+
+        chatCreationPromiseRef.current = createChatPromise;
+
+        try {
+            return await createChatPromise;
+        } finally {
+            chatCreationPromiseRef.current = null;
+        }
+    }, [api.chats, buildChatRoute, cache, chatId, chatType, globalMutate, projectId]);
 
     // ========================================================================
     // CALLBACKS FOR STREAM HOOK
@@ -819,7 +865,7 @@ export function ChatProvider({
 
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
-        async (content: string) => {
+        async (content: string, opts?: { stagedArtifactIds?: string[] }) => {
             if (!content.trim() || state.isGenerating) return;
 
             // Create user message with temporary client-side ID
@@ -837,40 +883,11 @@ export function ChatProvider({
             const accessToken = (await getToken()) ?? '';
 
             try {
-                // If no chatId, create a new chat first
-                let chatIdToUse = chatId;
-                if (!chatIdToUse) {
-                    // TODO: Unify this when backend is updated
-                    if (chatType === 'phase') {
-                        if (!projectId) {
-                            throw new Error('Project ID is required for phase chats');
-                        }
+                const chatIdToUse = await ensureChatId();
 
-                        // Phase chat — project-scoped creation
-                        const newChat = await api.chats.create(projectId);
-                        chatIdToUse = newChat.id;
-
-                        skipNextLoad.current = true;
-                        setChatId(chatIdToUse);
-                        setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
-
-                        // Update URL without navigation using history API
-                        window.history.replaceState(null, '', buildChatRoute(chatIdToUse));
-
-                        insertChatToCache(cache, globalMutate, projectId!, newChat);
-                    } else {
-                        // Intake chat — unified creation
-                        const newChat = await api.chats.createIntake({
-                            framework: intakeConfigMap[chatType].framework,
-                            category: intakeConfigMap[chatType].category,
-                        });
-                        chatIdToUse = newChat.id;
-
-                        skipNextLoad.current = true;
-                        setChatId(chatIdToUse);
-
-                        window.history.replaceState(null, '', buildChatRoute(chatIdToUse));
-                    }
+                // Associate staged uploads with the newly created (or existing) chat
+                if (opts?.stagedArtifactIds?.length) {
+                    await associateArtifacts({ artifactIds: opts.stagedArtifactIds, chatId: chatIdToUse }, accessToken);
                 }
 
                 // POST triggers server-side generation — stream arrives via WS subscription
@@ -917,18 +934,7 @@ export function ChatProvider({
                 }));
             }
         },
-        [
-            api,
-            cache,
-            chatId,
-            getToken,
-            globalMutate,
-            chatType,
-            projectId,
-            buildChatRoute,
-            selectedModel,
-            state.isGenerating,
-        ],
+        [api, cache, chatType, ensureChatId, getToken, globalMutate, selectedModel, state.isGenerating],
     );
 
     // ========================================================================

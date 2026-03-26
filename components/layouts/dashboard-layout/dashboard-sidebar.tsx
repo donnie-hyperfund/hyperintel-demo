@@ -4,6 +4,7 @@ import { Building, FileCode, LayoutDashboard, Users } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useRef } from 'react';
 import {
     Sidebar,
     SidebarContent,
@@ -29,10 +30,18 @@ const navItems = [
 ];
 
 export function DashboardSidebar() {
-    const { state } = useSidebar();
-    const isCollapsed = state === 'collapsed';
+    const { state, isMobile, setOpenMobile } = useSidebar();
+    const isCollapsed = !isMobile && state === 'collapsed';
     const isExpanded = !isCollapsed;
     const pathname = usePathname();
+    const prevPathname = useRef(pathname);
+
+    useEffect(() => {
+        if (prevPathname.current !== pathname) {
+            prevPathname.current = pathname;
+            setOpenMobile(false);
+        }
+    }, [pathname, setOpenMobile]);
 
     return (
         <Sidebar collapsible="icon" className="border-r border-neutral-800">

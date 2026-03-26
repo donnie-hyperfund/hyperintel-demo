@@ -1,12 +1,11 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { motion } from 'motion/react';
 import { useRouter } from 'nextjs-toploader/app';
 
 import { useForm } from 'react-hook-form';
+import { OnboardingStep } from '@/components/layouts/onboarding-layout/onboarding-steps';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -47,68 +46,46 @@ export default function NewProjectPage() {
     });
 
     return (
-        <div className="mx-auto w-full max-w-md">
-            <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, ease: 'easeOut' }}
-                className="mb-8 space-y-2 text-center"
-            >
-                <h1 className="text-3xl font-semibold tracking-tight">Create a new project</h1>
-                <p className="text-muted-foreground text-sm leading-relaxed">
-                    Keep your chats and artifacts organized in one place, and make it easy to share context across your
-                    team.
-                </p>
-            </motion.div>
+        <OnboardingStep.Root>
+            <OnboardingStep.Header
+                title="Create a new project"
+                description="Keep your chats and artifacts organized in one place, and make it easy to share context across your team."
+            />
 
-            <form onSubmit={onSubmit} className="flex flex-col items-center justify-center">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
-                    className="self-stretch"
-                >
-                    <Card className="border-neutral-900 bg-neutral-900/50 shadow-xl backdrop-blur mb-10 py-7">
-                        <CardContent className="px-7">
-                            <div className="space-y-4">
-                                <Field data-invalid={!!errors.name} className="gap-2">
-                                    <FieldLabel htmlFor="name">Project name</FieldLabel>
-                                    <Input
-                                        id="name"
-                                        type="text"
-                                        placeholder="Workspace name"
-                                        className="text-base"
-                                        aria-invalid={!!errors.name}
-                                        size="xl"
-                                        {...register('name')}
-                                    />
-                                    <FieldError errors={errors.name ? [errors.name] : undefined} />
-                                </Field>
+            <form onSubmit={onSubmit}>
+                <OnboardingStep.Card className="self-stretch">
+                    <div className="space-y-4">
+                        <Field data-invalid={!!errors.name} className="gap-2">
+                            <FieldLabel htmlFor="name">Project name</FieldLabel>
+                            <Input
+                                id="name"
+                                type="text"
+                                placeholder="Workspace name"
+                                className="text-base"
+                                aria-invalid={!!errors.name}
+                                size="xl"
+                                {...register('name')}
+                            />
+                            <FieldError errors={errors.name ? [errors.name] : undefined} />
+                        </Field>
 
-                                <Field data-invalid={!!errors.description} className="gap-2">
-                                    <FieldLabel htmlFor="description">Project description</FieldLabel>
-                                    <Textarea
-                                        id="description"
-                                        placeholder="What's this project for? (optional)"
-                                        className="min-h-28 text-base"
-                                        rows={4}
-                                        size="xl"
-                                        aria-invalid={!!errors.description}
-                                        {...register('description')}
-                                    />
-                                    <FieldError errors={errors.description ? [errors.description] : undefined} />
-                                </Field>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </motion.div>
+                        <Field data-invalid={!!errors.description} className="gap-2">
+                            <FieldLabel htmlFor="description">Project description</FieldLabel>
+                            <Textarea
+                                id="description"
+                                placeholder="What's this project for? (optional)"
+                                className="min-h-28 text-base"
+                                rows={4}
+                                size="xl"
+                                aria-invalid={!!errors.description}
+                                {...register('description')}
+                            />
+                            <FieldError errors={errors.description ? [errors.description] : undefined} />
+                        </Field>
+                    </div>
+                </OnboardingStep.Card>
 
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: 0.4, ease: 'easeOut' }}
-                    className="self-stretch flex justify-center"
-                >
+                <OnboardingStep.Footer>
                     <Button
                         type="submit"
                         disabled={!isValid || isSubmitting}
@@ -117,8 +94,8 @@ export default function NewProjectPage() {
                     >
                         {isSubmitting ? 'Creating...' : hasResources ? 'Next' : 'Create project'}
                     </Button>
-                </motion.div>
+                </OnboardingStep.Footer>
             </form>
-        </div>
+        </OnboardingStep.Root>
     );
 }
