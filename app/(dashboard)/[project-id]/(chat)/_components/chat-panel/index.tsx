@@ -46,10 +46,7 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
     }, [isEmpty]);
 
     return (
-        <FileUploadProvider
-            scope={{ projectId, chatId: chatId ?? undefined }}
-            trackAsPending
-        >
+        <FileUploadProvider scope={{ projectId, chatId: chatId ?? undefined }} trackAsPending>
             <ChatPanelContent
                 isEmpty={isEmpty}
                 allowUploadBeforeFirstMessage={allowUploadBeforeFirstMessage}
@@ -82,8 +79,8 @@ function ChatPanelContent({
             <>
                 {HeaderComponent}
 
-                <div className="flex flex-1 flex-col items-center justify-center px-4">
-                    <ChatEmptyTitle title={emptyTitle} subtitle={emptySubtitle} className="mb-12" />
+                <div className="flex flex-1 flex-col items-center justify-center">
+                    <ChatEmptyTitle title={emptyTitle} subtitle={emptySubtitle} className="mb-12 px-4" />
                     <ChatMessageForm ref={formRef} className="w-full" showGradientFade={false} />
                 </div>
             </>

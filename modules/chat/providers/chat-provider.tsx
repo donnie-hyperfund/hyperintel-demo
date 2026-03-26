@@ -884,10 +884,7 @@ export function ChatProvider({
 
                 // Associate staged uploads with the newly created (or existing) chat
                 if (opts?.stagedArtifactIds?.length) {
-                    await associateArtifacts(
-                        { artifactIds: opts.stagedArtifactIds, chatId: chatIdToUse },
-                        accessToken,
-                    );
+                    await associateArtifacts({ artifactIds: opts.stagedArtifactIds, chatId: chatIdToUse }, accessToken);
                 }
 
                 // POST triggers server-side generation — stream arrives via WS subscription

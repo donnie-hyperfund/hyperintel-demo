@@ -28,7 +28,12 @@ import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approv
 import { deleteArtifactHandler } from './artifact-deleter';
 import { exportArtifactHandler } from './artifact-exporter';
 import { importArtifactsHandler } from './artifact-importer';
-import { associateArtifactsHandler, confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './artifact-uploader';
+import {
+    associateArtifactsHandler,
+    confirmUploadHandler,
+    presignUploadHandler,
+    uploadArtifactHandler,
+} from './artifact-uploader';
 import { chatActionHandler } from './chat-handler';
 import { cleanupStaleUploads } from './cleanup';
 import type { Ctx } from './context';

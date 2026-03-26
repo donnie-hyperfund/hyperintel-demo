@@ -141,7 +141,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                         >
                             {files.length > 0 && (
                                 <div className="relative w-full max-h-48 overflow-y-clip mb-1">
-                                    <div className="grid grid-cols-2 w-full relative flex-wrap gap-3 max-h-48 overflow-y-auto pb-2">
+                                    <div className="flex flex-col md:grid md:grid-cols-2 w-full relative flex-wrap gap-3 max-h-48 overflow-y-auto pb-2">
                                         {files.map((entry, i) => (
                                             <FilePreviewItem
                                                 key={entry.id}
