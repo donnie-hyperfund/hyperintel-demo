@@ -10,6 +10,7 @@ import {
 import { generateYAMLForArtifact, publishToUserScopeAndIndexVersion } from './artifact-approver';
 import type { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
+import { broadcastUserEvent } from './utils/broadcast';
 
 export async function restoreArtifactHandler(
     data: RestoreArtifactActionDto,
@@ -133,6 +134,7 @@ export async function restoreArtifactHandler(
                 artifactId: artifact.id,
                 key: artifact.key,
                 sourceVersion: sourceVersion.version,
+                sourceStatus: sourceVersion.status,
                 restoredVersionNumber: newVersionNumber,
                 restoredVersionId: restored.id,
                 supersededVersions: supersededVersions.sort((a, b) => a - b),
@@ -180,6 +182,17 @@ export async function restoreArtifactHandler(
     } catch (err) {
         console.error('[restoreArtifact] Post-restore processing failed (non-fatal):', err);
     }
+
+    // Notify other tabs / users that the version changed (after all processing, same as approver).
+    await broadcastUserEvent(ctx, 'artifact_version_updated', {
+        artifactId: meta.artifactId,
+        artifactName: meta.key,
+        versionId: meta.restoredVersionId,
+        version: meta.restoredVersionNumber,
+        action: 'restore',
+        previousStatus: meta.sourceStatus,
+        status: 'approved',
+    });
 
     return {
         success: true,

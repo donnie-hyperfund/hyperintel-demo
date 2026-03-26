@@ -3,7 +3,7 @@
 import { formatDistanceToNow } from 'date-fns';
 import { enUS } from 'date-fns/locale';
 import { FileText, History, Loader2, RotateCcw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -27,6 +27,7 @@ import {
 import { type ArtifactVersionDto, TERMINAL_VERSION_STATUSES } from '@/lib/schema/artifact';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
+import { useUserEvents } from '@/modules/chat/hooks/use-user-events';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
@@ -55,10 +56,11 @@ export function ArtifactVersionHistoryDialog({
 
     const { openPanel } = useActivePanelContext();
 
-    const { data: history, isLoading: isLoadingVersions } = useFetchProjectArtifactVersions(
-        open ? projectId : undefined,
-        open ? artifactKey : undefined,
-    );
+    const {
+        data: history,
+        isLoading: isLoadingVersions,
+        mutate: mutateHistory,
+    } = useFetchProjectArtifactVersions(open ? projectId : undefined, open ? artifactKey : undefined);
 
     const { trigger: restoreVersion, isMutating: isRestoring } = useRestoreProjectArtifactVersion(
         projectId,
@@ -71,6 +73,18 @@ export function ArtifactVersionHistoryDialog({
             history.versions.find((v) => v.version === currentVersion)?.version ?? history.artifact.latestVersion;
         setSelectedVersion(defaultVersion);
     }, [open, history, currentVersion]);
+
+    // Revalidate version list on status changes (e.g. approve/reject happening under this dialog).
+    useUserEvents(
+        useCallback(
+            (eventType: string) => {
+                if (eventType === 'artifact_version_updated' || eventType === 'artifact_version_created') {
+                    mutateHistory();
+                }
+            },
+            [mutateHistory],
+        ),
+    );
 
     const versions = history?.versions ?? [];
     const selectedEntry = useMemo(
