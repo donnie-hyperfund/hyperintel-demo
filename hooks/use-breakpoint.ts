@@ -32,7 +32,7 @@ function resolve(width: number): BreakpointName | 'base' {
 
 export function useBreakpoint({
     eager = false,
-    defaultBreakpoint = 'base',
+    defaultBreakpoint = 'lg',
 }: UseBreakpointOptions = {}): BreakpointState {
     const [state, setState] = useState<BreakpointState>(() => {
         if (eager && typeof window !== 'undefined') {

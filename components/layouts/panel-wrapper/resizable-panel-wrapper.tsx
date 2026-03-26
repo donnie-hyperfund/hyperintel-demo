@@ -18,7 +18,7 @@ export const ResizablePanelWrapper = ({
     rightPaneDefaultSize = 35,
 }: ResizablePanelWrapperProps) => {
     const { panelState } = useActivePanelContext();
-    const { breakpoint } = useBreakpoint({ defaultBreakpoint: 'lg' });
+    const { breakpoint } = useBreakpoint();
 
     const isMdViewportOrSmaller = !isAboveBreakpoint(breakpoint, 'md');
 
