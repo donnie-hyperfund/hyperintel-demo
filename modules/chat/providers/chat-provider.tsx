@@ -9,7 +9,7 @@ import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
-import { abort, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
+import { abort, associateArtifacts, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
@@ -39,13 +39,13 @@ export type BaseChatContextValue = {
     /** Load more (older) messages for infinite scroll */
     loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
-    sendMessage: (content: string) => Promise<void>;
+    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[] }) => Promise<void>;
+    /** Send a nudge (message: null) to trigger generation on last injected system event */
+    sendNudge: () => Promise<void>;
     /** Stop the current generation */
     stopGeneration: () => void;
     /** Set the current chat ID */
     setChatId: (chatId: string | null) => void;
-    /** Create a chat if needed and return its ID */
-    ensureChatId: () => Promise<string>;
     /** Summarize the current chat and prepare the new phase */
     summarizeChat: () => void;
     /** Navigate to the new phase chat (after summarization completes) */
@@ -365,12 +365,16 @@ export function ChatProvider({
 
     /** Convert API message to internal Message format */
     const mapApiMessage = useCallback((m: ChatMessageDto, activeAgentMessageId?: string | null): Message => {
+        // Detect system event messages injected by backend (e.g. artifact approved via UI)
+        const meta = (m.metadata ?? {}) as Record<string, unknown>;
+        const systemEventType = meta.systemEvent as string | undefined;
+
         // Detect safety-retracted messages persisted by finalizeSafetyMonitor:
         // 1. metadata.safetyAnalysis.leaked (always set by finalizeSafetyMonitor)
         // 2. fallback: content marker + empty blocks
         const isRetracted =
             m.role === 'assistant' &&
-            ((m.metadata as Record<string, any>)?.safetyAnalysis?.leaked === true ||
+            ((meta as Record<string, any>).safetyAnalysis?.leaked === true ||
                 ((!m.blocks || m.blocks.length === 0) && m.content === '[omitted due to security/policy violation]'));
 
         // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
@@ -389,6 +393,14 @@ export function ChatProvider({
             ...(m.is_error && { isError: true }),
             ...(m.is_aborted && { isAborted: true }),
             ...(isRetracted && { isRetracted: true }),
+            ...(systemEventType && {
+                systemEvent: {
+                    type: systemEventType,
+                    artifactKey: meta.artifactKey as string | undefined,
+                    versionNumber: meta.versionNumber as number | undefined,
+                    reason: meta.reason as string | undefined,
+                },
+            }),
         };
     }, []);
 
@@ -426,6 +438,15 @@ export function ChatProvider({
                 if (existingIdx !== -1) {
                     const next = [...prev.messages];
                     next[existingIdx] = { ...mapped, tempId: next[existingIdx].tempId || tempId };
+                    return { ...prev, messages: next };
+                }
+
+                // Insert before any streaming message to maintain chronological order
+                // (e.g. system event arriving via WS while AI response is already streaming)
+                const streamingIdx = prev.messages.findIndex((m) => m.isStreaming);
+                if (streamingIdx !== -1) {
+                    const next = [...prev.messages];
+                    next.splice(streamingIdx, 0, { ...mapped, tempId });
                     return { ...prev, messages: next };
                 }
 
@@ -841,7 +862,7 @@ export function ChatProvider({
 
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
-        async (content: string) => {
+        async (content: string, opts?: { stagedArtifactIds?: string[] }) => {
             if (!content.trim() || state.isGenerating) return;
 
             // Create user message with temporary client-side ID
@@ -860,6 +881,14 @@ export function ChatProvider({
 
             try {
                 const chatIdToUse = await ensureChatId();
+
+                // Associate staged uploads with the newly created (or existing) chat
+                if (opts?.stagedArtifactIds?.length) {
+                    await associateArtifacts(
+                        { artifactIds: opts.stagedArtifactIds, chatId: chatIdToUse },
+                        accessToken,
+                    );
+                }
 
                 // POST triggers server-side generation — stream arrives via WS subscription
                 // TODO: Unify this when backend is updated
@@ -905,8 +934,37 @@ export function ChatProvider({
                 }));
             }
         },
-        [api, cache, ensureChatId, getToken, globalMutate, selectedModel, state.isGenerating],
+        [api, cache, chatType, ensureChatId, getToken, globalMutate, selectedModel, state.isGenerating],
     );
+
+    // ========================================================================
+    // NUDGE — trigger generation on last injected system event (no user message)
+    // ========================================================================
+
+    const sendNudge = useCallback(async () => {
+        if (!chatId || state.isGenerating) return;
+
+        setState((prev) => ({ ...prev, isGenerating: true, error: null }));
+
+        const accessToken = (await getToken()) ?? '';
+
+        try {
+            const send = chatType === 'phase' ? sendAction : sendIntakeAction;
+            const response = await send({ message: null, chatId, model: selectedModel }, accessToken);
+
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => 'Unknown error');
+                throw new Error(`Nudge failed: ${response.status} — ${errorText}`);
+            }
+        } catch (error) {
+            console.error('Error sending nudge:', error);
+            setState((prev) => ({
+                ...prev,
+                isGenerating: false,
+                error: error instanceof Error ? error : new Error('Failed to send nudge'),
+            }));
+        }
+    }, [chatId, chatType, getToken, selectedModel, state.isGenerating]);
 
     // ========================================================================
     // SUMMARIZE
@@ -984,9 +1042,9 @@ export function ChatProvider({
                 loadMessages,
                 loadMoreMessages,
                 sendMessage,
+                sendNudge,
                 stopGeneration,
                 setChatId,
-                ensureChatId,
                 summarizeChat,
                 navigateToNewPhase,
                 clearPendingChanges,

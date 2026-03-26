@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { FileDropOverlay } from '@/modules/file-uploads/components/file-drop-overlay';
 import { FileUploadProvider } from '@/modules/file-uploads/providers/file-upload-provider';
@@ -15,19 +15,12 @@ type ChatPanelProps = {
 };
 
 export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }: ChatPanelProps) {
-    const { chatId, chatType, projectId, ensureChatId } = useChatContext();
+    const { chatId, chatType, projectId } = useChatContext();
     const isEmpty = !chatId;
     const allowUploadBeforeFirstMessage = chatType !== 'phase';
 
     const conversationRef = useRef<HTMLDivElement>(null);
     const formRef = useRef<HTMLDivElement>(null);
-    const resolveUploadScope = useCallback(async () => {
-        if (chatType === 'phase') {
-            return null;
-        }
-
-        return { chatId: await ensureChatId() };
-    }, [chatType, ensureChatId]);
 
     useEffect(() => {
         if (isEmpty) return;
@@ -55,7 +48,6 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
     return (
         <FileUploadProvider
             scope={{ projectId, chatId: chatId ?? undefined }}
-            resolveUploadScope={allowUploadBeforeFirstMessage ? resolveUploadScope : undefined}
             trackAsPending
         >
             <ChatPanelContent

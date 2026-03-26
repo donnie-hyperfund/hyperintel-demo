@@ -11,6 +11,7 @@ export enum WORKERS_LOCAL_ENDPOINTS {
     ConfirmAction = '/api/chat/artifacts/upload/confirm',
     DeleteAction = '/api/chat/artifacts/delete',
     ExportAction = '/api/chat/artifacts/export',
+    AssociateAction = '/api/chat/artifacts/associate',
 }
 
 export enum WORKERS {
@@ -31,4 +32,5 @@ export enum CHAT_EP {
     ConfirmAction = '/artifacts/upload/confirm',
     DeleteAction = '/artifacts/delete',
     ExportAction = '/artifacts/export',
+    AssociateAction = '/artifacts/associate',
 }
