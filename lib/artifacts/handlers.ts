@@ -619,7 +619,12 @@ export async function handleGetFileStatuses(req: NextRequest, user: UserEntity):
         .leftJoin('a.chat', 'c')
         .where({
             'f.id': { $in: fileIds },
-            $or: [{ 'p.user': user.id }, { 'c.user': user.id }, { 'a.user': user.id }],
+            $or: [
+                { 'p.user': user.id },
+                { 'c.user': user.id },
+                { 'a.user': user.id },
+                { [raw("a.metadata->>'stagedBy'")]: user.id },
+            ],
         })
         .getResultList();
 
