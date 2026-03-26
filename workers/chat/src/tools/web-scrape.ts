@@ -35,6 +35,7 @@ export const WebScrapeToolGroup: AgentToolGroup = {
 // ============================================================================
 
 const ScrapePageParams = z.object({
+    // TODO openai can't do url format..
     url: z.string().url().describe('The URL to scrape.'),
     format: z
         .enum(['markdown', 'html'])
