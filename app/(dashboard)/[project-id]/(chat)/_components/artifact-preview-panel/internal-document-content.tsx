@@ -1,6 +1,7 @@
 'use client';
 
 import { EyeOff, SparklesIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Progress } from '@/components/ui/progress';
 
@@ -8,13 +9,15 @@ type InternalDocumentContentProps = {
     title: string;
     progress?: number;
     isStreaming: boolean;
+    /** Rendered inside the idle card — use for approval actions, status info, etc. */
+    children?: ReactNode;
 };
 
 type Phase = 'idle' | 'generating' | 'completing';
 
 const COMPLETION_HOLD_MS = 1200;
 
-export function InternalDocumentContent({ title, progress, isStreaming }: InternalDocumentContentProps) {
+export function InternalDocumentContent({ title, progress, isStreaming, children }: InternalDocumentContentProps) {
     const [phase, setPhase] = useState<Phase>(isStreaming ? 'generating' : 'idle');
     const phaseRef = useRef(phase);
     phaseRef.current = phase;
@@ -66,6 +69,7 @@ export function InternalDocumentContent({ title, progress, isStreaming }: Intern
                     This document type is tracked in the workflow and version history, but it is not presented as a
                     reviewable preview. Use the visible outputs and status indicators to track progress.
                 </p>
+                {children}
             </div>
         </div>
     );
