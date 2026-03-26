@@ -171,7 +171,9 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
           ? { project: projectId, key: effectiveKey }
           : { chat: chatId, key: effectiveKey, project: null };
 
-    const existing = scopeFilter ? await em.findOne(ArtifactEntity, scopeFilter, { populate: ['current_version', 'versions'] }) : null;
+    const existing = scopeFilter
+        ? await em.findOne(ArtifactEntity, scopeFilter, { populate: ['current_version', 'versions'] })
+        : null;
 
     if (existing) {
         const versions = existing.versions.getItems();
