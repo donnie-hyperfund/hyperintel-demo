@@ -9,7 +9,7 @@ import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
-import { abort, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
+import { abort, associateArtifacts, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
@@ -39,13 +39,11 @@ export type BaseChatContextValue = {
     /** Load more (older) messages for infinite scroll */
     loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
-    sendMessage: (content: string) => Promise<void>;
+    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[] }) => Promise<void>;
     /** Stop the current generation */
     stopGeneration: () => void;
     /** Set the current chat ID */
     setChatId: (chatId: string | null) => void;
-    /** Create a chat if needed and return its ID */
-    ensureChatId: () => Promise<string>;
     /** Summarize the current chat and prepare the new phase */
     summarizeChat: () => void;
     /** Navigate to the new phase chat (after summarization completes) */
@@ -841,7 +839,7 @@ export function ChatProvider({
 
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
-        async (content: string) => {
+        async (content: string, opts?: { stagedArtifactIds?: string[] }) => {
             if (!content.trim() || state.isGenerating) return;
 
             // Create user message with temporary client-side ID
@@ -860,6 +858,14 @@ export function ChatProvider({
 
             try {
                 const chatIdToUse = await ensureChatId();
+
+                // Associate staged uploads with the newly created (or existing) chat
+                if (opts?.stagedArtifactIds?.length) {
+                    await associateArtifacts(
+                        { artifactIds: opts.stagedArtifactIds, chatId: chatIdToUse },
+                        accessToken,
+                    );
+                }
 
                 // POST triggers server-side generation — stream arrives via WS subscription
                 // TODO: Unify this when backend is updated
@@ -905,7 +911,7 @@ export function ChatProvider({
                 }));
             }
         },
-        [api, cache, ensureChatId, getToken, globalMutate, selectedModel, state.isGenerating],
+        [api, cache, chatType, ensureChatId, getToken, globalMutate, selectedModel, state.isGenerating],
     );
 
     // ========================================================================
@@ -986,7 +992,6 @@ export function ChatProvider({
                 sendMessage,
                 stopGeneration,
                 setChatId,
-                ensureChatId,
                 summarizeChat,
                 navigateToNewPhase,
                 clearPendingChanges,
