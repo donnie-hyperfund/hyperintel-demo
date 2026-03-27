@@ -10,10 +10,8 @@ type DashboardLayoutProps = {
 export function DashboardLayout({ children }: DashboardLayoutProps) {
     return (
         <SidebarProvider>
-            <div className="flex h-dvh w-full">
-                <DashboardSidebar />
-                <SidebarInset className="flex flex-1 overflow-hidden bg-neutral-975">{children}</SidebarInset>
-            </div>
+            <DashboardSidebar />
+            <SidebarInset>{children}</SidebarInset>
         </SidebarProvider>
     );
 }

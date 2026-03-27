@@ -74,12 +74,17 @@
 			"binding": "CF_ACCOUNT_ID",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "CF_ACCOUNT_ID"
+		},
+		{
+			"binding": "REDUCTO_API_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "REDUCTO_API_KEY"
 		}
 	],
 	"services": [
 		{
 			"binding": "EXTRACT_RUST",
-			"service": "extract-rust"
+			"service": "hi-extract-rust"
 		}
 	],
 	"queues": {
@@ -155,12 +160,17 @@
 					"binding": "CF_ACCOUNT_ID",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "CF_ACCOUNT_ID"
+				},
+				{
+					"binding": "REDUCTO_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "REDUCTO_API_KEY"
 				}
 			],
 			"services": [
 				{
 					"binding": "EXTRACT_RUST",
-					"service": "extract-rust-dev"
+					"service": "hi-extract-rust-dev"
 				}
 			],
 			"queues": {
@@ -242,12 +252,17 @@
 					"binding": "CF_ACCOUNT_ID",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "CF_ACCOUNT_ID"
+				},
+				{
+					"binding": "REDUCTO_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "REDUCTO_API_KEY"
 				}
 			],
 			"services": [
 				{
 					"binding": "EXTRACT_RUST",
-					"service": "extract-rust-experimental"
+					"service": "hi-extract-rust-experimental"
 				}
 			],
 			"queues": {

@@ -39,6 +39,9 @@ export async function handleListProjectArtifacts(
         limit: searchParams.get('limit') ?? undefined,
         key: searchParams.get('key') ?? undefined,
         version: searchParams.get('version') ?? undefined,
+        visibility: searchParams.get('visibility') ?? undefined,
+        status: searchParams.get('status') ?? undefined,
+        chatId: searchParams.get('chatId') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
@@ -104,18 +107,40 @@ export async function handleListProjectArtifacts(
         .select('a.*')
         .leftJoin('a.project', 'p')
         .leftJoinAndSelect('a.current_version', 'cv')
+        .leftJoin('a.versions', 'pv', { 'pv.status': 'proposed' })
         .where({
             'p.id': projectId,
             'p.user': user.id,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
-        })
-        .orderBy({ 'a.created_at': 'DESC' });
+        });
 
     // Exclude imported resources and uploaded files (they are shown via the project resources endpoint)
     query.andWhere({
         $or: [{ [raw("a.metadata->>'importedFrom'")]: null }, { [raw('a.metadata')]: null }],
     });
     query.andWhere({ $or: [{ 'cv.is_uploaded': null }, { 'cv.is_uploaded': false }] });
+
+    // Apply user-selected filters (prefer proposed version, fall back to current)
+    if (queryData.visibility?.length) {
+        const booleans = queryData.visibility.map((v) => v === 'internal');
+        query.andWhere({
+            [raw('COALESCE(pv.is_internal, cv.is_internal)')]: { $in: booleans },
+        });
+    }
+
+    if (queryData.status?.length) {
+        query.andWhere({
+            [raw('COALESCE(pv.status, cv.status)')]: { $in: queryData.status },
+        });
+    }
+
+    if (queryData.chatId?.length) {
+        query.andWhere({
+            [raw('COALESCE(pv.chat_id, cv.chat_id)')]: { $in: queryData.chatId },
+        });
+    }
+
+    query.groupBy(['a.id', 'cv.id']).orderBy({ 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
@@ -170,20 +195,36 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
 
     if (queryData instanceof NextResponse) return queryData;
 
+    const SHARED_DOCUMENT_TYPES: string[] = ['Company Profile', 'Human Persona'];
+    const isSharedType = queryData.document_type && SHARED_DOCUMENT_TYPES.includes(queryData.document_type);
+
     const query = em
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
         .leftJoinAndSelect('a.current_version', 'cv')
-        .where({ 'a.user': user.id, 'a.project': null })
+        .where({
+            'a.project': null,
+            $or: isSharedType
+                ? [
+                      // Own artifacts — any status
+                      { 'a.user': user.id },
+                      // Other users' artifacts — only approved
+                      { 'a.user': { $ne: user.id }, 'cv.status': 'approved' },
+                  ]
+                : [{ 'a.user': user.id }],
+        })
         .orderBy({ 'a.created_at': 'DESC' });
 
     // Filter by document_type through versions (an artifact may have the type on any version)
     if (queryData.document_type) {
-        const matchingVersions = await em.find(
-            ArtifactVersionEntity,
-            { document_type: queryData.document_type, artifact: { user: user.id, project: null } },
-            { fields: ['artifact'], populate: ['artifact'] },
-        );
+        const versionFilter: Record<string, unknown> = {
+            document_type: queryData.document_type,
+            artifact: { project: null, ...(isSharedType ? {} : { user: user.id }) },
+        };
+        const matchingVersions = await em.find(ArtifactVersionEntity, versionFilter, {
+            fields: ['artifact'],
+            populate: ['artifact'],
+        });
         const matchingArtifactIds = [...new Set(matchingVersions.map((v) => v.artifact.id))];
         if (matchingArtifactIds.length === 0) {
             return NextResponse.json(createPaginatedResponse([], 0, queryData.page ?? 1, queryData.limit ?? 20));
@@ -201,9 +242,11 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
 
     const mappedNodes = nodes.map((artifact: ArtifactEntity) => {
         const latest = latestByArtifact.get(artifact.id);
+        const ownerId = typeof artifact.user === 'object' && artifact.user ? artifact.user.id : artifact.user;
         return {
             ...wrap(artifact).toJSON(),
             proposed_version: latest ? wrap(latest).toJSON() : undefined,
+            is_own: ownerId === user.id,
         };
     });
 
@@ -398,15 +441,34 @@ export async function handleListResources(
                 $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
             });
     } else {
-        // User-scoped: global resources
-        const where: Record<string, unknown> = { user: user.id, project: null };
+        // User-scoped: own resources + shared Company Profile / Human Persona from other users
+        const SHARED_DOCUMENT_TYPES: string[] = ['Company Profile', 'Human Persona'];
+        const hasSharedTypes = documentType?.some((dt) => SHARED_DOCUMENT_TYPES.includes(dt));
+
+        query.leftJoinAndSelect('a.current_version', 'cv').where({
+            'a.project': null,
+            $or: [
+                // Own artifacts (any document type, any status)
+                { 'a.user': user.id },
+                // Other users' artifacts — only shared document types with approved status
+                ...(hasSharedTypes
+                    ? [
+                          {
+                              'a.user': { $ne: user.id },
+                              'cv.document_type': { $in: SHARED_DOCUMENT_TYPES },
+                              'cv.status': 'approved',
+                          },
+                      ]
+                    : []),
+            ],
+        });
+
         if (documentType?.length) {
-            where.current_version = { document_type: { $in: documentType } };
+            query.andWhere({ 'cv.document_type': { $in: documentType } });
         }
         if (approvedOnly) {
-            where['cv.status'] = 'approved';
+            query.andWhere({ 'cv.status': 'approved' });
         }
-        query.leftJoinAndSelect('a.current_version', 'cv').where(where);
 
         // Exclude artifacts published from a specific project
         if (excludeProjectId) {
@@ -434,10 +496,14 @@ export async function handleListResources(
     const artifactIds = nodes.map((a: ArtifactEntity) => a.id);
     const proposedMap = await loadVersionsForArtifacts(em, artifactIds, 'proposed');
 
-    const data = nodes.map((a: ArtifactEntity) => ({
-        ...wrap(a).toJSON(),
-        proposed_version: proposedMap.get(a.id) ? wrap(proposedMap.get(a.id)!).toJSON() : undefined,
-    }));
+    const data = nodes.map((a: ArtifactEntity) => {
+        const ownerId = typeof a.user === 'object' && a.user ? a.user.id : a.user;
+        return {
+            ...wrap(a).toJSON(),
+            proposed_version: proposedMap.get(a.id) ? wrap(proposedMap.get(a.id)!).toJSON() : undefined,
+            is_own: ownerId === user.id,
+        };
+    });
 
     return NextResponse.json(createPaginatedResponse(data, totalCount, page, limit));
 }
@@ -578,7 +644,12 @@ export async function handleGetFileStatuses(req: NextRequest, user: UserEntity):
         .leftJoin('a.chat', 'c')
         .where({
             'f.id': { $in: fileIds },
-            $or: [{ 'p.user': user.id }, { 'c.user': user.id }, { 'a.user': user.id }],
+            $or: [
+                { 'p.user': user.id },
+                { 'c.user': user.id },
+                { 'a.user': user.id },
+                { [raw("a.metadata->>'stagedBy'")]: user.id },
+            ],
         })
         .getResultList();
 

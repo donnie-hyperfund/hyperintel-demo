@@ -121,6 +121,10 @@ export const KnowledgeSearchToolGroup: AgentToolGroup = {
 
 **CRITICAL: At the START of every new conversation or phase/stage, you MUST call search_knowledge FIRST to gather relevant context from previous work before responding to the user.** This ensures continuity across phases and prevents redundant work.
 
+**When the user's message contains uploaded files** (indicated by \`::upload[filename]{size=...}\` directives):
+- Recently uploaded files may NOT yet appear in \`search_knowledge\` results because semantic indexing runs asynchronously.
+- Use \`list_documents\` first to find the uploaded file, then \`read_document\` to access its content.
+
 **When the user asks about a specific file or document:**
 1. First use \`search_knowledge\` with a relevant query to find it by content similarity.
 2. If no relevant results, use \`list_documents\` to browse all available documents and find the correct name.

@@ -8,6 +8,6 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-markdownify = { path = "../vendor/markdownify" }
+extract-core = { path = "../core" }
 unpdf = { path = "../vendor/unpdf", default-features = false, features = ["fast-parse"] }
 wasm-bindgen = "0.2"

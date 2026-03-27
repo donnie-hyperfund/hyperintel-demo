@@ -3,7 +3,7 @@
 import { useUser } from '@clerk/nextjs';
 import { FileCode, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -14,7 +14,11 @@ import { ProjectItem, ProjectItemSkeleton } from './project-item';
 
 const PAGE_SIZE = 20;
 
-export const ProjectList = () => {
+type ProjectListProps = {
+    onEmptyChange?: (isEmpty: boolean) => void;
+};
+
+export const ProjectList = ({ onEmptyChange }: ProjectListProps) => {
     const { user } = useUser();
     const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectsInfinite({ limit: PAGE_SIZE });
 
@@ -22,6 +26,12 @@ export const ProjectList = () => {
         if (!data) return [];
         return data.flatMap((page) => page.data);
     }, [data]);
+
+    useEffect(() => {
+        if (!isLoading) {
+            onEmptyChange?.(projects.length === 0);
+        }
+    }, [projects.length, isLoading, onEmptyChange]);
 
     const [sentryRef] = useInfiniteScroll({
         loading: isLoading,

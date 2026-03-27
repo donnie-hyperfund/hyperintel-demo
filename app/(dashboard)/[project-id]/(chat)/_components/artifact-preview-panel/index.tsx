@@ -26,7 +26,7 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
     const isInternal = activeVersion?.is_internal;
     const documentType = activeVersion?.document_type;
     const artifactVersionId = activeVersion?.id;
-    const showSkeleton = (isLoading || isStreaming) && !content;
+    const showSkeleton = (isLoading || (isStreaming && !isInternal)) && !content;
 
     // Get previous content for diff comparison (current_version when viewing proposed)
     const previousContent =
@@ -83,6 +83,7 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
                 documentType={documentType}
                 isStreaming={!!isStreaming}
                 isUpdating={!!isUpdating}
+                progress={currentArtifact.progress}
             />
         </div>
     );

@@ -9,6 +9,7 @@ import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
 import { ChatMessage } from '../chat-message/chat-message';
+import { SystemEventMessage } from '../chat-message/system-event-message';
 import { ChatEmptyState, type ChatEmptyStateProps } from './chat-empty-state';
 
 type ChatConversationProps = {
@@ -20,6 +21,7 @@ const messageContainerVariants = cva('w-full min-w-0 last:mb-0', {
         role: {
             user: 'mb-6',
             assistant: 'mb-14',
+            system: 'mb-6',
         },
     },
 });
@@ -89,7 +91,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
     }, [scrollTarget, scrollTargetFoundRef, pagination.hasMore, pagination.isLoadingMore, isLoading, loadMoreMessages]);
 
     return (
-        <div ref={containerRef} className="relative flex-1 overflow-y-auto p-6">
+        <div ref={containerRef} className="relative flex-1 overflow-y-auto py-6 px-4 lg:px-6">
             <div className="w-full max-w-3xl mx-auto min-w-0 min-h-full flex flex-col">
                 {/* Loading indicator for older messages */}
                 {pagination?.isLoadingMore && (
@@ -112,18 +114,25 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
 
                 {/* Render all messages with animations */}
                 <AnimatePresence initial={false}>
-                    {messages.map((message, index) => (
-                        <motion.div
-                            key={message.tempId ?? message.id ?? index}
-                            initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                            transition={{ duration: 0.3, ease: 'easeInOut' }}
-                            className={messageContainerVariants({ role: message.role })}
-                        >
-                            <ChatMessage message={message} />
-                        </motion.div>
-                    ))}
+                    {messages.map((message, index) => {
+                        const role = message.systemEvent ? 'system' : message.role;
+                        return (
+                            <motion.div
+                                key={message.tempId ?? message.id ?? index}
+                                initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                                transition={{ duration: 0.3, ease: 'easeInOut' }}
+                                className={messageContainerVariants({ role })}
+                            >
+                                {message.systemEvent ? (
+                                    <SystemEventMessage message={message} />
+                                ) : (
+                                    <ChatMessage message={message} />
+                                )}
+                            </motion.div>
+                        );
+                    })}
                 </AnimatePresence>
 
                 {/* Loading indicator when waiting for response */}

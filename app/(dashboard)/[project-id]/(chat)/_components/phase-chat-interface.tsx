@@ -38,7 +38,7 @@ export default function PhaseChatInterface() {
                     {activePanel === 'resources' && <ResourcesPanel onClose={closePanel} />}
                 </>
             }
-            rightPaneDefaultSize={activePanel === 'artifact-preview' ? 35 : 20}
+            rightPaneDefaultSize={activePanel === 'artifact-preview' ? 35 : 25}
         />
     );
 }

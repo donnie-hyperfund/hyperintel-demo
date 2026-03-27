@@ -2,7 +2,7 @@
 
 import { Loader2, Plus, Users } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -12,7 +12,11 @@ import { getArtifactChatId } from '@/modules/artifacts/utils';
 
 const PAGE_SIZE = 20;
 
-export const StakeholderList = () => {
+type StakeholderListProps = {
+    onEmptyChange?: (isEmpty: boolean) => void;
+};
+
+export const StakeholderList = ({ onEmptyChange }: StakeholderListProps) => {
     const { data, error, isLoading, size, setSize, hasNextPage } = useFetchArtifactsInfinite('Human Persona', {
         limit: PAGE_SIZE,
     });
@@ -21,6 +25,12 @@ export const StakeholderList = () => {
         if (!data) return [];
         return data.flatMap((page) => page.data);
     }, [data]);
+
+    useEffect(() => {
+        if (!isLoading) {
+            onEmptyChange?.(artifacts.length === 0);
+        }
+    }, [artifacts.length, isLoading, onEmptyChange]);
 
     const [sentryRef] = useInfiniteScroll({
         loading: isLoading,
@@ -71,10 +81,19 @@ export const StakeholderList = () => {
     return (
         <div className="space-y-2 flex-1">
             {artifacts.map((artifact) => {
+                const isShared = artifact.is_own === false;
                 const chatId = getArtifactChatId(artifact);
-                const href = chatId ? `/stakeholders/${chatId}` : undefined;
+                const href = !isShared && chatId ? `/stakeholders/${chatId}` : undefined;
 
-                return <ArtifactListItem key={artifact.id} artifact={artifact} icon={Users} href={href} />;
+                return (
+                    <ArtifactListItem
+                        key={artifact.id}
+                        artifact={artifact}
+                        icon={Users}
+                        href={href}
+                        isShared={isShared}
+                    />
+                );
             })}
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3">

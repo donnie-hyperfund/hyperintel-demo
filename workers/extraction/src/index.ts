@@ -3,11 +3,10 @@
  *
  * Consumes hi-extraction-queue. For each uploaded file:
  *   1. Reads the file bytes from R2
- *   2. Routes by mime type:
- *      - docx/pptx → Rust WASM worker (service binding)
- *      - pdf → TODO: browser-renderer worker
- *   3. Stores extracted markdown on the ArtifactVersion
- *   4. Queues embedding for semantic search
+ *   2. Extracts via Rust WASM worker (v2: docx-parser / pptx-to-md with embedded images)
+ *   3. If images contain text → re-processes via Reducto OCR
+ *   4. Stores extracted markdown on the ArtifactVersion
+ *   5. Queues embedding for semantic search
  */
 
 import type { MessageBatch } from '@cloudflare/workers-types';
@@ -16,6 +15,8 @@ import { type ExtractionQueueMessage, ExtractionQueueMessageSchema } from '@comm
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { initInferredContext } from '@worker/context.helpers';
 import { Hono } from 'hono';
+import type Reducto from 'reductoai';
+import { toFile } from 'reductoai/uploads';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 
@@ -50,9 +51,10 @@ function resolveFiletype(mimeType: string, originalName: string): Filetype | nul
 interface ExtractionContext {
     env: Env;
     em: EntityManager;
+    reducto?: Reducto;
 }
 
-function extractMarkdown(fileBytes: ArrayBuffer, filetype: Filetype, env: Env): Promise<string> {
+function extractDocument(fileBytes: ArrayBuffer, filetype: Filetype, env: Env): Promise<RustExtractResponse> {
     switch (filetype) {
         case 'docx':
         case 'pptx':
@@ -65,6 +67,12 @@ function extractMarkdown(fileBytes: ArrayBuffer, filetype: Filetype, env: Env): 
     }
 }
 
+/** Response shape from Rust worker v2 */
+interface RustExtractResponse {
+    content: string;
+    imageText: boolean;
+}
+
 /**
  * Send file bytes to the Rust WASM worker for docx/pptx extraction.
  * Called via service binding — not publicly accessible.
@@ -74,8 +82,12 @@ function extractMarkdown(fileBytes: ArrayBuffer, filetype: Filetype, env: Env): 
  * This avoids copying large buffers through the service binding. Typical
  * docx/pptx files are well under this threshold so bytes-in-body is fine for now.
  */
-async function extractViaRustWorker(fileBytes: ArrayBuffer, filetype: Filetype, env: Env): Promise<string> {
-    const response = await env.EXTRACT_RUST.fetch('http://extract-rust/extract', {
+async function extractViaRustWorker(
+    fileBytes: ArrayBuffer,
+    filetype: Filetype,
+    env: Env,
+): Promise<RustExtractResponse> {
+    const response = await env.EXTRACT_RUST.fetch('http://extract-rust/extract/v2', {
         method: 'POST',
         headers: { 'X-File-Type': filetype },
         body: fileBytes,
@@ -86,17 +98,53 @@ async function extractViaRustWorker(fileBytes: ArrayBuffer, filetype: Filetype, 
         throw new Error(`Rust worker returned ${response.status}: ${error}`);
     }
 
-    return response.text();
+    return response.json() as Promise<RustExtractResponse>;
 }
 
+const FILETYPE_TO_MIME: Record<Filetype, string> = {
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    pdf: 'application/pdf',
+};
+
 /**
- * Extract text from PDF.
- * TODO: integrate browser-renderer worker from other project.
+ * Upload file to Reducto and parse with OCR, returning aggregated markdown.
  */
-// biome-ignore lint/suspicious/useAwait: will use await when implemented
-// biome-ignore lint/correctness/noUnusedVariables: placeholder for upcoming PDF extraction
-async function extractPdf(_fileBytes: ArrayBuffer, _env: Env): Promise<string> {
-    throw new Error('PDF extraction not yet implemented — pending browser-renderer worker');
+async function extractViaReducto(
+    fileBytes: ArrayBuffer,
+    filetype: Filetype,
+    originalName: string,
+    reducto: Reducto,
+): Promise<string> {
+    const file = await toFile(new Blob([fileBytes], { type: FILETYPE_TO_MIME[filetype] }), originalName);
+    const upload = await reducto.upload({ file });
+
+    const result = await reducto.parse.run({
+        input: upload,
+        formatting: { table_output_format: 'md' },
+        enhance: { summarize_figures: true },
+    });
+
+    if ('job_id' in result && !('result' in result)) {
+        throw new Error('Reducto returned async response — sync expected');
+    }
+
+    const parseResult = (result as { result: { type: string; chunks?: Array<{ content: string }>; url?: string } })
+        .result;
+
+    // Full result — aggregate chunks
+    if (parseResult.type === 'full' && parseResult.chunks) {
+        return parseResult.chunks.map((chunk) => chunk.content).join('\n\n');
+    }
+
+    // URL result — large response, fetch from presigned URL
+    if (parseResult.type === 'url' && parseResult.url) {
+        const res = await fetch(parseResult.url);
+        const full = (await res.json()) as { chunks: Array<{ content: string }> };
+        return full.chunks.map((chunk) => chunk.content).join('\n\n');
+    }
+
+    throw new Error('Unexpected Reducto response format');
 }
 
 // ============================================================================
@@ -145,18 +193,57 @@ async function processExtraction(
     const fileBytes = await r2Object.arrayBuffer();
     console.log(`${logPrefix} Read ${fileBytes.byteLength} bytes for ${filetype} extraction`);
 
-    // 3. Extract markdown
+    // 3. Extract via Rust worker (v2 with embedded images + text detection)
+    const MIN_CONTENT_LENGTH = 50;
     let markdown: string;
     try {
-        markdown = await extractMarkdown(fileBytes, filetype, ctx.env);
+        const rustResult = await extractDocument(fileBytes, filetype, ctx.env);
+        markdown = rustResult.content;
+
+        const contentTooShort = !markdown.trim() || markdown.trim().length < MIN_CONTENT_LENGTH;
+        const needsReducto = rustResult.imageText || contentTooShort;
+
+        if (contentTooShort) {
+            console.log(
+                `${logPrefix} Content too short (${markdown.trim().length} chars) for ${originalName}, treating as image-heavy document`,
+            );
+        }
+
+        if (needsReducto && ctx.reducto) {
+            console.log(
+                `${logPrefix} Re-processing ${originalName} via Reducto OCR (imageText=${rustResult.imageText}, contentTooShort=${contentTooShort})`,
+            );
+            try {
+                markdown = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto);
+                console.log(`${logPrefix} Reducto OCR produced ${markdown.length} chars`);
+            } catch (ocrError) {
+                console.error(`${logPrefix} Reducto OCR failed, falling back to Rust extraction:`, ocrError);
+            }
+        } else if (needsReducto) {
+            console.warn(`${logPrefix} Needs Reducto but not configured — using Rust extraction`);
+        }
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error(`${logPrefix} Extraction failed:`, errorMsg);
-        await markFileFailed(ctx.em, fileId, errorMsg);
-        return { success: false, error: errorMsg };
+
+        // Rust extraction completely failed — try Reducto as last resort
+        if (ctx.reducto) {
+            console.log(`${logPrefix} Attempting Reducto fallback after Rust failure`);
+            try {
+                markdown = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto);
+                console.log(`${logPrefix} Reducto fallback produced ${markdown.length} chars`);
+            } catch (reductoError) {
+                console.error(`${logPrefix} Reducto fallback also failed:`, reductoError);
+                await markFileFailed(ctx.em, fileId, errorMsg);
+                return { success: false, error: errorMsg };
+            }
+        } else {
+            await markFileFailed(ctx.em, fileId, errorMsg);
+            return { success: false, error: errorMsg };
+        }
     }
 
-    if (!markdown.trim()) {
+    if (!markdown!.trim()) {
         console.warn(`${logPrefix} Extraction produced empty content for ${originalName}`);
         await markFileFailed(ctx.em, fileId, 'Extraction produced empty content');
         return { success: false, error: 'Empty extraction result' };
@@ -179,11 +266,12 @@ async function processExtraction(
     // Mark file as processed
     const artifactFile = await ctx.em.findOneOrFail(ArtifactFileEntity, fileId);
     artifactFile.status = 'processed';
+    artifactFile.extracted_content = markdown;
 
     await ctx.em.flush();
 
-    // 5. Queue embedding
-    if (ctx.env.EMBEDDING_QUEUE) {
+    // 5. Queue embedding (skip for staged uploads — embedding deferred until association)
+    if (ctx.env.EMBEDDING_QUEUE && (projectId || chatId)) {
         try {
             const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
             await embeddingQueue.send({
@@ -200,6 +288,8 @@ async function processExtraction(
             console.error(`${logPrefix} Failed to queue embedding:`, error);
             // Non-fatal — extraction succeeded, embedding can be retried
         }
+    } else if (!projectId && !chatId) {
+        console.log(`${logPrefix} Staged upload — skipping embedding until association`);
     }
 
     return { success: true };
@@ -272,7 +362,11 @@ app.post('/extract', async (c) => {
     if (!ctx.em) return c.json({ error: 'ORM not initialized' }, 500);
 
     try {
-        const result = await processMessage(parsed.data, { env: c.env, em: ctx.em }, '[extraction/http]');
+        const result = await processMessage(
+            parsed.data,
+            { env: c.env, em: ctx.em, reducto: ctx.reducto },
+            '[extraction/http]',
+        );
         return c.json(result, result.success ? 200 : 400);
     } catch (error) {
         console.error('[extraction/http] Error:', error);
@@ -303,17 +397,32 @@ async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: Ex
         }
 
         try {
-            const result = await processMessage(parsed.data, { env, em: ctx.em }, '[extraction/queue]');
+            const result = await processMessage(
+                parsed.data,
+                { env, em: ctx.em, reducto: ctx.reducto },
+                '[extraction/queue]',
+            );
 
             if (result.success) {
                 message.ack();
             } else {
                 console.error('[extraction/queue] Processing failed:', result.error);
-                message.ack(); // Ack to prevent infinite retries of unprocessable messages
+                // processMessage already calls markFileFailed — just ack
+                message.ack();
             }
         } catch (error) {
-            console.error('[extraction/queue] Error processing message:', error);
-            message.retry();
+            console.error('[extraction/queue] Unexpected error:', error);
+            // Mark file as failed so it doesn't stay stuck in "uploading" forever
+            try {
+                await markFileFailed(
+                    ctx.em,
+                    parsed.data.fileId,
+                    `Queue processing error: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            } catch (markError) {
+                console.error('[extraction/queue] Failed to mark file as errored:', markError);
+            }
+            message.ack();
         }
     }
 

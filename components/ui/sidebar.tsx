@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
 import { cn } from '@/lib/utils';
 
 const SIDEBAR_COOKIE_NAME = 'sidebar_state';
@@ -54,7 +54,8 @@ function SidebarProvider({
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
 }) {
-    const isMobile = useIsMobile();
+    const { breakpoint } = useBreakpoint();
+    const isMobile = !isAboveBreakpoint(breakpoint, 'md');
     const [openMobile, setOpenMobile] = React.useState(false);
 
     // This is the internal state of the sidebar.
@@ -287,7 +288,7 @@ function SidebarInset({ className, ...props }: React.ComponentProps<'main'>) {
         <main
             data-slot="sidebar-inset"
             className={cn(
-                'bg-background relative flex w-full flex-1 flex-col',
+                'bg-unset relative flex w-full flex-1 flex-col',
                 'md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2',
                 className,
             )}

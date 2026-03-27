@@ -27,6 +27,13 @@ export type Message = {
     isError?: boolean;
     isAborted?: boolean;
     isRetracted?: boolean;
+    /** Synthetic system event injected by the backend (e.g. artifact approved via UI) */
+    systemEvent?: {
+        type: string;
+        artifactKey?: string;
+        versionNumber?: number;
+        reason?: string;
+    };
     status?: string;
     createdAt?: Date;
 };
@@ -56,6 +63,8 @@ export type ChatState = {
     activeResponseId: string | null;
     /** Live blocks from the summary stream — available for rendering in the summary modal */
     summaryBlocks: StreamBlock[];
+    /** True while an artifact approval/rejection API call is in flight */
+    isProcessingArtifactAction: boolean;
 };
 
 export type PaginationState = {
@@ -76,6 +85,7 @@ export type Artifact = Partial<ArtifactDto> & {
     isLoading?: boolean;
     isStreaming?: boolean;
     isUpdating?: boolean;
+    progress?: number;
 };
 
 // =============================================================================

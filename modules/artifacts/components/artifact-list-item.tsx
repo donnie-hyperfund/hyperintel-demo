@@ -4,6 +4,7 @@ import { enUS } from 'date-fns/locale';
 import type { LucideIcon } from 'lucide-react';
 import { Lock } from 'lucide-react';
 import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import { getSourceProjectName } from '@/lib/artifacts/utils';
@@ -45,6 +46,7 @@ type ArtifactListItemProps = VariantProps<typeof containerVariants> & {
     artifact: ArtifactDto;
     icon?: LucideIcon;
     isSelected?: boolean;
+    isShared?: boolean;
     shouldDisplayVersionInfo?: boolean;
     badge?: React.ReactNode;
     href?: string;
@@ -56,6 +58,7 @@ export const ArtifactListItem = ({
     size = 'md',
     icon,
     isSelected,
+    isShared,
     shouldDisplayVersionInfo = true,
     badge,
     href,
@@ -79,6 +82,7 @@ export const ArtifactListItem = ({
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                     <span className="line-clamp-1 text-sm font-medium">{artifact.title}</span>
+                    {isShared && <Badge variant="secondary">Shared</Badge>}
                     {badge}
                     {shouldDisplayVersionInfo && (
                         <VersionStatusBadge

@@ -10,14 +10,18 @@ repository = "https://github.com/erikvullings/docx-parser"
 keywords = ["docx", "markdown", "openoffice", "parser"]
 categories = ["command-line-utilities", "encoding"]
 
+[features]
+default = []
+cli = ["dep:clap"]
+
 [dependencies]
 base64 = "0.22.1"
-clap = { version = "4.5.4", features = ["derive"] }
-docx-rust = "0.1.8"
-# docx-rust = { git = "https://github.com/erikvullings/docx-rs.git" }
+clap = { version = "4.5.4", features = ["derive"], optional = true }
+docx-rust = "0.1.11"
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
 
 [[bin]]
 name = "docx-parser"
 path = "src/main.rs"
+required-features = ["cli"]

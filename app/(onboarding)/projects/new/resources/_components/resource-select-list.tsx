@@ -61,7 +61,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
 
     return (
         <>
-            <div ref={scrollContainerRef} className="max-h-128 overflow-y-auto px-4 py-6 space-y-4">
+            <div ref={scrollContainerRef} className="md:max-h-128 md:overflow-y-auto px-4 py-6 space-y-4">
                 <Section
                     title="Legacy DNA"
                     icon={Dna}
@@ -132,6 +132,7 @@ function Section({
                         icon={icon}
                         size="sm"
                         isSelected={selectedIds.includes(artifact.id)}
+                        isShared={artifact.is_own === false}
                         shouldDisplayVersionInfo={false}
                         onClick={() => onToggle(artifact.id)}
                     />

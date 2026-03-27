@@ -2,113 +2,49 @@
 
 import { Check, Loader2, X as XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/hooks/use-toast';
-import {
-    useApproveProjectArtifactVersion,
-    useRejectProjectArtifactVersion,
-} from '@/lib/api/client/hooks/use-project-artifacts';
-import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
-import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
+import { useArtifactApproval } from '@/modules/artifacts/hooks/use-artifact-approval';
+import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
+import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 
 type ArtifactApprovalBarProps = {
     artifactId: string;
-    artifactKey: string;
-    artifactVersion: number;
-    artifactVersionId: string;
-    isInternal?: boolean;
+    version: number;
     disabled?: boolean;
     onProcessingChange?: (isProcessing: boolean) => void;
 };
 
 export function ArtifactApprovalBar({
     artifactId,
-    artifactKey,
-    artifactVersion,
-    artifactVersionId,
-    isInternal = false,
+    version,
     disabled = false,
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
-    const { updateArtifact } = useArtifactActions();
-    const { clearPendingChanges, chatType, hasOtherPendingArtifacts } = useChatContext();
-    const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
-    const isIntake = chatType !== 'phase';
+    const artifact = useArtifact(artifactId, version);
+    const activeVersion = artifact ? getLatestArtifactVersion(artifact) : undefined;
 
-    const chatContext = useChatContext();
-    const projectId = chatContext.chatType === 'phase' ? chatContext.projectId : undefined;
+    const artifactKey = artifact?.key ?? '';
+    const artifactVersionId = activeVersion?.id ?? '';
 
-    const { trigger: approve, isMutating: isApproving } = useApproveProjectArtifactVersion(
-        projectId,
+    const { approve, reject, isApproving, isRejecting, isProcessing } = useArtifactApproval({
+        artifactId,
         artifactKey,
-        artifactVersion,
+        version,
         artifactVersionId,
-    );
-    const { trigger: reject, isMutating: isRejecting } = useRejectProjectArtifactVersion(
-        projectId,
-        artifactKey,
-        artifactVersion,
-        artifactVersionId,
-    );
+        disabled,
+        onProcessingChange,
+    });
 
-    const isProcessing = isApproving || isRejecting || isLinkingToProject || disabled;
-
-    const handleApprove = async () => {
-        try {
-            onProcessingChange?.(true);
-            const updated = await approve();
-
-            if (updated) {
-                updateArtifact(artifactId, updated, artifactVersion, { merge: false });
-                // Clear pending changes only if no other artifacts are pending
-                if (!hasOtherPendingArtifacts(artifactKey)) {
-                    clearPendingChanges();
-                }
-
-                if (isIntake && isProjectFlow) {
-                    await handleApprovedArtifact(updated);
-                }
-            }
-        } catch (err) {
-            console.error('Failed to approve:', err);
-            toast({ title: 'Failed to approve document.', variant: 'destructive' });
-        } finally {
-            onProcessingChange?.(false);
-        }
-    };
-
-    const handleReject = async () => {
-        try {
-            onProcessingChange?.(true);
-            const updated = await reject('rejected');
-            if (updated) {
-                updateArtifact(artifactId, updated, artifactVersion, { merge: false });
-                // Clear pending changes only if no other artifacts are pending
-                if (!hasOtherPendingArtifacts(artifactKey)) {
-                    clearPendingChanges();
-                }
-            }
-        } catch (err) {
-            console.error('Failed to reject:', err);
-            toast({ title: 'Failed to reject document.', variant: 'destructive' });
-        } finally {
-            onProcessingChange?.(false);
-        }
-    };
+    if (!artifact || !artifactKey || !artifactVersionId) return null;
 
     return (
         <div className="border-t border-border px-4 pt-4 pb-6 space-y-2.5">
-            <p className="text-xs text-muted-foreground text-center">
-                {isInternal
-                    ? 'This workflow item is ready for confirmation.'
-                    : 'This document is awaiting your approval'}
-            </p>
+            <p className="text-xs text-muted-foreground text-center">This document is awaiting your approval.</p>
             <div className="flex items-center justify-center gap-2">
-                <Button size="sm" variant="outline" onClick={handleReject} disabled={isProcessing}>
+                <Button size="sm" variant="outline" onClick={reject} disabled={isProcessing}>
                     {isRejecting ? <Loader2 className="size-3 animate-spin mr-1" /> : <XIcon className="size-3 mr-1" />}
                     Reject
                 </Button>
-                <Button size="sm" onClick={handleApprove} disabled={isProcessing}>
+                <Button size="sm" onClick={approve} disabled={isProcessing}>
                     {isApproving ? <Loader2 className="size-3 animate-spin mr-1" /> : <Check className="size-3 mr-1" />}
                     Approve
                 </Button>

@@ -37,6 +37,8 @@ export type FileUploadContextValue = {
     clearFiles: () => void;
     submitFiles: () => Promise<void>;
     isSubmitting: boolean;
+    /** Consume staged artifact IDs (uploads without scope). Returns IDs and clears the list. */
+    consumeStagedArtifactIds: () => string[];
 };
 
 const FileUploadContext = createContext<FileUploadContextValue | null>(null);
@@ -68,6 +70,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const filesRef = useRef(files);
     filesRef.current = files;
+    const stagedArtifactIdsRef = useRef<string[]>([]);
     const hiddenArtifactIdsRef = useRef(trackAsPending ? (initialPersistedState?.hiddenArtifactIds ?? []) : []);
     hiddenArtifactIdsRef.current = trackAsPending ? pendingArtifactIds : [];
     const { getToken } = useAuth();
@@ -216,6 +219,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
     }, []);
 
+    const consumeStagedArtifactIds = useCallback(() => {
+        const ids = stagedArtifactIdsRef.current;
+        stagedArtifactIdsRef.current = [];
+        return ids;
+    }, []);
+
     const finalizeEntry = useCallback(
         (entryId: string, extra?: Partial<FileEntry>) => {
             pollingEntryIdsRef.current.delete(entryId);
@@ -334,6 +343,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const startEagerUpload = useCallback(
         async (file: File, entryId: string) => {
             const ext = `.${file.name.split('.').pop()?.toLowerCase()}`;
+            const isStaged = !scope?.projectId && !scope?.chatId;
 
             updateEntry(entryId, { status: 'uploading' });
 
@@ -364,6 +374,10 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         fileId: presignData.fileId,
                         presignData,
                     });
+
+                    if (isStaged) {
+                        stagedArtifactIdsRef.current = [...stagedArtifactIdsRef.current, presignData.artifactId];
+                    }
 
                     invalidateResources();
 
@@ -416,6 +430,9 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     const resData: { artifactId?: string } = await res.json();
                     if (resData.artifactId) {
                         addPendingArtifactId(resData.artifactId);
+                        if (isStaged) {
+                            stagedArtifactIdsRef.current = [...stagedArtifactIdsRef.current, resData.artifactId];
+                        }
                     }
 
                     finalizeEntry(entryId, { artifactId: resData.artifactId });
@@ -566,7 +583,9 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     }, [files, pollFileStatus]);
 
     return (
-        <FileUploadContext.Provider value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting }}>
+        <FileUploadContext.Provider
+            value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting, consumeStagedArtifactIds }}
+        >
             {children}
         </FileUploadContext.Provider>
     );
