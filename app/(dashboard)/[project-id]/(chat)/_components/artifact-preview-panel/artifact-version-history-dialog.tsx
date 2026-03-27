@@ -178,9 +178,10 @@ export function ArtifactVersionHistoryDialog({
                     onEscapeKeyDown={(e) => e.preventDefault()}
                 >
                     <DialogHeader>
-                        <DialogTitle>Version restored</DialogTitle>
+                        <DialogTitle>Version restored successfully</DialogTitle>
                         <DialogDescription>
-                            Switching to the latest phase where the agent will be notified about the restored version.
+                            The restored version was linked to the latest phase. You&apos;ll be redirected there so the
+                            agent can review and respond.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
