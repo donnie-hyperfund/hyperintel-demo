@@ -179,11 +179,13 @@ export function useRejectProjectArtifactVersion(
     );
 }
 
+export type RestoreResult = ArtifactDto & { chatId?: string; chatType?: string };
+
 export function useRestoreProjectArtifactVersion(projectId: string, artifactKey: string) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ArtifactDto, Error, readonly string[], { sourceVersionId: string }>(
+    return useSWRMutation<RestoreResult, Error, readonly string[], { sourceVersionId: string }>(
         [...projectArtifactKeys.history(projectId, artifactKey), 'restore'],
         async (_, { arg }) => {
             const token = await getToken();
@@ -205,7 +207,8 @@ export function useRestoreProjectArtifactVersion(projectId: string, artifactKey:
             globalMutate(projectArtifactKeys.history(projectId, artifactKey));
             globalMutate(projectArtifactKeys.byKey(projectId, artifactKey));
 
-            return api.getByKey(projectId, artifactKey, result.restoredVersion);
+            const artifact = await api.getByKey(projectId, artifactKey, result.restoredVersion);
+            return { ...artifact, chatId: result.chatId, chatType: result.chatType };
         },
     );
 }

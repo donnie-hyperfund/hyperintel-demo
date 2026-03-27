@@ -184,6 +184,8 @@ export const RestoreArtifactResponseSchema = z.object({
     restoredVersionId: z.string().uuid(),
     status: z.literal('approved'),
     supersededVersions: z.array(z.number().int().positive()),
+    chatId: z.string().uuid().optional(),
+    chatType: z.string().optional(),
 });
 export type RestoreArtifactResponseDto = z.infer<typeof RestoreArtifactResponseSchema>;
 

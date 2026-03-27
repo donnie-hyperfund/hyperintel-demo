@@ -2,6 +2,7 @@ import { PublicError } from '@common/common/error.helpers';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import {
     type RestoreArtifactActionDto,
     type RestoreArtifactResponseDto,
@@ -11,6 +12,7 @@ import { generateYAMLForArtifact, publishToUserScopeAndIndexVersion } from './ar
 import type { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
 import { broadcastUserEvent } from './utils/broadcast';
+import { injectSystemEvent } from './utils/system-events';
 
 export async function restoreArtifactHandler(
     data: RestoreArtifactActionDto,
@@ -99,6 +101,13 @@ export async function restoreArtifactHandler(
         const ownerId = artifact.project?.user?.id;
         const now = new Date();
 
+        // Resolve the latest phase chat — the restore decision belongs to the current project lifecycle point.
+        const latestPhaseChat = await txEm.findOne(
+            ChatEntity,
+            { project: { id: data.projectId }, type: 'phase' },
+            { orderBy: { phase_index: 'DESC' } },
+        );
+
         const supersededVersions: number[] = [];
         for (const version of versions) {
             if (version.status !== 'proposed') continue;
@@ -111,8 +120,10 @@ export async function restoreArtifactHandler(
 
         const restored = new ArtifactVersionEntity();
         restored.artifact = artifact;
-        // Restored versions are intentionally chatless for phase-independent behavior.
-        restored.chat = undefined;
+        // Link to latest phase chat — prior phases are summarized & closed by design,
+        // so the active phase is where the restore intent lives. Accepted trade-off:
+        // edge cases where the user triggers restore from a stale phase are not handled.
+        restored.chat = latestPhaseChat ?? undefined;
         restored.version = newVersionNumber;
         restored.content = sourceVersion.content;
         restored.ai_content = sourceVersion.ai_content;
@@ -133,11 +144,13 @@ export async function restoreArtifactHandler(
             meta: {
                 artifactId: artifact.id,
                 key: artifact.key,
-                sourceVersion: sourceVersion.version,
+                sourceVersionNumber: sourceVersion.version,
                 sourceStatus: sourceVersion.status,
                 restoredVersionNumber: newVersionNumber,
                 restoredVersionId: restored.id,
                 supersededVersions: supersededVersions.sort((a, b) => a - b),
+                chatId: latestPhaseChat?.id,
+                chatType: (latestPhaseChat?.type as string) ?? 'phase',
             },
         };
     });
@@ -163,7 +176,8 @@ export async function restoreArtifactHandler(
             // Generate it now for internal documents so they get proper YAML and embeddings.
             if (isInternalDocument && !yamlContent) {
                 try {
-                    // Generating YAML without chat messages because restored versions are chatless.
+                    // Generate YAML from content alone (no chat messages — the original conversation
+                    // context belongs to a different phase and isn't relevant for the restored version's summary).
                     yamlContent = await generateYAMLForArtifact(restoredVersion.content, [], ctx);
                 } catch (error) {
                     console.error('[restoreArtifact] YAML generation failed:', error);
@@ -194,14 +208,33 @@ export async function restoreArtifactHandler(
         status: 'approved',
     });
 
+    // Inject system event so the agent knows the user restored via UI.
+    if (meta.chatId) {
+        await injectSystemEvent(ctx, em, {
+            chatId: meta.chatId,
+            chatType: meta.chatType,
+            event: 'artifact_restored',
+            description: `User has restored artifact [${meta.key}] from v${meta.sourceVersionNumber} as v${meta.restoredVersionNumber}`,
+            extra: {
+                artifactId: meta.artifactId,
+                artifactKey: meta.key,
+                versionId: meta.restoredVersionId,
+                versionNumber: meta.restoredVersionNumber,
+                sourceVersionNumber: meta.sourceVersionNumber,
+            },
+        });
+    }
+
     return {
         success: true,
         artifactId: meta.artifactId,
         key: meta.key,
-        sourceVersion: meta.sourceVersion,
+        sourceVersion: meta.sourceVersionNumber,
         restoredVersion: meta.restoredVersionNumber,
         restoredVersionId: meta.restoredVersionId,
         status: 'approved',
         supersededVersions: meta.supersededVersions,
+        chatId: meta.chatId,
+        chatType: meta.chatType,
     };
 }

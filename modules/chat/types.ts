@@ -3,7 +3,7 @@ export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { StreamBlock } from '@/common/ai/agent/types';
 import type { ArtifactDto } from '@/lib/schema/artifact';
-import type { StreamEvent, TokenUsage } from '@/lib/schema/stream';
+import type { TokenUsage } from '@/lib/schema/stream';
 
 // =============================================================================
 // Chat Types
@@ -32,6 +32,7 @@ export type Message = {
         type: string;
         artifactKey?: string;
         versionNumber?: number;
+        sourceVersionNumber?: number;
         reason?: string;
     };
     status?: string;

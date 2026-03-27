@@ -401,6 +401,7 @@ export function ChatProvider({
                     type: systemEventType,
                     artifactKey: meta.artifactKey as string | undefined,
                     versionNumber: meta.versionNumber as number | undefined,
+                    sourceVersionNumber: meta.sourceVersionNumber as number | undefined,
                     reason: meta.reason as string | undefined,
                 },
             }),
@@ -955,6 +956,13 @@ export function ChatProvider({
             if (!response.ok) {
                 const errorText = await response.text().catch(() => 'Unknown error');
                 throw new Error(`Nudge failed: ${response.status} — ${errorText}`);
+            }
+
+            // If the backend skipped the nudge (no pending system event to respond to),
+            // reset isGenerating — no SSE stream will fire to reset it otherwise.
+            const body = await response.json().catch(() => null);
+            if (body?.nudge === 'skipped') {
+                setState((prev) => ({ ...prev, isGenerating: false }));
             }
         } catch (error) {
             console.error('Error sending nudge:', error);
