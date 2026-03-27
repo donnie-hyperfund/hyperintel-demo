@@ -98,7 +98,9 @@ export function ArtifactVersionHistoryDialog({
         selectedVersion === history.artifact.latestVersion &&
         !!selectedEntry &&
         !TERMINAL_VERSION_STATUSES.includes(selectedEntry.status);
-    const isRestoreDisabled = !selectedEntry || isLatestNonTerminal || isRestoring || isGenerating;
+    const isCurrentActive =
+        !!history && selectedVersion === history.artifact.currentVersion && selectedEntry?.status === 'approved';
+    const isRestoreDisabled = !selectedEntry || isLatestNonTerminal || isCurrentActive || isRestoring || isGenerating;
 
     const handleRestore = async () => {
         if (!selectedEntry) return;
