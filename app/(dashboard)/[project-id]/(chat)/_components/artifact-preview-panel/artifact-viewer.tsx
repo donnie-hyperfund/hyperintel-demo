@@ -128,10 +128,9 @@ export const ArtifactViewer = ({
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
-    // TODO: Remove the !!projectId guard when backend is updated and we can use a unified artifact API
     const headerActions = (
         <>
-            {projectId && artifactKey && artifactId && (
+            {artifactKey && artifactId && (
                 <ArtifactVersionHistoryDialog
                     artifactKey={artifactKey}
                     artifactId={artifactId}

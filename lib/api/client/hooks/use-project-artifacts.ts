@@ -4,7 +4,7 @@ import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { toast } from '@/hooks/use-toast';
-import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
+import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import {
     createProjectArtifactApi,
     getProjectArtifactListInfiniteKey,
@@ -93,10 +93,11 @@ export function useFetchProjectArtifactByKey(
     const { getToken } = useAuth();
 
     return useSWR<ArtifactDto>(
-        projectId && key ? [...projectArtifactKeys.byKey(projectId, key), version] : null,
+        key ? [...projectArtifactKeys.byKey(projectId ?? '_user', key), version] : null,
         () => {
-            if (!projectId || !key) throw new Error('Project ID and key are required');
-            return createProjectArtifactApi(getToken).getByKey(projectId, key, version);
+            if (!key) throw new Error('Key is required');
+            if (projectId) return createProjectArtifactApi(getToken).getByKey(projectId, key, version);
+            return createArtifactApi(getToken).getByKey(key, version);
         },
         { revalidateOnFocus: false, ...config },
     );
@@ -110,10 +111,11 @@ export function useFetchProjectArtifactVersions(
     const { getToken } = useAuth();
 
     return useSWR<ArtifactVersionHistoryResponseDto>(
-        projectId && key ? projectArtifactKeys.history(projectId, key) : null,
+        key ? projectArtifactKeys.history(projectId ?? '_user', key) : null,
         () => {
-            if (!projectId || !key) throw new Error('Project ID and key are required');
-            return createProjectArtifactApi(getToken).listVersionsByKey(projectId, key);
+            if (!key) throw new Error('Key is required');
+            if (projectId) return createProjectArtifactApi(getToken).listVersionsByKey(projectId, key);
+            return createArtifactApi(getToken).listVersionsByKey(key);
         },
         { revalidateOnFocus: false, ...config },
     );
@@ -181,18 +183,18 @@ export function useRejectProjectArtifactVersion(
 
 export type RestoreResult = ArtifactDto & { chatId?: string; chatType?: string };
 
-export function useRestoreProjectArtifactVersion(projectId: string, artifactKey: string) {
+export function useRestoreProjectArtifactVersion(projectId: string | undefined, artifactKey: string) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
     return useSWRMutation<RestoreResult, Error, readonly string[], { sourceVersionId: string }>(
-        [...projectArtifactKeys.history(projectId, artifactKey), 'restore'],
+        [...projectArtifactKeys.history(projectId ?? '_user', artifactKey), 'restore'],
         async (_, { arg }) => {
             const token = await getToken();
             if (!token) throw new Error('Not authenticated');
 
             const response = await restoreArtifact(
-                { projectId, key: artifactKey, sourceVersionId: arg.sourceVersionId },
+                { key: artifactKey, sourceVersionId: arg.sourceVersionId, ...(projectId && { projectId }) },
                 token,
             );
             if (!response.ok) {
@@ -201,13 +203,18 @@ export function useRestoreProjectArtifactVersion(projectId: string, artifactKey:
             }
 
             const result = (await response.json()) as RestoreArtifactResponseDto;
-            const api = createProjectArtifactApi(getToken);
 
-            globalMutate(serializeProjectArtifactListKey(projectId));
-            globalMutate(projectArtifactKeys.history(projectId, artifactKey));
-            globalMutate(projectArtifactKeys.byKey(projectId, artifactKey));
+            if (projectId) {
+                globalMutate(serializeProjectArtifactListKey(projectId));
+                globalMutate(projectArtifactKeys.history(projectId, artifactKey));
+                globalMutate(projectArtifactKeys.byKey(projectId, artifactKey));
+            } else {
+                globalMutate((key) => Array.isArray(key) && key[0] === artifactKeys.all[0]);
+            }
 
-            const artifact = await api.getByKey(projectId, artifactKey, result.restoredVersion);
+            const artifact = projectId
+                ? await createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, result.restoredVersion)
+                : await createArtifactApi(getToken).getByKey(artifactKey, result.restoredVersion);
             return { ...artifact, chatId: result.chatId, chatType: result.chatType };
         },
     );

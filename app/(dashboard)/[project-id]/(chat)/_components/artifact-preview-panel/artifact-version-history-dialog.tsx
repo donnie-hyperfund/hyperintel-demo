@@ -57,7 +57,9 @@ export function ArtifactVersionHistoryDialog({
     const [pendingNavigation, setPendingNavigation] = useState(false);
 
     const router = useRouter();
-    const { projectId, chatId, sendNudge, state: chatState } = useChatContext<'phase'>();
+    const chatContext = useChatContext();
+    const { chatId, sendNudge, state: chatState } = chatContext;
+    const projectId = chatContext.chatType === 'phase' ? chatContext.projectId : undefined;
     const { addArtifact } = useArtifactActions();
 
     const { openPanel } = useActivePanelContext();

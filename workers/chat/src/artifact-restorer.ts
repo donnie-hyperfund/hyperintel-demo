@@ -34,6 +34,7 @@ export async function restoreArtifactHandler(
             .createQueryBuilder(ArtifactVersionEntity, 'v')
             .select('v.*')
             .leftJoinAndSelect('v.artifact', 'a')
+            .leftJoinAndSelect('v.chat', 'c')
             .leftJoinAndSelect('a.user', 'au')
             .leftJoinAndSelect('a.project', 'p')
             .leftJoinAndSelect('p.user', 'pu')
@@ -51,13 +52,22 @@ export async function restoreArtifactHandler(
         }
 
         const sourceArtifact = sourceVersion.artifact;
-        if (
-            !sourceArtifact.project ||
-            sourceArtifact.project.id !== projectId ||
-            sourceArtifact.key !== normalizedKey
-        ) {
+        if (projectId) {
+            // Project-scoped: validate artifact belongs to the requested project.
+            if (
+                !sourceArtifact.project ||
+                sourceArtifact.project.id !== projectId ||
+                sourceArtifact.key !== normalizedKey
+            ) {
+                throw new PublicError(400, {
+                    message: 'Source version does not match the requested project/key',
+                    code: 'ARTIFACT_VERSION_MISMATCH',
+                });
+            }
+        } else if (sourceArtifact.project || sourceArtifact.key !== normalizedKey) {
+            // Intake (user-scoped): validate artifact is projectless and key matches.
             throw new PublicError(400, {
-                message: 'Source version does not match the requested project/key',
+                message: 'Source version does not match the requested artifact',
                 code: 'ARTIFACT_VERSION_MISMATCH',
             });
         }
@@ -98,15 +108,19 @@ export async function restoreArtifactHandler(
         }
 
         const newVersionNumber = maxVersion + 1;
-        const ownerId = artifact.project?.user?.id;
+        const ownerId = artifact.project?.user?.id ?? artifact.user?.id;
         const now = new Date();
 
-        // Resolve the latest phase chat — the restore decision belongs to the current project lifecycle point.
-        const latestPhaseChat = await txEm.findOne(
-            ChatEntity,
-            { project: { id: data.projectId }, type: 'phase' },
-            { orderBy: { phase_index: 'DESC' } },
-        );
+        // Resolve the target chat for the restored version + system event injection.
+        // Project: latest phase chat (prior phases are summarized & closed by design).
+        // Intake: the source version's own chat (intake has a single chat per artifact).
+        const targetChat = projectId
+            ? await txEm.findOne(
+                  ChatEntity,
+                  { project: { id: projectId }, type: 'phase' },
+                  { orderBy: { phase_index: 'DESC' } },
+              )
+            : (sourceVersion.chat ?? null);
 
         const supersededVersions: number[] = [];
         for (const version of versions) {
@@ -120,10 +134,11 @@ export async function restoreArtifactHandler(
 
         const restored = new ArtifactVersionEntity();
         restored.artifact = artifact;
-        // Link to latest phase chat — prior phases are summarized & closed by design,
+        // Project: latest phase chat — prior phases are summarized & closed by design,
         // so the active phase is where the restore intent lives. Accepted trade-off:
         // edge cases where the user triggers restore from a stale phase are not handled.
-        restored.chat = latestPhaseChat ?? undefined;
+        // Intake: the source version's own chat (single chat per artifact lifecycle).
+        restored.chat = targetChat ?? undefined;
         restored.version = newVersionNumber;
         restored.content = sourceVersion.content;
         restored.ai_content = sourceVersion.ai_content;
@@ -149,8 +164,8 @@ export async function restoreArtifactHandler(
                 restoredVersionNumber: newVersionNumber,
                 restoredVersionId: restored.id,
                 supersededVersions: supersededVersions.sort((a, b) => a - b),
-                chatId: latestPhaseChat?.id,
-                chatType: (latestPhaseChat?.type as string) ?? 'phase',
+                chatId: targetChat?.id,
+                chatType: (targetChat?.type as string) ?? 'phase',
             },
         };
     });

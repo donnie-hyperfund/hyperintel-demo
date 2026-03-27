@@ -1,4 +1,4 @@
-import type { ArtifactDto, DocumentType } from '@/lib/schema/artifact';
+import type { ArtifactDto, ArtifactVersionHistoryResponseDto, DocumentType } from '@/lib/schema/artifact';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
 
@@ -6,6 +6,7 @@ const ENDPOINTS = {
     root: '/api/artifacts',
     byId: (artifactId: string) => `/api/artifacts/${artifactId}`,
     byKey: (key: string) => `/api/resources/${key}`,
+    versions: '/api/artifacts/versions',
 } as const;
 
 export const artifactKeys = {
@@ -13,6 +14,7 @@ export const artifactKeys = {
     lists: () => [...artifactKeys.all, 'list'] as const,
     list: (documentType?: DocumentType, params?: PaginationParams) =>
         [...artifactKeys.lists(), documentType, params] as const,
+    history: (key: string) => [...artifactKeys.all, 'history', key] as const,
 };
 
 export function getArtifactListInfiniteKey(documentType: DocumentType | undefined, limit = 20) {
@@ -38,6 +40,11 @@ export function createArtifactApi(getToken: TokenGetter) {
                 params.version = version;
             }
             const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.byKey(key), params));
+            return data;
+        },
+
+        listVersionsByKey: async (key: string) => {
+            const { data } = await axios.get<ArtifactVersionHistoryResponseDto>(buildUrl(ENDPOINTS.versions, { key }));
             return data;
         },
 

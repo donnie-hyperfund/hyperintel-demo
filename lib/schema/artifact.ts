@@ -169,7 +169,7 @@ export const RejectArtifactActionSchema = z.object({
 export type RejectArtifactActionDto = z.infer<typeof RejectArtifactActionSchema>;
 
 export const RestoreArtifactActionSchema = z.object({
-    projectId: z.string().uuid(),
+    projectId: z.string().uuid().optional(),
     key: z.string().min(1),
     sourceVersionId: z.string().uuid(),
 });
