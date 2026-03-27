@@ -526,8 +526,8 @@ export async function handleGetResourceByKey(req: NextRequest, key: string, user
         .leftJoinAndSelect('a.current_version', 'cv')
         .where({
             'a.key': normalizedKey,
-            'a.user': user.id,
-            $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+            $or: [{ 'a.user': user.id }, { [raw("a.metadata->>'stagedBy'")]: user.id }],
+            $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
         })
         .getSingleResult();
 
