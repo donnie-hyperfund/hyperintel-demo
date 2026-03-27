@@ -16,7 +16,7 @@ type VersionListPaneProps = {
 
 export function VersionListPane({ versions, selectedVersion, onSelect, isLoading }: VersionListPaneProps) {
     return (
-        <div className="flex min-h-0 flex-col border-l">
+        <div className="flex min-h-0 flex-col border-t md:border-t-0 md:border-l">
             <div className="shrink-0 flex h-11 items-center border-b px-4 text-xs font-medium text-muted-foreground">
                 Versions
             </div>
