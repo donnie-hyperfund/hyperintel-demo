@@ -54,6 +54,7 @@ vars:
   LANGFUSE_ENVIRONMENT:
     production: "production"
     dev: "development"
+  CHAT_OUTPUT_SAFETY_ENABLED: "true"
   ENV:
     dev: "dev"  # prod is unset - code defaults to 'prod'
   APP_BASE:

@@ -9,6 +9,7 @@ declare namespace Cloudflare {
         LANGFUSE_HOST: string;
         LANGFUSE_PUBLIC_KEY: string;
         LANGFUSE_ENVIRONMENT: string;
+        CHAT_OUTPUT_SAFETY_ENABLED: string;
         CORS_ALLOWED_ORIGIN: string;
         WORKER_NAME: string;
         WORKER_NAME_FULL: string;
@@ -45,6 +46,7 @@ declare namespace NodeJS {
                 | 'LANGFUSE_HOST'
                 | 'LANGFUSE_PUBLIC_KEY'
                 | 'LANGFUSE_ENVIRONMENT'
+                | 'CHAT_OUTPUT_SAFETY_ENABLED'
                 | 'CORS_ALLOWED_ORIGIN'
                 | 'WORKER_NAME'
                 | 'WORKER_NAME_FULL'

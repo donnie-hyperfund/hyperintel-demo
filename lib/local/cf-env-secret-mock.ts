@@ -1,7 +1,8 @@
-import { makeSecretMock } from '@common/common/local.helpers';
 import { MockCFWebSocket, MockDurableObjectNamespace } from '@common/common/local.do-mock';
+import { makeSecretMock } from '@common/common/local.helpers';
 import { WebSocketServer } from 'ws';
 import { backendEnv } from '@/app/api/env';
+
 // eslint-disable-next-line -- require() to avoid pulling worker files into root tsc
 const { UserGateway } = require('@/workers/objects/src/objects/user-gateway');
 const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do');
@@ -28,6 +29,7 @@ export const envSecretMocks: Record<string, unknown> = {
     LANGFUSE_ENVIRONMENT: process.env.LANGFUSE_ENVIRONMENT ?? 'Development',
     LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY ?? '',
     LANGFUSE_HOST: process.env.LANGFUSE_HOST ?? '',
+    CHAT_OUTPUT_SAFETY_ENABLED: process.env.CHAT_OUTPUT_SAFETY_ENABLED ?? 'true',
     ENV: process.env.NODE_ENV === 'production' ? 'production' : 'dev',
     CORS_ALLOWED_ORIGIN: '*',
 };
