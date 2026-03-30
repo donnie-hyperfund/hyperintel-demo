@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowRight, Loader2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -13,17 +13,13 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
-import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
-import { getArtifactChatId, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function NextPhaseButton() {
-    const { projectId, chatId, summarizeChat, navigateToNewPhase, clearPendingPhaseTransition, state } =
+    const { projectId, summarizeChat, navigateToNewPhase, clearPendingPhaseTransition, state } =
         useChatContext<'phase'>();
 
     const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
-    const { data: artifactPages } = useFetchProjectArtifactsInfinite(projectId, { limit: 20 });
-
     const [dialogOpen, setDialogOpen] = useState(false);
     const [pendingNavigation, setPendingNavigation] = useState(false);
 
@@ -32,19 +28,9 @@ export function NextPhaseButton() {
     const isLatestPhase =
         typeof state.phaseIndex === 'number' && totalPhases > 0 && state.phaseIndex === totalPhases - 1;
 
-    const hasAnyApprovedArtifacts = useMemo(() => {
-        if (!artifactPages || !chatId) return false;
-        return artifactPages.some((page) =>
-            page.data.some(
-                (artifact) =>
-                    getArtifactChatId(artifact) === chatId &&
-                    getLatestArtifactVersion(artifact)?.status === 'approved' &&
-                    getLatestArtifactVersion(artifact)?.document_type !== 'Completion Brief',
-            ),
-        );
-    }, [artifactPages, chatId]);
+    const hasAssistantMessage = state.messages.some((m) => m.role === 'assistant');
 
-    const canTransition = isLatestPhase && hasAnyApprovedArtifacts && !state.isLoading;
+    const canTransition = isLatestPhase && hasAssistantMessage && !state.isLoading;
 
     const isButtonVisible = canTransition && !state.isGenerating;
 
@@ -77,7 +63,7 @@ export function NextPhaseButton() {
         if (!canTransition) {
             const reasons: string[] = [];
             if (!isLatestPhase) reasons.push('You are not on the latest phase.');
-            if (!hasAnyApprovedArtifacts) reasons.push('You have no approved artifacts.');
+            if (!hasAssistantMessage) reasons.push('No conversation has taken place yet.');
             if (state.isLoading) reasons.push('Wait for the chat to finish responding.');
             toast({
                 title: 'Cannot transition to next phase.',
@@ -93,7 +79,7 @@ export function NextPhaseButton() {
         state.pendingPhaseTransition,
         canTransition,
         isLatestPhase,
-        hasAnyApprovedArtifacts,
+        hasAssistantMessage,
         state.isLoading,
         clearPendingPhaseTransition,
         summarizeChat,
