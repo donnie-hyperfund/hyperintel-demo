@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 type VersionPreviewPaneProps = {
@@ -39,11 +40,13 @@ export function VersionPreviewPane({
 
                     {!isLoading && error && <p className="text-sm text-destructive">Failed to load version preview.</p>}
 
-                    {!isLoading && !error && (
-                        <pre className="whitespace-pre-wrap text-sm leading-6 text-foreground">
-                            {content || 'No preview available for this version.'}
-                        </pre>
-                    )}
+                    {!isLoading &&
+                        !error &&
+                        (content ? (
+                            <MarkdownRenderer markdown={content} />
+                        ) : (
+                            <p className="text-sm text-muted-foreground">No preview available for this version.</p>
+                        ))}
                 </div>
             </ScrollArea>
         </div>
