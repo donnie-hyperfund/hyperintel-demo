@@ -2,6 +2,7 @@
 
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import { usePresets } from '@/lib/api/client/hooks/use-presets';
+import { IS_DEV } from '@/lib/config';
 
 type ModelSelectionContextValue = {
     selectedModel: string;
@@ -30,8 +31,9 @@ export function ModelSelectionProvider({ children }: { children: ReactNode }) {
         }
     }, [selectedModel, defaultPresetId]);
 
-    // Auto-switch to default if selected preset becomes unavailable
+    // On prod (switcher hidden), auto-switch to default if selected preset is unavailable
     useEffect(() => {
+        if (IS_DEV) return; // Dev has the switcher — let the user handle it
         if (isLoading || !availablePresets.length || selectedModel === null) return;
         if (!availablePresets.some((p) => p.id === selectedModel)) {
             setSelectedModel(defaultPresetId);
