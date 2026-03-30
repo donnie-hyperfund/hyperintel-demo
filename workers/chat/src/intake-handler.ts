@@ -17,7 +17,8 @@ import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatHandlerOptions } from './chat-handler';
 import type { Ctx } from './context';
-import { createSafetyMonitor } from './safety/analyzer';
+import { createNoopSafetyMonitor, createSafetyMonitor } from './safety/analyzer';
+import { isOutputSafetyEnabled } from './safety/config';
 import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
@@ -355,22 +356,27 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         const fireAndForgetPush = pusher.push;
 
-        // Inline safety monitor — checks content every few seconds, aborts on leak
-        const safetyMonitor = createSafetyMonitor({
-            ctx,
-            userMessage: message ?? '',
-            onLeak: (result) => {
-                abortController.abort();
-                fireAndForgetPush([
-                    {
-                        type: 'safety_retract',
-                        reason: result.category,
-                        severity: result.severity,
-                        evidence: result.evidence,
-                    } as any,
-                ]);
-            },
-        });
+        const outputSafetyEnabled = isOutputSafetyEnabled(ctx.env);
+
+        // Inline safety monitor — checks content every few seconds, aborts on leak.
+        // When disabled, keep the same call sites but swap in a no-op monitor.
+        const safetyMonitor = outputSafetyEnabled
+            ? createSafetyMonitor({
+                  ctx,
+                  userMessage: message ?? '',
+                  onLeak: (result) => {
+                      abortController.abort();
+                      fireAndForgetPush([
+                          {
+                              type: 'safety_retract',
+                              reason: result.category,
+                              severity: result.severity,
+                              evidence: result.evidence,
+                          } as any,
+                      ]);
+                  },
+              })
+            : createNoopSafetyMonitor();
 
         // Document events queue — batched into the main push instead of separate RPCs
         const pendingDocEvents: StreamEvent[] = [];

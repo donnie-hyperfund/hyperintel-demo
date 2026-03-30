@@ -504,6 +504,7 @@ export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx
     for (const artifact of artifacts) {
         if (projectId) artifact.project = em.getReference('ProjectEntity', projectId) as any;
         if (chatId) artifact.chat = em.getReference('ChatEntity', chatId) as any;
+        artifact.user = em.getReference('UserEntity', dbUserId) as any;
         artifact.metadata = null;
     }
 

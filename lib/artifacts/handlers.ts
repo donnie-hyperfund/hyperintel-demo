@@ -128,6 +128,9 @@ export async function handleListProjectArtifacts(
         limit: searchParams.get('limit') ?? undefined,
         key: searchParams.get('key') ?? undefined,
         version: searchParams.get('version') ?? undefined,
+        visibility: searchParams.get('visibility') ?? undefined,
+        status: searchParams.get('status') ?? undefined,
+        chatId: searchParams.get('chatId') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
@@ -193,18 +196,40 @@ export async function handleListProjectArtifacts(
         .select('a.*')
         .leftJoin('a.project', 'p')
         .leftJoinAndSelect('a.current_version', 'cv')
+        .leftJoin('a.versions', 'pv', { 'pv.status': 'proposed' })
         .where({
             'p.id': projectId,
             'p.user': user.id,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
-        })
-        .orderBy({ 'a.created_at': 'DESC' });
+        });
 
     // Exclude imported resources and uploaded files (they are shown via the project resources endpoint)
     query.andWhere({
         $or: [{ [raw("a.metadata->>'importedFrom'")]: null }, { [raw('a.metadata')]: null }],
     });
     query.andWhere({ $or: [{ 'cv.is_uploaded': null }, { 'cv.is_uploaded': false }] });
+
+    // Apply user-selected filters (prefer proposed version, fall back to current)
+    if (queryData.visibility?.length) {
+        const booleans = queryData.visibility.map((v) => v === 'internal');
+        query.andWhere({
+            [raw('COALESCE(pv.is_internal, cv.is_internal)')]: { $in: booleans },
+        });
+    }
+
+    if (queryData.status?.length) {
+        query.andWhere({
+            [raw('COALESCE(pv.status, cv.status)')]: { $in: queryData.status },
+        });
+    }
+
+    if (queryData.chatId?.length) {
+        query.andWhere({
+            [raw('COALESCE(pv.chat_id, cv.chat_id)')]: { $in: queryData.chatId },
+        });
+    }
+
+    query.groupBy(['a.id', 'cv.id']).orderBy({ 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
@@ -590,8 +615,8 @@ export async function handleGetResourceByKey(req: NextRequest, key: string, user
         .leftJoinAndSelect('a.current_version', 'cv')
         .where({
             'a.key': normalizedKey,
-            'a.user': user.id,
-            $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
+            $or: [{ 'a.user': user.id }, { [raw("a.metadata->>'stagedBy'")]: user.id }],
+            $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
         })
         .getSingleResult();
 

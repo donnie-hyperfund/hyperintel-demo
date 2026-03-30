@@ -151,6 +151,16 @@ interface MonitorOptions {
     onLeak: (result: AnalysisResult) => void;
 }
 
+export function createNoopSafetyMonitor(): SafetyMonitor {
+    return {
+        appendContent() {},
+        stop() {},
+        getLastResult() {
+            return null;
+        },
+    };
+}
+
 /**
  * Create an inline safety monitor that checks streaming content periodically.
  *
@@ -165,7 +175,6 @@ export function createSafetyMonitor(options: MonitorOptions): SafetyMonitor {
     let accumulatedContent = '';
     let lastCheckedLength = 0;
     let isRunning = true;
-    const isChecking = false;
     let lastResult: AnalysisResult | null = null;
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
