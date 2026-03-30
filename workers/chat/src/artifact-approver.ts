@@ -193,6 +193,7 @@ export async function approveArtifactHandler(
                 content: isInternalDocument && yamlContent ? yamlContent : version.content,
                 documentName: version.artifact.key,
                 is_ai_content: isInternalDocument,
+                previewAlias: ctx.previewAlias,
             });
         } catch (err) {
             console.error('[approveArtifact] Embedding queue failed:', err);

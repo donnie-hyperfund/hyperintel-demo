@@ -45,9 +45,7 @@ async function processMessage(
 ): Promise<ProcessingResult> {
     switch (message.type) {
         case 'index_artifact_version': {
-            const scopeLabel = message.projectId
-                ? `project ${message.projectId}`
-                : `chat ${message.chatId}`;
+            const scopeLabel = message.projectId ? `project ${message.projectId}` : `chat ${message.chatId}`;
             console.log(
                 `${logPrefix} Indexing version ${message.versionId} for ${scopeLabel}`,
                 message.documentName ? `(${message.documentName})` : '',
@@ -174,13 +172,20 @@ app.post('/enqueue', async (c) => {
 async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext): Promise<void> {
     console.log(`[embedding/queue] Processing batch of ${batch.messages.length} messages`);
 
-    // Initialize context with AI clients
-    const ctx = await initInferredContext(env, {}, { withOrm: true });
+    // Cache contexts per preview alias (different branches need different DB connections)
+    const contextCache = new Map<string, ProcessingContext>();
 
-    if (!ctx.openai || !ctx.orouterSdk || !ctx.em) {
-        console.error('[embedding/queue] Missing required context: openai, orouterSdk, or em');
-        // Retry later by not acking
-        return;
+    async function getContext(previewAlias?: string | null): Promise<ProcessingContext | null> {
+        const key = previewAlias ?? '__main__';
+        const cached = contextCache.get(key);
+        if (cached) return cached;
+
+        const ctx = await initInferredContext(env, {}, { withOrm: true, previewAlias });
+        if (!ctx.openai || !ctx.orouterSdk || !ctx.em) return null;
+
+        const procCtx: ProcessingContext = { openai: ctx.openai, orouterSdk: ctx.orouterSdk, em: ctx.em };
+        contextCache.set(key, procCtx);
+        return procCtx;
     }
 
     for (const message of batch.messages) {
@@ -189,6 +194,13 @@ async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: Ex
         if (!parsed.success) {
             console.error('[embedding/queue] Invalid message format:', parsed.error.message);
             message.ack(); // Ack to prevent infinite retries of invalid messages
+            continue;
+        }
+
+        const ctx = await getContext(parsed.data.previewAlias);
+        if (!ctx) {
+            console.error('[embedding/queue] Missing required context: openai, orouterSdk, or em');
+            message.retry();
             continue;
         }
 
@@ -206,11 +218,8 @@ async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: Ex
             // Don't ack - message will be retried
             message.retry();
         }
-    }
 
-    // Flush any pending ORM operations
-    if (ctx.em) {
-        await ctx.em.flush();
+        if (ctx.em) await ctx.em.flush();
     }
 }
 
