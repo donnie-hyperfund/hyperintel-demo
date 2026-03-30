@@ -7,7 +7,7 @@
 
 import { runAgentStream } from '@common/ai/agent';
 import { type ParamsWithType, extractInferenceMetadata } from '@common/ai/inference';
-import { resolvePreset, DEFAULT_PRESET_ID } from '@/lib/presets';
+import { resolvePreset, getDefaultPresetId } from '@/lib/presets';
 import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -313,7 +313,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
 
-        const presetId = data.model ?? DEFAULT_PRESET_ID;
+        const presetId = data.model ?? getDefaultPresetId(ctx.env);
         const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
         if (!resolved) {
             throw new Error(`Preset '${presetId}' is not available`);

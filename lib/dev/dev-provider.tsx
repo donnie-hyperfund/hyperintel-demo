@@ -12,18 +12,11 @@ import './features/message-feedback';
 
 import { DevPanel } from './components/dev-panel';
 
-type Props = { children: ReactNode };
-
 /**
- * Single entry point for the dev tools system.
- * In production, renders only children with zero overhead.
- * In development, mounts the dev panel and bootstraps all dev features.
+ * Dev tools provider — mounts dev panel and bootstraps all dev features.
+ * On prod builds, scripts/strip-dev.sh replaces this with a passthrough stub.
  */
-export function DevProvider({ children }: Props) {
-	if (process.env.NODE_ENV === 'production') {
-		return <>{children}</>;
-	}
-
+export function DevProvider({ children }: { children: ReactNode }) {
 	return (
 		<>
 			{children}

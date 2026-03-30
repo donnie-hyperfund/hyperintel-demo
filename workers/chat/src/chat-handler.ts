@@ -9,7 +9,7 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import { DEFAULT_PRESET_ID, resolvePreset } from '@/lib/presets';
+import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
@@ -421,7 +421,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         );
 
         // Determine inference params via preset resolution
-        const presetId = data.model ?? DEFAULT_PRESET_ID;
+        const presetId = data.model ?? getDefaultPresetId(ctx.env);
         const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
         if (!resolved) {
             throw new Error(`Preset '${presetId}' is not available`);

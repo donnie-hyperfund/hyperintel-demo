@@ -33,7 +33,9 @@
 		"CORS_ALLOWED_ORIGIN": "https://app.hprntl.ai",
 		"CHAT_OUTPUT_SAFETY_ENABLED": "false",
 		"WORKER_NAME": "hi-chat",
-		"WORKER_NAME_FULL": "hi-chat"
+		"WORKER_NAME_FULL": "hi-chat",
+		"ALLOWED_PRESETS": "opus",
+		"DEFAULT_PRESET": "opus"
 	},
 	"secrets_store_secrets": [
 		{
