@@ -142,7 +142,7 @@
 				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "development",
-				"CHAT_OUTPUT_SAFETY_ENABLED": "true",
+				"CHAT_OUTPUT_SAFETY_ENABLED": "false",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
 				"WORKER_NAME": "hi-chat",
 				"WORKER_NAME_FULL": "hi-chat-dev"
