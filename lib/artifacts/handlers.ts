@@ -58,6 +58,7 @@ export async function handleListProjectArtifacts(
                 'a.key': normalizedKey,
                 'p.id': projectId,
                 'p.user': user.id,
+                'p.archived_at': null,
                 $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
             })
             .getSingleResult();
@@ -111,6 +112,7 @@ export async function handleListProjectArtifacts(
         .where({
             'p.id': projectId,
             'p.user': user.id,
+            'p.archived_at': null,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
         });
 
@@ -167,7 +169,7 @@ export async function handleListProjectArtifacts(
 // Unified artifact router
 // ---------------------------------------------------------------------------
 
-export async function handleGetArtifacts(req: NextRequest, user: UserEntity): Promise<NextResponse> {
+export function handleGetArtifacts(req: NextRequest, user: UserEntity): Promise<NextResponse> {
     const { searchParams } = new URL(req.url);
     const projectId = searchParams.get('projectId');
     const chatId = searchParams.get('chatId');
@@ -361,7 +363,7 @@ export async function handleImportArtifacts(
     const resolvedProjectId = projectId ?? bodyData.projectId;
 
     // Verify project ownership
-    const project = await em.findOne(ProjectEntity, { id: resolvedProjectId, user: user.id });
+    const project = await em.findOne(ProjectEntity, { id: resolvedProjectId, user: user.id, archived_at: null });
     if (!project) {
         return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
     }
@@ -437,6 +439,7 @@ export async function handleListResources(
             .where({
                 'p.id': projectId,
                 'p.user': user.id,
+                'p.archived_at': null,
                 $or: [{ [raw("a.metadata->>'importedFrom'")]: { $ne: null } }, { 'cv.is_uploaded': true }],
                 $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
             });
@@ -585,6 +588,7 @@ export async function handleRemoveProjectResource(
             'a.id': artifactId,
             'p.id': projectId,
             'p.user': user.id,
+            'p.archived_at': null,
             [raw("a.metadata->>'importedFrom'")]: { $ne: null },
         })
         .getSingleResult();
@@ -645,7 +649,7 @@ export async function handleGetFileStatuses(req: NextRequest, user: UserEntity):
         .where({
             'f.id': { $in: fileIds },
             $or: [
-                { 'p.user': user.id },
+                { 'p.user': user.id, 'p.archived_at': null },
                 { 'c.user': user.id },
                 { 'a.user': user.id },
                 { [raw("a.metadata->>'stagedBy'")]: user.id },

@@ -23,6 +23,7 @@ async function handleCreateChat(req: NextRequest, projectId: string, user: UserE
     const project = await em.findOne(ProjectEntity, {
         id: projectId,
         user: user.id,
+        archived_at: null,
     });
 
     if (!project) {
@@ -47,20 +48,14 @@ async function handleCreateChat(req: NextRequest, projectId: string, user: UserE
     return NextResponse.json(chatDto, { status: 201 });
 }
 
-export async function GET(
-    req: NextRequest,
-    { params }: { params: Promise<{ projectId: string }> },
-): Promise<NextResponse> {
+export function GET(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }): Promise<NextResponse> {
     return withAuth(async (request, user) => {
         const { projectId } = await params;
         return handleListChats(request, user, projectId);
     })(req);
 }
 
-export async function POST(
-    req: NextRequest,
-    { params }: { params: Promise<{ projectId: string }> },
-): Promise<NextResponse> {
+export function POST(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }): Promise<NextResponse> {
     return withAuth(async (request, user) => {
         const { projectId } = await params;
         return handleCreateChat(request, projectId, user);

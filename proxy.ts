@@ -45,7 +45,7 @@ export default clerkMiddleware(async (auth, req) => {
             const user = await em.findOne(UserEntity, { clerkId: clerkUserId });
 
             if (user) {
-                const projectCount = await em.count(ProjectEntity, { user: user.id });
+                const projectCount = await em.count(ProjectEntity, { user: user.id, archived_at: null });
                 const hasProjects = projectCount > 0;
                 const browsable = isBrowsableRoute(req);
 
@@ -62,6 +62,7 @@ export default clerkMiddleware(async (auth, req) => {
                         const project = await em.findOne(ProjectEntity, {
                             id: parsedCookie.projectId,
                             user: user.id,
+                            archived_at: null,
                         });
                         if (project) validProjectId = parsedCookie.projectId;
                     }

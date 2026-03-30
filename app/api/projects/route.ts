@@ -69,7 +69,7 @@ async function handleCreateProject(req: NextRequest, user: UserEntity): Promise<
         broadcastUserEvent(user.clerkId, 'project_created', { projectId: project.id }).catch(console.error);
     }
 
-    const dto: ProjectDto = wrap(project).toJSON();
+    const dto = wrap(project).toJSON() as ProjectDto;
     return NextResponse.json(dto, { status: 201 });
 }
 

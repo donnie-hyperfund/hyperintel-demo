@@ -1,12 +1,12 @@
 import { useAuth } from '@clerk/nextjs';
-import useSWR, { type SWRConfiguration } from 'swr';
+import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import type { CreateProjectBodyDto, ProjectDto, UpdateProjectBodyDto } from '@/lib/schema/project';
-import { createProjectApi, getProjectListInfiniteKey, projectKeys } from '../fetchers/projects';
-import type { InfinitePaginationParams, PaginatedResponse, PaginationParams } from '../types';
+import { createProjectApi, getProjectListInfiniteKey, type ProjectListParams, projectKeys } from '../fetchers/projects';
+import type { PaginatedResponse } from '../types';
 
-export function useFetchProjects(params?: PaginationParams, config?: SWRConfiguration<PaginatedResponse<ProjectDto>>) {
+export function useFetchProjects(params?: ProjectListParams, config?: SWRConfiguration<PaginatedResponse<ProjectDto>>) {
     const { getToken } = useAuth();
 
     return useSWR<PaginatedResponse<ProjectDto>>(
@@ -17,15 +17,16 @@ export function useFetchProjects(params?: PaginationParams, config?: SWRConfigur
 }
 
 export function useFetchProjectsInfinite(
-    params: InfinitePaginationParams = { limit: 20 },
+    params: ProjectListParams = { limit: 20 },
     config?: SWRInfiniteConfiguration<PaginatedResponse<ProjectDto>>,
 ) {
     const { getToken } = useAuth();
+    const { limit = 20, status } = params;
 
     const result = useSWRInfinite<PaginatedResponse<ProjectDto>>(
-        getProjectListInfiniteKey(params.limit),
+        getProjectListInfiniteKey(limit, status),
         (key) => {
-            const params = key[key.length - 1] as PaginationParams;
+            const params = key[key.length - 1] as ProjectListParams;
             return createProjectApi(getToken).list(params);
         },
         { revalidateOnFocus: false, ...config },
@@ -52,25 +53,39 @@ export function useFetchProject(projectId: string | undefined, config?: SWRConfi
 
 export function useCreateProject() {
     const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ProjectDto, Error, string, CreateProjectBodyDto>('create-project', (_, { arg }) =>
-        createProjectApi(getToken).create(arg),
-    );
+    return useSWRMutation<ProjectDto, Error, string, CreateProjectBodyDto>('create-project', async (_, { arg }) => {
+        const project = await createProjectApi(getToken).create(arg);
+        globalMutate((key) => typeof key === 'string' && key.includes('"projects"'));
+        return project;
+    });
 }
 
 export function useUpdateProject(projectId: string) {
     const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
 
     return useSWRMutation<ProjectDto, Error, readonly string[], UpdateProjectBodyDto>(
         [...projectKeys.detail(projectId)],
-        (_, { arg }) => createProjectApi(getToken).update(projectId, arg),
+        async (_, { arg }) => {
+            const project = await createProjectApi(getToken).update(projectId, arg);
+            globalMutate((key) => typeof key === 'string' && key.includes('"projects"'));
+            return project;
+        },
     );
 }
 
 export function useDeleteProject(projectId: string) {
     const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<{ message: string }, Error, readonly string[]>([...projectKeys.detail(projectId)], () =>
-        createProjectApi(getToken).delete(projectId),
+    return useSWRMutation<{ message: string }, Error, readonly string[]>(
+        [...projectKeys.detail(projectId)],
+        async () => {
+            const result = await createProjectApi(getToken).delete(projectId);
+            globalMutate((key) => typeof key === 'string' && key.includes('"projects"'));
+            return result;
+        },
     );
 }
