@@ -3,7 +3,9 @@
 import { memo } from 'react';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
+import { DevSlot } from '@/lib/dev-slots';
 import type { Message } from '@/modules/chat/types';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
 import { DocumentDirective } from './document-directive';
 import { UploadDirective } from './file-directive';
@@ -20,6 +22,7 @@ const chatDirectives = {
 };
 
 export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessageProps) => {
+    const { chatId } = useChatContext();
     const { blocks, role, isStreaming } = message;
 
     if (role === 'user') {
@@ -28,13 +31,18 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
             .map((b) => b.content)
             .join('\n');
         return (
-            <div className="max-w-[90%] min-w-0 rounded-4 py-3 px-4 bg-neutral-800 text-foreground justify-self-end">
-                <div className="min-w-0">
-                    {renderMarkdown ? (
-                        <MarkdownRenderer markdown={text} variant="message" directives={chatDirectives} />
-                    ) : (
-                        <p className="text-sm whitespace-pre-wrap">{text}</p>
-                    )}
+            <div className="group max-w-[90%] min-w-0 justify-self-end">
+                <div className="rounded-4 py-3 px-4 bg-neutral-800 text-foreground">
+                    <div className="min-w-0">
+                        {renderMarkdown ? (
+                            <MarkdownRenderer markdown={text} variant="message" directives={chatDirectives} />
+                        ) : (
+                            <p className="text-sm whitespace-pre-wrap">{text}</p>
+                        )}
+                    </div>
+                </div>
+                <div className="flex justify-end">
+                    <DevSlot name="message-actions" chatId={chatId} messageId={message.id} content={text} role="user" blocks={blocks} feedbackScore={message.feedbackScore} feedbackComment={message.feedbackComment} />
                 </div>
             </div>
         );
@@ -54,7 +62,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
     const { fullText: textContent, citations } = convertBlocksToGlobalAnnotations(blocks, '\n');
 
     return (
-        <div className="max-w-[90%] min-w-0">
+        <div className="group max-w-[90%] min-w-0">
             <div className="min-w-0 space-y-3">
                 {thinkingBlocks.length > 0 && (
                     <MessageThinkingBlock
@@ -91,6 +99,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                     </div>
                 )}
             </div>
+            <DevSlot name="message-actions" chatId={chatId} messageId={message.id} content={textContent} role="assistant" blocks={blocks} feedbackScore={message.feedbackScore} feedbackComment={message.feedbackComment} />
         </div>
     );
 });

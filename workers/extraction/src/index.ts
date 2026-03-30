@@ -282,6 +282,7 @@ async function processExtraction(
                 content: markdown,
                 documentName: originalName,
                 is_ai_content: false,
+                previewAlias: message.previewAlias,
             });
             console.log(`${logPrefix} Queued embedding for ${originalName}`);
         } catch (error) {
@@ -381,11 +382,20 @@ app.post('/extract', async (c) => {
 async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext): Promise<void> {
     console.log(`[extraction/queue] Processing batch of ${batch.messages.length} messages`);
 
-    const ctx = await initInferredContext(env, {}, { withOrm: true });
+    // Cache contexts per preview alias (different branches need different DB connections)
+    const contextCache = new Map<string, { em: EntityManager; reducto?: Reducto }>();
 
-    if (!ctx.em) {
-        console.error('[extraction/queue] ORM not initialized');
-        return;
+    async function getExtractionContext(previewAlias?: string | null) {
+        const key = previewAlias ?? '__main__';
+        const cached = contextCache.get(key);
+        if (cached) return cached;
+
+        const ctx = await initInferredContext(env, {}, { withOrm: true, previewAlias });
+        if (!ctx.em) return null;
+
+        const extractionCtx = { em: ctx.em, reducto: ctx.reducto };
+        contextCache.set(key, extractionCtx);
+        return extractionCtx;
     }
 
     for (const message of batch.messages) {
@@ -396,12 +406,15 @@ async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: Ex
             continue;
         }
 
+        const extractionCtx = await getExtractionContext(parsed.data.previewAlias);
+        if (!extractionCtx) {
+            console.error('[extraction/queue] ORM not initialized');
+            message.retry();
+            continue;
+        }
+
         try {
-            const result = await processMessage(
-                parsed.data,
-                { env, em: ctx.em, reducto: ctx.reducto },
-                '[extraction/queue]',
-            );
+            const result = await processMessage(parsed.data, { env, ...extractionCtx }, '[extraction/queue]');
 
             if (result.success) {
                 message.ack();
@@ -415,7 +428,7 @@ async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: Ex
             // Mark file as failed so it doesn't stay stuck in "uploading" forever
             try {
                 await markFileFailed(
-                    ctx.em,
+                    extractionCtx.em,
                     parsed.data.fileId,
                     `Queue processing error: ${error instanceof Error ? error.message : String(error)}`,
                 );
@@ -424,9 +437,9 @@ async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: Ex
             }
             message.ack();
         }
-    }
 
-    if (ctx.em) await ctx.em.flush();
+        if (extractionCtx.em) await extractionCtx.em.flush();
+    }
 }
 
 // ============================================================================

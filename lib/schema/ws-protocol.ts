@@ -23,6 +23,7 @@ export const ServerMsg = {
     StreamStarted: 'stream_started',
     MessageCreated: 'message_created',
     UserEvent: 'user_event',
+    ModelChanged: 'model_changed',
 } as const;
 
 // ============================================================================
@@ -78,6 +79,7 @@ export type SubscribeResponseIdle = {
     topic: string;
     type: typeof ServerMsg.SubscribeResponse;
     status: 'idle';
+    selectedModel?: string | null;
 };
 
 export type SubscribeResponseStreaming = {
@@ -88,12 +90,14 @@ export type SubscribeResponseStreaming = {
     snapshot: StreamSnapshot;
     /** Present when streaming a summary (not a normal chat response) */
     streamType?: 'chat' | 'summary';
+    selectedModel?: string | null;
 };
 
 export type SubscribeResponseStale = {
     topic: string;
     type: typeof ServerMsg.SubscribeResponse;
     status: 'stale';
+    selectedModel?: string | null;
 };
 
 export type SubscribeResponse = SubscribeResponseIdle | SubscribeResponseStreaming | SubscribeResponseStale;
@@ -131,6 +135,12 @@ export type ChatMessageCreatedMessage = {
     tempId?: string;
 };
 
+export type ModelChangedMessage = {
+    topic: string;
+    type: typeof ServerMsg.ModelChanged;
+    model: string;
+};
+
 // --- Connection management ---
 
 export type HelloMessage = {
@@ -162,7 +172,8 @@ export type TopicMessage =
     | StreamEventMessage
     | StreamStatusMessage
     | StreamStartedMessage
-    | ChatMessageCreatedMessage;
+    | ChatMessageCreatedMessage
+    | ModelChangedMessage;
 
 /** All possible server → client messages */
 export type ServerMessage = TopicMessage | HelloMessage | ErrorMessage | UserEventMessage;

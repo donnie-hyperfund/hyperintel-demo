@@ -26,8 +26,8 @@ queues:
     - binding: EXTRACTION_QUEUE
       queue: hi-extraction-queue
 
-# vars:
-#   - SOME_VAR
+vars:
+  - CHAT_OUTPUT_SAFETY_ENABLED
 
 # ai: true
 # browser: true

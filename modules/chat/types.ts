@@ -36,6 +36,8 @@ export type Message = {
     };
     status?: string;
     createdAt?: Date;
+    feedbackScore?: boolean | null;
+    feedbackComment?: string | null;
 };
 
 export type Conversation = {
@@ -65,6 +67,8 @@ export type ChatState = {
     summaryBlocks: StreamBlock[];
     /** True while an artifact approval/rejection API call is in flight */
     isProcessingArtifactAction: boolean;
+    /** True when the user tried to send with an unavailable model — shows an alert dialog */
+    showInvalidModelAlert: boolean;
 };
 
 export type PaginationState = {

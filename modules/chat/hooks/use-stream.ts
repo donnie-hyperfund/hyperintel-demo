@@ -5,6 +5,7 @@ import { AsyncEventQueue } from '@/lib/async-event-queue';
 import type { ActiveDocument, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import type {
     ChatMessageCreatedMessage,
+    ModelChangedMessage,
     ServerMessage,
     StreamEventMessage,
     StreamStartedMessage,
@@ -65,9 +66,11 @@ export type UseStreamOptions = {
     /** Called when a new chat message is created and broadcast */
     onMessageCreated?: (message: unknown, tempId?: string) => void;
     /** Called once when the initial subscribe_response arrives — useful for clearing stale generating state */
-    onSubscribeResponse?: (status: 'idle' | 'streaming' | 'stale') => void;
+    onSubscribeResponse?: (status: 'idle' | 'streaming' | 'stale', selectedModel: string | null) => void;
     /** Called when approve_document/reject_document tool completes during stream (for project flow redirect) */
     onToolDocumentDecision?: (decision: ToolDocumentDecision) => Promise<void>;
+    /** Called when the chat's selected model is changed (via WS broadcast) */
+    onModelChanged?: (model: string) => void;
 };
 
 export type UseStreamReturn = {
@@ -537,10 +540,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         }
 
                         documentQueueRef.current = new AsyncEventQueue(handleDocumentEvent);
+                        o.onSubscribeResponse?.('streaming', resp.selectedModel ?? null);
                     } else {
                         // idle or stale — no active stream
                         setStatus('idle');
-                        o.onSubscribeResponse?.('idle');
+                        o.onSubscribeResponse?.('idle', resp.selectedModel ?? null);
                     }
                     break;
                 }
@@ -551,6 +555,15 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 case ServerMsg.MessageCreated: {
                     const { message, tempId } = msg as ChatMessageCreatedMessage;
                     o.onMessageCreated?.(message, tempId);
+                    break;
+                }
+
+                // ==============================================================
+                // MODEL CHANGED
+                // ==============================================================
+                case ServerMsg.ModelChanged: {
+                    const { model } = msg as ModelChangedMessage;
+                    o.onModelChanged?.(model);
                     break;
                 }
 

@@ -30,6 +30,9 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     messages = new Collection<ChatMessageEntity>(this);
 
     @Property({ type: 'text', nullable: true })
+    selected_model?: Nullable<string>;
+
+    @Property({ type: 'text', nullable: true })
     active_agent_message_id?: Nullable<string>;
 
     @Property({ type: 'json', nullable: true })

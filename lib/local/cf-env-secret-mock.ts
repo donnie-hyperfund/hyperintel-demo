@@ -1,7 +1,8 @@
-import { makeSecretMock } from '@common/common/local.helpers';
 import { MockCFWebSocket, MockDurableObjectNamespace } from '@common/common/local.do-mock';
+import { makeSecretMock } from '@common/common/local.helpers';
 import { WebSocketServer } from 'ws';
 import { backendEnv } from '@/app/api/env';
+
 // eslint-disable-next-line -- require() to avoid pulling worker files into root tsc
 const { UserGateway } = require('@/workers/objects/src/objects/user-gateway');
 const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do');
@@ -18,7 +19,7 @@ export const envSecretMocks: Record<string, unknown> = {
     DATABASE_URL: makeSecretMock(process.env.DATABASE_URL ?? ''),
     CLERK_SECRET_KEY: makeSecretMock(process.env.CLERK_SECRET_KEY ?? ''),
     LANGFUSE_SECRET_KEY: makeSecretMock(backendEnv.LANGFUSE_SECRET_KEY!),
-    AUTH_SECRET: makeSecretMock(process.env.AUTH_SECRET ?? ''),
+    AUTH_SECRET: makeSecretMock(process.env.AUTH_SECRET || 'hyperintel-local-dev-secret'),
     OPENAI_KEY: makeSecretMock(process.env.OPENAI_API_KEY ?? ''),
     FIRECRAWL_API_KEY: makeSecretMock(process.env.FIRECRAWL_API_KEY ?? ''),
     // Service Bindings / Queues (mocked)
@@ -28,6 +29,7 @@ export const envSecretMocks: Record<string, unknown> = {
     LANGFUSE_ENVIRONMENT: process.env.LANGFUSE_ENVIRONMENT ?? 'Development',
     LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY ?? '',
     LANGFUSE_HOST: process.env.LANGFUSE_HOST ?? '',
+    CHAT_OUTPUT_SAFETY_ENABLED: process.env.CHAT_OUTPUT_SAFETY_ENABLED ?? 'true',
     ENV: process.env.NODE_ENV === 'production' ? 'production' : 'dev',
     CORS_ALLOWED_ORIGIN: '*',
 };
