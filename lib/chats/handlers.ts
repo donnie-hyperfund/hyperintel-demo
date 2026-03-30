@@ -22,7 +22,7 @@ import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { ListArtifactsQuerySchema } from '@/lib/schema/artifact';
-import { CreateUnifiedChatBodySchema } from '@/lib/schema/chat';
+import { CreateUnifiedChatBodySchema, UpdateChatModelSchema } from '@/lib/schema/chat';
 import {
     type ChatDocumentSummaryDto,
     type ChatDto,
@@ -31,6 +31,8 @@ import {
     ListChatsQuerySchema,
     ListMessagesQuerySchema,
 } from '@/lib/schema/message';
+import { workerSystemAction } from '@/lib/broadcast/worker-internal';
+import { getAvailablePresets } from '@/lib/presets';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -250,6 +252,7 @@ export async function handleUpdateChatModel(
 
     return NextResponse.json({ selected_model: parsed.model });
 }
+
 // ---------------------------------------------------------------------------
 // Chat list handler
 // ---------------------------------------------------------------------------
@@ -445,6 +448,43 @@ export async function handleGetMessage(chatId: string, messageId: string, user: 
 
     const dto: ChatMessageDto = wrap(message).toJSON();
     return NextResponse.json(dto);
+}
+
+// ---------------------------------------------------------------------------
+// Dev-only: Message feedback
+// ---------------------------------------------------------------------------
+
+export async function handleSetMessageFeedback(
+    chatId: string,
+    messageId: string,
+    user: UserEntity,
+    body: { feedback_score: boolean | null; feedback?: string | null },
+): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const message = await em
+        .createQueryBuilder(ChatMessageEntity, 'm')
+        .select('m.*')
+        .leftJoinAndSelect('m.chat', 'c')
+        .leftJoin('c.project', 'p')
+        .where({
+            'm.id': messageId,
+            'c.id': chatId,
+            $or: [{ 'c.user': user.id }, { 'p.user': user.id }],
+        })
+        .getSingleResult();
+
+    if (!message) {
+        return NextResponse.json({ error: 'Message not found', code: 'MESSAGE_NOT_FOUND' }, { status: 404 });
+    }
+
+    wrap(message).assign({
+        feedback_score: body.feedback_score,
+        feedback: body.feedback ?? null,
+    });
+    await em.flush();
+
+    return NextResponse.json({ ok: true });
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { runAgentStream } from '@common/ai/agent';
 import type { AgentStreamEvent } from '@common/ai/agent/types';
-import { AIParamsType, ParamsWithType } from '@common/ai/inference';
-import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import { type ParamsWithType, extractInferenceMetadata } from '@common/ai/inference';
+import { COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
@@ -9,6 +9,7 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { DEFAULT_PRESET_ID, resolvePreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
@@ -418,15 +419,15 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             WEB_SEARCH_GUIDANCE,
         );
 
-        // Determine inference params
+        // Determine inference params via preset resolution
+        const presetId = data.model ?? DEFAULT_PRESET_ID;
+        const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
+        if (!resolved) {
+            throw new Error(`Preset '${presetId}' is not available`);
+        }
         const defaultInference: ParamsWithType = {
-            paramsType: AIParamsType.Anthropic,
-            params: {
-                model: data.model ?? ANTHROPIC_MODELS.SONNET,
-                thinking: true,
-                thinkingBudget: 8000,
-                searchEnabled: true,
-            },
+            ...resolved,
+            params: { ...resolved.params, searchEnabled: true },
         };
         const inferenceParams = options.overrideInference ?? defaultInference;
 
@@ -576,10 +577,12 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                             content: assistantContent,
                             reasoning: streamLog.fullReasoning || null,
                             blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
-                            ...(isError && {
-                                is_error: true,
-                                metadata: { error: event.error!.message },
-                            }),
+                            metadata: {
+                                preset: presetId,
+                                inference: extractInferenceMetadata(inferenceParams),
+                                ...(isError && { error: event.error!.message }),
+                            },
+                            ...(isError && { is_error: true }),
                             ...(isAborted && { is_aborted: true }),
                             ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
                         });

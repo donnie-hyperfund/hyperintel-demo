@@ -10,6 +10,7 @@ import type { ActionResult, SubscribeResponse } from './topic-handler';
 
 const ToolApproveActionSchema = z.object({ identifier: z.string(), toolCallId: z.string() });
 const ToolRejectActionSchema = z.object({ identifier: z.string(), toolCallId: z.string() });
+const ModelChangedActionSchema = z.object({ identifier: z.string(), model: z.string() });
 const RegisterStreamActionSchema = z.object({
     identifier: z.string(),
     agentMessageId: z.string(),
@@ -88,15 +89,23 @@ export class ChatTopicHandler extends StreamTopicHandler {
 
     async subscribe(userId: string, identifier: string, env: Env): Promise<SubscribeResponse> {
         const base = await super.subscribe(userId, identifier, env);
-        if (base.status !== 'streaming') return base;
+
+        // Fetch selected_model from DB so the client knows which preset is active
+        const sql = await this.getSql(env);
+        const rows = await sql`SELECT selected_model FROM chats WHERE id = ${identifier} LIMIT 1`;
+        const selectedModel = (rows[0]?.selected_model as string | null) ?? null;
+
+        if (base.status !== 'streaming') {
+            return { ...base, selectedModel };
+        }
 
         // Read the streamType that was stored by registerStream (may be absent for normal chat)
         const streamType = await this.storage.get<'chat' | 'summary'>(
             `${SK_PREFIX}${identifier}${SK_STREAM_TYPE_SUFFIX}`,
         );
-        if (!streamType || streamType === 'chat') return base;
+        if (!streamType || streamType === 'chat') return { ...base, selectedModel };
 
-        return { ...base, streamType };
+        return { ...base, streamType, selectedModel };
     }
 
     // ========================================================================
@@ -150,6 +159,16 @@ export class ChatTopicHandler extends StreamTopicHandler {
                 // Also clear any streamType entry
                 await this.storage.delete(`${SK_PREFIX}${chatId}${SK_STREAM_TYPE_SUFFIX}`);
                 return;
+            }
+            case 'modelChanged': {
+                const { identifier: chatId, model } = ModelChangedActionSchema.parse(payload);
+                return {
+                    broadcast: {
+                        topic: `chat:${chatId}`,
+                        type: ServerMsg.ModelChanged,
+                        model,
+                    },
+                };
             }
 
             // --- Client actions (forwarded to ChatStream DO) ---

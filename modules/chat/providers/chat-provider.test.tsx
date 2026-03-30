@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 
-import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { ChatProvider, useChatContext } from './chat-provider';
@@ -16,7 +15,12 @@ const summarizeMock = vi.fn();
 const openPanelMock = vi.fn();
 const createApiClientMock = vi.fn();
 
-let selectedModelMock = ANTHROPIC_MODELS.SONNET;
+let selectedModelMock = 'sonnet';
+let streamReaderOptions: {
+    setIsLoading: (value: boolean) => void;
+    onTerminalTool?: (toolName: string) => void;
+    onDocumentStart?: () => void;
+} | null = null;
 let fallbackMock: Record<string, unknown> = {};
 
 const cacheMock = new Map();
@@ -86,12 +90,20 @@ vi.mock('@/lib/websocket/provider', () => ({
     useWebsocket: () => wsMock,
 }));
 
+const closePanelMock = vi.fn();
 vi.mock('@/modules/chat/providers/active-panel-provider', () => ({
-    useActivePanelContext: () => ({ openPanel: openPanelMock }),
+    useActivePanelContext: () => ({ openPanel: openPanelMock, closePanel: closePanelMock, panelState: null }),
 }));
 
+const setSelectedModelMock = vi.fn();
+const setIsChangingModelMock = vi.fn();
 vi.mock('@/modules/chat/providers/model-selection-provider', () => ({
-    useModelSelection: () => ({ selectedModel: selectedModelMock }),
+    useModelSelection: () => ({
+        selectedModel: selectedModelMock,
+        setSelectedModel: setSelectedModelMock,
+        isModelAvailable: true,
+        setIsChangingModel: setIsChangingModelMock,
+    }),
 }));
 
 vi.mock('@/modules/intake/providers/project-origin-provider', () => ({
@@ -149,7 +161,7 @@ function mockResponse(body: unknown = {}, opts: { ok?: boolean; status?: number 
 
 describe('ChatProvider', () => {
     beforeEach(() => {
-        selectedModelMock = ANTHROPIC_MODELS.SONNET;
+        selectedModelMock = 'sonnet';
         fallbackMock = {};
 
         getTokenMock.mockReset();
@@ -162,6 +174,9 @@ describe('ChatProvider', () => {
         sendIntakeActionMock.mockReset();
         summarizeMock.mockReset();
         openPanelMock.mockReset();
+        closePanelMock.mockReset();
+        setSelectedModelMock.mockReset();
+        setIsChangingModelMock.mockReset();
         createApiClientMock.mockReset();
 
         cacheMock.clear();
@@ -304,7 +319,7 @@ describe('ChatProvider', () => {
             expect.objectContaining({
                 message: 'hello world',
                 chatId: 'chat-1',
-                model: ANTHROPIC_MODELS.SONNET,
+                model: 'sonnet',
             }),
             'token-abc',
         );
@@ -312,7 +327,7 @@ describe('ChatProvider', () => {
         expect(result.current.state.phaseIndex).toBe(3);
         expect(result.current.state.messages.at(-1)?.role).toBe('user');
         expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/project-1/chat-1');
-        expect(insertChatToCacheMock).toHaveBeenCalledWith(cacheMock, mutateMock, {
+        expect(insertChatToCacheMock).toHaveBeenCalledWith(cacheMock, mutateMock, 'project-1', {
             id: 'chat-1',
             phase_index: 3,
         });
@@ -356,7 +371,7 @@ describe('ChatProvider', () => {
             expect.objectContaining({
                 message: 'intake message',
                 chatId: 'company-chat-1',
-                model: ANTHROPIC_MODELS.SONNET,
+                model: 'sonnet',
             }),
             'token-abc',
         );

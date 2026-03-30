@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { DEFAULT_PRESET_ID } from '@/lib/presets';
 import { ModelSelectionProvider, useModelSelection } from './model-selection-provider';
 
 vi.mock('@/lib/config', () => ({
@@ -21,15 +21,15 @@ describe('ModelSelectionProvider', () => {
         );
     });
 
-    it('starts with SONNET and allows model updates', () => {
+    it('starts with default preset and allows updates', () => {
         const { result } = renderHook(() => useModelSelection(), { wrapper });
 
-        expect(result.current.selectedModel).toBe(ANTHROPIC_MODELS.SONNET);
+        expect(result.current.selectedModel).toBe(DEFAULT_PRESET_ID);
 
         act(() => {
-            result.current.setSelectedModel(ANTHROPIC_MODELS.HAIKU);
+            result.current.setSelectedModel('haiku');
         });
 
-        expect(result.current.selectedModel).toBe(ANTHROPIC_MODELS.HAIKU);
+        expect(result.current.selectedModel).toBe('haiku');
     });
 });
