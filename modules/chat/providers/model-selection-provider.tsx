@@ -1,15 +1,14 @@
 'use client';
 
-import { createContext, type ReactNode, useContext, useMemo, useState } from 'react';
-import { type PresetOption, usePresets } from '@/lib/api/client/hooks/use-presets';
-import { DEFAULT_PRESET_ID } from '@/lib/presets';
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { usePresets } from '@/lib/api/client/hooks/use-presets';
 
 type ModelSelectionContextValue = {
     selectedModel: string;
     setSelectedModel: (presetId: string) => void;
     /** false if the current preset is not in available presets (e.g. removed/blocked) */
     isModelAvailable: boolean;
-    availablePresets: PresetOption[];
+    availablePresets: { id: string; label: string; description?: string }[];
     isChangingModel: boolean;
     setIsChangingModel: (v: boolean) => void;
 };
@@ -17,17 +16,43 @@ type ModelSelectionContextValue = {
 const ModelSelectionContext = createContext<ModelSelectionContextValue | null>(null);
 
 export function ModelSelectionProvider({ children }: { children: ReactNode }) {
-    const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_PRESET_ID);
+    const [selectedModel, setSelectedModel] = useState<string | null>(null);
     const [isChangingModel, setIsChangingModel] = useState(false);
-    const { data: availablePresets, isLoading } = usePresets();
+    const { data, isLoading } = usePresets();
+
+    const availablePresets = data?.presets ?? [];
+    const defaultPresetId = data?.defaultPresetId ?? 'sonnet';
+
+    // Initialize selected model from API default once loaded
+    useEffect(() => {
+        if (selectedModel === null && defaultPresetId) {
+            setSelectedModel(defaultPresetId);
+        }
+    }, [selectedModel, defaultPresetId]);
+
+    // Auto-switch to default if selected preset becomes unavailable
+    useEffect(() => {
+        if (isLoading || !availablePresets.length || selectedModel === null) return;
+        if (!availablePresets.some((p) => p.id === selectedModel)) {
+            setSelectedModel(defaultPresetId);
+        }
+    }, [selectedModel, availablePresets, isLoading, defaultPresetId]);
+
     const isModelAvailable = useMemo(() => {
-        if (isLoading && !availablePresets) return true; // Optimistic while loading
-        return (availablePresets || []).some((p) => p.id === selectedModel);
-    }, [selectedModel, availablePresets, isLoading]);
+        if (isLoading || !availablePresets.length) return true; // Optimistic while loading
+        return availablePresets.some((p) => p.id === (selectedModel ?? defaultPresetId));
+    }, [selectedModel, availablePresets, isLoading, defaultPresetId]);
 
     return (
         <ModelSelectionContext.Provider
-            value={{ selectedModel, setSelectedModel, isModelAvailable, availablePresets: availablePresets ?? [], isChangingModel, setIsChangingModel }}
+            value={{
+                selectedModel: selectedModel ?? defaultPresetId,
+                setSelectedModel,
+                isModelAvailable,
+                availablePresets,
+                isChangingModel,
+                setIsChangingModel,
+            }}
         >
             {children}
         </ModelSelectionContext.Provider>
