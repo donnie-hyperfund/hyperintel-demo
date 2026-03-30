@@ -113,7 +113,15 @@ function mergePresets(base: ModelPreset[], local: ModelPreset[]): ModelPreset[] 
 
 const MODEL_PRESETS: ModelPreset[] = LOCAL_PRESETS.length ? mergePresets(BASE_PRESETS, LOCAL_PRESETS) : BASE_PRESETS;
 
-export const DEFAULT_PRESET_ID = 'sonnet';
+const FALLBACK_PRESET_ID = 'sonnet';
+
+/** Reads DEFAULT_PRESET from env (worker or Next.js), falls back to 'sonnet' */
+export function getDefaultPresetId(env?: { DEFAULT_PRESET?: string }): string {
+    return env?.DEFAULT_PRESET || FALLBACK_PRESET_ID;
+}
+
+/** @deprecated Use getDefaultPresetId() — kept for existing imports during migration */
+export const DEFAULT_PRESET_ID = FALLBACK_PRESET_ID;
 
 // ---------------------------------------------------------------------------
 // Env-based filtering
