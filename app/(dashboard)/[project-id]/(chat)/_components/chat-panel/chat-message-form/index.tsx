@@ -5,6 +5,15 @@ import { ArrowUp, Loader2, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { IS_DEV } from '@/lib/config';
@@ -12,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
+import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
 import { FilePreviewItem } from './file-preview-item';
@@ -31,8 +41,10 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         chatId,
         projectId,
         stopGeneration,
-        state: { isGenerating, isSummarizing, isLoading, isProcessingArtifactAction, tokenUsage, activeResponseId },
+        dismissInvalidModelAlert,
+        state: { isGenerating, isSummarizing, isLoading, isProcessingArtifactAction, tokenUsage, activeResponseId, showInvalidModelAlert },
     } = useChatContext();
+    const { selectedModel } = useModelSelection();
 
     const { files, removeFile, submitFiles, isSubmitting, consumeStagedArtifactIds } = useFileUploadContext();
     const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
@@ -231,6 +243,21 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                     </div>
                 </form>
             </AnimatePresence>
+
+            <AlertDialog open={showInvalidModelAlert} onOpenChange={(isOpen) => !isOpen && dismissInvalidModelAlert()}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Model unavailable</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            The selected model &quot;{selectedModel}&quot; is no longer available. Please select a
+                            different model before sending a message.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction onClick={dismissInvalidModelAlert}>OK</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

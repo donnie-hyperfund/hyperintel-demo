@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import { ChatEntity } from '@/lib/orm/entities';
+import type { UserGatewayStub } from './utils/do-stubs';
 import {
     ApproveArtifactActionSchema,
     AssociateArtifactsSchema,
@@ -71,6 +72,22 @@ app.post('/internal/broadcast', async (c) => {
     const ugId = c.env.USER_GATEWAY.idFromName(branchDoName(userId, alias));
     const ugStub = c.env.USER_GATEWAY.get(ugId);
     await (ugStub as any).broadcastToAll({ type: 'user_event', eventType, payload });
+    return c.json({ ok: true });
+});
+
+// Internal M2M endpoint — topic-scoped system action (e.g. modelChanged broadcast)
+app.post('/internal/system-action', async (c) => {
+    const secret = await c.env.AUTH_SECRET.get();
+    if (c.req.header('Authorization') !== `Bearer ${secret}`) {
+        return c.json({ error: 'Unauthorized' }, 401);
+    }
+    const { userId, topic, action, payload } = await c.req.json();
+    if (!userId || !topic || !action) return c.json({ error: 'Missing userId, topic, or action' }, 400);
+
+    const alias = getPreviewAlias(c.env as any, c.req.raw);
+    const ugId = c.env.USER_GATEWAY.idFromName(branchDoName(userId, alias));
+    const ugStub = c.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
+    await ugStub.systemAction(topic, action, payload, alias ?? undefined);
     return c.json({ ok: true });
 });
 

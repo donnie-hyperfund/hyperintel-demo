@@ -175,6 +175,7 @@ export const ChatDtoSchema = z.object({
     token_usage: TokenUsageSchema.nullable().optional(),
     /** Whether the chat has any pending document changes awaiting approval */
     has_pending_changes: z.boolean().optional(),
+    selected_model: z.string().nullable().optional(),
     active_agent_message_id: z.string().nullable().optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),

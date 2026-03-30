@@ -19,7 +19,7 @@ export const envSecretMocks: Record<string, unknown> = {
     DATABASE_URL: makeSecretMock(process.env.DATABASE_URL ?? ''),
     CLERK_SECRET_KEY: makeSecretMock(process.env.CLERK_SECRET_KEY ?? ''),
     LANGFUSE_SECRET_KEY: makeSecretMock(backendEnv.LANGFUSE_SECRET_KEY!),
-    AUTH_SECRET: makeSecretMock(process.env.AUTH_SECRET ?? ''),
+    AUTH_SECRET: makeSecretMock(process.env.AUTH_SECRET || 'hyperintel-local-dev-secret'),
     OPENAI_KEY: makeSecretMock(process.env.OPENAI_API_KEY ?? ''),
     FIRECRAWL_API_KEY: makeSecretMock(process.env.FIRECRAWL_API_KEY ?? ''),
     // Service Bindings / Queues (mocked)

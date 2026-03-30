@@ -110,6 +110,7 @@ export async function publishToUserScopeAndIndexVersion(
                 content: embedding.content,
                 documentName: version.artifact.key,
                 is_ai_content: embedding.isAiContent,
+                previewAlias: ctx.previewAlias,
             });
         } catch (err) {
             console.error('[publishToUserScopeAndIndexVersion] Embedding queue failed:', err);
