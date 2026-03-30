@@ -2,20 +2,9 @@
 
 import { useUser } from '@clerk/nextjs';
 import { format } from 'date-fns';
-import { Archive, Loader2, MoreHorizontal, RotateCcw, Trash2 } from 'lucide-react';
+import { Archive, Loader2, MoreHorizontal, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -24,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
-import { useDeleteProject, useUpdateProject } from '@/lib/api/client/hooks/use-projects';
+import { useUpdateProject } from '@/lib/api/client/hooks/use-projects';
 import { clearCurrentProjectCookie, getCurrentProjectFromCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 import { cn } from '@/lib/utils';
@@ -46,15 +35,13 @@ function clearProjectCookieIfNeeded(userId: string | undefined, projectId: strin
 
 export const ProjectItem = ({ project, href, isSelected, onNavigate }: ProjectItemProps) => {
     const { user } = useUser();
-    const [deleteOpen, setDeleteOpen] = useState(false);
     const { trigger: updateProject, isMutating: isUpdating } = useUpdateProject(project.id);
-    const { trigger: deleteProject, isMutating: isDeleting } = useDeleteProject(project.id);
     const createdDate = project.created_at ? new Date(project.created_at) : null;
     const formattedDate = createdDate ? format(createdDate, 'MMM d, yyyy') : null;
     const isArchived = Boolean(project.archived_at);
     const archivedDate = project.archived_at ? new Date(project.archived_at) : null;
     const formattedArchivedDate = archivedDate ? format(archivedDate, 'MMM d, yyyy') : null;
-    const isBusy = isUpdating || isDeleting;
+    const isBusy = isUpdating;
 
     const handleArchiveToggle = async () => {
         try {
@@ -67,18 +54,6 @@ export const ProjectItem = ({ project, href, isSelected, onNavigate }: ProjectIt
                 title: isArchived ? 'Failed to restore project' : 'Failed to archive project',
                 variant: 'destructive',
             });
-        }
-    };
-
-    const handleDelete = async () => {
-        try {
-            clearProjectCookieIfNeeded(user?.id, project.id);
-            await deleteProject();
-            setDeleteOpen(false);
-            toast({ title: `"${project.name}" deleted` });
-        } catch (error) {
-            console.error('Failed to delete project:', error);
-            toast({ title: 'Failed to delete project', variant: 'destructive' });
         }
     };
 
@@ -104,82 +79,43 @@ export const ProjectItem = ({ project, href, isSelected, onNavigate }: ProjectIt
     );
 
     return (
-        <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-            <div
-                className={cn(
-                    'flex items-start gap-3 rounded-2 border p-3.5 md:rounded-3 md:p-5',
-                    isSelected ? 'border-neutral-500/30 bg-neutral-900' : 'border-border',
-                    isArchived && 'border-dashed',
-                )}
-            >
-                {href ? (
-                    <Link
-                        href={href}
-                        onNavigate={onNavigate}
-                        className="min-w-0 flex-1 rounded-lg transition-colors hover:bg-accent/50"
-                    >
-                        {content}
-                    </Link>
-                ) : (
-                    <div className="min-w-0 flex-1">{content}</div>
-                )}
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" disabled={isBusy} className="mt-0.5 text-neutral-400">
-                            {isBusy ? (
-                                <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                                <MoreHorizontal className="size-4" />
-                            )}
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                            onSelect={(event) => {
-                                event.preventDefault();
-                                void handleArchiveToggle();
-                            }}
-                        >
-                            {isArchived ? <RotateCcw className="size-4" /> : <Archive className="size-4" />}
-                            {isArchived ? 'Restore project' : 'Archive project'}
-                        </DropdownMenuItem>
-                        {isArchived && (
-                            <DropdownMenuItem
-                                variant="destructive"
-                                onSelect={(event) => {
-                                    event.preventDefault();
-                                    setDeleteOpen(true);
-                                }}
-                            >
-                                <Trash2 className="size-4" />
-                                Delete project
-                            </DropdownMenuItem>
-                        )}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-            <AlertDialogContent onCloseAutoFocus={(event) => event.preventDefault()}>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Delete project</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        Permanently delete <strong>{project.name}</strong>? This removes the project and its related
-                        chats, artifacts, and derived data.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                        className={buttonVariants({ variant: 'destructive' })}
-                        onClick={(event) => {
+        <div
+            className={cn(
+                'flex items-start gap-3 rounded-2 border p-3.5 md:rounded-3 md:p-5',
+                isSelected ? 'border-neutral-500/30 bg-neutral-900' : 'border-border',
+                isArchived && 'border-dashed',
+            )}
+        >
+            {href ? (
+                <Link
+                    href={href}
+                    onNavigate={onNavigate}
+                    className="min-w-0 flex-1 rounded-lg transition-colors hover:bg-accent/50"
+                >
+                    {content}
+                </Link>
+            ) : (
+                <div className="min-w-0 flex-1">{content}</div>
+            )}
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon-sm" disabled={isBusy} className="mt-0.5 text-neutral-400">
+                        {isBusy ? <Loader2 className="size-4 animate-spin" /> : <MoreHorizontal className="size-4" />}
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                        onSelect={(event) => {
                             event.preventDefault();
-                            void handleDelete();
+                            void handleArchiveToggle();
                         }}
                     >
-                        {isDeleting ? <Loader2 className="size-4 animate-spin" /> : 'Delete'}
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+                        {isArchived ? <RotateCcw className="size-4" /> : <Archive className="size-4" />}
+                        {isArchived ? 'Restore project' : 'Archive project'}
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
     );
 };
 
