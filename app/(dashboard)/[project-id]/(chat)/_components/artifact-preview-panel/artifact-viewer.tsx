@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { IS_DEV } from '@/lib/config';
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
@@ -130,7 +131,7 @@ export const ArtifactViewer = ({
 
     const headerActions = (
         <>
-            {artifactKey && artifactId && (
+            {IS_DEV && artifactKey && artifactId && (
                 <ArtifactVersionHistoryDialog
                     artifactKey={artifactKey}
                     artifactId={artifactId}
