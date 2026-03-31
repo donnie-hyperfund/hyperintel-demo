@@ -45,8 +45,8 @@ export function ProjectArtifactFilterDropdown({ filters, onChange }: ProjectArti
     const phases = useMemo(() => {
         if (!chatsData?.data) return [];
         return [...chatsData.data]
-            .sort((a, b) => a.phase_index - b.phase_index)
-            .map((chat) => ({ value: chat.id, label: `Phase ${chat.phase_index + 1}` }));
+            .sort((a, b) => a.phaseIndex - b.phaseIndex)
+            .map((chat) => ({ value: chat.id, label: `Phase ${chat.phaseIndex + 1}` }));
     }, [chatsData?.data]);
 
     const activeCount = getActiveFilterCount(filters);

@@ -6,7 +6,7 @@ import {
     getProjectResourceListInfiniteKey,
     type ProjectResourceListParams,
 } from '@/lib/api/client/fetchers/project-resources';
-import type { InfinitePaginationParams, PaginatedResponse } from '@/lib/api/client/types';
+import type { CamelCaseDto, InfinitePaginationParams, PaginatedResponse } from '@/lib/api/client/types';
 import { getArtifactDocumentType, isApprovedArtifact } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
@@ -14,11 +14,11 @@ import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 export function useFetchProjectResources(
     projectId: string,
     params: InfinitePaginationParams = { limit: 20 },
-    config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
+    config?: SWRInfiniteConfiguration<PaginatedResponse<CamelCaseDto<ArtifactDto>>>,
 ) {
     const { getToken } = useAuth();
 
-    const result = useSWRInfinitePaginated<ArtifactDto>(
+    const result = useSWRInfinitePaginated<CamelCaseDto<ArtifactDto>>(
         getProjectResourceListInfiniteKey(projectId, params.limit),
         (key) => {
             const pageParams = key[key.length - 1] as ProjectResourceListParams;

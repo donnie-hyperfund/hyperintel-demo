@@ -94,7 +94,7 @@ export const CompanyList = ({ onEmptyChange }: CompanyListProps) => {
             ) : (
                 <div className="space-y-2 flex-1">
                     {artifacts.map((artifact) => {
-                        const isShared = artifact.is_own === false;
+                        const isShared = artifact.isOwn === false;
                         const chatId = getArtifactChatId(artifact);
                         return (
                             <ArtifactListItem

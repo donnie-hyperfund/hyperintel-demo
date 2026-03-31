@@ -76,7 +76,7 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
                                     isActive && 'bg-accent/50',
                                 )}
                             >
-                                <span className="flex-1 truncate">Phase {chat.phase_index + 1}</span>
+                                <span className="flex-1 truncate">Phase {chat.phaseIndex + 1}</span>
                                 {isActive && <Check className="size-3.5 text-primary shrink-0" />}
                             </Link>
                         );

@@ -1,7 +1,7 @@
 import { unstable_serialize } from 'swr/infinite';
 import type { ArtifactDto, DocumentType } from '@/lib/schema/artifact';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import type { CamelCaseDto, PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
     root: (projectId: string) => `/api/projects/${projectId}/resources`,
@@ -20,7 +20,7 @@ export const projectResourceKeys = {
 };
 
 export function getProjectResourceListInfiniteKey(projectId: string, limit = 20) {
-    return (pageIndex: number, previousPageData: PaginatedResponse<ArtifactDto> | null) => {
+    return (pageIndex: number, previousPageData: PaginatedResponse<CamelCaseDto<ArtifactDto>> | null) => {
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
         return projectResourceKeys.list(projectId, { page: pageIndex + 1, limit });
     };
@@ -40,7 +40,7 @@ export function createProjectResourceApi(getToken: TokenGetter) {
                 ...pagination,
                 documentType: documentType?.join(','),
             };
-            const { data } = await axios.get<PaginatedResponse<ArtifactDto>>(
+            const { data } = await axios.get<PaginatedResponse<CamelCaseDto<ArtifactDto>>>(
                 buildUrl(ENDPOINTS.root(projectId), query),
             );
             return data;

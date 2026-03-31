@@ -10,13 +10,13 @@ import {
     projectKeys,
     serializeProjectListKey,
 } from '../fetchers/projects';
-import type { PaginatedResponse } from '../types';
+import type { CamelCaseDto, PaginatedResponse } from '../types';
 import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
-export function useFetchProjects(params?: ProjectListParams, config?: SWRConfiguration<PaginatedResponse<ProjectDto>>) {
+export function useFetchProjects(params?: ProjectListParams, config?: SWRConfiguration<PaginatedResponse<CamelCaseDto<ProjectDto>>>) {
     const { getToken } = useAuth();
 
-    return useSWR<PaginatedResponse<ProjectDto>>(
+    return useSWR<PaginatedResponse<CamelCaseDto<ProjectDto>>>(
         projectKeys.list(params),
         () => createProjectApi(getToken).list(params),
         { revalidateOnFocus: false, ...config },
@@ -25,12 +25,12 @@ export function useFetchProjects(params?: ProjectListParams, config?: SWRConfigu
 
 export function useFetchProjectsInfinite(
     params: ProjectListParams = { limit: 20 },
-    config?: SWRInfiniteConfiguration<PaginatedResponse<ProjectDto>>,
+    config?: SWRInfiniteConfiguration<PaginatedResponse<CamelCaseDto<ProjectDto>>>,
 ) {
     const { getToken } = useAuth();
     const { status, limit = 20 } = params;
 
-    return useSWRInfinitePaginated<ProjectDto>(
+    return useSWRInfinitePaginated<CamelCaseDto<ProjectDto>>(
         getProjectListInfiniteKey(status, limit),
         (key) => {
             const params = key[key.length - 1] as ProjectListParams;
@@ -40,10 +40,10 @@ export function useFetchProjectsInfinite(
     );
 }
 
-export function useFetchProject(projectId: string | undefined, config?: SWRConfiguration<ProjectDto>) {
+export function useFetchProject(projectId: string | undefined, config?: SWRConfiguration<CamelCaseDto<ProjectDto>>) {
     const { getToken } = useAuth();
 
-    return useSWR<ProjectDto>(
+    return useSWR<CamelCaseDto<ProjectDto>>(
         projectId ? projectKeys.detail(projectId) : null,
         () => {
             if (!projectId) throw new Error('Project ID is required');
@@ -57,7 +57,7 @@ export function useCreateProject() {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ProjectDto, Error, string, CreateProjectBodyDto>('create-project', async (_, { arg }) => {
+    return useSWRMutation<CamelCaseDto<ProjectDto>, Error, string, CreateProjectBodyDto>('create-project', async (_, { arg }) => {
         const project = await createProjectApi(getToken).create(arg);
         globalMutate(serializeProjectListKey('active'));
         return project;
@@ -68,7 +68,7 @@ export function useUpdateProject(projectId: string) {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ProjectDto, Error, readonly string[], UpdateProjectBodyDto>(
+    return useSWRMutation<CamelCaseDto<ProjectDto>, Error, readonly string[], UpdateProjectBodyDto>(
         [...projectKeys.detail(projectId)],
         async (_, { arg }) => {
             const project = await createProjectApi(getToken).update(projectId, arg);

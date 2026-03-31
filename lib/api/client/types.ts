@@ -1,3 +1,13 @@
+import type { CamelCase } from 'type-fest';
+
+export type CamelCaseDto<T> = T extends Date
+    ? Date
+    : T extends Array<infer U>
+      ? CamelCaseDto<U>[]
+      : T extends Record<string, unknown>
+        ? { [K in keyof T as K extends string ? CamelCase<K> : K]: CamelCaseDto<T[K]> }
+        : T;
+
 export interface PaginatedResponse<T> {
     data: T[];
     pagination: {

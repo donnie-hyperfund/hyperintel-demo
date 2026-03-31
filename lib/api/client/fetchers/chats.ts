@@ -1,7 +1,7 @@
 import type { CreateIntakeChatBodyDto } from '@/lib/schema/chat';
 import type { ChatDto } from '@/lib/schema/message';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import type { CamelCaseDto, PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
     root: '/api/chats',
@@ -22,7 +22,7 @@ export function createChatApi(getToken: TokenGetter) {
 
     return {
         list: async (projectId: string, params?: PaginationParams) => {
-            const { data } = await axios.get<PaginatedResponse<ChatDto>>(
+            const { data } = await axios.get<PaginatedResponse<CamelCaseDto<ChatDto>>>(
                 buildUrl(ENDPOINTS.root, {
                     projectId,
                     ...params,
@@ -32,17 +32,17 @@ export function createChatApi(getToken: TokenGetter) {
         },
 
         get: async (chatId: string) => {
-            const { data } = await axios.get<ChatDto>(ENDPOINTS.byId(chatId));
+            const { data } = await axios.get<CamelCaseDto<ChatDto>>(ENDPOINTS.byId(chatId));
             return data;
         },
 
         createIntake: async (body: CreateIntakeChatBodyDto) => {
-            const { data } = await axios.post<ChatDto>(ENDPOINTS.root, body);
+            const { data } = await axios.post<CamelCaseDto<ChatDto>>(ENDPOINTS.root, body);
             return data;
         },
 
         create: async (projectId: string, body?: { title?: string }) => {
-            const { data } = await axios.post<ChatDto>(ENDPOINTS.root, { projectId, ...body });
+            const { data } = await axios.post<CamelCaseDto<ChatDto>>(ENDPOINTS.root, { projectId, ...body });
             return data;
         },
 
@@ -52,7 +52,9 @@ export function createChatApi(getToken: TokenGetter) {
         },
 
         updateModel: async (chatId: string, model: string) => {
-            const { data } = await axios.patch<{ selected_model: string }>(ENDPOINTS.model(chatId), { model });
+            const { data } = await axios.patch<CamelCaseDto<{ selected_model: string }>>(ENDPOINTS.model(chatId), {
+                model,
+            });
             return data;
         },
     };
