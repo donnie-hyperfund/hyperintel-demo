@@ -48,12 +48,12 @@ export function ResourceListToolbar({
             </div>
             <ToggleGroup
                 type="single"
-                value={ownership ?? ''}
-                onValueChange={(v) => onOwnershipChange((v || undefined) as OwnershipFilter | undefined)}
+                value={ownership ?? 'all'}
+                onValueChange={(v) => onOwnershipChange(v === 'mine' || v === 'shared' ? v : undefined)}
                 size={compact ? 'sm' : 'default'}
                 className="w-full"
             >
-                <ToggleGroupItem value="">All</ToggleGroupItem>
+                <ToggleGroupItem value="all">All</ToggleGroupItem>
                 <ToggleGroupItem value="mine">Mine</ToggleGroupItem>
                 <ToggleGroupItem value="shared">Shared</ToggleGroupItem>
             </ToggleGroup>
