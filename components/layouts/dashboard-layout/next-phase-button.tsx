@@ -47,6 +47,13 @@ export function NextPhaseButton() {
         navigateToNewPhase();
     }, [pendingNavigation, dialogOpen, revalidateChats, navigateToNewPhase]);
 
+    // Cross-tab sync: open dialog when summary starts on another tab
+    useEffect(() => {
+        if (state.isSummarizing && !dialogOpen) {
+            setDialogOpen(true);
+        }
+    }, [state.isSummarizing, dialogOpen]);
+
     // React to chat-triggered phase transition (AI called generate_summary)
     useEffect(() => {
         if (!state.pendingPhaseTransition) return;
