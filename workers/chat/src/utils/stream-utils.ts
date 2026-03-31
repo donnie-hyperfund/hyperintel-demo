@@ -175,8 +175,8 @@ export function handleCommonStreamEvent(
 // ============================================================================
 
 export interface Pusher {
-    /** Fire-and-forget push to ChatStreamDO with auto-incrementing seq. */
-    push: (events: StreamEvent[]) => void;
+    /** Fire-and-forget push to ChatStreamDO with auto-incrementing seq. Applies backpressure when too many in-flight. */
+    push: (events: StreamEvent[]) => void | Promise<void>;
     /** Await all in-flight pushes (call before terminal events). */
     waitAll: () => Promise<void>;
     /** Current sequence number (for the final awaited push of the terminal event). */
@@ -190,9 +190,27 @@ export interface Pusher {
 export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher {
     let pushSeq = 0;
     const inflightPushes: Promise<void>[] = [];
+
+    const cleanup = () => {
+        // Remove settled promises to prevent unbounded growth
+        for (let i = inflightPushes.length - 1; i >= 0; i--) {
+            const settled = Promise.race([inflightPushes[i].then(() => true), Promise.resolve(false)]);
+            settled.then((done) => {
+                if (done) inflightPushes.splice(i, 1);
+            });
+        }
+    };
+
     return {
-        push: (events: StreamEvent[]) => {
-            const p = streamDO.push(events, pushSeq++).catch((err) => console.error(`[${label}] push failed:`, err));
+        push: async (events: StreamEvent[]) => {
+            // Backpressure: wait for at least one to settle if too many in-flight
+            if (inflightPushes.length >= 10) {
+                await Promise.race(inflightPushes);
+                cleanup();
+            }
+            const p = streamDO
+                .push(events, pushSeq++)
+                .catch((err) => console.error(`[${label}] push failed:`, err));
             inflightPushes.push(p);
         },
         waitAll: () => Promise.allSettled(inflightPushes).then(() => {}),
