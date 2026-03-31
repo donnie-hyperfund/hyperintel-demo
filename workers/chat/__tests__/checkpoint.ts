@@ -98,6 +98,7 @@ function checkpointPath(scenarioId: string, cacheKey: string): string {
 /** Event types worth keeping in checkpoints (for assertion replay). */
 const KEPT_EVENT_TYPES = new Set<StreamEvent['type']>([
 	'tool_start',
+	'tool_call_complete',
 	'tool_result',
 	'document_start',
 	'document_complete',

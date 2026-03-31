@@ -196,8 +196,11 @@ export class TestSession {
 			case 'tool_start':
 				console.log(`\n[TOOL] ${event.tool}`);
 				break;
+			case 'tool_call_complete':
+				console.log(`[TOOL INPUT] ${event.tool}: ${JSON.stringify(event.input)}`);
+				break;
 			case 'tool_result':
-				console.log(`[TOOL RESULT] ${event.id} success=${event.success}`);
+				console.log(`[TOOL RESULT] ${event.tool} success=${event.success}${!event.success ? ` result=${event.result}` : ''}`);
 				break;
 			case 'error':
 				console.log(`[ERROR] ${event.error}`);

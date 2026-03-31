@@ -458,8 +458,12 @@ Each edit: line range + exact oldContent to find + newContent replacement.
 Edits are atomic - all succeed or none apply. No need to read_document between patches.`,
             parameters: PatchDocumentParams,
             executor: (input: z.infer<typeof PatchDocumentParams>, ctx: DocumentToolsContext) => {
-                const { edits } = input;
+                const { edits } = input ?? {};
                 const { draftManager } = ctx;
+
+                if (!edits?.length) {
+                    return { error: 'patch_document requires at least one edit in the edits array.' };
+                }
 
                 try {
                     const draft = draftManager.requireCurrent();

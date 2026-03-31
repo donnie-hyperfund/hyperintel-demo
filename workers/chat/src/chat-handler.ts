@@ -525,6 +525,11 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                 safetyMonitor.appendContent(event.content);
             }
 
+            // Forward tool_call_complete to onEvent only (not to frontend/DO)
+            if (event.type === 'tool_call_complete' && options.onEvent) {
+                options.onEvent({ type: 'tool_call_complete', tool: event.tool, id: event.id, input: event.input });
+            }
+
             // Let document handler process the event (queues doc events locally)
             await docEvents.handle(event);
 

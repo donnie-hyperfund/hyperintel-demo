@@ -31,6 +31,7 @@ export type StreamEventType =
     | 'reasoning_delta'
     | 'reasoning_done'
     | 'tool_start'
+    | 'tool_call_complete'
     | 'tool_result'
     | 'search_start'
     | 'search_results'
@@ -63,6 +64,7 @@ export type StreamEvent =
     | { type: 'reasoning_done'; durationMs?: number; blockId?: string }
     // Tool calls
     | { type: 'tool_start'; id: string; tool: string }
+    | { type: 'tool_call_complete'; id: string; tool: string; input: Record<string, unknown> }
     | { type: 'tool_result'; id: string; result: unknown; success: boolean }
     // Search & citations
     | { type: 'search_start'; query: string; blockId: string }
