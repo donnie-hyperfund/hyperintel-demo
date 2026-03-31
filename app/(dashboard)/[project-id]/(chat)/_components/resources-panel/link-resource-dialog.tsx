@@ -18,12 +18,14 @@ import {
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useResourceListFilters } from '@/hooks/use-resource-list-filters';
 import { toast } from '@/hooks/use-toast';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
 import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
 import { importArtifacts } from '@/lib/api/requests/worker/projects';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { ResourceListToolbar } from '@/modules/artifacts/components/resource-list-toolbar';
 import { NewResourceDropdown } from './new-resource-dropdown';
 
 type LinkResourceDialogParams = PageParams<'/[project-id]'>;
@@ -38,11 +40,15 @@ export function LinkResourceDialog() {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isImporting, setIsImporting] = useState(false);
 
+    const filters = useResourceListFilters();
+
     const { companies, stakeholders, legacyDna, isLoading, hasNextPage, size, setSize } = useFetchResources({
         limit: 20,
         approvedOnly: true,
         documentType: ['Legacy DNA', 'Company Profile', 'Human Persona'],
         excludeProjectId: projectId,
+        search: filters.debouncedSearch,
+        ownership: filters.ownership,
     });
     const { allItems: projectResources, mutate: mutateProjectResources } = useFetchProjectResources(projectId);
 
@@ -99,13 +105,17 @@ export function LinkResourceDialog() {
         }
     }, [selectedIds, getToken, projectId, mutateProjectResources]);
 
-    const handleOpenChange = useCallback((next: boolean) => {
-        setOpen(next);
-        if (!next) {
-            setDropdownOpen(false);
-            setSelectedIds([]);
-        }
-    }, []);
+    const handleOpenChange = useCallback(
+        (next: boolean) => {
+            setOpen(next);
+            if (!next) {
+                setDropdownOpen(false);
+                setSelectedIds([]);
+                filters.reset();
+            }
+        },
+        [filters],
+    );
 
     const handleNavigate = useCallback((path: string) => {
         setPendingPath(path);
@@ -145,6 +155,15 @@ export function LinkResourceDialog() {
                     </DialogDescription>
                 </DialogHeader>
 
+                <ResourceListToolbar
+                    search={filters.search}
+                    onSearchChange={filters.setSearch}
+                    ownership={filters.ownership}
+                    onOwnershipChange={filters.setOwnership}
+                    placeholder="Search resources..."
+                    compact
+                />
+
                 <div ref={scrollContainerRef} className="flex flex-1 flex-col overflow-y-auto space-y-4 py-2">
                     {isLoading && size === 1 ? (
                         <div className="flex flex-1 items-center justify-center space-y-2">
@@ -156,8 +175,12 @@ export function LinkResourceDialog() {
                         <EmptyState
                             className="flex-1"
                             icon={Building2}
-                            title="All Project Intel linked"
-                            description="All available profiles and personas are already linked to this project."
+                            title={filters.hasFilters ? 'No matching resources' : 'All Project Intel linked'}
+                            description={
+                                filters.hasFilters
+                                    ? 'Try adjusting your search or filters.'
+                                    : 'All available profiles and personas are already linked to this project.'
+                            }
                         />
                     ) : (
                         <>
@@ -209,7 +232,7 @@ export function LinkResourceDialog() {
                                 Adding...
                             </>
                         ) : (
-                            `Add Project Intel`
+                            'Add Project Intel'
                         )}
                     </Button>
                 </DialogFooter>

@@ -69,6 +69,10 @@ export type FilterableStatus = z.infer<typeof FilterableStatusSchema>;
 export const VisibilityFilterSchema = z.enum(['client', 'internal']);
 export type VisibilityFilter = z.infer<typeof VisibilityFilterSchema>;
 
+export const OWNERSHIP_FILTERS = ['mine', 'shared'] as const;
+export const OwnershipFilterSchema = z.enum(OWNERSHIP_FILTERS);
+export type OwnershipFilter = z.infer<typeof OwnershipFilterSchema>;
+
 const csvOf = <T extends z.ZodTypeAny>(schema: T) =>
     z
         .string()
@@ -84,6 +88,8 @@ export const ListArtifactsQuerySchema = z.object({
     status: csvOf(FilterableStatusSchema).optional(),
     chatId: csvOf(z.string().uuid()).optional(),
     document_type: DocumentTypeSchema.optional(),
+    search: z.string().max(200).optional(),
+    ownership: OwnershipFilterSchema.optional(),
 });
 export type ListArtifactsQueryDto = z.infer<typeof ListArtifactsQuerySchema>;
 
@@ -251,6 +257,8 @@ export const ListUserResourcesQuerySchema = z.object({
         .optional(),
     /** Exclude resources originally published from this project */
     excludeProjectId: z.string().uuid().optional(),
+    search: z.string().max(200).optional(),
+    ownership: OwnershipFilterSchema.optional(),
 });
 export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
 
