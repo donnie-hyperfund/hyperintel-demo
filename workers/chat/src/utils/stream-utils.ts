@@ -208,9 +208,7 @@ export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher 
                 await Promise.race(inflightPushes);
                 cleanup();
             }
-            const p = streamDO
-                .push(events, pushSeq++)
-                .catch((err) => console.error(`[${label}] push failed:`, err));
+            const p = streamDO.push(events, pushSeq++).catch((err) => console.error(`[${label}] push failed:`, err));
             inflightPushes.push(p);
         },
         waitAll: () => Promise.allSettled(inflightPushes).then(() => {}),

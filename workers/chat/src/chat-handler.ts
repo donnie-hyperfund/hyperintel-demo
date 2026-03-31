@@ -1,6 +1,6 @@
 import { runAgentStream } from '@common/ai/agent';
 import type { AgentStreamEvent } from '@common/ai/agent/types';
-import { type ParamsWithType, extractInferenceMetadata } from '@common/ai/inference';
+import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
 import { COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { AsyncHandlebars } from 'handlebars-jle';
