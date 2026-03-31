@@ -170,7 +170,7 @@ export function ChatProvider({
             summaryNewChatId: null,
             pendingPhaseTransition: false,
             activeResponseId: null,
-            summaryBlocks: [],
+            summaryDocKey: null,
             isProcessingArtifactAction: false,
             showInvalidModelAlert: false,
         };
@@ -316,9 +316,10 @@ export function ChatProvider({
 
     const handleArtifactOpen = useCallback(
         (artifactId: string, version: number) => {
+            if (state.isSummarizing) return;
             openPanel({ panel: 'artifact-preview', artifactId, version });
         },
-        [openPanel],
+        [openPanel, state.isSummarizing],
     );
 
     const fetchArtifact = useCallback(
@@ -415,7 +416,12 @@ export function ChatProvider({
         (agentMessageId: string, userMessageId: string, tempId?: string, streamType?: 'chat' | 'summary') => {
             if (streamType === 'summary') {
                 // Summary stream arrived on existing chat: subscription — enter summarize mode
-                setState((prev) => ({ ...prev, isSummarizing: true, summaryNewChatId: null, summaryBlocks: [] }));
+                setState((prev) => ({
+                    ...prev,
+                    isSummarizing: true,
+                    summaryNewChatId: null,
+                    summaryDocKey: null,
+                }));
             } else {
                 // Normal chat response — reconcile user message ID and set generating state
                 setState((prev) => {
@@ -473,7 +479,11 @@ export function ChatProvider({
 
             if (newChatId) {
                 // Summary stream completed — store the new chat ID and exit summarizing mode
-                setState((prev) => ({ ...prev, isSummarizing: false, summaryNewChatId: newChatId }));
+                setState((prev) => ({
+                    ...prev,
+                    isSummarizing: false,
+                    summaryNewChatId: newChatId,
+                }));
                 return;
             }
 
@@ -761,11 +771,14 @@ export function ChatProvider({
         }
     }, [stream.streamType]);
 
-    // Sync summary stream blocks into state so the summary modal can render them.
+    // Track active summary document key (never clears — handleStreamDone resets).
     useEffect(() => {
         if (stream.streamType !== 'summary') return;
-        setState((prev) => (prev.summaryBlocks === stream.blocks ? prev : { ...prev, summaryBlocks: stream.blocks }));
-    }, [stream.streamType, stream.blocks]);
+        const docKey = stream.activeDocuments[0]?.name;
+        if (docKey) {
+            setState((prev) => (prev.summaryDocKey === docKey ? prev : { ...prev, summaryDocKey: docKey }));
+        }
+    }, [stream.streamType, stream.activeDocuments]);
 
     // ========================================================================
     // MESSAGE LOADING
@@ -955,7 +968,17 @@ export function ChatProvider({
                 }));
             }
         },
-        [api, cache, chatType, ensureChatId, getToken, globalMutate, selectedModel, state.isGenerating, isModelAvailable],
+        [
+            api,
+            cache,
+            chatType,
+            ensureChatId,
+            getToken,
+            globalMutate,
+            selectedModel,
+            state.isGenerating,
+            isModelAvailable,
+        ],
     );
 
     // ========================================================================
