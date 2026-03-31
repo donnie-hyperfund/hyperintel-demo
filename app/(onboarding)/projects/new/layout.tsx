@@ -10,7 +10,7 @@ export default async function NewProjectLayout({ children }: { children: React.R
     const resources = await fetchResources(user, { page: 1, limit: 20 });
 
     const fallback: Record<string, unknown> = {
-        [unstable_serialize(getResourceListInfiniteKey(20))]: [resources],
+        [unstable_serialize(getResourceListInfiniteKey({ limit: 20 }))]: [resources],
     };
 
     return (

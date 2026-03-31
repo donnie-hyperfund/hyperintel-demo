@@ -8,7 +8,7 @@ import {
 } from '@/lib/api/client/fetchers/resources';
 import type { InfinitePaginationParams, PaginatedResponse } from '@/lib/api/client/types';
 import { getArtifactDocumentType } from '@/lib/artifacts/utils';
-import type { ArtifactDto, DocumentType } from '@/lib/schema/artifact';
+import type { ArtifactDto, DocumentType, OwnershipFilter } from '@/lib/schema/artifact';
 import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
 export function useFetchResources(
@@ -16,14 +16,16 @@ export function useFetchResources(
         approvedOnly?: boolean;
         documentType?: DocumentType[];
         excludeProjectId?: string;
+        search?: string;
+        ownership?: OwnershipFilter;
     } = { limit: 20 },
     config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
-    const { approvedOnly, documentType, excludeProjectId } = params;
+    const { limit, approvedOnly, documentType, excludeProjectId, search, ownership } = params;
 
     const result = useSWRInfinitePaginated<ArtifactDto>(
-        getResourceListInfiniteKey(params.limit, approvedOnly, documentType, excludeProjectId),
+        getResourceListInfiniteKey({ limit, approvedOnly, documentType, excludeProjectId, search, ownership }),
         (key) => {
             const pageParams = key[key.length - 1] as ResourceListParams;
             return createResourceApi(getToken).list(pageParams);

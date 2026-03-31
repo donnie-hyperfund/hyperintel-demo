@@ -2,7 +2,12 @@ import { useAuth } from '@clerk/nextjs';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
-import { artifactKeys, createArtifactApi, getArtifactListInfiniteKey } from '@/lib/api/client/fetchers/artifacts';
+import {
+    type ArtifactListFilterParams,
+    artifactKeys,
+    createArtifactApi,
+    getArtifactListInfiniteKey,
+} from '@/lib/api/client/fetchers/artifacts';
 import { resourceKeys } from '@/lib/api/client/fetchers/resources';
 import type { InfinitePaginationParams, PaginatedResponse, PaginationParams } from '@/lib/api/client/types';
 import { approveArtifact, rejectArtifact } from '@/lib/api/requests/worker/chat';
@@ -28,17 +33,18 @@ export function useFetchArtifacts(
 
 export function useFetchArtifactsInfinite(
     documentType: DocumentType | undefined,
-    params: InfinitePaginationParams = { limit: 20 },
+    params: InfinitePaginationParams & ArtifactListFilterParams = { limit: 20 },
     config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
+    const { search, ownership, limit } = params;
 
     return useSWRInfinitePaginated<ArtifactDto>(
-        getArtifactListInfiniteKey(documentType, params.limit),
+        getArtifactListInfiniteKey({ documentType, limit, search, ownership }),
         (key) => {
             if (!documentType) throw new Error('Document type is required');
-            const params = key[key.length - 1] as PaginationParams;
-            return createArtifactApi(getToken).list(documentType, params);
+            const pageParams = key[key.length - 1] as PaginationParams & ArtifactListFilterParams;
+            return createArtifactApi(getToken).list(documentType, pageParams);
         },
         { revalidateOnFocus: false, ...config },
     );
