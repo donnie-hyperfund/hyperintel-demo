@@ -1,12 +1,10 @@
-import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { withShared } from "../../vitest.shared";
 
-export default defineConfig({
+export default withShared({
 	resolve: {
 		alias: {
-			"@worker": path.resolve(import.meta.dirname, "../_common"),
-			"@common": path.resolve(import.meta.dirname, "../../common"),
-			"@": path.resolve(import.meta.dirname, "../.."),
+			"cloudflare:workers": path.resolve(import.meta.dirname, "../../common/common/local.do-mock"),
 		},
 	},
 	test: {

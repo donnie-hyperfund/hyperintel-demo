@@ -4,7 +4,7 @@ import { defineConfig, mergeConfig } from "vitest/config";
 // @ts-expect-error vitest v4 renamed UserConfig to TestUserConfig
 import type { UserConfig } from "vitest/config";
 
-dotenv.config({ path: ".env.test" });
+dotenv.config({ path: path.resolve(import.meta.dirname, ".env.test") });
 
 const root = import.meta.dirname;
 
@@ -18,7 +18,7 @@ const sharedConfig = defineConfig({
 	},
 	test: {
 		globals: true,
-		setupFiles: ["./vitest.setup.ts"],
+		setupFiles: [path.resolve(root, "vitest.setup.ts")],
 		exclude: [
 			"**/common/**",
 			"**/workers/**",

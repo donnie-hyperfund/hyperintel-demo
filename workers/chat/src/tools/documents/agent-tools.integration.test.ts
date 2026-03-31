@@ -8,10 +8,6 @@
  *
  * Run with: pnpm vitest run --config workers/chat/vitest.config.ts agent-tools.integration
  */
-import dotenv from 'dotenv';
-import path from 'node:path';
-dotenv.config({ path: path.resolve(import.meta.dirname, '../../../../../.env.test'), override: true });
-
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
