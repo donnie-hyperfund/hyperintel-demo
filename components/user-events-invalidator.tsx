@@ -23,7 +23,12 @@ export function UserEventsInvalidator() {
                         mutate((key: string) => key.includes('"chats"'));
                         break;
                     case 'project_created':
+                    case 'project_archived':
+                    case 'project_unarchived':
+                    case 'project_deleted':
                         mutate((key: string) => key.includes('"projects"'));
+                        break;
+                    default:
                         break;
                 }
             },

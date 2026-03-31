@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 import { SWRConfig, unstable_serialize } from 'swr';
 import { assertAuthPage } from '@/lib/api/auth-guard';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
@@ -10,12 +11,10 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
     const user = await assertAuthPage();
 
     const [project] = await Promise.all([fetchProject(projectId, user)]);
+    if (!project) notFound();
 
     const fallback: Record<string, unknown> = {};
-
-    if (project) {
-        fallback[unstable_serialize(projectKeys.detail(projectId))] = project;
-    }
+    fallback[unstable_serialize(projectKeys.detail(projectId))] = project;
 
     return <SWRConfig value={{ fallback }}>{children}</SWRConfig>;
 }

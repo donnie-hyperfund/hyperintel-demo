@@ -1,36 +1,121 @@
+'use client';
+
+import { useUser } from '@clerk/nextjs';
 import { format } from 'date-fns';
+import { Archive, Loader2, MoreHorizontal, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from '@/hooks/use-toast';
+import { useUpdateProject } from '@/lib/api/client/hooks/use-projects';
+import { clearCurrentProjectCookie, getCurrentProjectFromCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 import { cn } from '@/lib/utils';
 
 type ProjectItemProps = {
     project: ProjectDto;
-    href: string;
+    href?: string;
     isSelected?: boolean;
     onNavigate?: () => void;
 };
 
+function clearProjectCookieIfNeeded(userId: string | undefined, projectId: string) {
+    if (!userId) return;
+    const currentProject = getCurrentProjectFromCookie();
+    if (currentProject?.userId === userId && currentProject.projectId === projectId) {
+        clearCurrentProjectCookie();
+    }
+}
+
 export const ProjectItem = ({ project, href, isSelected, onNavigate }: ProjectItemProps) => {
+    const { user } = useUser();
+    const { trigger: updateProject, isMutating: isUpdating } = useUpdateProject(project.id);
     const createdDate = project.created_at ? new Date(project.created_at) : null;
     const formattedDate = createdDate ? format(createdDate, 'MMM d, yyyy') : null;
+    const isArchived = Boolean(project.archived_at);
+    const archivedDate = project.archived_at ? new Date(project.archived_at) : null;
+    const formattedArchivedDate = archivedDate ? format(archivedDate, 'MMM d, yyyy') : null;
+    const isBusy = isUpdating;
 
-    return (
-        <Link
-            href={href}
-            onNavigate={onNavigate}
-            className={cn(
-                'flex flex-col rounded-2 p-3.5 md:rounded-3 md:p-5 border transition-colors',
-                isSelected ? 'bg-neutral-900 border-neutral-500/30' : 'border-border',
-                'cursor-pointer hover:bg-accent/50',
-            )}
-        >
-            <div className="line-clamp-1 text-sm md:text-md font-medium mb-1.5">{project.name}</div>
-            <div className="line-clamp-2 text-xs md:text-sm text-neutral-500 mb-3">
+    const handleArchiveToggle = async () => {
+        try {
+            clearProjectCookieIfNeeded(user?.id, project.id);
+            await updateProject({ archived: !isArchived });
+            toast({ title: isArchived ? `"${project.name}" restored` : `"${project.name}" archived` });
+        } catch (error) {
+            console.error('Failed to update project lifecycle:', error);
+            toast({
+                title: isArchived ? 'Failed to restore project' : 'Failed to archive project',
+                variant: 'destructive',
+            });
+        }
+    };
+
+    const content = (
+        <>
+            <div className="mb-1.5 flex items-center gap-2">
+                <div className="line-clamp-1 text-sm md:text-md font-medium">{project.name}</div>
+                {isArchived && (
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-200 uppercase">
+                        Archived
+                    </span>
+                )}
+            </div>
+            <div className="mb-3 line-clamp-2 text-xs text-neutral-500 md:text-sm">
                 {project.description || <span className="text-neutral-600">No description</span>}
             </div>
-            {formattedDate && <div className="text-xs text-neutral-500 mt-0.5">Created {formattedDate}</div>}
-        </Link>
+            {(formattedArchivedDate || formattedDate) && (
+                <div className="mt-0.5 text-xs text-neutral-500">
+                    {isArchived ? 'Archived' : 'Created'} {isArchived ? formattedArchivedDate : formattedDate}
+                </div>
+            )}
+        </>
+    );
+
+    return (
+        <div
+            className={cn(
+                'flex items-start gap-3 rounded-2 border p-3.5 md:rounded-3 md:p-5',
+                isSelected ? 'border-neutral-500/30 bg-neutral-900' : 'border-border',
+                isArchived && 'border-dashed',
+            )}
+        >
+            {href ? (
+                <Link
+                    href={href}
+                    onNavigate={onNavigate}
+                    className="min-w-0 flex-1 rounded-lg transition-colors hover:bg-accent/50"
+                >
+                    {content}
+                </Link>
+            ) : (
+                <div className="min-w-0 flex-1">{content}</div>
+            )}
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon-sm" disabled={isBusy} className="mt-0.5 text-neutral-400">
+                        {isBusy ? <Loader2 className="size-4 animate-spin" /> : <MoreHorizontal className="size-4" />}
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                        onSelect={(event) => {
+                            event.preventDefault();
+                            void handleArchiveToggle();
+                        }}
+                    >
+                        {isArchived ? <RotateCcw className="size-4" /> : <Archive className="size-4" />}
+                        {isArchived ? 'Restore project' : 'Archive project'}
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
     );
 };
 

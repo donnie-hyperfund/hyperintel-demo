@@ -9,18 +9,22 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchProjectsInfinite } from '@/lib/api/client/hooks/use-projects';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
-import type { ProjectDto } from '@/lib/schema/project';
+import type { ProjectDto, ProjectListStatus } from '@/lib/schema/project';
 import { ProjectItem, ProjectItemSkeleton } from './project-item';
 
 const PAGE_SIZE = 20;
 
 type ProjectListProps = {
+    status: ProjectListStatus;
     onEmptyChange?: (isEmpty: boolean) => void;
 };
 
-export const ProjectList = ({ onEmptyChange }: ProjectListProps) => {
+export const ProjectList = ({ status, onEmptyChange }: ProjectListProps) => {
     const { user } = useUser();
-    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectsInfinite({ limit: PAGE_SIZE });
+    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectsInfinite({
+        limit: PAGE_SIZE,
+        status,
+    });
 
     const projects = useMemo(() => {
         if (!data) return [];
@@ -60,19 +64,26 @@ export const ProjectList = ({ onEmptyChange }: ProjectListProps) => {
     }
 
     if (projects.length === 0 && !isLoading) {
+        const isArchivedView = status === 'archived';
         return (
             <EmptyState
                 className="flex-1"
                 icon={FileCode}
-                title="No projects yet"
-                description="Create your first project to start organizing your chats and artifacts."
+                title={isArchivedView ? 'No archived projects' : 'No projects yet'}
+                description={
+                    isArchivedView
+                        ? 'Archived projects will appear here until you restore or permanently delete them.'
+                        : 'Create your first project to start organizing your chats and artifacts.'
+                }
             >
-                <Button asChild className="mt-2">
-                    <Link href="/projects/new">
-                        <Plus className="size-4" />
-                        New project
-                    </Link>
-                </Button>
+                {!isArchivedView && (
+                    <Button asChild className="mt-2">
+                        <Link href="/projects/new">
+                            <Plus className="size-4" />
+                            New project
+                        </Link>
+                    </Button>
+                )}
             </EmptyState>
         );
     }
@@ -93,8 +104,8 @@ export const ProjectList = ({ onEmptyChange }: ProjectListProps) => {
                 <ProjectItem
                     key={project.id}
                     project={project}
-                    href={`/${project.id}`}
-                    onNavigate={() => handleProjectNavigate(project)}
+                    href={status === 'active' ? `/${project.id}` : undefined}
+                    onNavigate={status === 'active' ? () => handleProjectNavigate(project) : undefined}
                 />
             ))}
             {(isLoading || hasNextPage) && (

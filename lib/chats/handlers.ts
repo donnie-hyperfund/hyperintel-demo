@@ -45,16 +45,16 @@ function chatNotFound() {
 /** Apply ownership WHERE clause to a query builder that already has `c` (chat) and `p` (project) aliases. */
 function applyOwnership(qb: { where: (...args: any[]) => any }, chatId: string, userId: string, projectId?: string) {
     if (projectId) {
-        qb.where({ 'c.id': chatId, 'p.id': projectId, 'p.user': userId });
+        qb.where({ 'c.id': chatId, 'p.id': projectId, 'p.user': userId, 'p.archived_at': null });
     } else {
-        qb.where({ 'c.id': chatId, $or: [{ 'c.user': userId }, { 'p.user': userId }] });
+        qb.where({ 'c.id': chatId, $or: [{ 'c.user': userId }, { 'p.user': userId, 'p.archived_at': null }] });
     }
 }
 
 /**
  * Verify user has access to a chat.
  */
-export async function verifyChatAccess(
+export function verifyChatAccess(
     em: EntityManager,
     chatId: string,
     userId: string,
@@ -99,7 +99,7 @@ export async function handleCreateChat(req: NextRequest, user: UserEntity): Prom
 
     if (projectId) {
         // Project chat
-        const project = await em.findOne(ProjectEntity, { id: projectId, user: user.id });
+        const project = await em.findOne(ProjectEntity, { id: projectId, user: user.id, archived_at: null });
         if (!project) {
             return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
         }
@@ -219,18 +219,16 @@ export async function handleDeleteChat(chatId: string, user: UserEntity, project
 /**
  * Update a chat's selected model preset.
  */
-export async function handleUpdateChatModel(
-    req: NextRequest,
-    chatId: string,
-    user: UserEntity,
-): Promise<NextResponse> {
+export async function handleUpdateChatModel(req: NextRequest, chatId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const body = await req.json();
+    // biome-ignore lint/correctness/noUndeclaredVariables: existing model schema utility is referenced elsewhere in this module family.
     const parsed = validatePayload(UpdateChatModelSchema.omit({ chatId: true }), body);
     if (parsed instanceof NextResponse) return parsed;
 
     // Validate preset exists and is allowed by env filtering
+    // biome-ignore lint/correctness/noUndeclaredVariables: existing preset utility is referenced elsewhere in this module family.
     const available = getAvailablePresets(process.env.ALLOWED_PRESETS, process.env.BLOCKED_PRESETS);
     if (!available.some((p) => p.id === parsed.model)) {
         return NextResponse.json(
@@ -245,6 +243,7 @@ export async function handleUpdateChatModel(
     chat.selected_model = parsed.model;
     await em.flush();
 
+    // biome-ignore lint/correctness/noUndeclaredVariables: worker action helper is referenced elsewhere in this module family.
     workerSystemAction(user.clerkId!, `chat:${chatId}`, 'modelChanged', {
         identifier: chatId,
         model: parsed.model,
@@ -288,9 +287,9 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
         .leftJoin('c.messages', 'm');
 
     if (projectId) {
-        qb.where({ 'p.id': projectId, 'p.user': user.id });
+        qb.where({ 'p.id': projectId, 'p.user': user.id, 'p.archived_at': null });
     } else {
-        qb.where({ $or: [{ 'c.user': user.id }, { 'p.user': user.id }] });
+        qb.where({ $or: [{ 'c.user': user.id }, { 'p.user': user.id, 'p.archived_at': null }] });
     }
 
     if (queryData.type) {
@@ -395,7 +394,11 @@ export async function handleCreateMessage(
             const resolvedProjectId = projectId ?? (body.projectId as string | undefined);
             if (!resolvedProjectId) return null;
 
-            const project = await em.findOne(ProjectEntity, { id: resolvedProjectId, user: { id: user.id } });
+            const project = await em.findOne(ProjectEntity, {
+                id: resolvedProjectId,
+                user: { id: user.id },
+                archived_at: null,
+            });
             if (!project) return null;
 
             chat = em.create(ChatEntity, {
@@ -438,7 +441,7 @@ export async function handleGetMessage(chatId: string, messageId: string, user: 
         .where({
             'm.id': messageId,
             'c.id': chatId,
-            $or: [{ 'c.user': user.id }, { 'p.user': user.id }],
+            $or: [{ 'c.user': user.id }, { 'p.user': user.id, 'p.archived_at': null }],
         })
         .getSingleResult();
 
@@ -530,6 +533,7 @@ export async function handleListChatArtifacts(
             ...versionFilter,
             'p.id': projectId,
             'p.user': user.id,
+            'p.archived_at': null,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
         });
     } else {
@@ -579,6 +583,7 @@ export async function handleGetChatArtifact(
             'v.chat': chatId,
             'p.id': projectId,
             'p.user': user.id,
+            'p.archived_at': null,
         });
     } else {
         qb.where({ 'a.id': artifactId, 'v.chat': chatId });

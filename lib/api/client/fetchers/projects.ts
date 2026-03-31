@@ -1,4 +1,4 @@
-import type { CreateProjectBodyDto, ProjectDto, UpdateProjectBodyDto } from '@/lib/schema/project';
+import type { CreateProjectBodyDto, ProjectDto, ProjectListStatus, UpdateProjectBodyDto } from '@/lib/schema/project';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
 
@@ -10,15 +10,19 @@ const ENDPOINTS = {
 export const projectKeys = {
     all: ['projects'] as const,
     lists: () => [...projectKeys.all, 'list'] as const,
-    list: (params?: PaginationParams) => [...projectKeys.lists(), params] as const,
+    list: (params?: ProjectListParams) => [...projectKeys.lists(), params] as const,
     details: () => [...projectKeys.all, 'detail'] as const,
     detail: (id: string) => [...projectKeys.details(), id] as const,
 };
 
-export function getProjectListInfiniteKey(limit = 20) {
+export type ProjectListParams = PaginationParams & {
+    status?: ProjectListStatus;
+};
+
+export function getProjectListInfiniteKey(limit = 20, status?: ProjectListStatus) {
     return (pageIndex: number, previousPageData: PaginatedResponse<ProjectDto> | null) => {
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
-        return projectKeys.list({ page: pageIndex + 1, limit });
+        return projectKeys.list({ page: pageIndex + 1, limit, status });
     };
 }
 
@@ -26,7 +30,7 @@ export function createProjectApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 
     return {
-        list: async (params?: PaginationParams) => {
+        list: async (params?: ProjectListParams) => {
             const { data } = await axios.get<PaginatedResponse<ProjectDto>>(
                 buildUrl(ENDPOINTS.root, params as Record<string, string | number | undefined>),
             );
