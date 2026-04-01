@@ -253,6 +253,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             setFiles((prev) => prev.filter((e) => e.id !== entryId));
             if (failedEntry?.artifactId) {
                 removePendingArtifactId(failedEntry.artifactId);
+                // Clean up the orphaned artifact from the database
+                getToken().then((token) => {
+                    if (!token) return;
+                    deleteArtifact({ artifactId: failedEntry.artifactId! }, token).catch(() => {});
+                    pruneRemovedArtifactsFromResourceCache([failedEntry.artifactId!]);
+                });
             }
             invalidateResources();
             toast({ title: 'Upload failed', description, variant: 'destructive' });
@@ -264,7 +270,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 if (batch.pendingIds.size === 0) batchesRef.current.splice(i, 1);
             }
         },
-        [invalidateResources, removePendingArtifactId],
+        [getToken, invalidateResources, pruneRemovedArtifactsFromResourceCache, removePendingArtifactId],
     );
 
     const pollFileStatus = useCallback(
