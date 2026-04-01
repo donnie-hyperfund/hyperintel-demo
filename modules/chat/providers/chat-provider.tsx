@@ -272,7 +272,7 @@ export function ChatProvider({
                     if (data) {
                         artifactContext.updateArtifact(
                             keyId,
-                            { ...data, id: keyId },
+                            { ...data, id: keyId, key: data.key || keyId },
                             getLatestArtifactVersion(data)?.version,
                             { merge: false },
                         );
