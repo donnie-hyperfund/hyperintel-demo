@@ -92,7 +92,7 @@ function RemoveButton({ onClick, disabled }: { onClick: (e: React.MouseEvent) =>
         <Button
             variant="ghost"
             size="icon"
-            className="absolute right-2 top-1/2 -translate-y-1/2 size-7 opacity-0 group-hover:opacity-100 transition-opacity text-neutral-500 hover:text-red-400"
+            className="absolute right-2 top-1/2 -translate-y-1/2 size-7 opacity-0 max-md:opacity-100 group-hover:opacity-100 transition-opacity text-neutral-500 hover:text-red-400"
             onClick={onClick}
             disabled={disabled}
         >
