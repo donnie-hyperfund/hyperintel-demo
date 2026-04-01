@@ -2,6 +2,7 @@
 
 import { useUser } from '@clerk/nextjs';
 import { FileCode, Loader2, Plus } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
@@ -99,20 +100,30 @@ export const ProjectList = ({ status, onEmptyChange }: ProjectListProps) => {
     }
 
     return (
-        <div className="grid gap-4 sm:grid-cols-2">
-            {projects.map((project) => (
-                <ProjectItem
-                    key={project.id}
-                    project={project}
-                    href={status === 'active' ? `/${project.id}` : undefined}
-                    onNavigate={status === 'active' ? () => handleProjectNavigate(project) : undefined}
-                />
-            ))}
+        <motion.div key={status} layout className="grid gap-4 sm:grid-cols-2">
+            <AnimatePresence initial={false} mode="popLayout">
+                {projects.map((project) => (
+                    <motion.div
+                        key={project.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.96 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
+                        transition={{ duration: 0.25, ease: 'easeInOut' }}
+                    >
+                        <ProjectItem
+                            project={project}
+                            href={status === 'active' ? `/${project.id}` : undefined}
+                            onNavigate={status === 'active' ? () => handleProjectNavigate(project) : undefined}
+                        />
+                    </motion.div>
+                ))}
+            </AnimatePresence>
             {(isLoading || hasNextPage) && (
                 <div ref={sentryRef} className="flex items-center justify-center py-3 sm:col-span-2">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                 </div>
             )}
-        </div>
+        </motion.div>
     );
 };
