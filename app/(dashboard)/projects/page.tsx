@@ -32,7 +32,7 @@ export default function ProjectsPage() {
                 />
             }
         >
-            <Tabs value={status} onValueChange={(value) => setStatus(value as ProjectListStatus)} className="gap-4">
+            <Tabs value={status} onValueChange={(value) => setStatus(value as ProjectListStatus)}>
                 <TabsList>
                     <TabsTrigger value="active">Active</TabsTrigger>
                     <TabsTrigger value="archived">Archived</TabsTrigger>

@@ -1,3 +1,4 @@
+import { unstable_serialize } from 'swr/infinite';
 import type { CreateProjectBodyDto, ProjectDto, ProjectListStatus, UpdateProjectBodyDto } from '@/lib/schema/project';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { PaginatedResponse, PaginationParams } from '../types';
@@ -19,11 +20,15 @@ export type ProjectListParams = PaginationParams & {
     status?: ProjectListStatus;
 };
 
-export function getProjectListInfiniteKey(limit = 20, status?: ProjectListStatus) {
+export function getProjectListInfiniteKey(status?: ProjectListStatus, limit = 20) {
     return (pageIndex: number, previousPageData: PaginatedResponse<ProjectDto> | null) => {
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
         return projectKeys.list({ page: pageIndex + 1, limit, status });
     };
+}
+
+export function serializeProjectListKey(status?: ProjectListStatus, limit = 20) {
+    return unstable_serialize(getProjectListInfiniteKey(status, limit));
 }
 
 export function createProjectApi(getToken: TokenGetter) {

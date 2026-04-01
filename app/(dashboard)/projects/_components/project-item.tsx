@@ -2,16 +2,11 @@
 
 import { useUser } from '@clerk/nextjs';
 import { format } from 'date-fns';
-import { Archive, Loader2, MoreHorizontal, RotateCcw } from 'lucide-react';
+import { Archive, Loader2, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import { useUpdateProject } from '@/lib/api/client/hooks/use-projects';
 import { clearCurrentProjectCookie, getCurrentProjectFromCookie } from '@/lib/cookies/project';
@@ -25,6 +20,20 @@ type ProjectItemProps = {
     onNavigate?: () => void;
 };
 
+type ProjectItemContentProps = {
+    name: string;
+    description: string | null | undefined;
+    isArchived: boolean;
+    displayDate: string | null;
+};
+
+type ArchiveToggleButtonProps = {
+    isArchived: boolean;
+    isMutating: boolean;
+    onToggle: () => void;
+    className?: string;
+};
+
 function clearProjectCookieIfNeeded(userId: string | undefined, projectId: string) {
     if (!userId) return;
     const currentProject = getCurrentProjectFromCookie();
@@ -35,13 +44,15 @@ function clearProjectCookieIfNeeded(userId: string | undefined, projectId: strin
 
 export const ProjectItem = ({ project, href, isSelected, onNavigate }: ProjectItemProps) => {
     const { user } = useUser();
-    const { trigger: updateProject, isMutating: isUpdating } = useUpdateProject(project.id);
-    const createdDate = project.created_at ? new Date(project.created_at) : null;
-    const formattedDate = createdDate ? format(createdDate, 'MMM d, yyyy') : null;
+    const { trigger: updateProject, isMutating } = useUpdateProject(project.id);
+
     const isArchived = Boolean(project.archived_at);
-    const archivedDate = project.archived_at ? new Date(project.archived_at) : null;
-    const formattedArchivedDate = archivedDate ? format(archivedDate, 'MMM d, yyyy') : null;
-    const isBusy = isUpdating;
+    const displayDate =
+        isArchived && project.archived_at
+            ? `Archived ${format(new Date(project.archived_at), 'MMM d, yyyy')}`
+            : project.created_at
+              ? `Created ${format(new Date(project.created_at), 'MMM d, yyyy')}`
+              : null;
 
     const handleArchiveToggle = async () => {
         try {
@@ -57,71 +68,83 @@ export const ProjectItem = ({ project, href, isSelected, onNavigate }: ProjectIt
         }
     };
 
-    const content = (
+    return (
+        <div
+            className={cn(
+                'group relative flex flex-col rounded-2 border p-3.5 transition-colors md:rounded-3 md:p-5',
+                isSelected ? 'border-neutral-500/30 bg-neutral-900' : 'border-border',
+                isArchived && 'border-dashed',
+                href && 'hover:bg-accent/50',
+            )}
+        >
+            {href && (
+                <Link
+                    href={href}
+                    onNavigate={onNavigate}
+                    className="absolute inset-0 rounded-[inherit]"
+                    aria-label={project.name}
+                />
+            )}
+            <ProjectItemContent
+                name={project.name}
+                description={project.description}
+                isArchived={isArchived}
+                displayDate={displayDate}
+            />
+            <ArchiveToggleButton
+                isArchived={isArchived}
+                isMutating={isMutating}
+                onToggle={handleArchiveToggle}
+                className={cn(
+                    'absolute right-3.5 top-3.5 z-10 text-neutral-400 transition-opacity md:right-5 md:top-5',
+                    isMutating ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                )}
+            />
+        </div>
+    );
+};
+
+function ProjectItemContent({ name, description, isArchived, displayDate }: ProjectItemContentProps) {
+    return (
         <>
-            <div className="mb-1.5 flex items-center gap-2">
-                <div className="line-clamp-1 text-sm md:text-md font-medium">{project.name}</div>
+            <div className="mb-1.5 flex items-center gap-2 pr-8">
+                <div className="line-clamp-1 text-sm font-medium md:text-md">{name}</div>
                 {isArchived && (
-                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-200 uppercase">
+                    <span className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-amber-200">
                         Archived
                     </span>
                 )}
             </div>
             <div className="mb-3 line-clamp-2 text-xs text-neutral-500 md:text-sm">
-                {project.description || <span className="text-neutral-600">No description</span>}
+                {description || <span className="text-neutral-600">No description</span>}
             </div>
-            {(formattedArchivedDate || formattedDate) && (
-                <div className="mt-0.5 text-xs text-neutral-500">
-                    {isArchived ? 'Archived' : 'Created'} {isArchived ? formattedArchivedDate : formattedDate}
-                </div>
-            )}
+            {displayDate && <div className="mt-0.5 text-xs text-neutral-500">{displayDate}</div>}
         </>
     );
+}
+
+function ArchiveToggleButton({ isArchived, isMutating, onToggle, className }: ArchiveToggleButtonProps) {
+    let ActionIcon = Archive;
+    if (isMutating) ActionIcon = Loader2;
+    else if (isArchived) ActionIcon = RotateCcw;
+
+    const label = isMutating ? (isArchived ? 'Restoring...' : 'Archiving...') : isArchived ? 'Restore' : 'Archive';
 
     return (
-        <div
-            className={cn(
-                'flex items-start gap-3 rounded-2 border p-3.5 md:rounded-3 md:p-5',
-                isSelected ? 'border-neutral-500/30 bg-neutral-900' : 'border-border',
-                isArchived && 'border-dashed',
-            )}
-        >
-            {href ? (
-                <Link
-                    href={href}
-                    onNavigate={onNavigate}
-                    className="min-w-0 flex-1 rounded-lg transition-colors hover:bg-accent/50"
-                >
-                    {content}
-                </Link>
-            ) : (
-                <div className="min-w-0 flex-1">{content}</div>
-            )}
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon-sm" disabled={isBusy} className="mt-0.5 text-neutral-400">
-                        {isBusy ? <Loader2 className="size-4 animate-spin" /> : <MoreHorizontal className="size-4" />}
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                        onSelect={(event) => {
-                            event.preventDefault();
-                            void handleArchiveToggle();
-                        }}
-                    >
-                        {isArchived ? <RotateCcw className="size-4" /> : <Archive className="size-4" />}
-                        {isArchived ? 'Restore project' : 'Archive project'}
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
-        </div>
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-sm" disabled={isMutating} onClick={onToggle} className={className}>
+                    <ActionIcon className={cn('size-4', isMutating && 'animate-spin')} />
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent>{label}</TooltipContent>
+        </Tooltip>
     );
-};
+}
 
 export const ProjectItemSkeleton = () => {
     return (
-        <div className="flex flex-col gap-2 rounded-2 p-3.5 md:rounded-3 md:p-5 border">
+        <div className="flex flex-col gap-2 rounded-2 border p-3.5 md:rounded-3 md:p-5">
             <Skeleton className="h-4 w-3/4" />
             <Skeleton className="h-3 w-full" />
             <Skeleton className="h-3 w-24" />
