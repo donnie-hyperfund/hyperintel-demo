@@ -63,6 +63,15 @@ export function useFetchChat(
     );
 }
 
+export function useUpdateChatName(chatId: string) {
+    const { getToken } = useAuth();
+
+    return useSWRMutation<{ name: string }, Error, readonly string[], string>(
+        [...chatKeys.detail(chatId)],
+        (_, { arg: name }) => createChatApi(getToken).updateName(chatId, name),
+    );
+}
+
 export function useDeleteChat(chatId: string) {
     const { getToken } = useAuth();
 

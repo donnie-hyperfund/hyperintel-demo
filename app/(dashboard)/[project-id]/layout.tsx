@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import camelcaseKeys from 'camelcase-keys';
 import { SWRConfig, unstable_serialize } from 'swr';
 import { assertAuthPage } from '@/lib/api/auth-guard';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
@@ -14,7 +14,10 @@ export default async function ProjectLayout({ children, params }: ProjectLayoutP
     if (!project) notFound();
 
     const fallback: Record<string, unknown> = {};
-    fallback[unstable_serialize(projectKeys.detail(projectId))] = project;
+
+    if (project) {
+        fallback[unstable_serialize(projectKeys.detail(projectId))] = camelcaseKeys(project, { deep: true });
+    }
 
     return <SWRConfig value={{ fallback }}>{children}</SWRConfig>;
 }

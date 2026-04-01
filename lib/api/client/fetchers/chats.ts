@@ -51,6 +51,11 @@ export function createChatApi(getToken: TokenGetter) {
             return data;
         },
 
+        updateName: async (chatId: string, name: string) => {
+            const { data } = await axios.patch<CamelCaseDto<{ name: string }>>(ENDPOINTS.byId(chatId), { name });
+            return data;
+        },
+
         updateModel: async (chatId: string, model: string) => {
             const { data } = await axios.patch<CamelCaseDto<{ selected_model: string }>>(ENDPOINTS.model(chatId), {
                 model,

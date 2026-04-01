@@ -26,6 +26,8 @@ export const PhaseHeader = () => {
     const { data: project } = useFetchProject(projectId);
     const { panelState, togglePanel } = useActivePanelContext();
 
+    console.log('state.phaseIndex', state.phaseIndex);
+
     return (
         <header className="border-b border-border max-sm:sticky max-sm:top-0 max-sm:left-0 max-sm:right-0 max-sm:z-10 bg-neutral-975">
             {/* Desktop */}
@@ -101,12 +103,13 @@ type PhaseBreadcrumbsProps = {
 };
 
 function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex }: PhaseBreadcrumbsProps) {
+    console.log('phaseIndex', phaseIndex);
     return (
-        <Breadcrumb className="min-w-0">
-            <BreadcrumbList>
+        <Breadcrumb className="min-w-0 overflow-hidden">
+            <BreadcrumbList className="min-w-0 flex-nowrap">
                 {projectName && (
                     <>
-                        <BreadcrumbItem className="min-w-0">
+                        <BreadcrumbItem className="min-w-0 shrink">
                             <BreadcrumbLink asChild>
                                 <Link href={`/${projectId}/chats`} className="truncate">
                                     {projectName}
@@ -116,7 +119,7 @@ function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex }: PhaseB
                         <BreadcrumbSeparator className="shrink-0" />
                     </>
                 )}
-                <BreadcrumbItem className="min-w-0">
+                <BreadcrumbItem className="min-w-0 shrink">
                     <PhasePicker projectId={projectId} currentChatId={chatId} currentPhaseIndex={phaseIndex} />
                 </BreadcrumbItem>
             </BreadcrumbList>

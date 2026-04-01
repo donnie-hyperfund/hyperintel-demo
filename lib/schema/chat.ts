@@ -29,6 +29,11 @@ export const UpdateChatModelSchema = z.object({
 });
 export type UpdateChatModelDto = z.infer<typeof UpdateChatModelSchema>;
 
+export const UpdateChatNameSchema = z.object({
+    name: z.string().trim().min(1).max(100),
+});
+export type UpdateChatNameDto = z.infer<typeof UpdateChatNameSchema>;
+
 export const TokenBreakdownSchema = z.object({
     context: z.number(),
     prompt: z.number(),
