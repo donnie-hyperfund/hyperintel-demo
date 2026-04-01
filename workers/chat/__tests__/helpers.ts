@@ -63,6 +63,20 @@ export function getFailedTools(turn: TurnResult) {
 		.map((r) => ({ tool: getToolStarts(turn).find((s) => s.id === r.id)?.tool ?? r.id, result: r.result }));
 }
 
+/** Get the input/args for a specific tool call (from tool_call_complete events). */
+export function getToolInput(turn: TurnResult, toolName: string): Record<string, unknown> | null {
+	const completes = getEvents(turn, 'tool_call_complete');
+	const match = completes.find((e) => e.tool === toolName);
+	return match?.input ?? null;
+}
+
+/** Get all inputs for a tool (when called multiple times). */
+export function getAllToolInputs(turn: TurnResult, toolName: string): Record<string, unknown>[] {
+	return getEvents(turn, 'tool_call_complete')
+		.filter((e) => e.tool === toolName)
+		.map((e) => e.input);
+}
+
 // ============================================================================
 // DOCUMENT ASSERTIONS
 // ============================================================================

@@ -89,7 +89,9 @@ export const DocumentToolGroup: AgentToolGroup = {
 3. \`finalize_document\` - Save (MUST call or content is lost)
 
 ## Editing Strategy
+- When editing an existing document you did NOT just create in this turn, ALWAYS \`read_document\` first to see the current content and line numbers before patching.
 - \`patch_document\` edits are **atomic and verified** — the tool confirms success. Do NOT re-read a document after patching to check your work.
+- when using \`patch_document\` make sure the fields in your JSON output are properly escaped. JSON does not allow plain newlines for example - the tool call will fail to parse.
 - Batch ALL pending edits into a single \`patch_document\` call. Multiple small patches waste tool calls.
 - If you need to rewrite most of a document (>50% changing), use \`write_document\` to replace the entire content instead of many patches.
 - The pattern \`read → patch → read → patch\` is a wasteful anti-pattern. Read once, patch once (with all edits), finalize.
