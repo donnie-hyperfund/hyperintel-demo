@@ -66,10 +66,9 @@ type OnboardingStepCardProps = {
     children: ReactNode;
     className?: string;
     contentClassName?: string;
-    showPadding?: boolean;
 };
 
-function StepCard({ children, className, contentClassName, showPadding = true }: OnboardingStepCardProps) {
+function StepCard({ children, className, contentClassName }: OnboardingStepCardProps) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -78,14 +77,11 @@ function StepCard({ children, className, contentClassName, showPadding = true }:
         >
             <Card
                 className={cn(
-                    'border-neutral-900 bg-neutral-900/50 shadow-xl backdrop-blur mb-10 py-0',
-                    showPadding ? 'py-5 md:py-7' : 'py-0',
+                    'border-neutral-900 bg-neutral-900/50 shadow-xl backdrop-blur mb-10 py-5 md:py-7',
                     className,
                 )}
             >
-                <CardContent className={cn(showPadding ? 'px-4 md:px-7' : 'px-0', contentClassName)}>
-                    {children}
-                </CardContent>
+                <CardContent className={cn('px-4 md:px-7', contentClassName)}>{children}</CardContent>
             </Card>
         </motion.div>
     );
