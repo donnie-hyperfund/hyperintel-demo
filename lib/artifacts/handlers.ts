@@ -145,7 +145,11 @@ export async function handleListProjectArtifacts(
     query.andWhere({
         $or: [{ [raw("a.metadata->>'importedFrom'")]: null }, { [raw('a.metadata')]: null }],
     });
-    query.andWhere({ $or: [{ 'cv.is_uploaded': null }, { 'cv.is_uploaded': false }] });
+    // Exclude artifacts that have ANY uploaded version (not just current_version, which may be null during processing)
+    query.andWhere({
+        [raw(`NOT EXISTS (SELECT 1 FROM artifact_version av WHERE av.artifact_id = a.id AND av.is_uploaded = true)`)]:
+            [],
+    });
 
     // Apply user-selected filters (prefer proposed version, fall back to current)
     if (queryData.visibility?.length) {
