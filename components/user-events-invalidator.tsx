@@ -2,6 +2,7 @@
 
 import { useCallback } from 'react';
 import { useSWRConfig } from 'swr';
+import { serializeProjectListKey } from '@/lib/api/client/fetchers/projects';
 import { useUserEvents } from '@/modules/chat/hooks/use-user-events';
 
 /**
@@ -26,7 +27,8 @@ export function UserEventsInvalidator() {
                     case 'project_archived':
                     case 'project_unarchived':
                     case 'project_deleted':
-                        mutate((key: string) => key.includes('"projects"'));
+                        mutate(serializeProjectListKey('active'));
+                        mutate(serializeProjectListKey('archived'));
                         break;
                     default:
                         break;

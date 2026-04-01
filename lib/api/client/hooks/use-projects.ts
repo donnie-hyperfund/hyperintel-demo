@@ -1,10 +1,17 @@
 import { useAuth } from '@clerk/nextjs';
 import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
-import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
+import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import type { CreateProjectBodyDto, ProjectDto, UpdateProjectBodyDto } from '@/lib/schema/project';
-import { createProjectApi, getProjectListInfiniteKey, type ProjectListParams, projectKeys } from '../fetchers/projects';
+import {
+    createProjectApi,
+    getProjectListInfiniteKey,
+    type ProjectListParams,
+    projectKeys,
+    serializeProjectListKey,
+} from '../fetchers/projects';
 import type { PaginatedResponse } from '../types';
+import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
 export function useFetchProjects(params?: ProjectListParams, config?: SWRConfiguration<PaginatedResponse<ProjectDto>>) {
     const { getToken } = useAuth();
@@ -21,21 +28,16 @@ export function useFetchProjectsInfinite(
     config?: SWRInfiniteConfiguration<PaginatedResponse<ProjectDto>>,
 ) {
     const { getToken } = useAuth();
-    const { limit = 20, status } = params;
+    const { status, limit = 20 } = params;
 
-    const result = useSWRInfinite<PaginatedResponse<ProjectDto>>(
-        getProjectListInfiniteKey(limit, status),
+    return useSWRInfinitePaginated<ProjectDto>(
+        getProjectListInfiniteKey(status, limit),
         (key) => {
             const params = key[key.length - 1] as ProjectListParams;
             return createProjectApi(getToken).list(params);
         },
         { revalidateOnFocus: false, ...config },
     );
-
-    const lastPage = result.data?.[result.data.length - 1];
-    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
-
-    return { ...result, hasNextPage };
 }
 
 export function useFetchProject(projectId: string | undefined, config?: SWRConfiguration<ProjectDto>) {
@@ -57,7 +59,7 @@ export function useCreateProject() {
 
     return useSWRMutation<ProjectDto, Error, string, CreateProjectBodyDto>('create-project', async (_, { arg }) => {
         const project = await createProjectApi(getToken).create(arg);
-        globalMutate((key) => typeof key === 'string' && key.includes('"projects"'));
+        globalMutate(serializeProjectListKey('active'));
         return project;
     });
 }
@@ -70,7 +72,8 @@ export function useUpdateProject(projectId: string) {
         [...projectKeys.detail(projectId)],
         async (_, { arg }) => {
             const project = await createProjectApi(getToken).update(projectId, arg);
-            globalMutate((key) => typeof key === 'string' && key.includes('"projects"'));
+            globalMutate(serializeProjectListKey('active'));
+            globalMutate(serializeProjectListKey('archived'));
             return project;
         },
     );
@@ -84,7 +87,8 @@ export function useDeleteProject(projectId: string) {
         [...projectKeys.detail(projectId)],
         async () => {
             const result = await createProjectApi(getToken).delete(projectId);
-            globalMutate((key) => typeof key === 'string' && key.includes('"projects"'));
+            globalMutate(serializeProjectListKey('active'));
+            globalMutate(serializeProjectListKey('archived'));
             return result;
         },
     );
