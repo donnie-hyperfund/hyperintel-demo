@@ -4,11 +4,6 @@ import _ from 'underscore';
 import config from '@/mikro-orm.config';
 import staticConfig from '@/mikro-orm.static.config';
 
-const isDev = process.env.NODE_ENV === 'development';
-const ormLog = (...args: unknown[]) => isDev && console.log('[ORM]', ...args);
-const ormWarn = (...args: unknown[]) => isDev && console.warn('[ORM]', ...args);
-const ormErr = (...args: unknown[]) => isDev && console.error('[ORM]', ...args);
-
 // Use globalThis for ORM promise so all modules share same reference across hot reloads
 declare global {
     // eslint-disable-next-line no-var
@@ -20,59 +15,39 @@ declare global {
 }
 
 /**
- * Cache adapter for surviving Next.js HMR decorator wipes.
+ * Cache adapter that re-keys metadata by entity `path` (source file path)
+ * so lookups by file path (which MikroORM uses internally) actually hit.
  *
- * Turbopack/webpack may bundle all entities into a single chunk, so every
- * entity ends up with the same `path` value. Path-based indexing would
- * collapse them into one entry. Instead, we index by:
- *   1. className (primary) — MikroORM's main lookup key
- *   2. unique file paths (secondary) — only when paths are actually distinct
+ * `GeneratedCacheAdapter` expects file-path keys, but `getAll()` returns
+ * `ClassName-hash` keys — causing every lookup to miss and breaking the
+ * identity map (all rows collapse to one entity with PK=undefined).
+ *
+ * This adapter builds a path→metadata index on construction and handles
+ * both key formats transparently.
  */
 class HmrMetadataCacheAdapter implements CacheAdapter {
     private byPath = new Map<string, any>();
     private byName = new Map<string, any>();
 
-    constructor(options: { data: Record<string, any> }) {
-        const pathCounts = new Map<string, number>();
-
+    constructor(private options: { data: Record<string, any> }) {
         for (const [key, meta] of Object.entries(options.data)) {
             this.byName.set(key, meta);
-            if (meta?.className) {
-                this.byName.set(meta.className, meta);
-            }
+            // Index by source file path (stripping extension) for MikroORM's internal lookups
             if (meta?.path) {
                 const normalized = meta.path.replace(/\.[jt]s$/, '');
-                pathCounts.set(normalized, (pathCounts.get(normalized) ?? 0) + 1);
+                this.byPath.set(normalized, meta);
             }
         }
-
-        // Only index by path when paths are unique (not bundled into one chunk)
-        for (const [, meta] of Object.entries(options.data)) {
-            if (meta?.path) {
-                const normalized = meta.path.replace(/\.[jt]s$/, '');
-                if (pathCounts.get(normalized) === 1) {
-                    this.byPath.set(normalized, meta);
-                }
-            }
-        }
-
-        ormLog(
-            `HmrMetadataCacheAdapter: ${this.byName.size} by name, ${this.byPath.size} by path (${pathCounts.size} unique paths from ${Object.keys(options.data).length} entities)`,
-        );
     }
 
     get(name: string) {
         const key = name.replace(/\.[jt]s$/, '');
-        const result = this.byName.get(key) ?? this.byPath.get(key) ?? undefined;
-        if (!result) {
-            ormWarn(`HmrMetadataCacheAdapter MISS: "${name}" (normalized: "${key}")`);
-        }
-        return result;
+        return this.byPath.get(key) ?? this.byName.get(key) ?? undefined;
     }
 
     set(name: string, data: unknown, _origin: string) {
         const key = name.replace(/\.[jt]s$/, '');
-        this.byName.set(key, data);
+        this.byPath.set(key, data);
     }
 
     remove(name: string) {
@@ -90,9 +65,6 @@ class HmrMetadataCacheAdapter implements CacheAdapter {
 // Fix to not leak connections on local dev server
 if (process.env.NODE_ENV === 'development') {
     if (globalThis.ormCleanups?.length) {
-        ormLog(
-            `HMR detected — running ${globalThis.ormCleanups.length} cleanup(s), metadataCache=${globalThis.__ormMetadataCache ? 'present' : 'missing'}`,
-        );
         globalThis.ormCleanups.forEach((ormCleanup) => ormCleanup());
         globalThis.ormCleanups = [];
     }
@@ -102,9 +74,6 @@ const reqStore = cache(() => ({ verified: false }));
 
 /** Reuse the same EM fork within a single Next.js request (RSC / route handler / middleware). */
 const getRequestFork = cache(async (): Promise<EntityManager> => {
-    if (!globalThis.__ormPromise) {
-        ormErr('getRequestFork called but __ormPromise is null — ORM was cleaned up and not yet re-initialized');
-    }
     const orm = await globalThis.__ormPromise!;
     return orm.em.fork();
 });
@@ -134,17 +103,14 @@ export async function getOrm(
         injectConfig = injectConfigOrRaw ?? {};
     }
 
-    if (globalThis.__ormPromise) {
-        ormLog('Reusing existing ORM instance');
-    } else {
+    if (!globalThis.__ormPromise) {
         const useStatic = !!process.env.VERCEL_ENV;
         let configToUse = useStatic ? staticConfig : config;
-        const hasMetadataCache = !!globalThis.__ormMetadataCache;
 
         // Survive Next.js HMR decorator-wipe by injecting cached metadata.
         // Uses a custom adapter (not GeneratedCacheAdapter) that re-keys by
         // source file path so identity map PK extraction works correctly.
-        if (process.env.NODE_ENV === 'development' && hasMetadataCache) {
+        if (process.env.NODE_ENV === 'development' && globalThis.__ormMetadataCache) {
             configToUse = {
                 ...configToUse,
                 metadataCache: {
@@ -155,35 +121,12 @@ export async function getOrm(
             };
         }
 
-        ormLog(
-            `Initializing ORM — static=${useStatic}, metadataCache=${hasMetadataCache}, entities=${configToUse.entities?.length ?? '?'}`,
-        );
-        const initStart = Date.now();
-
         const myPromise = MikroORM.init({
             ...configToUse,
             ...injectConfig,
             // TODO env var, prevent on prod
             // debug: true,
         });
-
-        myPromise
-            .then((orm) => {
-                const entityCount = Object.keys(orm.getMetadata().getAll()).length;
-                ormLog(`ORM ready in ${Date.now() - initStart}ms — ${entityCount} entities discovered`);
-
-                // Spot-check: verify entities have PKs and paths
-                for (const [name, meta] of Object.entries(orm.getMetadata().getAll())) {
-                    const hasPk = !!meta.primaryKeys?.length;
-                    const hasPath = !!meta.path;
-                    if (!hasPk || !hasPath) {
-                        ormErr(
-                            `Entity "${name}": pk=${hasPk ? JSON.stringify(meta.primaryKeys) : 'NONE'}, path=${hasPath ? `"${meta.path}"` : 'NONE'} — ${hasPk ? 'path lookup will miss' : 'IDENTITY MAP WILL COLLAPSE'}`,
-                        );
-                    }
-                }
-            })
-            .catch((err) => ormErr('ORM init failed:', err));
 
         // Capture metadata on first successful boot.
         // Strip live class/prototype refs so they don't overwrite fresh ones
@@ -196,28 +139,13 @@ export async function getOrm(
                         const live = orm.getMetadata().getAll();
                         const cleaned: Record<string, any> = {};
                         for (const [key, meta] of Object.entries(live)) {
-                            const {
-                                class: _cls,
-                                prototype: _proto,
-                                props: _props,
-                                referencingProperties: _refs,
-                                propertyOrder: _po,
-                                relations: _rels,
-                                concurrencyCheckKeys: _cck,
-                                checks: _chk,
-                                ...rest
-                            } = meta;
+                            const { class: _cls, prototype: _proto, props: _props,
+                                referencingProperties: _refs, propertyOrder: _po,
+                                relations: _rels, concurrencyCheckKeys: _cck,
+                                checks: _chk, ...rest } = meta;
                             cleaned[key] = rest;
                         }
                         globalThis.__ormMetadataCache = cleaned;
-                        ormLog(
-                            `Metadata cache captured: ${Object.keys(cleaned).length} entries, paths: ${Object.values(cleaned).filter((m: any) => m.path).length}`,
-                        );
-                        for (const [key, meta] of Object.entries(cleaned)) {
-                            ormLog(
-                                `  captured: name="${key}" path=${meta?.path ? `"${meta.path}"` : 'MISSING'} pk=${JSON.stringify(meta?.primaryKeys ?? [])}`,
-                            );
-                        }
                     }
                 })
                 .catch(console.error);
@@ -229,22 +157,16 @@ export async function getOrm(
             if (!globalThis.ormCleanups) globalThis.ormCleanups = [];
             // prettier really hates this part
             globalThis.ormCleanups.push(() => {
-                ormLog('Cleanup: nullifying __ormPromise, scheduling close in 10s');
                 const promiseToClose = globalThis.__ormPromise;
                 globalThis.__ormPromise = null; // Nullify immediately so new requests get fresh ORM
                 promiseToClose
                     ?.then((orm) => {
                         setTimeout(() => {
-                            ormLog('Cleanup: closing old ORM (graceful)');
                             orm.close()
-                                .then(() => ormLog('Cleanup: graceful close done'))
-                                .catch((err) => ormErr('Cleanup: graceful close failed:', err))
+                                .catch(console.error)
                                 .finally(() =>
                                     setTimeout(() => {
-                                        ormLog('Cleanup: force-closing old ORM');
-                                        orm.close(true)
-                                            .then(() => ormLog('Cleanup: force close done'))
-                                            .catch((err) => ormErr('Cleanup: force close failed:', err));
+                                        orm.close(true).catch(console.error);
                                     }, 5000),
                                 );
                         }, 10000);
@@ -261,7 +183,6 @@ export async function getOrm(
 }
 
 export async function closeOrm(force?: boolean): Promise<void> {
-    ormLog(`closeOrm called (force=${force})`);
     const oldOrm = globalThis.__ormPromise;
     globalThis.__ormPromise = null;
     if (oldOrm) await (await oldOrm).close(force);
