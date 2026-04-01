@@ -97,7 +97,7 @@ export const ProjectItem = ({ project, href, isSelected, onNavigate }: ProjectIt
                 onToggle={handleArchiveToggle}
                 className={cn(
                     'absolute right-3.5 top-3.5 z-10 text-neutral-400 transition-opacity md:right-5 md:top-5',
-                    isMutating ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                    isMutating ? 'opacity-100' : 'opacity-0 max-md:opacity-100 group-hover:opacity-100',
                 )}
             />
         </div>
