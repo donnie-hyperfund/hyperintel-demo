@@ -270,9 +270,12 @@ export function ChatProvider({
 
                 for (const data of results) {
                     if (data) {
-                        artifactContext.updateArtifact(keyId, data, getLatestArtifactVersion(data)?.version, {
-                            merge: false,
-                        });
+                        artifactContext.updateArtifact(
+                            keyId,
+                            { ...data, id: keyId },
+                            getLatestArtifactVersion(data)?.version,
+                            { merge: false },
+                        );
                     }
                 }
             } catch {
