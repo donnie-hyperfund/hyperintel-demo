@@ -147,7 +147,7 @@ export async function handleListProjectArtifacts(
     });
     // Exclude artifacts that have ANY uploaded version (not just current_version, which may be null during processing)
     query.andWhere({
-        [raw(`NOT EXISTS (SELECT 1 FROM artifact_version av WHERE av.artifact_id = a.id AND av.is_uploaded = true)`)]:
+        [raw(`NOT EXISTS (SELECT 1 FROM artifact_versions av WHERE av.artifact_id = a.id AND av.is_uploaded = true)`)]:
             [],
     });
 
