@@ -43,7 +43,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
 
     return (
         <>
-            <div className="px-4 pt-4">
+            <div className="border-b border-border px-4 py-4">
                 <ResourceListToolbar
                     search={filters.search}
                     onSearchChange={filters.setSearch}
@@ -73,7 +73,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
                     />
                 </div>
             ) : (
-                <div ref={scrollContainerRef} className="md:max-h-128 md:overflow-y-auto px-4 py-4 space-y-4">
+                <div ref={scrollContainerRef} className="max-h-[min(28rem,45dvh)] overflow-y-auto px-4 py-4 space-y-4">
                     <Section
                         title="Legacy DNA"
                         icon={Dna}
