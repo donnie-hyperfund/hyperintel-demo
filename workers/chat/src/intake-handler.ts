@@ -225,8 +225,14 @@ export async function intakeActionHandler(
         // First event: IDs (read by GenerationProxyDO, returned to frontend)
         enqueue({ type: 'ids', userMessageId, agentMessageId });
 
-        // Run generation inline — Worker stays alive because the DO reads this stream
-        await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        // SSE keepalive — prevents Cloudflare from killing the idle connection
+        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+
+        try {
+            await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        } finally {
+            clearInterval(heartbeat);
+        }
 
         try {
             controller.close();
