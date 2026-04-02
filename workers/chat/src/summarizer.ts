@@ -395,11 +395,17 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Auto-generate a short name for the source chat if it doesn't have one
         if (!chat.name && summaryContent) {
             try {
+                const docs = extractDocuments(messages);
+                const docContext =
+                    docs.length > 0
+                        ? `\n\nDocuments generated during this phase:\n${docs.map((d) => `- ${d.name}`).join('\n')}`
+                        : '';
+
                 const nameResult = await runInferenceNoStream(ctx, {
                     paramsType: AIParamsType.OpenRouter,
                     instructions:
-                        'You are a concise title generator. Given a conversation summary, produce a short title of 6-8 words that captures the main topic. Return ONLY the title, no quotes, no punctuation at the end.',
-                    context: [{ role: 'user', content: summaryContent }],
+                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. Return ONLY the title, no quotes, no punctuation at the end.',
+                    context: [{ role: 'user', content: summaryContent + docContext }],
                     params: {
                         model: COMMON_MODELS.GEMINI_FLASH_3_LITE,
                         maxTokens: 30,

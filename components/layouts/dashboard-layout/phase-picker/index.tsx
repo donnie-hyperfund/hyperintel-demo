@@ -5,12 +5,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
+import { RenamePhaseDialog } from '@/app/(dashboard)/_components/rename-phase-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useIsTruncated } from '@/hooks/use-is-truncated';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { cn } from '@/lib/utils';
 import { PhasePickerItem } from './phase-picker-item';
-import { RenamePhaseDialog } from './rename-phase-dialog';
 
 const PAGE_SIZE = 20;
 
@@ -24,6 +26,11 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
     const [open, setOpen] = useState(false);
     const [editingChatId, setEditingChatId] = useState<string | null>(null);
     const [editingInitialName, setEditingInitialName] = useState('');
+    const {
+        ref: triggerNameRef,
+        isTruncated: isTriggerTruncated,
+        onMouseEnter: onTriggerMouseEnter,
+    } = useIsTruncated();
     const router = useRouter();
 
     const { data, size, setSize, isLoading, hasNextPage, mutate } = useFetchChatsInfinite(projectId, {
@@ -78,11 +85,18 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
                         currentChat?.name && 'text-foreground',
                     )}
                 >
-                    <span className="truncate max-w-60">{phaseName ?? 'New phase'}</span>
+                    <Tooltip open={isTriggerTruncated ? undefined : false} delayDuration={750}>
+                        <TooltipTrigger asChild>
+                            <span ref={triggerNameRef} onMouseEnter={onTriggerMouseEnter} className="truncate max-w-60">
+                                {phaseName ?? 'New phase'}
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{phaseName ?? 'New phase'}</TooltipContent>
+                    </Tooltip>
                     <ChevronDown className="size-3.5 shrink-0 text-neutral-600 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                 </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="max-w-80 p-0">
+            <PopoverContent align="start" className="max-w-80 p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <div ref={rootRef} className="max-h-64 overflow-y-auto w-full py-1">
                     {chats.map((chat) => (
                         <PhasePickerItem
