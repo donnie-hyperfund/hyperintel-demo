@@ -318,8 +318,16 @@ export async function chatActionHandler(
         // First event: IDs (read by GenerationProxyDO, returned to frontend)
         enqueue({ type: 'ids', userMessageId, agentMessageId });
 
+        // SSE keepalive — prevents Cloudflare from killing the idle connection
+        // while runGeneration pushes content to ChatStreamDO (not to this SSE stream).
+        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+
         // Run generation inline — Worker stays alive because the DO reads this stream
-        await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        try {
+            await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        } finally {
+            clearInterval(heartbeat);
+        }
 
         try {
             controller.close();

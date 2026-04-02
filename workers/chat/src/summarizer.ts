@@ -150,8 +150,14 @@ export async function summarizeActionHandler(
         // First event: IDs (read by GenerationProxyDO, returned to frontend)
         enqueue({ type: 'ids', agentMessageId });
 
-        // Run generation inline — Worker stays alive because the DO reads this stream
-        await runSummarizer({ data, ctx, options, chat, agentMessageId, ugStub });
+        // SSE keepalive — prevents Cloudflare from killing the idle connection
+        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+
+        try {
+            await runSummarizer({ data, ctx, options, chat, agentMessageId, ugStub });
+        } finally {
+            clearInterval(heartbeat);
+        }
 
         try {
             controller.close();

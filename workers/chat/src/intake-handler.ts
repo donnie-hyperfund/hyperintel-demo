@@ -6,12 +6,12 @@
  */
 
 import { runAgentStream } from '@common/ai/agent';
-import { type ParamsWithType, extractInferenceMetadata } from '@common/ai/inference';
-import { resolvePreset, getDefaultPresetId } from '@/lib/presets';
+import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
 import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
@@ -225,8 +225,14 @@ export async function intakeActionHandler(
         // First event: IDs (read by GenerationProxyDO, returned to frontend)
         enqueue({ type: 'ids', userMessageId, agentMessageId });
 
-        // Run generation inline — Worker stays alive because the DO reads this stream
-        await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        // SSE keepalive — prevents Cloudflare from killing the idle connection
+        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+
+        try {
+            await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        } finally {
+            clearInterval(heartbeat);
+        }
 
         try {
             controller.close();
