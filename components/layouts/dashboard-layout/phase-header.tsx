@@ -26,8 +26,6 @@ export const PhaseHeader = () => {
     const { data: project } = useFetchProject(projectId);
     const { panelState, togglePanel } = useActivePanelContext();
 
-    console.log('state.phaseIndex', state.phaseIndex);
-
     return (
         <header className="border-b border-border max-sm:sticky max-sm:top-0 max-sm:left-0 max-sm:right-0 max-sm:z-10 bg-neutral-975">
             {/* Desktop */}

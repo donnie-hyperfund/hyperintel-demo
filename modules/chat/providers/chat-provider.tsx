@@ -159,8 +159,6 @@ export function ChatProvider({
     const [state, setState] = useState<ChatState>(() => {
         const cached = initialChatId ? fallback?.[unstable_serialize(chatKeys.detail(initialChatId))] : undefined;
 
-        console.log('cached', cached);
-
         return {
             messages: initialMessages,
             isGenerating: false,

@@ -1,4 +1,5 @@
 import camelcaseKeys from 'camelcase-keys';
+import { notFound } from 'next/navigation';
 import { SWRConfig, unstable_serialize } from 'swr';
 import { assertAuthPage } from '@/lib/api/auth-guard';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
