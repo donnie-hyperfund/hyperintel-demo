@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronDown, Loader2, MessageSquare, Plus } from 'lucide-react';
+import { ChevronDown, Loader2, MessageSquare, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -9,6 +9,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { cn } from '@/lib/utils';
+import { PhasePickerItem } from './phase-picker-item';
+import { RenamePhaseDialog } from './rename-phase-dialog';
 
 const PAGE_SIZE = 20;
 
@@ -20,17 +22,23 @@ type PhasePickerProps = {
 
 export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: PhasePickerProps) => {
     const [open, setOpen] = useState(false);
+    const [editingChatId, setEditingChatId] = useState<string | null>(null);
+    const [editingInitialName, setEditingInitialName] = useState('');
     const router = useRouter();
 
-    const isNewChat = !currentPhaseIndex;
-    const phaseName = typeof currentPhaseIndex === 'number' ? `Phase ${currentPhaseIndex + 1}` : null;
-
-    const { data, size, setSize, isLoading, hasNextPage } = useFetchChatsInfinite(projectId, { limit: PAGE_SIZE });
+    const { data, size, setSize, isLoading, hasNextPage, mutate } = useFetchChatsInfinite(projectId, {
+        limit: PAGE_SIZE,
+    });
 
     const chats = useMemo(() => {
         if (!data) return [];
         return data.flatMap((page) => page.data);
     }, [data]);
+
+    const isNewChat = !currentPhaseIndex;
+    const currentChat = chats.find((c) => c.id === currentChatId);
+    const phaseName =
+        currentChat?.name ?? (typeof currentPhaseIndex === 'number' ? `Phase ${currentPhaseIndex + 1}` : null);
 
     const [sentryRef, { rootRef }] = useInfiniteScroll({
         loading: isLoading,
@@ -48,39 +56,44 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
         router.push(`/${projectId}?new=true`);
     };
 
+    const handleEdit = (chatId: string) => {
+        const chat = chats.find((c) => c.id === chatId);
+        setEditingInitialName(chat?.name ?? '');
+        setEditingChatId(chatId);
+    };
+
+    const handleSaved = async () => {
+        await mutate();
+        setEditingChatId(null);
+    };
+
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <button
                     type="button"
                     className={cn(
-                        'group flex items-center gap-1.5 text-sm rounded-md px-2 py-1 transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground cursor-pointer',
-                        isNewChat && 'text-neutral-500',
+                        'group flex items-center gap-1.5 text-sm rounded-md px-2 py-1 min-w-0 transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground cursor-pointer',
+                        (isNewChat || !currentChat?.name) && 'text-neutral-500',
+                        currentChat?.name && 'text-foreground',
                     )}
                 >
-                    {phaseName ?? 'New phase'}
-                    <ChevronDown className="size-3.5 text-neutral-500 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                    <span className="truncate max-w-60">{phaseName ?? 'New phase'}</span>
+                    <ChevronDown className="size-3.5 shrink-0 text-neutral-600 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                 </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-0">
-                <div ref={rootRef} className="max-h-64 overflow-y-auto py-1">
-                    {chats.map((chat) => {
-                        const isActive = chat.id === currentChatId;
-                        return (
-                            <Link
-                                key={chat.id}
-                                href={`/${projectId}/${chat.id}`}
-                                onClick={() => setOpen(false)}
-                                className={cn(
-                                    'flex items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-accent',
-                                    isActive && 'bg-accent/50',
-                                )}
-                            >
-                                <span className="flex-1 truncate">Phase {chat.phaseIndex + 1}</span>
-                                {isActive && <Check className="size-3.5 text-primary shrink-0" />}
-                            </Link>
-                        );
-                    })}
+            <PopoverContent align="start" className="max-w-80 p-0">
+                <div ref={rootRef} className="max-h-64 overflow-y-auto w-full py-1">
+                    {chats.map((chat) => (
+                        <PhasePickerItem
+                            key={chat.id}
+                            chat={chat}
+                            projectId={projectId}
+                            isActive={chat.id === currentChatId}
+                            onSelect={() => setOpen(false)}
+                            onEdit={handleEdit}
+                        />
+                    ))}
                     {(isLoading || hasNextPage) && (
                         <div ref={sentryRef} className="flex items-center justify-center py-2">
                             <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
@@ -106,6 +119,13 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
                         <span>Create new phase</span>
                     </Link>
                 </div>
+
+                <RenamePhaseDialog
+                    chatId={editingChatId}
+                    initialName={editingInitialName}
+                    onClose={() => setEditingChatId(null)}
+                    onSaved={handleSaved}
+                />
             </PopoverContent>
         </Popover>
     );

@@ -102,11 +102,11 @@ type PhaseBreadcrumbsProps = {
 
 function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex }: PhaseBreadcrumbsProps) {
     return (
-        <Breadcrumb className="min-w-0">
-            <BreadcrumbList>
+        <Breadcrumb className="min-w-0 overflow-hidden">
+            <BreadcrumbList className="min-w-0 flex-nowrap">
                 {projectName && (
                     <>
-                        <BreadcrumbItem className="min-w-0">
+                        <BreadcrumbItem className="min-w-0 shrink">
                             <BreadcrumbLink asChild>
                                 <Link href={`/${projectId}/chats`} className="truncate">
                                     {projectName}
@@ -116,7 +116,7 @@ function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex }: PhaseB
                         <BreadcrumbSeparator className="shrink-0" />
                     </>
                 )}
-                <BreadcrumbItem className="min-w-0">
+                <BreadcrumbItem className="min-w-0 shrink">
                     <PhasePicker projectId={projectId} currentChatId={chatId} currentPhaseIndex={phaseIndex} />
                 </BreadcrumbItem>
             </BreadcrumbList>

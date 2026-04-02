@@ -1,6 +1,6 @@
 ﻿import { runAgentStream } from '@common/ai/agent';
-import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
-import { ANTHROPIC_MODELS } from '@common/ai/types';
+import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
+import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -390,6 +390,29 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 .update({ chat: newChat.id, chat_message: summaryMessage.id })
                 .where({ id: { $in: createdVersionIds } })
                 .execute();
+        }
+
+        // Auto-generate a short name for the source chat if it doesn't have one
+        if (!chat.name && summaryContent) {
+            try {
+                const nameResult = await runInferenceNoStream(ctx, {
+                    paramsType: AIParamsType.OpenRouter,
+                    instructions:
+                        'You are a concise title generator. Given a conversation summary, produce a short title of 6-8 words that captures the main topic. Return ONLY the title, no quotes, no punctuation at the end.',
+                    context: [{ role: 'user', content: summaryContent }],
+                    params: {
+                        model: COMMON_MODELS.GEMINI_FLASH_3_LITE,
+                        maxTokens: 30,
+                    },
+                });
+
+                if (nameResult.status === 'success' && nameResult.result) {
+                    chat.name = (nameResult.result as string).trim().slice(0, 100);
+                    await em!.flush();
+                }
+            } catch (err) {
+                console.error('[summarizer] failed to generate phase name:', err);
+            }
         }
 
         // Broadcast chat_created to all user WS connections (fire-and-forget)

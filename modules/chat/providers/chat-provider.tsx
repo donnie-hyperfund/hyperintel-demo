@@ -169,6 +169,7 @@ export function ChatProvider({
             tokenUsage: cached?.tokenUsage ?? null,
             hasPendingChanges: cached?.hasPendingChanges ?? false,
             phaseIndex: cached?.phaseIndex ?? null,
+            phaseName: cached?.name ?? null,
             summaryNewChatId: null,
             pendingPhaseTransition: false,
             activeResponseId: null,

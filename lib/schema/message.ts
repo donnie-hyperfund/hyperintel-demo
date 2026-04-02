@@ -156,6 +156,7 @@ export type CreateMessageBodyDto = z.infer<typeof CreateMessageBodySchema>;
 export const ChatDtoSchema = z.object({
     id: z.string().uuid(),
     type: z.string().optional(),
+    name: z.string().nullable().optional(),
     phase: z.string(),
     phase_index: z.number().int(),
     summary: z.string().nullable().optional(),

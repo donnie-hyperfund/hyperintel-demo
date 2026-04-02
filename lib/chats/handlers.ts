@@ -15,14 +15,16 @@ import type { EntityManager } from '@mikro-orm/postgresql';
 import { type NextRequest, NextResponse } from 'next/server';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
+import { workerSystemAction } from '@/lib/broadcast/worker-internal';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
+import { getAvailablePresets } from '@/lib/presets';
 import { ListArtifactsQuerySchema } from '@/lib/schema/artifact';
-import { CreateUnifiedChatBodySchema, UpdateChatModelSchema } from '@/lib/schema/chat';
+import { CreateUnifiedChatBodySchema, UpdateChatModelSchema, UpdateChatNameSchema } from '@/lib/schema/chat';
 import {
     type ChatDocumentSummaryDto,
     type ChatDto,
@@ -31,8 +33,6 @@ import {
     ListChatsQuerySchema,
     ListMessagesQuerySchema,
 } from '@/lib/schema/message';
-import { workerSystemAction } from '@/lib/broadcast/worker-internal';
-import { getAvailablePresets } from '@/lib/presets';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -214,6 +214,25 @@ export async function handleDeleteChat(chatId: string, user: UserEntity, project
 
     await em.removeAndFlush(chat);
     return NextResponse.json({ message: 'Chat deleted successfully' });
+}
+
+/**
+ * Update a chat's name.
+ */
+export async function handleUpdateChatName(req: NextRequest, chatId: string, user: UserEntity): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const body = await req.json();
+    const parsed = validatePayload(UpdateChatNameSchema, body);
+    if (parsed instanceof NextResponse) return parsed;
+
+    const chat = await verifyChatAccess(em, chatId, user.id);
+    if (!chat) return chatNotFound();
+
+    chat.name = parsed.name;
+    await em.flush();
+
+    return NextResponse.json({ name: parsed.name });
 }
 
 /**
