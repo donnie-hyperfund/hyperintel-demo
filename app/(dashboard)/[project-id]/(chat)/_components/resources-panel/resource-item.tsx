@@ -3,6 +3,7 @@ import { type Ref, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { getArtifactDocumentType } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
@@ -13,7 +14,7 @@ const borderColorByType: Record<string, string> = {
     'Human Persona': 'border-l-blue-500',
 };
 
-export function isPublicImport(artifact: ArtifactDto): boolean {
+export function isPublicImport(artifact: CamelCaseDto<ArtifactDto>): boolean {
     return artifact.metadata?.importedFromPublic === true;
 }
 
@@ -23,7 +24,7 @@ export function ResourceItem({
     isHighlighted = false,
     itemRef,
 }: {
-    artifact: ArtifactDto;
+    artifact: CamelCaseDto<ArtifactDto>;
     onRemove?: (artifactId: string) => Promise<void>;
     isHighlighted?: boolean;
     itemRef?: Ref<HTMLDivElement>;

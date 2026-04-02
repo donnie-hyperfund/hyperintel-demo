@@ -21,12 +21,12 @@ export const MOCK_ARTIFACTS: Artifact[] = [
         id: 'example-artifact_1',
         key: 'example-artifact',
         title: 'Example Document',
-        proposed_version: {
+        proposedVersion: {
             id: 'mock-version-1',
             version: 1,
             content: '# Example Document\n\nThis is an example artifact.',
             status: 'proposed',
-            created_at: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
         },
     },
 ];

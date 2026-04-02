@@ -7,6 +7,7 @@ import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useResourceListFilters } from '@/hooks/use-resource-list-filters';
 import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { ResourceListToolbar } from '@/modules/artifacts/components/resource-list-toolbar';
@@ -128,7 +129,7 @@ function Section({
 }: {
     title: string;
     icon: LucideIcon;
-    artifacts: ArtifactDto[];
+    artifacts: CamelCaseDto<ArtifactDto>[];
     selectedIds: string[];
     onToggle: (id: string) => void;
 }) {
@@ -145,7 +146,7 @@ function Section({
                         icon={icon}
                         size="sm"
                         isSelected={selectedIds.includes(artifact.id)}
-                        isShared={artifact.is_own === false}
+                        isShared={artifact.isOwn === false}
                         shouldDisplayVersionInfo={false}
                         onClick={() => onToggle(artifact.id)}
                     />

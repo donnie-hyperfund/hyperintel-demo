@@ -7,6 +7,7 @@ import { useRouter } from 'nextjs-toploader/app';
 import { ProjectItem, ProjectItemSkeleton } from '@/app/(dashboard)/projects/_components/project-item';
 import { Button } from '@/components/ui/button';
 import { useFetchProjects } from '@/lib/api/client/hooks/use-projects';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 
@@ -18,7 +19,7 @@ export function RecentProjectsSection() {
     const projects = data?.data ?? [];
     const total = data?.pagination.total ?? 0;
 
-    const openProject = (project: ProjectDto) => {
+    const openProject = (project: CamelCaseDto<ProjectDto>) => {
         if (!user?.id) return;
         setCurrentProjectCookie(user.id, project.id);
         router.push(`/${project.id}`);
@@ -81,7 +82,13 @@ function ProjectsEmpty() {
     );
 }
 
-function ProjectsGrid({ projects, onOpen }: { projects: ProjectDto[]; onOpen: (project: ProjectDto) => void }) {
+function ProjectsGrid({
+    projects,
+    onOpen,
+}: {
+    projects: CamelCaseDto<ProjectDto>[];
+    onOpen: (project: CamelCaseDto<ProjectDto>) => void;
+}) {
     return (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {projects.map((project) => (

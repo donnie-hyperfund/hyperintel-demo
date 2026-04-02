@@ -4,17 +4,17 @@ import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import type { ChatDto } from '@/lib/schema/message';
 import { chatKeys, createChatApi } from '../fetchers/chats';
-import type { InfinitePaginationParams, PaginatedResponse, PaginationParams } from '../types';
+import type { CamelCaseDto, InfinitePaginationParams, PaginatedResponse, PaginationParams } from '../types';
 import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
 export function useFetchChats(
     projectId: string | undefined,
     params?: PaginationParams,
-    config?: SWRConfiguration<PaginatedResponse<ChatDto>>,
+    config?: SWRConfiguration<PaginatedResponse<CamelCaseDto<ChatDto>>>,
 ) {
     const { getToken } = useAuth();
 
-    return useSWR<PaginatedResponse<ChatDto>>(
+    return useSWR<PaginatedResponse<CamelCaseDto<ChatDto>>>(
         projectId ? chatKeys.list(projectId, params) : null,
         () => {
             if (!projectId) throw new Error('Project ID is required');
@@ -27,11 +27,11 @@ export function useFetchChats(
 export function useFetchChatsInfinite(
     projectId: string | undefined,
     params: InfinitePaginationParams = { limit: 20 },
-    config?: SWRInfiniteConfiguration<PaginatedResponse<ChatDto>>,
+    config?: SWRInfiniteConfiguration<PaginatedResponse<CamelCaseDto<ChatDto>>>,
 ) {
     const { getToken } = useAuth();
 
-    return useSWRInfinitePaginated<ChatDto>(
+    return useSWRInfinitePaginated<CamelCaseDto<ChatDto>>(
         (pageIndex, previousPageData) => {
             if (!projectId) return null;
             if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
@@ -49,11 +49,11 @@ export function useFetchChatsInfinite(
 export function useFetchChat(
     projectId: string | undefined,
     chatId: string | undefined,
-    config?: SWRConfiguration<ChatDto>,
+    config?: SWRConfiguration<CamelCaseDto<ChatDto>>,
 ) {
     const { getToken } = useAuth();
 
-    return useSWR<ChatDto>(
+    return useSWR<CamelCaseDto<ChatDto>>(
         projectId && chatId ? chatKeys.detail(chatId) : null,
         () => {
             if (!chatId) throw new Error('Chat ID is required');

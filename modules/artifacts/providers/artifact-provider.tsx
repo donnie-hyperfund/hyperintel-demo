@@ -2,13 +2,14 @@
 
 import { createContext, type ReactNode, useCallback, useContext, useRef, useSyncExternalStore } from 'react';
 import type { ArtifactVersionDto } from '@/lib/schema/artifact';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import type { Artifact } from '../../chat/types';
 import { getLatestArtifactContent } from '../utils';
 
 /** Update type that allows partial version objects for deep merge */
-export type ArtifactUpdate = Omit<Partial<Artifact>, 'proposed_version' | 'current_version'> & {
-    proposed_version?: Partial<ArtifactVersionDto>;
-    current_version?: Partial<ArtifactVersionDto>;
+export type ArtifactUpdate = Omit<Partial<Artifact>, 'proposedVersion' | 'currentVersion'> & {
+    proposedVersion?: Partial<CamelCaseDto<ArtifactVersionDto>>;
+    currentVersion?: Partial<CamelCaseDto<ArtifactVersionDto>>;
 };
 
 type UpdateArtifactOptions = {
@@ -135,17 +136,17 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
             let updated: Artifact;
             if (options.merge) {
                 updated = { ...existing, ...updates } as Artifact;
-                if (updates.proposed_version && existing.proposed_version) {
-                    updated.proposed_version = {
-                        ...existing.proposed_version,
-                        ...updates.proposed_version,
-                    } as ArtifactVersionDto;
+                if (updates.proposedVersion && existing.proposedVersion) {
+                    updated.proposedVersion = {
+                        ...existing.proposedVersion,
+                        ...updates.proposedVersion,
+                    } as CamelCaseDto<ArtifactVersionDto>;
                 }
-                if (updates.current_version && existing.current_version) {
-                    updated.current_version = {
-                        ...existing.current_version,
-                        ...updates.current_version,
-                    } as ArtifactVersionDto;
+                if (updates.currentVersion && existing.currentVersion) {
+                    updated.currentVersion = {
+                        ...existing.currentVersion,
+                        ...updates.currentVersion,
+                    } as CamelCaseDto<ArtifactVersionDto>;
                 }
             } else {
                 updated = updates as Artifact;

@@ -5,23 +5,24 @@ import {
     isTextArtifactExtension,
     MAX_ARTIFACT_UPLOAD_SIZE,
 } from '@/lib/schema/artifact';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 
 // ── Artifact DTO helpers ────────────────────────────────────────────────────
 
-export function getLatestArtifactVersion(artifact: ArtifactDto) {
-    return artifact.proposed_version ?? artifact.current_version;
+export function getLatestArtifactVersion(artifact: CamelCaseDto<ArtifactDto>) {
+    return artifact.proposedVersion ?? artifact.currentVersion;
 }
 
-export function getArtifactDocumentType(artifact: ArtifactDto) {
-    return getLatestArtifactVersion(artifact)?.document_type;
+export function getArtifactDocumentType(artifact: CamelCaseDto<ArtifactDto>) {
+    return getLatestArtifactVersion(artifact)?.documentType;
 }
 
-export function isApprovedArtifact(artifact: ArtifactDto) {
+export function isApprovedArtifact(artifact: CamelCaseDto<ArtifactDto>) {
     return getLatestArtifactVersion(artifact)?.status === 'approved';
 }
 
 /** Extract the source project name from a published artifact's metadata (Legacy DNA). */
-export function getSourceProjectName(artifact: ArtifactDto): string | undefined {
+export function getSourceProjectName(artifact: CamelCaseDto<ArtifactDto>): string | undefined {
     const publishedFrom = artifact.metadata?.publishedFrom as { projectName?: string } | undefined;
     return publishedFrom?.projectName;
 }

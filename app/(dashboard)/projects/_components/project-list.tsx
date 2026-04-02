@@ -9,6 +9,7 @@ import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { useFetchProjectsInfinite } from '@/lib/api/client/hooks/use-projects';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto, ProjectListStatus } from '@/lib/schema/project';
 import { ProjectItem, ProjectItemSkeleton } from './project-item';
@@ -46,7 +47,7 @@ export const ProjectList = ({ status, onEmptyChange }: ProjectListProps) => {
     });
 
     const handleProjectNavigate = useCallback(
-        (project: ProjectDto) => {
+        (project: CamelCaseDto<ProjectDto>) => {
             if (!user?.id) return;
             setCurrentProjectCookie(user.id, project.id);
         },

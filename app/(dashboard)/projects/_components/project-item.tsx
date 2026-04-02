@@ -9,12 +9,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import { useUpdateProject } from '@/lib/api/client/hooks/use-projects';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { clearCurrentProjectCookie, getCurrentProjectFromCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 import { cn } from '@/lib/utils';
 
 type ProjectItemProps = {
-    project: ProjectDto;
+    project: CamelCaseDto<ProjectDto>;
     href?: string;
     isSelected?: boolean;
     onNavigate?: () => void;
@@ -46,12 +47,12 @@ export const ProjectItem = ({ project, href, isSelected, onNavigate }: ProjectIt
     const { user } = useUser();
     const { trigger: updateProject, isMutating } = useUpdateProject(project.id);
 
-    const isArchived = Boolean(project.archived_at);
+    const isArchived = Boolean(project.archivedAt);
     const displayDate =
-        isArchived && project.archived_at
-            ? `Archived ${format(new Date(project.archived_at), 'MMM d, yyyy')}`
-            : project.created_at
-              ? `Created ${format(new Date(project.created_at), 'MMM d, yyyy')}`
+        isArchived && project.archivedAt
+            ? `Archived ${format(new Date(project.archivedAt), 'MMM d, yyyy')}`
+            : project.createdAt
+              ? `Created ${format(new Date(project.createdAt), 'MMM d, yyyy')}`
               : null;
 
     const handleArchiveToggle = async () => {

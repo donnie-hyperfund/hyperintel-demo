@@ -2,8 +2,9 @@
 export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { StreamBlock } from '@/common/ai/agent/types';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import type { ArtifactDto } from '@/lib/schema/artifact';
-import type { StreamEvent, TokenUsage } from '@/lib/schema/stream';
+import type { TokenUsage } from '@/lib/schema/stream';
 
 // =============================================================================
 // Chat Types
@@ -82,7 +83,7 @@ export type PaginationState = {
 // Artifact Types
 // =============================================================================
 
-export type Artifact = Partial<ArtifactDto> & {
+export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     id: string;
     key: string;
     title: string;
