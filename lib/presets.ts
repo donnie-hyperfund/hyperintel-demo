@@ -38,7 +38,7 @@ const BASE_PRESETS: ModelPreset[] = [
     },
     {
         id: 'opus',
-        label: 'Opus 4.5',
+        label: 'Opus 4.6',
         description: 'Max quality',
         inference: {
             paramsType: AIParamsType.Anthropic,
