@@ -1,6 +1,8 @@
 import { Check, Pen } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useIsTruncated } from '@/hooks/use-is-truncated';
 import type { CamelCaseDto } from '@/lib/api/client/types';
 import type { ChatDto } from '@/lib/schema/message';
 import { cn } from '@/lib/utils';
@@ -14,6 +16,9 @@ type PhasePickerItemProps = {
 };
 
 export const PhasePickerItem = ({ chat, projectId, isActive, onSelect, onEdit }: PhasePickerItemProps) => {
+    const { ref: nameRef, isTruncated, onMouseEnter } = useIsTruncated();
+    const displayName = chat.name ?? 'Unnamed phase';
+
     return (
         <Link
             href={`/${projectId}/${chat.id}`}
@@ -24,23 +29,37 @@ export const PhasePickerItem = ({ chat, projectId, isActive, onSelect, onEdit }:
             )}
         >
             <div className="flex-1 min-w-0">
-                <span className={cn('truncate block mb-1', !chat.name && 'text-neutral-500')}>
-                    {chat.name ?? 'Unnamed phase'}
-                </span>
+                <Tooltip open={isTruncated ? undefined : false} delayDuration={750}>
+                    <TooltipTrigger asChild>
+                        <span
+                            ref={nameRef}
+                            onMouseEnter={onMouseEnter}
+                            className={cn('truncate block mb-1', !chat.name && 'text-neutral-500')}
+                        >
+                            {displayName}
+                        </span>
+                    </TooltipTrigger>
+                    <TooltipContent>{displayName}</TooltipContent>
+                </Tooltip>
                 <span className="text-xs text-neutral-500 truncate block">Phase {chat.phaseIndex + 1}</span>
             </div>
-            <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onEdit(chat.id);
-                }}
-                className="shrink-0 size-7 opacity-0 group-hover/item:opacity-100 transition-opacity"
-            >
-                <Pen className="size-3.5 text-muted-foreground" />
-            </Button>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onEdit(chat.id);
+                        }}
+                        className="shrink-0 size-7 opacity-0 group-hover/item:opacity-100 transition-opacity"
+                    >
+                        <Pen className="size-3.5 text-muted-foreground" />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent>Rename phase</TooltipContent>
+            </Tooltip>
             {isActive && <Check className="size-3.5 text-primary shrink-0" />}
         </Link>
     );
