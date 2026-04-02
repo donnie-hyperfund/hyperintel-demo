@@ -1,8 +1,12 @@
 import { z } from 'zod';
 
+export const PROJECT_LIST_STATUSES = ['active', 'archived', 'all'] as const;
+export type ProjectListStatus = (typeof PROJECT_LIST_STATUSES)[number];
+
 export const ListProjectsQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().max(100).optional(),
+    status: z.enum(PROJECT_LIST_STATUSES).optional(),
 });
 export type ListProjectsQueryDto = z.infer<typeof ListProjectsQuerySchema>;
 
@@ -15,6 +19,7 @@ export type CreateProjectBodyDto = z.infer<typeof CreateProjectBodySchema>;
 export const UpdateProjectBodySchema = z.object({
     name: z.string().trim().min(1, 'Name cannot be empty').optional(),
     description: z.string().trim().nullable().optional(),
+    archived: z.boolean().optional(),
 });
 export type UpdateProjectBodyDto = z.infer<typeof UpdateProjectBodySchema>;
 
@@ -25,6 +30,7 @@ export const ProjectDtoSchema = z.object({
     current_phase: z.string().nullable().optional(),
     user: z.union([z.string().uuid(), z.object({}).passthrough()]),
     metadata: z.record(z.unknown()).nullable().optional(),
+    archived_at: z.union([z.string(), z.date()]).nullable().optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),
 });

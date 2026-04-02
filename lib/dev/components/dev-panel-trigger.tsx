@@ -8,7 +8,6 @@ type Props = {
 };
 
 export function DevPanelTrigger({ open, onToggle }: Props) {
-	if (process.env.NODE_ENV === 'production') return null;
 
 	return (
 		<button

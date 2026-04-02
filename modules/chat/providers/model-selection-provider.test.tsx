@@ -2,12 +2,24 @@
 
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { DEFAULT_PRESET_ID } from '@/lib/presets';
 import { ModelSelectionProvider, useModelSelection } from './model-selection-provider';
 
 vi.mock('@/lib/config', () => ({
     IS_DEV: true,
     IS_PROD: false,
+}));
+
+vi.mock('@/lib/api/client/hooks/use-presets', () => ({
+    usePresets: () => ({
+        data: {
+            presets: [
+                { id: 'sonnet', label: 'Sonnet' },
+                { id: 'haiku', label: 'Haiku' },
+            ],
+            defaultPresetId: 'sonnet',
+        },
+        isLoading: false,
+    }),
 }));
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -24,7 +36,7 @@ describe('ModelSelectionProvider', () => {
     it('starts with default preset and allows updates', () => {
         const { result } = renderHook(() => useModelSelection(), { wrapper });
 
-        expect(result.current.selectedModel).toBe(DEFAULT_PRESET_ID);
+        expect(result.current.selectedModel).toBe('sonnet');
 
         act(() => {
             result.current.setSelectedModel('haiku');

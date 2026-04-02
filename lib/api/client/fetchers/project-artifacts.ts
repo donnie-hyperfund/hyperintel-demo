@@ -6,7 +6,7 @@ import type {
     VisibilityFilter,
 } from '@/lib/schema/artifact';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import type { CamelCaseDto, PaginatedResponse, PaginationParams } from '../types';
 
 export interface ProjectArtifactFilterParams {
     visibility?: VisibilityFilter[];
@@ -43,7 +43,7 @@ export function getProjectArtifactListInfiniteKey(
     limit = 20,
     filters?: ProjectArtifactFilterParams,
 ) {
-    return (pageIndex: number, previousPageData: PaginatedResponse<ArtifactDto> | null) => {
+    return (pageIndex: number, previousPageData: PaginatedResponse<CamelCaseDto<ArtifactDto>> | null) => {
         if (!projectId) return null;
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
         return projectArtifactKeys.list(projectId, { page: pageIndex + 1, limit, ...filters });
@@ -66,12 +66,14 @@ export function createProjectArtifactApi(getToken: TokenGetter) {
                     flat[k] = Array.isArray(v) ? v.join(',') : v;
                 }
             }
-            const { data } = await axios.get<PaginatedResponse<ArtifactDto>>(buildUrl(ENDPOINTS.root(projectId), flat));
+            const { data } = await axios.get<PaginatedResponse<CamelCaseDto<ArtifactDto>>>(
+                buildUrl(ENDPOINTS.root(projectId), flat),
+            );
             return data;
         },
 
         get: async (projectId: string, artifactId: string) => {
-            const { data } = await axios.get<ArtifactDto>(ENDPOINTS.byId(projectId, artifactId));
+            const { data } = await axios.get<CamelCaseDto<ArtifactDto>>(ENDPOINTS.byId(projectId, artifactId));
             return data;
         },
 
@@ -80,7 +82,7 @@ export function createProjectArtifactApi(getToken: TokenGetter) {
             if (version !== undefined) {
                 params.version = version;
             }
-            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.root(projectId), params));
+            const { data } = await axios.get<CamelCaseDto<ArtifactDto>>(buildUrl(ENDPOINTS.root(projectId), params));
             return data;
         },
 

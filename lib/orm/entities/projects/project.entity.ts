@@ -23,4 +23,7 @@ export class ProjectEntity extends IdCreatedUpdatedColumns {
 
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
+
+    @Property({ type: 'timestamptz', nullable: true, serializer: (value) => value?.toISOString() })
+    archived_at?: Nullable<Date>;
 }

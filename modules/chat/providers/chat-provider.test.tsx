@@ -203,8 +203,8 @@ describe('ChatProvider', () => {
     it('loads initial chat messages in chronological order', async () => {
         apiMock.messages.list.mockResolvedValue({
             data: [
-                { id: 'm2', role: 'assistant', blocks: [], content: 'new', is_error: false },
-                { id: 'm1', role: 'user', blocks: [], content: 'old', is_error: false },
+                { id: 'm2', role: 'assistant', blocks: [], content: 'new', isError: false },
+                { id: 'm1', role: 'user', blocks: [], content: 'old', isError: false },
             ],
             pagination: {
                 page: 1,
@@ -214,7 +214,7 @@ describe('ChatProvider', () => {
             },
         });
         apiMock.chats.get.mockResolvedValue({
-            token_usage: {
+            tokenUsage: {
                 usedTokens: 12,
                 tokenBreakdown: {
                     context: 2,
@@ -223,8 +223,8 @@ describe('ChatProvider', () => {
                     toolDef: 3,
                 },
             },
-            has_pending_changes: true,
-            phase_index: 2,
+            hasPendingChanges: true,
+            phaseIndex: 2,
         });
 
         const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWithInitialChatWrapper });
@@ -246,8 +246,8 @@ describe('ChatProvider', () => {
         apiMock.messages.list
             .mockResolvedValueOnce({
                 data: [
-                    { id: 'm3', role: 'assistant', blocks: [], content: 'newest', is_error: false },
-                    { id: 'm2', role: 'user', blocks: [], content: 'middle', is_error: false },
+                    { id: 'm3', role: 'assistant', blocks: [], content: 'newest', isError: false },
+                    { id: 'm2', role: 'user', blocks: [], content: 'middle', isError: false },
                 ],
                 pagination: {
                     page: 1,
@@ -257,7 +257,7 @@ describe('ChatProvider', () => {
                 },
             })
             .mockResolvedValueOnce({
-                data: [{ id: 'm1', role: 'assistant', blocks: [], content: 'oldest', is_error: false }],
+                data: [{ id: 'm1', role: 'assistant', blocks: [], content: 'oldest', isError: false }],
                 pagination: {
                     page: 2,
                     limit: 20,
@@ -267,9 +267,9 @@ describe('ChatProvider', () => {
             });
 
         apiMock.chats.get.mockResolvedValue({
-            token_usage: null,
-            has_pending_changes: false,
-            phase_index: 1,
+            tokenUsage: null,
+            hasPendingChanges: false,
+            phaseIndex: 1,
         });
 
         const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWithInitialChatWrapper });
@@ -304,7 +304,7 @@ describe('ChatProvider', () => {
 
         apiMock.chats.create.mockResolvedValue({
             id: 'chat-1',
-            phase_index: 3,
+            phaseIndex: 3,
         });
         sendActionMock.mockResolvedValue(mockResponse());
 
@@ -329,7 +329,7 @@ describe('ChatProvider', () => {
         expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/project-1/chat-1');
         expect(insertChatToCacheMock).toHaveBeenCalledWith(cacheMock, mutateMock, 'project-1', {
             id: 'chat-1',
-            phase_index: 3,
+            phaseIndex: 3,
         });
 
         replaceStateSpy.mockRestore();
@@ -443,16 +443,16 @@ describe('ChatProvider', () => {
         const cacheKey = JSON.stringify(['chats', 'detail', 'chat-initial']);
         fallbackMock = {
             [cacheKey]: {
-                token_usage: null,
-                has_pending_changes: true,
-                phase_index: 1,
+                tokenUsage: null,
+                hasPendingChanges: true,
+                phaseIndex: 1,
             },
         };
 
         apiMock.chats.get.mockResolvedValue({
-            token_usage: null,
-            has_pending_changes: true,
-            phase_index: 1,
+            tokenUsage: null,
+            hasPendingChanges: true,
+            phaseIndex: 1,
         });
         apiMock.messages.list.mockResolvedValue({
             data: [],

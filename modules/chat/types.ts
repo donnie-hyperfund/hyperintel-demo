@@ -2,6 +2,7 @@
 export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { StreamBlock } from '@/common/ai/agent/types';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import type { TokenUsage } from '@/lib/schema/stream';
 
@@ -64,8 +65,8 @@ export type ChatState = {
     pendingPhaseTransition: boolean;
     /** Active agent message ID for WS-based abort */
     activeResponseId: string | null;
-    /** Live blocks from the summary stream — available for rendering in the summary modal */
-    summaryBlocks: StreamBlock[];
+    /** Artifact key of the completion brief being generated during summary, null when inactive */
+    summaryDocKey: string | null;
     /** True while an artifact approval/rejection API call is in flight */
     isProcessingArtifactAction: boolean;
     /** True when the user tried to send with an unavailable model — shows an alert dialog */
@@ -83,7 +84,7 @@ export type PaginationState = {
 // Artifact Types
 // =============================================================================
 
-export type Artifact = Partial<ArtifactDto> & {
+export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     id: string;
     key: string;
     title: string;

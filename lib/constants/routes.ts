@@ -13,6 +13,7 @@ export enum WORKERS_LOCAL_ENDPOINTS {
     DeleteAction = '/api/chat/artifacts/delete',
     ExportAction = '/api/chat/artifacts/export',
     AssociateAction = '/api/chat/artifacts/associate',
+    Presets = '/api/chat/presets',
 }
 
 export enum WORKERS {
@@ -35,4 +36,5 @@ export enum CHAT_EP {
     DeleteAction = '/artifacts/delete',
     ExportAction = '/artifacts/export',
     AssociateAction = '/artifacts/associate',
+    Presets = '/presets',
 }

@@ -50,7 +50,7 @@ export default function LinkResourcesPage() {
             />
 
             <form onSubmit={onSubmit}>
-                <OnboardingStep.Card showPadding={false}>
+                <OnboardingStep.Card className="mb-4 py-0 md:mb-6 md:py-0" contentClassName="px-0 md:px-0">
                     <ResourceSelectList
                         selectedIds={selectedResourceIds}
                         onToggle={handleToggle}

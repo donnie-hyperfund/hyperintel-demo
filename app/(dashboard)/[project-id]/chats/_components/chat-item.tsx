@@ -4,11 +4,12 @@ import { formatDistanceToNow } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import type { ChatDto } from '@/lib/schema/message';
 import { cn } from '@/lib/utils';
 
 type ChatItemProps = {
-    chat: ChatDto;
+    chat: CamelCaseDto<ChatDto>;
     projectId?: string;
     phaseNumber: number;
 };
@@ -17,7 +18,7 @@ export const ChatItem = ({ chat, projectId, phaseNumber }: ChatItemProps) => {
     const router = useRouter();
 
     const title = `Phase ${phaseNumber}`;
-    const updatedAt = chat.updated_at ? new Date(chat.updated_at) : null;
+    const updatedAt = chat.updatedAt ? new Date(chat.updatedAt) : null;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
 
     const handleChatClick = () => {

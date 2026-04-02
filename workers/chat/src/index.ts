@@ -37,6 +37,7 @@ import {
     presignUploadHandler,
     uploadArtifactHandler,
 } from './artifact-uploader';
+import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import { chatActionHandler } from './chat-handler';
 import { cleanupStaleUploads } from './cleanup';
 import type { Ctx } from './context';
@@ -57,6 +58,14 @@ app.get('/health', honoMiddlewareWithOrm, async (c) => {
     const em = c.var.em;
     const result = await em.execute('SELECT 1+1 AS result');
     return c.json({ status: 'healthy', db: result[0]?.result });
+});
+
+app.get('/presets', (c) => {
+    const presets = getAvailablePresets(c.env.ALLOWED_PRESETS, c.env.BLOCKED_PRESETS);
+    return c.json({
+        presets: presets.map((p) => ({ id: p.id, label: p.label, description: p.description })),
+        defaultPresetId: getDefaultPresetId(c.env),
+    });
 });
 
 // Internal M2M endpoint — registered BEFORE honoMiddlewareAuthedWithOrm (no Clerk auth)

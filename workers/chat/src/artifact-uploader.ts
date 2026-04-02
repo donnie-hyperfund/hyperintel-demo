@@ -131,6 +131,7 @@ async function resolveScope(
             {
                 id: projectId,
                 user: { clerkId: user.userId },
+                archived_at: null,
             },
             { populate: ['user'] },
         );

@@ -2,6 +2,7 @@
 
 import { useCallback } from 'react';
 import { useSWRConfig } from 'swr';
+import { invalidateProjectLists } from '@/lib/api/client/fetchers/projects';
 import { useUserEvents } from '@/modules/chat/hooks/use-user-events';
 
 /**
@@ -23,7 +24,12 @@ export function UserEventsInvalidator() {
                         mutate((key: string) => key.includes('"chats"'));
                         break;
                     case 'project_created':
-                        mutate((key: string) => key.includes('"projects"'));
+                    case 'project_archived':
+                    case 'project_unarchived':
+                    case 'project_deleted':
+                        invalidateProjectLists(mutate);
+                        break;
+                    default:
                         break;
                 }
             },

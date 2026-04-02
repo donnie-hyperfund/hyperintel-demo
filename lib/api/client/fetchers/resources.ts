@@ -1,6 +1,6 @@
-import type { ArtifactDto, DocumentType } from '@/lib/schema/artifact';
+import type { ArtifactDto, DocumentType, OwnershipFilter } from '@/lib/schema/artifact';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import type { CamelCaseDto, PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
     root: '/api/resources',
@@ -11,6 +11,8 @@ export type ResourceListParams = PaginationParams & {
     documentType?: DocumentType[];
     approvedOnly?: boolean;
     excludeProjectId?: string;
+    search?: string;
+    ownership?: OwnershipFilter;
 };
 
 export const resourceKeys = {
@@ -19,15 +21,25 @@ export const resourceKeys = {
     list: (params?: ResourceListParams) => [...resourceKeys.lists(), params] as const,
 };
 
-export function getResourceListInfiniteKey(
+export function getResourceListInfiniteKey({
     limit = 20,
-    approvedOnly?: boolean,
-    documentType?: DocumentType[],
-    excludeProjectId?: string,
-) {
-    return (pageIndex: number, previousPageData: PaginatedResponse<ArtifactDto> | null) => {
+    approvedOnly,
+    documentType,
+    excludeProjectId,
+    search,
+    ownership,
+}: Omit<ResourceListParams, 'page'>) {
+    return (pageIndex: number, previousPageData: PaginatedResponse<CamelCaseDto<ArtifactDto>> | null) => {
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
-        return resourceKeys.list({ page: pageIndex + 1, limit, approvedOnly, documentType, excludeProjectId });
+        return resourceKeys.list({
+            page: pageIndex + 1,
+            limit,
+            approvedOnly,
+            documentType,
+            excludeProjectId,
+            search,
+            ownership,
+        });
     };
 }
 
@@ -40,19 +52,23 @@ export function createResourceApi(getToken: TokenGetter) {
             if (version !== undefined) {
                 params.version = version;
             }
-            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.byKey(key), params));
+            const { data } = await axios.get<CamelCaseDto<ArtifactDto>>(buildUrl(ENDPOINTS.byKey(key), params));
             return data;
         },
 
         list: async (params?: ResourceListParams) => {
-            const { documentType, approvedOnly, excludeProjectId, ...pagination } = params ?? {};
+            const { documentType, approvedOnly, excludeProjectId, search, ownership, ...pagination } = params ?? {};
             const query: Record<string, string | number | undefined> = {
                 ...pagination,
                 documentType: documentType?.join(','),
                 approvedOnly: approvedOnly ? 'true' : undefined,
                 excludeProjectId,
+                search,
+                ownership,
             };
-            const { data } = await axios.get<PaginatedResponse<ArtifactDto>>(buildUrl(ENDPOINTS.root, query));
+            const { data } = await axios.get<PaginatedResponse<CamelCaseDto<ArtifactDto>>>(
+                buildUrl(ENDPOINTS.root, query),
+            );
             return data;
         },
     };

@@ -15,23 +15,23 @@ function buildArtifact(id: string, content = 'initial'): Artifact {
         key: id,
         title: `Artifact ${id}`,
         version: 1,
-        created_at: '2026-01-01T00:00:00.000Z',
-        updated_at: '2026-01-01T00:00:00.000Z',
-        current_version: {
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        currentVersion: {
             id: `${id}-current`,
             version: 0,
             content: 'approved-content',
             status: 'approved',
-            created_at: '2026-01-01T00:00:00.000Z',
-            updated_at: '2026-01-01T00:00:00.000Z',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
         },
-        proposed_version: {
+        proposedVersion: {
             id: `${id}-proposed`,
             version: 1,
             content,
             status: 'proposed',
-            created_at: '2026-01-01T00:00:00.000Z',
-            updated_at: '2026-01-01T00:00:00.000Z',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
         },
     };
 }
@@ -65,10 +65,10 @@ describe('ArtifactProvider', () => {
 
         act(() => {
             result.current.updateArtifact('artifact-2', {
-                proposed_version: {
+                proposedVersion: {
                     content: 'after',
                 },
-                current_version: {
+                currentVersion: {
                     status: 'rejected',
                 },
                 isStreaming: true,
@@ -76,10 +76,10 @@ describe('ArtifactProvider', () => {
         });
 
         const updated = result.current.getArtifact('artifact-2');
-        expect(updated?.proposed_version?.content).toBe('after');
-        expect(updated?.proposed_version?.version).toBe(1);
-        expect(updated?.current_version?.status).toBe('rejected');
-        expect(updated?.current_version?.version).toBe(0);
+        expect(updated?.proposedVersion?.content).toBe('after');
+        expect(updated?.proposedVersion?.version).toBe(1);
+        expect(updated?.currentVersion?.status).toBe('rejected');
+        expect(updated?.currentVersion?.version).toBe(0);
         expect(updated?.isStreaming).toBe(true);
     });
 
@@ -123,7 +123,7 @@ describe('ArtifactProvider', () => {
             result.current.addArtifact({
                 ...artifact,
                 // Different object identity, same content/flags
-                proposed_version: { ...artifact.proposed_version! },
+                proposedVersion: { ...artifact.proposedVersion! },
             });
         });
 
