@@ -395,7 +395,9 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Auto-generate a short name for the source chat if it doesn't have one
         if (!chat.name && summaryContent) {
             try {
-                const docs = extractDocuments(messages);
+                const docs = extractDocuments(messages).filter(
+                    (d) => !d.name.toLowerCase().includes('completion brief'),
+                );
                 const docContext =
                     docs.length > 0
                         ? `\n\nDocuments generated during this phase:\n${docs.map((d) => `- ${d.name}`).join('\n')}`
