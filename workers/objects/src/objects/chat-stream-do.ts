@@ -386,13 +386,15 @@ export class ChatStreamDO extends DurableObject<Env> {
 
     /** Queue a stream_status message for broadcast. */
     private broadcastStatus(status: StreamStatus) {
-        this.queueBroadcast([{
-            topic: this.topic,
-            type: 'stream_status',
-            status,
-            agentMessageId: this.agentMessageId,
-            _seq: this.broadcastSeq++,
-        }]);
+        this.queueBroadcast([
+            {
+                topic: this.topic,
+                type: 'stream_status',
+                status,
+                agentMessageId: this.agentMessageId,
+                _seq: this.broadcastSeq++,
+            },
+        ]);
     }
 
     // ========================================================================
@@ -438,11 +440,15 @@ export class ChatStreamDO extends DurableObject<Env> {
             const now2 = Date.now();
             if (!this.gapDetectedAt) {
                 this.gapDetectedAt = now2;
-                console.warn(`[ChatStreamDO] gap detected: waiting for seq=${this.nextExpectedSeq}, have ${[...this.pendingBatches.keys()].join(',')}`);
+                console.warn(
+                    `[ChatStreamDO] gap detected: waiting for seq=${this.nextExpectedSeq}, have ${[...this.pendingBatches.keys()].join(',')}`,
+                );
             } else if (now2 - this.gapDetectedAt >= REORDER_GAP_TIMEOUT_MS) {
                 // Skip ahead to the lowest buffered seq and drain from there
                 const sortedSeqs = [...this.pendingBatches.keys()].sort((a, b) => a - b);
-                console.warn(`[ChatStreamDO] gap timeout: skipping seq ${this.nextExpectedSeq}→${sortedSeqs[0]}, lost ${sortedSeqs[0] - this.nextExpectedSeq} batch(es)`);
+                console.warn(
+                    `[ChatStreamDO] gap timeout: skipping seq ${this.nextExpectedSeq}→${sortedSeqs[0]}, lost ${sortedSeqs[0] - this.nextExpectedSeq} batch(es)`,
+                );
                 this.nextExpectedSeq = sortedSeqs[0];
                 this.gapDetectedAt = null;
                 // Re-drain from the new position
