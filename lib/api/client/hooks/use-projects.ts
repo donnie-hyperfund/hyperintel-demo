@@ -6,14 +6,17 @@ import type { CreateProjectBodyDto, ProjectDto, UpdateProjectBodyDto } from '@/l
 import {
     createProjectApi,
     getProjectListInfiniteKey,
+    invalidateProjectLists,
     type ProjectListParams,
     projectKeys,
-    serializeProjectListKey,
 } from '../fetchers/projects';
 import type { CamelCaseDto, PaginatedResponse } from '../types';
 import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
-export function useFetchProjects(params?: ProjectListParams, config?: SWRConfiguration<PaginatedResponse<CamelCaseDto<ProjectDto>>>) {
+export function useFetchProjects(
+    params?: ProjectListParams,
+    config?: SWRConfiguration<PaginatedResponse<CamelCaseDto<ProjectDto>>>,
+) {
     const { getToken } = useAuth();
 
     return useSWR<PaginatedResponse<CamelCaseDto<ProjectDto>>>(
@@ -57,11 +60,14 @@ export function useCreateProject() {
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<CamelCaseDto<ProjectDto>, Error, string, CreateProjectBodyDto>('create-project', async (_, { arg }) => {
-        const project = await createProjectApi(getToken).create(arg);
-        globalMutate(serializeProjectListKey('active'));
-        return project;
-    });
+    return useSWRMutation<CamelCaseDto<ProjectDto>, Error, string, CreateProjectBodyDto>(
+        'create-project',
+        async (_, { arg }) => {
+            const project = await createProjectApi(getToken).create(arg);
+            invalidateProjectLists(globalMutate);
+            return project;
+        },
+    );
 }
 
 export function useUpdateProject(projectId: string) {
@@ -72,8 +78,7 @@ export function useUpdateProject(projectId: string) {
         [...projectKeys.detail(projectId)],
         async (_, { arg }) => {
             const project = await createProjectApi(getToken).update(projectId, arg);
-            globalMutate(serializeProjectListKey('active'));
-            globalMutate(serializeProjectListKey('archived'));
+            invalidateProjectLists(globalMutate);
             return project;
         },
     );
@@ -87,8 +92,7 @@ export function useDeleteProject(projectId: string) {
         [...projectKeys.detail(projectId)],
         async () => {
             const result = await createProjectApi(getToken).delete(projectId);
-            globalMutate(serializeProjectListKey('active'));
-            globalMutate(serializeProjectListKey('archived'));
+            invalidateProjectLists(globalMutate);
             return result;
         },
     );
