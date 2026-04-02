@@ -101,7 +101,6 @@ type PhaseBreadcrumbsProps = {
 };
 
 function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex }: PhaseBreadcrumbsProps) {
-    console.log('phaseIndex', phaseIndex);
     return (
         <Breadcrumb className="min-w-0 overflow-hidden">
             <BreadcrumbList className="min-w-0 flex-nowrap">
