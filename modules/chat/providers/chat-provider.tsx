@@ -473,7 +473,12 @@ export function ChatProvider({
 
             if (newChatId) {
                 // Summary stream completed — store the new chat ID and exit summarizing mode
-                setState((prev) => ({ ...prev, isSummarizing: false, summaryNewChatId: newChatId }));
+                summarizeInFlightRef.current = false;
+                setState((prev) => ({
+                    ...prev,
+                    isSummarizing: false,
+                    summaryNewChatId: newChatId,
+                }));
                 return;
             }
 
@@ -528,6 +533,7 @@ export function ChatProvider({
                 setSelectedModel(selectedModel);
             }
             if (status === 'idle') {
+                summarizeInFlightRef.current = false;
                 setState((prev) =>
                     prev.isGenerating || prev.isSummarizing
                         ? { ...prev, isGenerating: false, isSummarizing: false, activeResponseId: null }
@@ -955,7 +961,17 @@ export function ChatProvider({
                 }));
             }
         },
-        [api, cache, chatType, ensureChatId, getToken, globalMutate, selectedModel, state.isGenerating, isModelAvailable],
+        [
+            api,
+            cache,
+            chatType,
+            ensureChatId,
+            getToken,
+            globalMutate,
+            selectedModel,
+            state.isGenerating,
+            isModelAvailable,
+        ],
     );
 
     // ========================================================================
@@ -991,10 +1007,16 @@ export function ChatProvider({
     // SUMMARIZE
     // ========================================================================
 
+    // Ref guard: prevents duplicate POST when multiple NextPhaseButton
+    // instances (desktop + mobile) react to pendingPhaseTransition simultaneously.
+    const summarizeInFlightRef = useRef(false);
+
     /** Trigger summarization — fires POST, then waits for stream_started(streamType:'summary') via WS */
     const summarizeChat = useCallback(async () => {
         // Summarization is only for phase chats
         if (chatType !== 'phase' || !chatId || state.isSummarizing) return;
+        if (summarizeInFlightRef.current) return;
+        summarizeInFlightRef.current = true;
 
         // Do NOT set isSummarizing here — stream_started(streamType:'summary') drives that state.
         // This avoids showing the summarizing UI if the POST itself fails.
@@ -1012,6 +1034,7 @@ export function ChatProvider({
             // Broker mode: POST returns { agentMessageId } synchronously.
             // stream_started(streamType:'summary') arrives via existing chat: WS subscription.
         } catch (err) {
+            summarizeInFlightRef.current = false;
             setState((prev) => ({
                 ...prev,
                 isSummarizing: false,
