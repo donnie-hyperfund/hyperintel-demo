@@ -401,7 +401,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                         'You are a concise title generator. Given a conversation summary, produce a short title of 6-8 words that captures the main topic. Return ONLY the title, no quotes, no punctuation at the end.',
                     context: [{ role: 'user', content: summaryContent }],
                     params: {
-                        model: COMMON_MODELS.GEMINI_FLASH,
+                        model: COMMON_MODELS.GEMINI_FLASH_3_LITE,
                         maxTokens: 30,
                     },
                 });
