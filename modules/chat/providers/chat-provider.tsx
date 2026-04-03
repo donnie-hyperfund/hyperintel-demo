@@ -152,7 +152,14 @@ export function ChatProvider({
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
-    const { selectedModel, setSelectedModel, isModelAvailable, setIsChangingModel } = useModelSelection();
+    const {
+        selectedModel,
+        setSelectedModel,
+        persistSelection,
+        clearPersistedSelection,
+        isModelAvailable,
+        setIsChangingModel,
+    } = useModelSelection();
     const skipNextLoad = useRef(false);
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
@@ -823,9 +830,10 @@ export function ChatProvider({
             const apiMessages: Message[] =
                 messagesData.data?.map((m) => mapApiMessage(m, chatData.activeAgentMessageId)) || [];
 
-            // Sync persisted model selection
+            // Sync persisted model selection — DB is source of truth, clear localStorage bridge
             if (chatData.selectedModel) {
                 setSelectedModel(chatData.selectedModel);
+                clearPersistedSelection();
             }
 
             setState((prev) => {
@@ -862,7 +870,7 @@ export function ChatProvider({
             console.error('Error loading messages:', error);
             setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
         }
-    }, [api, chatId, mapApiMessage, setSelectedModel]);
+    }, [api, chatId, mapApiMessage, setSelectedModel, clearPersistedSelection]);
 
     // Keep reconnect ref in sync with loadMessages
     loadMessagesRef.current = loadMessages;
@@ -934,6 +942,14 @@ export function ChatProvider({
             try {
                 const chatIdToUse = await ensureChatId();
 
+                // Persist pre-chat model pick to DB (clear localStorage only on success)
+                if (!chatId && selectedModel) {
+                    api.chats.updateModel(chatIdToUse, selectedModel).then(
+                        () => clearPersistedSelection(),
+                        (err) => console.error('Failed to persist initial model selection:', err),
+                    );
+                }
+
                 // Associate staged uploads with the newly created (or existing) chat
                 if (opts?.stagedArtifactIds?.length) {
                     await associateArtifacts({ artifactIds: opts.stagedArtifactIds, chatId: chatIdToUse }, accessToken);
@@ -986,7 +1002,9 @@ export function ChatProvider({
         [
             api,
             cache,
+            chatId,
             chatType,
+            clearPersistedSelection,
             ensureChatId,
             getToken,
             globalMutate,
@@ -1098,12 +1116,11 @@ export function ChatProvider({
         }));
     }, [chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
 
-    /** Change the chat's selected model — persists via API when a chat exists */
+    /** Change the chat's selected model — persists via API when a chat exists, localStorage when not */
     const changeModel = useCallback(
         async (presetId: string) => {
             if (!chatId) {
-                // No chat yet — just update local state (will be sent with first message)
-                setSelectedModel(presetId);
+                persistSelection(presetId);
                 return;
             }
 
@@ -1120,7 +1137,7 @@ export function ChatProvider({
                 setIsChangingModel(false);
             }
         },
-        [chatId, api, setSelectedModel, selectedModel, setIsChangingModel],
+        [chatId, api, persistSelection, setSelectedModel, selectedModel, setIsChangingModel],
     );
 
     const dismissInvalidModelAlert = useCallback(() => {
