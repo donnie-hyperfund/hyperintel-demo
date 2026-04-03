@@ -414,6 +414,10 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                     },
                 });
 
+                if (nameResult.status === 'error') {
+                    throw new Error(nameResult.error?.message ?? 'Failed to generate phase name');
+                }
+
                 if (nameResult.status === 'success' && nameResult.result) {
                     chat.name = (nameResult.result as string).trim().slice(0, 100);
                     await em!.flush();
