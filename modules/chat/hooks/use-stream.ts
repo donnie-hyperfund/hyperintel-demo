@@ -309,7 +309,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         1,
                     );
 
-                    o.onArtifactOpen?.(artifactId, 1);
+                    if (!payload.isInternal) {
+                        o.onArtifactOpen?.(artifactId, 1);
+                    }
                 } else if (payload.mode === 'edit') {
                     const loadedVersion = payload.loadedVersion ?? 1;
                     let existingArtifact = ac?.getArtifact(artifactId, loadedVersion) ?? null;
@@ -358,7 +360,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         newVersion,
                     );
 
-                    o.onArtifactOpen?.(artifactId, newVersion);
+                    if (!payload.isInternal) {
+                        o.onArtifactOpen?.(artifactId, newVersion);
+                    }
                 }
 
                 flushActiveDocuments();
