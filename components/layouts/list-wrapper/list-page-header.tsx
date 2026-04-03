@@ -1,4 +1,5 @@
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 type ListPageHeaderProps = {
     title: string;
@@ -17,7 +18,12 @@ export function ListPageHeader({ title, ActionComponent }: ListPageHeaderProps) 
                 {/* Desktop */}
                 <div className="flex flex-col md:hidden pt-4 pb-4 gap-4">
                     <div className="flex items-center justify-between">
-                        <SidebarTrigger className="size-8 shrink-0" />
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <SidebarTrigger className="size-8 shrink-0" />
+                            </TooltipTrigger>
+                            <TooltipContent>Toggle sidebar</TooltipContent>
+                        </Tooltip>
                         {ActionComponent}
                     </div>
                     <h1 className="text-xl font-semibold">{title}</h1>

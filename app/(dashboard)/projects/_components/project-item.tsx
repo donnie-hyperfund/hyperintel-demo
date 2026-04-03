@@ -4,7 +4,7 @@ import { useUser } from '@clerk/nextjs';
 import { format } from 'date-fns';
 import { Archive, Loader2, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
@@ -134,9 +134,9 @@ function ArchiveToggleButton({ isArchived, isMutating, onToggle, className }: Ar
     return (
         <Tooltip>
             <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" disabled={isMutating} onClick={onToggle} className={className}>
-                    <ActionIcon className={cn('size-4', isMutating && 'animate-spin')} />
-                </Button>
+                <IconButton size="sm" disabled={isMutating} onClick={onToggle} className={className}>
+                    <ActionIcon className={cn(isMutating && 'animate-spin')} />
+                </IconButton>
             </TooltipTrigger>
             <TooltipContent>{label}</TooltipContent>
         </Tooltip>
