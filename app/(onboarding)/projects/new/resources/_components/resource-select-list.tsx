@@ -81,6 +81,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
                         artifacts={legacyDna}
                         selectedIds={selectedIds}
                         onToggle={onToggle}
+                        searchQuery={filters.search}
                     />
                     <Section
                         title="Companies"
@@ -88,6 +89,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
                         artifacts={companies}
                         selectedIds={selectedIds}
                         onToggle={onToggle}
+                        searchQuery={filters.search}
                     />
                     <Section
                         title="Stakeholders"
@@ -95,6 +97,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
                         artifacts={stakeholders}
                         selectedIds={selectedIds}
                         onToggle={onToggle}
+                        searchQuery={filters.search}
                     />
                     {(isLoading || hasNextPage) && (
                         <div ref={sentryRef} className="flex items-center justify-center py-3">
@@ -126,12 +129,14 @@ function Section({
     artifacts,
     selectedIds,
     onToggle,
+    searchQuery,
 }: {
     title: string;
     icon: LucideIcon;
     artifacts: CamelCaseDto<ArtifactDto>[];
     selectedIds: string[];
     onToggle: (id: string) => void;
+    searchQuery?: string;
 }) {
     if (artifacts.length === 0) return null;
 
@@ -149,6 +154,7 @@ function Section({
                         isShared={artifact.isOwn === false}
                         shouldDisplayVersionInfo={false}
                         onClick={() => onToggle(artifact.id)}
+                        searchQuery={searchQuery}
                     />
                 ))}
             </div>
