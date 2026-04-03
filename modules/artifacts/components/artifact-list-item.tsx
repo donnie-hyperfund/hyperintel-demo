@@ -5,11 +5,12 @@ import type { LucideIcon } from 'lucide-react';
 import { Lock } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
+import { HighlightText } from '@/components/ui/highlight-text';
 import { Skeleton } from '@/components/ui/skeleton';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { getSourceProjectName } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
-import type { CamelCaseDto } from '@/lib/api/client/types';
 import { cn } from '@/lib/utils';
 import { getDocumentTypeIcon, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 
@@ -52,6 +53,7 @@ type ArtifactListItemProps = VariantProps<typeof containerVariants> & {
     badge?: React.ReactNode;
     href?: string;
     onClick?: () => void;
+    searchQuery?: string;
 };
 
 export const ArtifactListItem = ({
@@ -64,6 +66,7 @@ export const ArtifactListItem = ({
     badge,
     href,
     onClick,
+    searchQuery,
 }: ArtifactListItemProps) => {
     const artifactVersion = getLatestArtifactVersion(artifact);
     const Icon = icon ?? getDocumentTypeIcon(artifactVersion?.documentType);
@@ -82,14 +85,13 @@ export const ArtifactListItem = ({
             <Icon className={iconSizeVariants({ size })} />
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                    <span className="line-clamp-1 text-sm font-medium">{artifact.title}</span>
+                    <span className="line-clamp-1 text-sm font-medium">
+                        <HighlightText text={artifact.title} query={searchQuery ?? ''} />
+                    </span>
                     {isShared && <Badge variant="secondary">Shared</Badge>}
                     {badge}
                     {shouldDisplayVersionInfo && (
-                        <VersionStatusBadge
-                            status={artifactVersion?.status}
-                            isUploaded={artifactVersion?.isUploaded}
-                        />
+                        <VersionStatusBadge status={artifactVersion?.status} isUploaded={artifactVersion?.isUploaded} />
                     )}
                 </div>
 
