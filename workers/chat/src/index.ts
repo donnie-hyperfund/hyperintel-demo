@@ -5,7 +5,7 @@ import { HonoEnv, honoMiddlewareAuthedWithOrm, honoMiddlewareWithOrm } from '@wo
 import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
-import { ChatEntity } from '@/lib/orm/entities';
+import { ChatEntity, ChatMessageFileEntity } from '@/lib/orm/entities';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     ApproveArtifactActionSchema,
@@ -35,6 +35,12 @@ import {
     presignUploadHandler,
     uploadArtifactHandler,
 } from './artifact-uploader';
+import {
+    PresignImageUploadSchema,
+    ConfirmImageUploadSchema,
+    presignImageUploadHandler,
+    confirmImageUploadHandler,
+} from './image-uploader';
 import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import { chatActionHandler } from './chat-handler';
 import { cleanupStaleUploads } from './cleanup';
@@ -237,6 +243,51 @@ app.post('/artifacts/upload/presign', zValidator('json', PresignUploadSchema), a
 app.post('/artifacts/upload/confirm', zValidator('json', ConfirmUploadSchema), async (c) => {
     return wrapWorker(async () => {
         return await confirmUploadHandler(c.req.valid('json'), c.var);
+    });
+});
+
+// ── Image upload endpoints (chat message attachments) ──
+
+app.post('/images/upload/presign', zValidator('json', PresignImageUploadSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await presignImageUploadHandler(c.req.valid('json'), ctxWithAlias(c));
+    });
+});
+
+app.post('/images/upload/confirm', zValidator('json', ConfirmImageUploadSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await confirmImageUploadHandler(c.req.valid('json'), ctxWithAlias(c));
+    });
+});
+
+app.get('/images/:fileId', async (c) => {
+    const fileId = c.req.param('fileId');
+    const em = c.var.em!;
+
+    const file = await em.findOne(ChatMessageFileEntity, { id: fileId });
+    if (!file) return c.json({ error: 'Not found' }, 404);
+
+    // Verify ownership via chat → project → user chain
+    const chat = await em.findOne(ChatEntity, {
+        id: file.chat_id,
+        $or: [
+            { project: { user: { clerkId: c.var.user.userId } } },
+            { user: { clerkId: c.var.user.userId } },
+        ],
+    });
+    if (!chat) return c.json({ error: 'Not found' }, 404);
+
+    if (!c.env.USER_IMAGES_BUCKET) return c.json({ error: 'Storage not configured' }, 500);
+
+    const r2Object = await c.env.USER_IMAGES_BUCKET.get(file.storage_key);
+    if (!r2Object) return c.json({ error: 'File not found in storage' }, 404);
+
+    return new Response(r2Object.body, {
+        headers: {
+            'Content-Type': file.mime_type,
+            'Cache-Control': 'private, max-age=3600',
+            'Content-Disposition': `inline; filename="${file.original_name}"`,
+        },
     });
 });
 

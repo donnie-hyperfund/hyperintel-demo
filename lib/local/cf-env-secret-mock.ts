@@ -22,6 +22,9 @@ export const envSecretMocks: Record<string, unknown> = {
     AUTH_SECRET: makeSecretMock(process.env.AUTH_SECRET || 'hyperintel-local-dev-secret'),
     OPENAI_KEY: makeSecretMock(process.env.OPENAI_API_KEY ?? ''),
     FIRECRAWL_API_KEY: makeSecretMock(process.env.FIRECRAWL_API_KEY ?? ''),
+    R2_ACCESS_KEY_ID: makeSecretMock(process.env.R2_ACCESS_KEY_ID ?? ''),
+    R2_SECRET_ACCESS_KEY: makeSecretMock(process.env.R2_SECRET_ACCESS_KEY ?? ''),
+    CF_ACCOUNT_ID: makeSecretMock(process.env.CF_ACCOUNT_ID ?? ''),
     // Service Bindings / Queues (mocked)
     EMBEDDING_QUEUE: { send: () => Promise.resolve() } as any,
     // Non-secrets (plain strings)

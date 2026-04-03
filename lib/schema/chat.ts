@@ -6,6 +6,8 @@ export const SendChatActionSchema = z.object({
     chatId: z.string().uuid(),
     model: z.string().optional(),
     tempId: z.string().uuid('tempId must be a valid UUID').optional(),
+    /** IDs of uploaded image files (ChatMessageFileEntity) to attach to this message. */
+    imageFileIds: z.array(z.string().uuid()).max(10).optional(),
 });
 
 export type SendChatActionDto = z.infer<typeof SendChatActionSchema>;

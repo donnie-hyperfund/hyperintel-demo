@@ -7,10 +7,13 @@
  */
 
 import type { AgentStreamEvent } from '@common/ai/agent';
+import type { ContentPart, ImageContentPart } from '@common/ai/inference/types';
 import { serializeException, stringifyError } from '@/common/ai/utils';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
+import { generateSignedImageUrls } from '../image-uploader';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
 
 // ============================================================================
@@ -294,14 +297,42 @@ export function createEventCollector(): { enqueue: (data: object | string) => bo
 
 /**
  * Load chat messages from DB and map to inference-ready format.
+ * For user messages with attached images, generates signed URLs and
+ * builds multimodal ContentPart[] content.
  */
-export async function loadChatHistory(em: any, chatId: string) {
-    const dbMessages = await em
-        .createQueryBuilder(ChatMessageEntity, 'm')
-        .select('m.*')
-        .where({ chat: chatId })
-        .orderBy({ 'm.created_at': 'ASC' })
-        .getResult();
+export async function loadChatHistory(em: any, chatId: string, env?: Env) {
+    // Load messages and image files in parallel
+    const [dbMessages, imageFiles] = await Promise.all([
+        em
+            .createQueryBuilder(ChatMessageEntity, 'm')
+            .select('m.*')
+            .where({ chat: chatId })
+            .orderBy({ 'm.created_at': 'ASC' })
+            .getResult(),
+        env
+            ? em.find(ChatMessageFileEntity, {
+                  chat_id: chatId,
+                  chat_message: { $ne: null },
+                  status: 'uploaded',
+              })
+            : Promise.resolve([]),
+    ]);
+
+    // Group image files by message ID
+    const filesByMessage = new Map<string, ChatMessageFileEntity[]>();
+    for (const file of imageFiles as ChatMessageFileEntity[]) {
+        const msgId = typeof file.chat_message === 'object' ? (file.chat_message as any)?.id : file.chat_message;
+        if (!msgId) continue;
+        const existing = filesByMessage.get(msgId);
+        if (existing) existing.push(file);
+        else filesByMessage.set(msgId, [file]);
+    }
+
+    // Generate signed URLs for all image files (single batch)
+    const signedUrls = env && imageFiles.length > 0
+        ? await generateSignedImageUrls(env, imageFiles as ChatMessageFileEntity[])
+        : new Map<string, string>();
+
     return dbMessages.map((m: ChatMessageEntity) => {
         if (m.is_error || m.is_aborted) {
             let safeContent = m.content || '';
@@ -316,6 +347,33 @@ export async function loadChatHistory(em: any, chatId: string) {
             }
             return { role: m.role as 'user' | 'assistant', content: safeContent };
         }
+
+        // Check for attached images on user messages
+        const msgFiles = filesByMessage.get(m.id);
+        if (m.role === 'user' && msgFiles?.length) {
+            const parts: ContentPart[] = [];
+            // Text content first
+            if (m.content) {
+                parts.push({ type: 'text', text: m.content });
+            }
+            // Image parts with signed URLs
+            for (const file of msgFiles) {
+                const url = signedUrls.get(file.id);
+                if (url) {
+                    parts.push({
+                        type: 'image',
+                        source: 'url',
+                        url,
+                        mediaType: file.mime_type as ImageContentPart['mediaType'],
+                    });
+                }
+            }
+            return {
+                role: 'user' as const,
+                content: parts.length > 0 ? parts : m.content,
+            };
+        }
+
         return {
             role: m.role as 'user' | 'assistant',
             content: m.content,

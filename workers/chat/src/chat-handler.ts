@@ -9,6 +9,7 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
@@ -225,7 +226,7 @@ export async function chatActionHandler(
     ctx: Ctx,
     options: ChatHandlerOptions = {},
 ): Promise<ChatActionResult | ReadableStream | Response> {
-    const { chatId, message, tempId } = data;
+    const { chatId, message, tempId, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
 
@@ -266,6 +267,19 @@ export async function chatActionHandler(
             created_at: requestStartedAt,
         });
         em!.persist(userMsg);
+
+        // Link uploaded image files to this message
+        if (imageFileIds?.length) {
+            const imageFiles = await em!.find(ChatMessageFileEntity, {
+                id: { $in: imageFileIds },
+                chat_id: chatId,
+                status: 'uploaded',
+                chat_message: null,
+            });
+            for (const file of imageFiles) {
+                file.chat_message = userMsg;
+            }
+        }
     }
 
     // Set activeAgentMessageId on chat entity
@@ -376,7 +390,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         // Load history + safety check in parallel (doesn't slow happy path)
         // For nudge (message=null), skip safety check — the system event was injected server-side
         const [historyMessages, safetyVerdict] = await Promise.all([
-            loadChatHistory(em!, chatId),
+            loadChatHistory(em!, chatId, ctx.env),
             message ? safetyCheck(ctx, message) : Promise.resolve(null),
         ]);
 
