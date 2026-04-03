@@ -3,7 +3,7 @@
 import { formatDistanceToNow } from 'date-fns';
 import { Pen } from 'lucide-react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { CamelCaseDto } from '@/lib/api/client/types';
@@ -70,9 +70,9 @@ function RenameButton({ onClick, className }: RenameButtonProps) {
     return (
         <Tooltip>
             <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" onClick={onClick} className={className}>
-                    <Pen className="size-4" />
-                </Button>
+                <IconButton size="sm" onClick={onClick} className={className}>
+                    <Pen />
+                </IconButton>
             </TooltipTrigger>
             <TooltipContent>Rename phase</TooltipContent>
         </Tooltip>

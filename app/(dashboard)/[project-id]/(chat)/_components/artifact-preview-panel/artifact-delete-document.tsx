@@ -12,7 +12,8 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/hooks/use-toast';
 import { useDeleteProjectArtifact } from '@/lib/api/client/hooks/use-project-artifacts';
@@ -54,9 +55,9 @@ export function ArtifactDeleteDocument({
             <Tooltip>
                 <TooltipTrigger asChild>
                     <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" disabled={isMutating}>
-                            {isMutating ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-                        </Button>
+                        <IconButton size="sm" disabled={isMutating}>
+                            {isMutating ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                        </IconButton>
                     </AlertDialogTrigger>
                 </TooltipTrigger>
                 <TooltipContent>{isMutating ? 'Deleting...' : 'Delete artifact'}</TooltipContent>

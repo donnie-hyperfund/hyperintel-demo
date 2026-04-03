@@ -20,8 +20,8 @@ import { IS_DEV } from '@/lib/config';
 import { cn } from '@/lib/utils';
 import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
+import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
 import { FilePreviewItem } from './file-preview-item';
@@ -42,7 +42,15 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         projectId,
         stopGeneration,
         dismissInvalidModelAlert,
-        state: { isGenerating, isSummarizing, isLoading, isProcessingArtifactAction, tokenUsage, activeResponseId, showInvalidModelAlert },
+        state: {
+            isGenerating,
+            isSummarizing,
+            isLoading,
+            isProcessingArtifactAction,
+            tokenUsage,
+            activeResponseId,
+            showInvalidModelAlert,
+        },
     } = useChatContext();
     const { selectedModel } = useModelSelection();
 
@@ -202,24 +210,17 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                             type="button"
                                             onClick={stopGeneration}
                                             variant="unstyled"
-                                            className="bg-transparent hover:bg-accent text-white border border-neutral-500/35"
-                                            size="icon"
+                                            className="size-9 bg-transparent hover:bg-accent text-white border border-neutral-500/35"
                                         >
                                             <Square className="size-3.5 fill-current" />
                                         </Button>
                                     ) : (
-                                        <Button
-                                            type="button"
-                                            disabled
-                                            className="shrink-0"
-                                            size="icon"
-                                            variant="secondary"
-                                        >
+                                        <Button type="button" disabled className="size-9 shrink-0" variant="secondary">
                                             <Loader2 className="size-4 animate-spin" />
                                         </Button>
                                     )
                                 ) : (
-                                    <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
+                                    <Button type="submit" disabled={isDisabled} className="size-9 shrink-0">
                                         <ArrowUp className="size-5" />
                                     </Button>
                                 )}

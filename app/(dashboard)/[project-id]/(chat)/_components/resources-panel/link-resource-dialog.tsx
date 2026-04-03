@@ -17,6 +17,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useResourceListFilters } from '@/hooks/use-resource-list-filters';
 import { toast } from '@/hooks/use-toast';
@@ -137,9 +138,9 @@ export function LinkResourceDialog() {
             <Tooltip>
                 <DialogTrigger asChild>
                     <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-7">
-                            <Link className="size-4" />
-                        </Button>
+                        <IconButton size="sm">
+                            <Link />
+                        </IconButton>
                     </TooltipTrigger>
                 </DialogTrigger>
                 <TooltipContent>Link resource</TooltipContent>

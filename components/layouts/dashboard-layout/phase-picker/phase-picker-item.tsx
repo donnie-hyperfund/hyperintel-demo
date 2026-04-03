@@ -1,6 +1,6 @@
 import { Check, Pen } from 'lucide-react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useIsTruncated } from '@/hooks/use-is-truncated';
 import type { CamelCaseDto } from '@/lib/api/client/types';
@@ -45,18 +45,17 @@ export const PhasePickerItem = ({ chat, projectId, isActive, onSelect, onEdit }:
             </div>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <Button
-                        variant="ghost"
-                        size="icon"
+                    <IconButton
+                        size="sm"
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             onEdit(chat.id);
                         }}
-                        className="shrink-0 size-7 opacity-0 group-hover/item:opacity-100 transition-opacity"
+                        className="shrink-0 opacity-0 group-hover/item:opacity-100 transition-opacity"
                     >
-                        <Pen className="size-3.5 text-muted-foreground" />
-                    </Button>
+                        <Pen />
+                    </IconButton>
                 </TooltipTrigger>
                 <TooltipContent>Rename phase</TooltipContent>
             </Tooltip>
