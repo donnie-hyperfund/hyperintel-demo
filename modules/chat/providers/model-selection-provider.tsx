@@ -9,7 +9,7 @@ import { getModelStorageKey } from '@/lib/storage/storage-keys';
 type ModelSelectionContextValue = {
     selectedModel: string;
     setSelectedModel: (presetId: string) => void;
-    /** Persist selection to localStorage (pre-chat bridge). Clears automatically once DB syncs. */
+    /** Persist selection to localStorage (pre-chat bridge). */
     persistSelection: (presetId: string) => void;
     /** Clear the localStorage bridge (called when DB becomes source of truth). */
     clearPersistedSelection: () => void;
