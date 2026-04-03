@@ -68,6 +68,7 @@ html {
 
   /* Numeric radius tokens (px values) */
   --radius-0: 0px;
+  --radius-0.5: 2px;
   --radius-1: 4px;
   --radius-2: 8px;
   --radius-2.5: 10px;

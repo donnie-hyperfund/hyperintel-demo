@@ -103,6 +103,7 @@ export const CompanyList = ({ onEmptyChange }: CompanyListProps) => {
                                 icon={Building}
                                 href={!isShared && chatId ? `/companies/${chatId}` : undefined}
                                 isShared={isShared}
+                                searchQuery={filters.search}
                             />
                         );
                     })}

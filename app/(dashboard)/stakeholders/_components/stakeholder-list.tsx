@@ -100,6 +100,7 @@ export const StakeholderList = ({ onEmptyChange }: StakeholderListProps) => {
                                 icon={Users}
                                 href={!isShared && chatId ? `/stakeholders/${chatId}` : undefined}
                                 isShared={isShared}
+                                searchQuery={filters.search}
                             />
                         );
                     })}
