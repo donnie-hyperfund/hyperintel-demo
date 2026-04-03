@@ -109,14 +109,14 @@ function ProjectItemContent({ name, description, isArchived, displayDate }: Proj
     return (
         <>
             <div className="mb-1.5 flex items-center gap-2 pr-8">
-                <div className="line-clamp-1 text-sm font-medium md:text-md">{name}</div>
+                <div className="line-clamp-1 break-all text-sm font-medium md:text-md">{name}</div>
                 {isArchived && (
                     <span className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase text-amber-200">
                         Archived
                     </span>
                 )}
             </div>
-            <div className="mb-3 line-clamp-2 text-xs text-neutral-500 md:text-sm">
+            <div className="mb-3 line-clamp-2 break-all text-xs text-neutral-500 md:text-sm">
                 {description || <span className="text-neutral-600">No description</span>}
             </div>
             {displayDate && <div className="mt-0.5 text-xs text-neutral-500">{displayDate}</div>}
