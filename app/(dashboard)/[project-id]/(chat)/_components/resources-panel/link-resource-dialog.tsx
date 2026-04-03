@@ -192,6 +192,7 @@ export function LinkResourceDialog() {
                                 artifacts={availableLegacyDna}
                                 selectedIds={selectedIds}
                                 onToggle={handleToggle}
+                                searchQuery={filters.search}
                             />
                             <SelectableSection
                                 title="Companies"
@@ -199,6 +200,7 @@ export function LinkResourceDialog() {
                                 artifacts={availableCompanies}
                                 selectedIds={selectedIds}
                                 onToggle={handleToggle}
+                                searchQuery={filters.search}
                             />
                             <SelectableSection
                                 title="Stakeholders"
@@ -206,6 +208,7 @@ export function LinkResourceDialog() {
                                 artifacts={availableStakeholders}
                                 selectedIds={selectedIds}
                                 onToggle={handleToggle}
+                                searchQuery={filters.search}
                             />
                             {(isLoading || hasNextPage) && (
                                 <div ref={sentryRef} className="flex items-center justify-center py-3">
@@ -249,12 +252,14 @@ function SelectableSection({
     artifacts,
     selectedIds,
     onToggle,
+    searchQuery,
 }: {
     title: string;
     icon: LucideIcon;
     artifacts: CamelCaseDto<ArtifactDto>[];
     selectedIds: string[];
     onToggle: (id: string) => void;
+    searchQuery?: string;
 }) {
     if (artifacts.length === 0) return null;
 
@@ -272,6 +277,7 @@ function SelectableSection({
                         isShared={artifact.isOwn === false}
                         shouldDisplayVersionInfo={false}
                         onClick={() => onToggle(artifact.id)}
+                        searchQuery={searchQuery}
                     />
                 ))}
             </div>
