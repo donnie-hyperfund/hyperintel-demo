@@ -424,6 +424,13 @@ export function ChatProvider({
                 }),
                 feedbackScore: (m as any).feedback_score ?? null,
                 feedbackComment: (m as any).feedback ?? null,
+                // Only forward display-safe fields — metadata can contain safetyAnalysis, errors, etc.
+                ...(meta.preset && {
+                    metadata: {
+                        preset: meta.preset as string,
+                        ...(meta.inference && { inference: meta.inference as Record<string, unknown> }),
+                    },
+                }),
             };
         },
         [],

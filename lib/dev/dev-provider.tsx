@@ -9,6 +9,7 @@ import './dev-hooks';
 // Side-effect: register dev features (hook listeners, slot consumers)
 import './features/ws-logger';
 import './features/message-feedback';
+import './features/message-model-badge';
 
 import { DevPanel } from './components/dev-panel';
 

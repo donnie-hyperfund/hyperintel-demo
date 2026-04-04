@@ -18,6 +18,16 @@ export type MessageArtifactRef = {
     title: string;
 };
 
+export type MessageMetadata = {
+    preset?: string;
+    inference?: {
+        paramsType?: string;
+        model?: string;
+        [key: string]: unknown;
+    };
+    [key: string]: unknown;
+};
+
 /** Message using blocks-based structure for rich content */
 export type Message = {
     id: string;
@@ -39,6 +49,7 @@ export type Message = {
     createdAt?: Date;
     feedbackScore?: boolean | null;
     feedbackComment?: string | null;
+    metadata?: MessageMetadata | null;
 };
 
 export type Conversation = {
