@@ -105,60 +105,87 @@ export interface EditResult {
 }
 
 /**
+ * Find oldContent within the specified line range, allowing ±wiggle lines
+ * for model off-by-one errors. Returns the actual matched range (1-based).
+ */
+function findOldContent(
+    content: string,
+    edit: EditOperation,
+    wiggle: number,
+): { success: true; actualStart: number; actualEnd: number } | { success: false; error: string } {
+    const lines = content.split('\n');
+    const totalLines = lines.length;
+
+    // Validate base range is sane
+    if (edit.startLine < 1 || edit.endLine > totalLines || edit.startLine > edit.endLine) {
+        return { success: false, error: `Invalid line range ${edit.startLine}-${edit.endLine}. Document has ${totalLines} lines.` };
+    }
+
+    // Try exact range first, then expand ±1, ±2, ... up to wiggle
+    for (let offset = 0; offset <= wiggle; offset++) {
+        const starts = offset === 0 ? [edit.startLine] : [edit.startLine - offset, edit.startLine + offset];
+        for (const start of starts) {
+            const end = start + (edit.endLine - edit.startLine);
+            if (start < 1 || end > totalLines) continue;
+
+            const rangeLines = lines.slice(start - 1, end);
+            const rangeContent = rangeLines.join('\n');
+
+            const matchIndex = rangeContent.indexOf(edit.oldContent);
+            if (matchIndex === -1) continue;
+
+            // Check for ambiguity
+            const secondMatch = rangeContent.indexOf(edit.oldContent, matchIndex + 1);
+            if (secondMatch !== -1) {
+                return { success: false, error: `Multiple matches for oldContent in lines ${start}-${end}. Edit is ambiguous.` };
+            }
+
+            return { success: true, actualStart: start, actualEnd: end };
+        }
+    }
+
+    return { success: false, error: `oldContent not found in lines ${edit.startLine}-${edit.endLine} (±${wiggle}). Content may have changed.` };
+}
+
+/**
  * Apply precision edits to content.
  * Validates that oldContent matches exactly within the line range.
  */
 export function applyEdits(content: string, edits: EditOperation[]): EditResult {
     let currentContent = content;
 
+    // Allow ±2 lines for model off-by-one errors.
+    // NOTE: Multi-edit with line-shifting (e.g. first edit removes 5 lines) can cause
+    // subsequent edits' line numbers to be stale. The wiggle covers small shifts, but
+    // large structural changes should use a single edit with a big oldContent/newContent range.
+    // If this becomes a real problem, consider tracking cumulative line offsets across edits.
+    const LINE_WIGGLE = 2;
+
     // Validate all edits first (atomic)
     for (const edit of edits) {
-        const lines = currentContent.split('\n');
-        const totalLines = lines.length;
-
-        // Validate line range
-        if (edit.startLine < 1 || edit.endLine > totalLines || edit.startLine > edit.endLine) {
-            return {
-                success: false,
-                error: `Invalid line range ${edit.startLine}-${edit.endLine}. Document has ${totalLines} lines.`,
-            };
-        }
-
-        // Extract the range
-        const rangeLines = lines.slice(edit.startLine - 1, edit.endLine);
-        const rangeContent = rangeLines.join('\n');
-
-        // Check for exact match
-        const matchIndex = rangeContent.indexOf(edit.oldContent);
-        if (matchIndex === -1) {
-            return {
-                success: false,
-                error: `oldContent not found in lines ${edit.startLine}-${edit.endLine}. Content may have changed.`,
-            };
-        }
-
-        // Check for multiple matches (ambiguous)
-        const secondMatch = rangeContent.indexOf(edit.oldContent, matchIndex + 1);
-        if (secondMatch !== -1) {
-            return {
-                success: false,
-                error: `Multiple matches for oldContent in lines ${edit.startLine}-${edit.endLine}. Edit is ambiguous.`,
-            };
+        const match = findOldContent(currentContent, edit, LINE_WIGGLE);
+        if (!match.success) {
+            return { success: false, error: match.error };
         }
     }
 
     // Apply all edits (now that validation passed)
     for (const edit of edits) {
+        const match = findOldContent(currentContent, edit, LINE_WIGGLE);
+        if (!match.success) {
+            return { success: false, error: match.error };
+        }
+
         const lines = currentContent.split('\n');
-        const rangeLines = lines.slice(edit.startLine - 1, edit.endLine);
+        const rangeLines = lines.slice(match.actualStart - 1, match.actualEnd);
         const rangeContent = rangeLines.join('\n');
 
         // Apply replacement
         const newRangeContent = rangeContent.replace(edit.oldContent, edit.newContent);
 
         // Rebuild content
-        const before = lines.slice(0, edit.startLine - 1);
-        const after = lines.slice(edit.endLine);
+        const before = lines.slice(0, match.actualStart - 1);
+        const after = lines.slice(match.actualEnd);
         currentContent = [...before, ...newRangeContent.split('\n'), ...after].join('\n');
     }
 

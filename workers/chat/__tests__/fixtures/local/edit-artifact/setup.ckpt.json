@@ -1,0 +1,229 @@
+{
+  "cacheKey": "local",
+  "createdAt": "2026-03-31T12:03:33.928Z",
+  "generatedWith": "qwen-local",
+  "chat": {
+    "phase": "discovery",
+    "phase_index": 0,
+    "metadata": {
+      "loadedPrompts": []
+    },
+    "token_usage": {
+      "usedTokens": 12387,
+      "tokenBreakdown": {
+        "prompt": 8323,
+        "context": 1325,
+        "toolDef": 2739,
+        "promptTool": 4914
+      }
+    }
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "Please create a short research report document called \"market-overview\" about AI trends in 2026. Keep it brief — just 3-4 paragraphs."
+    },
+    {
+      "role": "assistant",
+      "content": "\n\n\n\n\n\n\n\n\n\n::document[market-overview.md]{version=1 lines=5 documentType=\"Research Report\"}\n\n\n\n\n\nI've created a brief research report called \"market-overview\" covering AI trends in 2026. The document is three paragraphs focusing on enterprise integration, multimodal capabilities becoming mainstream, and market consolidation with strong adoption in key sectors like healthcare, finance, and manufacturing.\n\nThe draft is ready for your review. Would you like me to make any adjustments or shall we proceed?",
+      "reasoning": "The user wants me to create a short research report document called \"market-overview\" about AI trends in 2026, with 3-4 paragraphs. I need to:\n\n1. Begin a document editing session with mode=\"create\", name=\"market-overview.md\", title that reflects the content, is_internal=true (since it's not specified as client deliverable), and document_type=\"Research Report\"\n2. Write 3-4 paragraphs of content about AI trends in 2026\n3. Finalize the document\n\nLet me start by beginning the document. I should use \"market-overview.md\" as the name, and a title like \"Market Overview: AI Trends in 2026\". Since they didn't specify it's a client deliverable, I'll use is_internal=true (the default). For document_type, \"Research Report\" seems appropriate based on their request.\nI'm creating a research report about AI trends in 2026. I need to write 3-4 brief paragraphs covering the key themes and developments expected in the AI market for that year. Let me compose this content.\n",
+      "blocks": [
+        {
+          "id": "block_1",
+          "type": "reasoning",
+          "source": "other",
+          "content": "The user wants me to create a short research report document called \"market-overview\" about AI trends in 2026, with 3-4 paragraphs. I need to:\n\n1. Begin a document editing session with mode=\"create\", name=\"market-overview.md\", title that reflects the content, is_internal=true (since it's not specified as client deliverable), and document_type=\"Research Report\"\n2. Write 3-4 paragraphs of content about AI trends in 2026\n3. Finalize the document\n\nLet me start by beginning the document. I should use \"market-overview.md\" as the name, and a title like \"Market Overview: AI Trends in 2026\". Since they didn't specify it's a client deliverable, I'll use is_internal=true (the default). For document_type, \"Research Report\" seems appropriate based on their request.\n",
+          "offsetMs": 7719,
+          "turnIndex": 0,
+          "durationMs": 5
+        },
+        {
+          "id": "block_2",
+          "type": "text",
+          "content": "\n\n"
+        },
+        {
+          "id": "801956546",
+          "type": "tool_call",
+          "content": "{\"status\":\"editing\",\"mode\":\"create\",\"name\":\"market-overview.md\",\"title\":\"Market Overview: AI Trends in 2026\",\"is_internal\":true,\"document_type\":\"Research Report\",\"lines\":0,\"message\":\"Draft started. Use write_document to add content, then finalize_document.\"}",
+          "offsetMs": 7724,
+          "toolName": "begin_document",
+          "toolInput": {
+            "mode": "create",
+            "name": "market-overview.md",
+            "title": "Market Overview: AI Trends in 2026",
+            "is_internal": true,
+            "document_type": "Research Report"
+          },
+          "turnIndex": 0,
+          "durationMs": 2566,
+          "toolCallId": "801956546",
+          "toolOutput": "{\"status\":\"editing\",\"mode\":\"create\",\"name\":\"market-overview.md\",\"title\":\"Market Overview: AI Trends in 2026\",\"is_internal\":true,\"document_type\":\"Research Report\",\"lines\":0,\"message\":\"Draft started. Use write_document to add content, then finalize_document.\"}",
+          "toolSuccess": true
+        },
+        {
+          "id": "block_3",
+          "type": "reasoning",
+          "source": "other",
+          "content": "I'm creating a research report about AI trends in 2026. I need to write 3-4 brief paragraphs covering the key themes and developments expected in the AI market for that year. Let me compose this content.\n",
+          "offsetMs": 13053,
+          "turnIndex": 1,
+          "durationMs": 1
+        },
+        {
+          "id": "block_4",
+          "type": "text",
+          "content": "\n\n"
+        },
+        {
+          "id": "424922167",
+          "type": "tool_call",
+          "content": "{\"status\":\"written\",\"charsAdded\":1360,\"linesAdded\":5,\"totalLines\":5}",
+          "offsetMs": 13054,
+          "toolName": "write_document",
+          "toolInput": {
+            "content": "The artificial intelligence landscape in 2026 is defined by a shift from experimentation to enterprise integration. After years of rapid model development, organizations are now focused on practical deployment and measurable ROI. The market has matured beyond the initial hype cycle, with businesses prioritizing applications that directly impact operational efficiency and customer experience.\n\nMultimodal AI capabilities have become mainstream, enabling seamless interaction across text, images, audio, and video in real-time processing. This evolution has transformed how consumers and enterprises engage with digital services, creating more intuitive and context-aware experiences. Edge computing integration further enhances these capabilities by reducing latency and enabling offline functionality for mobile and IoT applications.\n\nThe competitive landscape continues to consolidate, with major technology platforms establishing clear dominance while specialized startups carve out niches in vertical-specific solutions. Healthcare, finance, and manufacturing have emerged as the strongest adopters, each seeing significant productivity gains from AI-powered automation and decision support systems. The convergence of generative AI with traditional machine learning has created hybrid models that offer both creativity and analytical precision at scale."
+          },
+          "turnIndex": 1,
+          "durationMs": 7857,
+          "toolCallId": "424922167",
+          "toolOutput": "{\"status\":\"written\",\"charsAdded\":1360,\"linesAdded\":5,\"totalLines\":5}",
+          "toolSuccess": true
+        },
+        {
+          "id": "block_5",
+          "type": "text",
+          "content": "\n\n"
+        },
+        {
+          "id": "506049266",
+          "type": "tool_call",
+          "content": "{\"action\":\"created\",\"name\":\"market-overview.md\",\"version\":1,\"status\":\"proposed\",\"lines\":5}",
+          "offsetMs": 22267,
+          "toolName": "finalize_document",
+          "toolInput": {},
+          "turnIndex": 2,
+          "durationMs": 2590,
+          "toolCallId": "506049266",
+          "toolOutput": "{\"action\":\"created\",\"name\":\"market-overview.md\",\"version\":1,\"status\":\"proposed\",\"lines\":5}",
+          "toolSuccess": true,
+          "appendedOutput": "::document[market-overview.md]{version=1 lines=5 documentType=\"Research Report\"}"
+        },
+        {
+          "id": "block_6",
+          "type": "text",
+          "content": "::document[market-overview.md]{version=1 lines=5 documentType=\"Research Report\"}\n\n\n\nI've created a brief research report called \"market-overview\" covering AI trends in 2026. The document is three paragraphs focusing on enterprise integration, multimodal capabilities becoming mainstream, and market consolidation with strong adoption in key sectors like healthcare, finance, and manufacturing.\n\nThe draft is ready for your review. Would you like me to make any adjustments or shall we proceed?"
+        }
+      ],
+      "metadata": {
+        "preset": "qwen-local",
+        "inference": {
+          "model": "mradermacher/brayniac-qwen3.5-27b-heretic-i1",
+          "paramsType": "openai",
+          "searchEnabled": true
+        }
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "key": "market-overview.md",
+      "title": "Market Overview: AI Trends in 2026",
+      "version": 1,
+      "versions": [
+        {
+          "version": 1,
+          "content": "The artificial intelligence landscape in 2026 is defined by a shift from experimentation to enterprise integration. After years of rapid model development, organizations are now focused on practical deployment and measurable ROI. The market has matured beyond the initial hype cycle, with businesses prioritizing applications that directly impact operational efficiency and customer experience.\n\nMultimodal AI capabilities have become mainstream, enabling seamless interaction across text, images, audio, and video in real-time processing. This evolution has transformed how consumers and enterprises engage with digital services, creating more intuitive and context-aware experiences. Edge computing integration further enhances these capabilities by reducing latency and enabling offline functionality for mobile and IoT applications.\n\nThe competitive landscape continues to consolidate, with major technology platforms establishing clear dominance while specialized startups carve out niches in vertical-specific solutions. Healthcare, finance, and manufacturing have emerged as the strongest adopters, each seeing significant productivity gains from AI-powered automation and decision support systems. The convergence of generative AI with traditional machine learning has created hybrid models that offer both creativity and analytical precision at scale.",
+          "status": "proposed",
+          "is_internal": true,
+          "document_type": "Research Report"
+        }
+      ]
+    }
+  ],
+  "turns": [
+    {
+      "userMessageId": "d5ba2ffc-93f1-43ab-bcf0-b9bac4c7b064",
+      "agentMessageId": "dda73610-8191-4732-b033-5e995c5f4607",
+      "events": [
+        {
+          "type": "tool_start",
+          "tool": "begin_document",
+          "id": "801956546",
+          "offsetMs": 7724
+        },
+        {
+          "type": "document_start",
+          "name": "market-overview.md",
+          "title": "Market Overview: AI Trends in 2026",
+          "mode": "create",
+          "isInternal": true,
+          "pendingVersion": 1,
+          "estimatedChars": 14000,
+          "documentType": "Research Report"
+        },
+        {
+          "type": "tool_result",
+          "tool": "begin_document",
+          "id": "801956546",
+          "success": true,
+          "result": "{\"status\":\"editing\",\"mode\":\"create\",\"name\":\"market-overview.md\",\"title\":\"Market Overview: AI Trends in 2026\",\"is_internal\":true,\"document_type\":\"Research Report\",\"lines\":0,\"message\":\"Draft started. Use write_document to add content, then finalize_document.\"}",
+          "offsetMs": 10290,
+          "durationMs": 2566
+        },
+        {
+          "type": "tool_start",
+          "tool": "write_document",
+          "id": "424922167",
+          "offsetMs": 13054
+        },
+        {
+          "type": "tool_result",
+          "tool": "write_document",
+          "id": "424922167",
+          "success": true,
+          "result": "{\"status\":\"written\",\"charsAdded\":1360,\"linesAdded\":5,\"totalLines\":5}",
+          "offsetMs": 20911,
+          "durationMs": 7857
+        },
+        {
+          "type": "tool_start",
+          "tool": "finalize_document",
+          "id": "506049266",
+          "offsetMs": 22267
+        },
+        {
+          "type": "document_complete",
+          "name": "market-overview.md",
+          "version": 1,
+          "lines": 5,
+          "action": "created",
+          "status": "proposed"
+        },
+        {
+          "type": "tool_result",
+          "tool": "finalize_document",
+          "id": "506049266",
+          "success": true,
+          "result": "{\"action\":\"created\",\"name\":\"market-overview.md\",\"version\":1,\"status\":\"proposed\",\"lines\":5}",
+          "offsetMs": 24857,
+          "durationMs": 2590
+        },
+        {
+          "type": "done",
+          "tokenUsage": {
+            "tokenBreakdown": {
+              "context": 1325,
+              "prompt": 8323,
+              "promptTool": 4914,
+              "toolDef": 2739
+            },
+            "usedTokens": 12387
+          },
+          "hasPendingChanges": true,
+          "phaseIndex": 0
+        }
+      ]
+    }
+  ]
+}

@@ -1,12 +1,10 @@
-import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { withShared } from "../../vitest.shared";
 
-export default defineConfig({
+export default withShared({
 	resolve: {
 		alias: {
-			"@worker": path.resolve(import.meta.dirname, "../_common"),
-			"@common": path.resolve(import.meta.dirname, "../../common"),
-			"@": path.resolve(import.meta.dirname, "../.."),
+			"cloudflare:workers": path.resolve(import.meta.dirname, "../../common/common/local.do-mock"),
 		},
 	},
 	test: {
@@ -15,5 +13,7 @@ export default defineConfig({
 		root: import.meta.dirname,
 		include: ["**/*.test.ts"],
 		exclude: ["**/node_modules/**"],
+		// TODO: revisit — integration tests share a DB, so we disable file parallelism for now
+		fileParallelism: false,
 	},
 });

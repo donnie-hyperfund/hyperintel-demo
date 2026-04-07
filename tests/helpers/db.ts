@@ -13,7 +13,7 @@ let orm: MikroORM | null = null;
 export async function getTestOrm(): Promise<MikroORM> {
 	if (orm) return orm;
 	// Dynamic import so vitest can resolve aliases
-	const { default: config } = await import("@/mikro-orm.config");
+	const { default: config } = await import("@/mikro-orm.config.base");
 	orm = await MikroORM.init({ ...config, allowGlobalContext: true });
 	return orm;
 }

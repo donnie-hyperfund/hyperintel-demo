@@ -288,8 +288,8 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     const pusher = createPusher(streamDO, 'intake-handler');
 
     try {
-        if (!anthropic || !langfuse) {
-            throw new Error('Anthropic and Langfuse clients are required');
+        if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
+            throw new Error('Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)');
         }
 
         const framework = chat.metadata?.framework as 'cpf' | 'hpf';

@@ -383,8 +383,8 @@ async function runGeneration(params: GenerationParams): Promise<void> {
     const pusher = createPusher(streamDO, 'chat-handler');
 
     try {
-        if (!anthropic || !langfuse) {
-            throw new Error('Anthropic and Langfuse clients are required');
+        if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
+            throw new Error('Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)');
         }
 
         // Load history + safety check in parallel (doesn't slow happy path)
@@ -545,6 +545,11 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             // Feed content deltas to safety monitor
             if (event.type === 'delta') {
                 safetyMonitor.appendContent(event.content);
+            }
+
+            // Forward tool_call_complete to onEvent only (not to frontend/DO)
+            if (event.type === 'tool_call_complete' && options.onEvent) {
+                options.onEvent({ type: 'tool_call_complete', tool: event.tool, id: event.id, input: event.input });
             }
 
             // Let document handler process the event (queues doc events locally)

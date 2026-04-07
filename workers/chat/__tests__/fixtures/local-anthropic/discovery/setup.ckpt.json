@@ -1,0 +1,382 @@
+{
+  "cacheKey": "local-anthropic",
+  "createdAt": "2026-04-02T08:28:56.295Z",
+  "generatedWith": "sonnet",
+  "chat": {
+    "phase": "discovery",
+    "phase_index": 0,
+    "metadata": {
+      "loadedPrompts": []
+    },
+    "token_usage": {
+      "usedTokens": 13480,
+      "tokenBreakdown": {
+        "prompt": 8323,
+        "context": 2418,
+        "toolDef": 2739,
+        "promptTool": 5026
+      }
+    }
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "Please create a short research report document called \"market-overview\" about AI trends in 2026. Keep it brief — just 3-4 paragraphs."
+    },
+    {
+      "role": "assistant",
+      "content": "\n\nExcellent — plenty of strong, current source material to work with. Let me build this now.\n\n::document[market-overview.md]{version=1 lines=28 documentType=\"Research Report\"}\n\n\n\nThe **AI Market Overview 2026** report is ready for your review. Here's a quick summary of what's covered across the four paragraphs:\n\n1. **Enterprise Integration** — The market's pivot from experimentation to scaled deployment, backed by Deloitte and Capgemini data.\n2. **Agentic AI** — The dominant trend of 2026, with strong adoption numbers from NVIDIA's survey alongside measured caution from MIT Sloan researchers on readiness and risk.\n3. **Model Architecture** — The industry's strategic shift away from brute-force scaling toward efficient, hardware-aware models and the emerging physical AI/robotics frontier.\n4. **Investment & ROI** — Robust budget growth tempered by a challenging ROI reality, and the enterprise response of centralized, metrics-driven deployment programs.\n\nAll claims are grounded in sources from IBM, Capgemini, Deloitte, NVIDIA, PwC, MIT Sloan, and HBR/Gartner. Let me know if you'd like any adjustments before approving!",
+      "reasoning": "The user wants me to create a research report document called \"market-overview\" about AI trends in 2026. Let me first search the knowledge base for any relevant context, then create the document.",
+      "blocks": [
+        {
+          "id": "block_1",
+          "type": "reasoning",
+          "source": "anthropic",
+          "content": "The user wants me to create a research report document called \"market-overview\" about AI trends in 2026. Let me first search the knowledge base for any relevant context, then create the document.",
+          "offsetMs": 2216,
+          "turnIndex": 0,
+          "durationMs": 779,
+          "thinkingSignature": "EoEDClsIDBgCKkDSIlaI5IaJjv27CCdyT0dHREPB8M9jBoUqzWKQVwmGT8stExj16rxE1/z0o4ZnF4q0+pSBdeHTC3ggDVTxSon5MhFjbGF1ZGUtc29ubmV0LTQtNjgAEgxUC+EdY1NMa1i+gyUaDLvOTy/X7mbFIPF6gyIwsCmH5zFersG4yZbygrzhVsw4L29L/sCZHOqRKBLtx4ugAeN+qAvP1Aj5HcRKCf0IKtMBTp5IKv0R7cyc8n3tDw5lPs/Oz+aoKo9C3mLwMTkHF121D2PVKYUn4wrP7+GxJBz5Vq2TbPh6aVQRnUZP/hu0xj21OQc/4aZtUaSVy+jQ71PPly4myQsV564RrW4LEYZB1lxzH64ej8/zKVFdq9eFU47O894xn8Wi0Hb3NawQBl6iqjxgaCoJ0xWrNOrSkEw6+ZFMwK5nWs4udHIUkc+h8uEpixZvgva5r1t703r3dWaYjpe9XSutdMWZDkMA5QgcmT9xEUzakqf3tjo2h0BVnZvkrRgB"
+        },
+        {
+          "id": "block_2",
+          "type": "search",
+          "content": "",
+          "provider": "anthropic",
+          "searchQuery": "AI market trends 2026",
+          "providerData": {
+            "anthropic": {
+              "serverToolInput": {
+                "query": "AI market trends 2026"
+              },
+              "serverToolUseId": "srvtoolu_012W1ApTxo4u2nSTctixanXc",
+              "serverToolResults": []
+            }
+          }
+        },
+        {
+          "id": "toolu_01MGhXrHLqNHLH3aVcvJ9R4B",
+          "type": "tool_call",
+          "content": "No relevant documents found.",
+          "offsetMs": 2997,
+          "toolName": "search_knowledge",
+          "toolInput": {
+            "limit": 5,
+            "query": "AI trends 2026 market overview"
+          },
+          "turnIndex": 0,
+          "durationMs": 3063,
+          "toolCallId": "toolu_01MGhXrHLqNHLH3aVcvJ9R4B",
+          "toolOutput": "No relevant documents found.",
+          "toolSuccess": true
+        },
+        {
+          "id": "block_3",
+          "type": "search",
+          "content": "",
+          "provider": "anthropic",
+          "searchQuery": "AI industry trends 2026",
+          "providerData": {
+            "anthropic": {
+              "serverToolInput": {
+                "query": "AI industry trends 2026"
+              },
+              "serverToolUseId": "srvtoolu_01LBRszTauuUQ1rBtvFU1ZbU",
+              "serverToolResults": [
+                {
+                  "url": "https://www.ibm.com/think/news/ai-tech-trends-predictions-2026",
+                  "type": "web_search_result",
+                  "title": "The trends that will shape AI and tech in 2026 | IBM",
+                  "page_age": "2 weeks ago",
+                  "encrypted_content": "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"
+                },
+                {
+                  "url": "https://news.microsoft.com/source/features/ai/whats-next-in-ai-7-trends-to-watch-in-2026/",
+                  "type": "web_search_result",
+                  "title": "What’s next in AI: 7 trends to watch in 2026",
+                  "page_age": "January 8, 2026",
+                  "encrypted_content": "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"
+                },
+                {
+                  "url": "https://www.pwc.com/us/en/tech-effect/ai-analytics/ai-predictions.html",
+                  "type": "web_search_result",
+                  "title": "2026 AI Business Predictions: PwC",
+                  "encrypted_content": "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"
+                },
+                {
+                  "url": "https://sloanreview.mit.edu/article/five-trends-in-ai-and-data-science-for-2026/",
+                  "type": "web_search_result",
+                  "title": "Five Trends in AI and Data Science for 2026 | Thomas H. Davenport and Randy Bean | MIT Sloan Management Review",
+                  "page_age": "January 6, 2026",
+                  "encrypted_content": "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"
+                },
+                {
+                  "url": "https://cloud.google.com/resources/content/ai-agent-trends-2026",
+                  "type": "web_search_result",
+                  "title": "AI agent trends 2026 report | Google Cloud",
+                  "encrypted_content": "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"
+                },
+                {
+                  "url": "https://www.capgemini.com/in-en/insights/research-library/top-tech-trends-of-2026/",
+                  "type": "web_search_result",
+                  "title": "Top Tech Trends 2026: AI Backbone, Intelligent Apps, Cloud 3.0 and More",
+                  "page_age": "January 27, 2026",
+                  "encrypted_content": "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"
+                },
+                {
+                  "url": "https://hbr.org/2026/02/9-trends-shaping-work-in-2026-and-beyond",
+                  "type": "web_search_result",
+                  "title": "9 Trends Shaping Work in 2026 and Beyond",
+                  "page_age": "February 2, 2026",
+                  "encrypted_content": "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"
+                },
+                {
+                  "url": "https://blogs.nvidia.com/blog/state-of-ai-report-2026/",
+                  "type": "web_search_result",
+                  "title": "How AI Is Driving Revenue, Cutting Costs and Boosting Productivity for Every Industry in 2026 | NVIDIA Blog",
+                  "page_age": "2 weeks ago",
+                  "encrypted_content": "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"
+                },
+                {
+                  "url": "https://business.adobe.com/resources/digital-trends-report.html",
+                  "type": "web_search_result",
+                  "title": "Adobe AI and Digital Trends 2026: GenAI and Agentic AI Insights",
+                  "page_age": "February 19, 2026",
+                  "encrypted_content": "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"
+                },
+                {
+                  "url": "https://www.deloitte.com/us/en/what-we-do/capabilities/applied-artificial-intelligence/content/state-of-ai-in-the-enterprise.html",
+                  "type": "web_search_result",
+                  "title": "The State of AI in the Enterprise - 2026 AI report | Deloitte US",
+                  "page_age": "January 20, 2026",
+                  "encrypted_content": "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"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "block_4",
+          "type": "text",
+          "content": "Excellent — plenty of strong, current source material to work with. Let me build this now.",
+          "turnIndex": 1
+        },
+        {
+          "id": "toolu_01Pz1dFUBdVHZWm2eDSvpXga",
+          "type": "tool_call",
+          "content": "{\"status\":\"editing\",\"mode\":\"create\",\"name\":\"market-overview.md\",\"title\":\"AI Market Overview 2026\",\"is_internal\":false,\"document_type\":\"Research Report\",\"lines\":0,\"message\":\"Draft started. Use write_document to add content, then finalize_document.\"}",
+          "offsetMs": 15759,
+          "toolName": "begin_document",
+          "toolInput": {
+            "mode": "create",
+            "name": "market-overview.md",
+            "title": "AI Market Overview 2026",
+            "is_internal": false,
+            "document_type": "Research Report"
+          },
+          "turnIndex": 2,
+          "durationMs": 1010,
+          "toolCallId": "toolu_01Pz1dFUBdVHZWm2eDSvpXga",
+          "toolOutput": "{\"status\":\"editing\",\"mode\":\"create\",\"name\":\"market-overview.md\",\"title\":\"AI Market Overview 2026\",\"is_internal\":false,\"document_type\":\"Research Report\",\"lines\":0,\"message\":\"Draft started. Use write_document to add content, then finalize_document.\"}",
+          "toolSuccess": true
+        },
+        {
+          "id": "toolu_01R2J3T9ZiPtU6jRgRkEUq6z",
+          "type": "tool_call",
+          "content": "{\"status\":\"written\",\"charsAdded\":4020,\"linesAdded\":28,\"totalLines\":28}",
+          "offsetMs": 19182,
+          "toolName": "write_document",
+          "toolInput": {
+            "content": "# AI Market Overview 2026\n\n**Document Type:** Research Report\n**Date:** April 2026\n**Prepared by:** Hyper Intelligence AI (HIAI)\n\n---\n\n## The Shift from Experimentation to Enterprise Integration\n\n2026 represents a decisive inflection point for artificial intelligence in the enterprise. After years of fragmented pilots and inflated expectations, the market is witnessing a clear shift from proof-of-concept to proof-of-impact. According to Capgemini's TechnoVision 2026 report, AI is now becoming the backbone of enterprise architecture rather than a collection of isolated experiments, with organizations investing heavily in robust data foundations and human-AI integration to deliver measurable outcomes at scale. Supporting this view, Deloitte's State of AI in the Enterprise report notes that worker access to AI rose by 50% in 2025, and the number of companies with 40% or more of their AI projects in production is expected to double within six months — signaling a rapid transition from ambition to activation.\n\n## The Agentic AI Wave — Promise, Progress, and Caution\n\nAgentic AI — systems capable of autonomously orchestrating multi-step workflows — dominates the 2026 conversation. NVIDIA's State of AI report finds that full-scale enterprise deployments of AI agents are now touching everything from code development to legal and financial tasks, with telecommunications leading adoption at 48% and retail/CPG close behind at 47%. PwC's 2026 AI predictions similarly forecast that this could be the year \"when agents shine,\" provided organizations design workflows with clear human-AI accountability at each step. However, notable caution persists: MIT Sloan Management Review analysts Thomas Davenport and Randy Bean warn that agents are still prone to errors at rates too high for high-stakes business processes, and cybersecurity vulnerabilities — particularly prompt injection — remain a material risk. The consensus is clear: agentic AI holds transformative potential, but disciplined, centralized deployment strategies are essential to converting hype into returns.\n\n## Model Architecture: Efficiency Over Scale\n\nA significant technical shift is reshaping the AI model landscape. IBM researchers predict that 2026 will be defined by a split between large frontier models and efficient, hardware-aware models designed to run on modest accelerators. The industry is broadly acknowledging diminishing returns from raw compute scaling, prompting a reorientation toward efficiency as the new competitive frontier. Simultaneously, physical AI and robotics are emerging as the next major research priority, with growing industry interest in AI systems that can sense, act, and learn in real-world environments — a domain that many researchers view as the next frontier after large language models.\n\n## Investment Climate and the ROI Imperative\n\nAI budget growth remains robust heading into the second quarter of 2026. NVIDIA's survey data shows that 86% of enterprise respondents plan to increase their AI budgets this year, with nearly 40% targeting increases of 10% or more. Yet investment enthusiasm is being tempered by a sobering performance reality: Gartner research cited by Harvard Business Review finds that only one in five AI investments delivers any measurable return on investment, and only one in fifty achieves transformational impact. The dominant enterprise response is a shift toward top-down, centralized AI programs — moving away from grassroots experimentation toward focused, metrics-driven deployments anchored to specific high-value workflows. Organizations that master this transition stand to capture the compounding productivity advantages that early AI leaders are already beginning to demonstrate.\n\n---\n\n*Sources: Capgemini TechnoVision 2026; Deloitte State of AI in the Enterprise 2026; NVIDIA State of AI 2026; PwC 2026 AI Business Predictions; MIT Sloan Management Review (Davenport & Bean, Jan. 2026); Harvard Business Review / Gartner (Feb. 2026); IBM Think AI Trends 2026.*\n"
+          },
+          "turnIndex": 3,
+          "durationMs": 20813,
+          "toolCallId": "toolu_01R2J3T9ZiPtU6jRgRkEUq6z",
+          "toolOutput": "{\"status\":\"written\",\"charsAdded\":4020,\"linesAdded\":28,\"totalLines\":28}",
+          "toolSuccess": true
+        },
+        {
+          "id": "toolu_01DyZFqUn12BJ6HPRoytds8r",
+          "type": "tool_call",
+          "content": "{\"action\":\"created\",\"name\":\"market-overview.md\",\"version\":1,\"status\":\"proposed\",\"lines\":28}",
+          "offsetMs": 42186,
+          "toolName": "finalize_document",
+          "toolInput": {},
+          "turnIndex": 4,
+          "durationMs": 5173,
+          "toolCallId": "toolu_01DyZFqUn12BJ6HPRoytds8r",
+          "toolOutput": "{\"action\":\"created\",\"name\":\"market-overview.md\",\"version\":1,\"status\":\"proposed\",\"lines\":28}",
+          "toolSuccess": true,
+          "appendedOutput": "::document[market-overview.md]{version=1 lines=28 documentType=\"Research Report\"}"
+        },
+        {
+          "id": "block_5",
+          "type": "text",
+          "content": "::document[market-overview.md]{version=1 lines=28 documentType=\"Research Report\"}\n\nThe **AI Market Overview 2026** report is ready for your review. Here's a quick summary of what's covered across the four paragraphs:\n\n1. **Enterprise Integration** — The market's pivot from experimentation to scaled deployment, backed by Deloitte and Capgemini data.\n2. **Agentic AI** — The dominant trend of 2026, with strong adoption numbers from NVIDIA's survey alongside measured caution from MIT Sloan researchers on readiness and risk.\n3. **Model Architecture** — The industry's strategic shift away from brute-force scaling toward efficient, hardware-aware models and the emerging physical AI/robotics frontier.\n4. **Investment & ROI** — Robust budget growth tempered by a challenging ROI reality, and the enterprise response of centralized, metrics-driven deployment programs.\n\nAll claims are grounded in sources from IBM, Capgemini, Deloitte, NVIDIA, PwC, MIT Sloan, and HBR/Gartner. Let me know if you'd like any adjustments before approving!",
+          "turnIndex": 5
+        }
+      ],
+      "metadata": {
+        "preset": "sonnet",
+        "inference": {
+          "model": "claude-sonnet-4-6",
+          "thinking": true,
+          "paramsType": "anthropic",
+          "searchEnabled": true,
+          "thinkingBudget": 8000
+        }
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "key": "market-overview.md",
+      "title": "AI Market Overview 2026",
+      "version": 1,
+      "versions": [
+        {
+          "version": 1,
+          "content": "# AI Market Overview 2026\n\n**Document Type:** Research Report\n**Date:** April 2026\n**Prepared by:** Hyper Intelligence AI (HIAI)\n\n---\n\n## The Shift from Experimentation to Enterprise Integration\n\n2026 represents a decisive inflection point for artificial intelligence in the enterprise. After years of fragmented pilots and inflated expectations, the market is witnessing a clear shift from proof-of-concept to proof-of-impact. According to Capgemini's TechnoVision 2026 report, AI is now becoming the backbone of enterprise architecture rather than a collection of isolated experiments, with organizations investing heavily in robust data foundations and human-AI integration to deliver measurable outcomes at scale. Supporting this view, Deloitte's State of AI in the Enterprise report notes that worker access to AI rose by 50% in 2025, and the number of companies with 40% or more of their AI projects in production is expected to double within six months — signaling a rapid transition from ambition to activation.\n\n## The Agentic AI Wave — Promise, Progress, and Caution\n\nAgentic AI — systems capable of autonomously orchestrating multi-step workflows — dominates the 2026 conversation. NVIDIA's State of AI report finds that full-scale enterprise deployments of AI agents are now touching everything from code development to legal and financial tasks, with telecommunications leading adoption at 48% and retail/CPG close behind at 47%. PwC's 2026 AI predictions similarly forecast that this could be the year \"when agents shine,\" provided organizations design workflows with clear human-AI accountability at each step. However, notable caution persists: MIT Sloan Management Review analysts Thomas Davenport and Randy Bean warn that agents are still prone to errors at rates too high for high-stakes business processes, and cybersecurity vulnerabilities — particularly prompt injection — remain a material risk. The consensus is clear: agentic AI holds transformative potential, but disciplined, centralized deployment strategies are essential to converting hype into returns.\n\n## Model Architecture: Efficiency Over Scale\n\nA significant technical shift is reshaping the AI model landscape. IBM researchers predict that 2026 will be defined by a split between large frontier models and efficient, hardware-aware models designed to run on modest accelerators. The industry is broadly acknowledging diminishing returns from raw compute scaling, prompting a reorientation toward efficiency as the new competitive frontier. Simultaneously, physical AI and robotics are emerging as the next major research priority, with growing industry interest in AI systems that can sense, act, and learn in real-world environments — a domain that many researchers view as the next frontier after large language models.\n\n## Investment Climate and the ROI Imperative\n\nAI budget growth remains robust heading into the second quarter of 2026. NVIDIA's survey data shows that 86% of enterprise respondents plan to increase their AI budgets this year, with nearly 40% targeting increases of 10% or more. Yet investment enthusiasm is being tempered by a sobering performance reality: Gartner research cited by Harvard Business Review finds that only one in five AI investments delivers any measurable return on investment, and only one in fifty achieves transformational impact. The dominant enterprise response is a shift toward top-down, centralized AI programs — moving away from grassroots experimentation toward focused, metrics-driven deployments anchored to specific high-value workflows. Organizations that master this transition stand to capture the compounding productivity advantages that early AI leaders are already beginning to demonstrate.\n\n---\n\n*Sources: Capgemini TechnoVision 2026; Deloitte State of AI in the Enterprise 2026; NVIDIA State of AI 2026; PwC 2026 AI Business Predictions; MIT Sloan Management Review (Davenport & Bean, Jan. 2026); Harvard Business Review / Gartner (Feb. 2026); IBM Think AI Trends 2026.*\n",
+          "status": "proposed",
+          "is_internal": false,
+          "document_type": "Research Report"
+        }
+      ]
+    }
+  ],
+  "turns": [
+    {
+      "userMessageId": "6dc7cef8-b3c7-43c7-9757-9d4bb926c8ec",
+      "agentMessageId": "7e7bde8f-c963-4cc9-b4af-d2b39836c249",
+      "events": [
+        {
+          "type": "tool_start",
+          "tool": "search_knowledge",
+          "id": "toolu_01MGhXrHLqNHLH3aVcvJ9R4B",
+          "offsetMs": 2997
+        },
+        {
+          "type": "tool_call_complete",
+          "tool": "search_knowledge",
+          "id": "toolu_01MGhXrHLqNHLH3aVcvJ9R4B",
+          "input": {
+            "query": "AI trends 2026 market overview",
+            "limit": 5
+          }
+        },
+        {
+          "type": "tool_result",
+          "tool": "search_knowledge",
+          "id": "toolu_01MGhXrHLqNHLH3aVcvJ9R4B",
+          "success": true,
+          "result": "No relevant documents found.",
+          "offsetMs": 6060,
+          "durationMs": 3063
+        },
+        {
+          "type": "tool_start",
+          "tool": "begin_document",
+          "id": "toolu_01Pz1dFUBdVHZWm2eDSvpXga",
+          "offsetMs": 15759
+        },
+        {
+          "type": "tool_call_complete",
+          "tool": "begin_document",
+          "id": "toolu_01Pz1dFUBdVHZWm2eDSvpXga",
+          "input": {
+            "mode": "create",
+            "name": "market-overview.md",
+            "title": "AI Market Overview 2026",
+            "is_internal": false,
+            "document_type": "Research Report"
+          }
+        },
+        {
+          "type": "document_start",
+          "name": "market-overview.md",
+          "title": "AI Market Overview 2026",
+          "mode": "create",
+          "isInternal": false,
+          "pendingVersion": 1,
+          "estimatedChars": 14000,
+          "documentType": "Research Report"
+        },
+        {
+          "type": "tool_result",
+          "tool": "begin_document",
+          "id": "toolu_01Pz1dFUBdVHZWm2eDSvpXga",
+          "success": true,
+          "result": "{\"status\":\"editing\",\"mode\":\"create\",\"name\":\"market-overview.md\",\"title\":\"AI Market Overview 2026\",\"is_internal\":false,\"document_type\":\"Research Report\",\"lines\":0,\"message\":\"Draft started. Use write_document to add content, then finalize_document.\"}",
+          "offsetMs": 16769,
+          "durationMs": 1010
+        },
+        {
+          "type": "tool_start",
+          "tool": "write_document",
+          "id": "toolu_01R2J3T9ZiPtU6jRgRkEUq6z",
+          "offsetMs": 19182
+        },
+        {
+          "type": "tool_call_complete",
+          "tool": "write_document",
+          "id": "toolu_01R2J3T9ZiPtU6jRgRkEUq6z",
+          "input": {
+            "content": "# AI Market Overview 2026\n\n**Document Type:** Research Report\n**Date:** April 2026\n**Prepared by:** Hyper Intelligence AI (HIAI)\n\n---\n\n## The Shift from Experimentation to Enterprise Integration\n\n2026 represents a decisive inflection point for artificial intelligence in the enterprise. After years of fragmented pilots and inflated expectations, the market is witnessing a clear shift from proof-of-concept to proof-of-impact. According to Capgemini's TechnoVision 2026 report, AI is now becoming the backbone of enterprise architecture rather than a collection of isolated experiments, with organizations investing heavily in robust data foundations and human-AI integration to deliver measurable outcomes at scale. Supporting this view, Deloitte's State of AI in the Enterprise report notes that worker access to AI rose by 50% in 2025, and the number of companies with 40% or more of their AI projects in production is expected to double within six months — signaling a rapid transition from ambition to activation.\n\n## The Agentic AI Wave — Promise, Progress, and Caution\n\nAgentic AI — systems capable of autonomously orchestrating multi-step workflows — dominates the 2026 conversation. NVIDIA's State of AI report finds that full-scale enterprise deployments of AI agents are now touching everything from code development to legal and financial tasks, with telecommunications leading adoption at 48% and retail/CPG close behind at 47%. PwC's 2026 AI predictions similarly forecast that this could be the year \"when agents shine,\" provided organizations design workflows with clear human-AI accountability at each step. However, notable caution persists: MIT Sloan Management Review analysts Thomas Davenport and Randy Bean warn that agents are still prone to errors at rates too high for high-stakes business processes, and cybersecurity vulnerabilities — particularly prompt injection — remain a material risk. The consensus is clear: agentic AI holds transformative potential, but disciplined, centralized deployment strategies are essential to converting hype into returns.\n\n## Model Architecture: Efficiency Over Scale\n\nA significant technical shift is reshaping the AI model landscape. IBM researchers predict that 2026 will be defined by a split between large frontier models and efficient, hardware-aware models designed to run on modest accelerators. The industry is broadly acknowledging diminishing returns from raw compute scaling, prompting a reorientation toward efficiency as the new competitive frontier. Simultaneously, physical AI and robotics are emerging as the next major research priority, with growing industry interest in AI systems that can sense, act, and learn in real-world environments — a domain that many researchers view as the next frontier after large language models.\n\n## Investment Climate and the ROI Imperative\n\nAI budget growth remains robust heading into the second quarter of 2026. NVIDIA's survey data shows that 86% of enterprise respondents plan to increase their AI budgets this year, with nearly 40% targeting increases of 10% or more. Yet investment enthusiasm is being tempered by a sobering performance reality: Gartner research cited by Harvard Business Review finds that only one in five AI investments delivers any measurable return on investment, and only one in fifty achieves transformational impact. The dominant enterprise response is a shift toward top-down, centralized AI programs — moving away from grassroots experimentation toward focused, metrics-driven deployments anchored to specific high-value workflows. Organizations that master this transition stand to capture the compounding productivity advantages that early AI leaders are already beginning to demonstrate.\n\n---\n\n*Sources: Capgemini TechnoVision 2026; Deloitte State of AI in the Enterprise 2026; NVIDIA State of AI 2026; PwC 2026 AI Business Predictions; MIT Sloan Management Review (Davenport & Bean, Jan. 2026); Harvard Business Review / Gartner (Feb. 2026); IBM Think AI Trends 2026.*\n"
+          }
+        },
+        {
+          "type": "tool_result",
+          "tool": "write_document",
+          "id": "toolu_01R2J3T9ZiPtU6jRgRkEUq6z",
+          "success": true,
+          "result": "{\"status\":\"written\",\"charsAdded\":4020,\"linesAdded\":28,\"totalLines\":28}",
+          "offsetMs": 39995,
+          "durationMs": 20813
+        },
+        {
+          "type": "tool_start",
+          "tool": "finalize_document",
+          "id": "toolu_01DyZFqUn12BJ6HPRoytds8r",
+          "offsetMs": 42186
+        },
+        {
+          "type": "tool_call_complete",
+          "tool": "finalize_document",
+          "id": "toolu_01DyZFqUn12BJ6HPRoytds8r",
+          "input": {}
+        },
+        {
+          "type": "document_complete",
+          "name": "market-overview.md",
+          "version": 1,
+          "lines": 28,
+          "action": "created",
+          "status": "proposed"
+        },
+        {
+          "type": "tool_result",
+          "tool": "finalize_document",
+          "id": "toolu_01DyZFqUn12BJ6HPRoytds8r",
+          "success": true,
+          "result": "{\"action\":\"created\",\"name\":\"market-overview.md\",\"version\":1,\"status\":\"proposed\",\"lines\":28}",
+          "offsetMs": 47359,
+          "durationMs": 5173
+        },
+        {
+          "type": "done",
+          "tokenUsage": {
+            "tokenBreakdown": {
+              "context": 2418,
+              "prompt": 8323,
+              "promptTool": 5026,
+              "toolDef": 2739
+            },
+            "usedTokens": 13480
+          },
+          "hasPendingChanges": true,
+          "phaseIndex": 0
+        }
+      ]
+    }
+  ]
+}
