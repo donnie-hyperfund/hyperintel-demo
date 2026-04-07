@@ -4,7 +4,7 @@ import { defineConfig, mergeConfig } from "vitest/config";
 // @ts-expect-error vitest v4 renamed UserConfig to TestUserConfig
 import type { UserConfig } from "vitest/config";
 
-dotenv.config({ path: path.resolve(import.meta.dirname, ".env.test") });
+dotenv.config({ path: path.resolve(import.meta.dirname, ".env.test"), override: true });
 
 const root = import.meta.dirname;
 

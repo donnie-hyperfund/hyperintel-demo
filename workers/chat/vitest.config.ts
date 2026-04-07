@@ -13,5 +13,7 @@ export default withShared({
 		root: import.meta.dirname,
 		include: ["**/*.test.ts"],
 		exclude: ["**/node_modules/**"],
+		// TODO: revisit — integration tests share a DB, so we disable file parallelism for now
+		fileParallelism: false,
 	},
 });

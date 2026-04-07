@@ -79,8 +79,22 @@ interface CheckpointData {
 
 const FIXTURES_DIR = path.resolve(import.meta.dirname, 'fixtures');
 
-export function getCacheKey(): string | null {
-	return process.env.TEST_CACHE_KEY || null;
+/**
+ * Resolve TEST_CACHE_KEY, interpolating `{var}` placeholders if present.
+ *
+ * Supported variables:
+ *   {prompts}   — "local" or "lfuse" (based on useLocalPrompts)
+ *   {provider}  — "anthropic", "openrouter", or "openai" (from preset resolution)
+ *   {preset}    — preset ID (e.g. "sonnet", "qwen")
+ *
+ * A plain string like "my-cache" is returned as-is.
+ */
+export interface CacheKeyVars { prompts?: string; provider?: string; preset?: string }
+
+export function getCacheKey(vars?: CacheKeyVars): string | null {
+	const raw = process.env.TEST_CACHE_KEY || null;
+	if (!raw || !vars) return raw;
+	return raw.replace(/\{(\w+)\}/g, (match, key) => vars[key as keyof CacheKeyVars] ?? match);
 }
 
 export function shouldSkipCache(): boolean {

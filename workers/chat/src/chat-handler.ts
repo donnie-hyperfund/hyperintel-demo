@@ -383,8 +383,8 @@ async function runGeneration(params: GenerationParams): Promise<void> {
     const pusher = createPusher(streamDO, 'chat-handler');
 
     try {
-        if (!anthropic || !langfuse) {
-            throw new Error('Anthropic and Langfuse clients are required');
+        if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
+            throw new Error('Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)');
         }
 
         // Load history + safety check in parallel (doesn't slow happy path)

@@ -322,7 +322,7 @@ function getDoneEvent(events: AgentStreamEvent[]) {
 // TESTS
 // ============================================================================
 
-describe.skipIf(!API_KEY)('Agent document tools (real inference)', () => {
+describe.skipIf(!API_KEY || process.env.TEST_LLM !== 'true')('Agent document tools (real inference)', () => {
 	let store: InMemoryDocumentStore;
 	let draftManager: DraftManager;
 	let tools: ReturnType<typeof createTestDocumentTools>;

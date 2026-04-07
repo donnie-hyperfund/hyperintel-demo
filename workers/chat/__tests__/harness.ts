@@ -33,13 +33,15 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getTestEm, getTestOrm, clearDatabase, closeTestOrm } from '@/tests/helpers/db';
-import { getCacheKey, shouldSkipCache, hasCheckpoint, loadCheckpoint, saveCheckpoint } from './checkpoint';
+import { getCacheKey, shouldSkipCache, hasCheckpoint, loadCheckpoint, saveCheckpoint, type CacheKeyVars } from './checkpoint';
+import { resolvePreset } from '@/lib/presets';
 
 // ============================================================================
 // ENV CHECK
 // ============================================================================
 
 export function canRunChatTests(): boolean {
+	if (process.env.TEST_LLM !== 'true') return false;
 	if (!process.env.DATABASE_URL) return false;
 	// At least one inference provider must be configured
 	return !!(process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY);
@@ -149,10 +151,25 @@ export class TestSession {
 		this.preset = preset ?? process.env.TEST_PRESET ?? 'sonnet';
 	}
 
+	/** Default per-turn timeout (ms). Override per-call via `send(msg, { timeout })`. */
+	static DEFAULT_TURN_TIMEOUT = 120_000;
+
+	/** Build cache key interpolation vars from session config. */
+	private getCacheKeyVars(): CacheKeyVars {
+		const resolved = resolvePreset(this.preset);
+		return {
+			prompts: this.options.handlerOptions?.useLocalPrompts ? 'local' : 'lfuse',
+			provider: resolved?.paramsType ?? 'unknown',
+			preset: this.preset,
+		};
+	}
+
 	/** Send a message and wait for the full generation to complete. */
-	async send(message: string): Promise<TurnResult> {
+
+	async send(message: string, opts?: { timeout?: number }): Promise<TurnResult> {
 		const verbose = !!process.env.TEST_VERBOSE;
 		const events: StreamEvent[] = [];
+		const turnTimeout = opts?.timeout ?? TestSession.DEFAULT_TURN_TIMEOUT;
 
 		if (verbose) {
 			console.log(`\n[USER] ${message}`);
@@ -162,22 +179,32 @@ export class TestSession {
 		const freshEm = (this.ctx as any).em.fork() as EntityManager;
 		const turnCtx = { ...this.ctx, em: freshEm } as Ctx;
 
-		const result = (await chatActionHandler(
-			{ message, chatId: this.chatId, model: this.preset },
-			turnCtx,
-			{
-				onEvent: (event) => {
-					events.push(event);
-					if (verbose) this.logEvent(event);
+		const generation = async () => {
+			const result = (await chatActionHandler(
+				{ message, chatId: this.chatId, model: this.preset },
+				turnCtx,
+				{
+					onEvent: (event) => {
+						events.push(event);
+						if (verbose) this.logEvent(event);
+					},
+					...this.options.handlerOptions,
 				},
-				...this.options.handlerOptions,
-			},
-		)) as ChatActionResult;
+			)) as ChatActionResult;
 
-		// Wait for generation to complete
-		if (result.generation) {
-			await result.generation;
-		}
+			if (result.generation) {
+				await result.generation;
+			}
+
+			return result;
+		};
+
+		const result = await Promise.race([
+			generation(),
+			new Promise<never>((_, reject) =>
+				setTimeout(() => reject(new Error(`Turn timed out after ${turnTimeout}ms`)), turnTimeout),
+			),
+		]);
 
 		const turn: TurnResult = {
 			userMessageId: result.userMessageId,
@@ -219,12 +246,12 @@ export class TestSession {
 	 * - If TEST_SKIP_CACHE=true → always runs live and overwrites checkpoint
 	 * - If TEST_CACHE_KEY is not set → runs live (no caching)
 	 */
-	async sendCached(scenarioId: string, message: string): Promise<TurnResult> {
-		const cacheKey = getCacheKey();
+	async sendCached(scenarioId: string, message: string, opts?: { timeout?: number }): Promise<TurnResult> {
+		const cacheKey = getCacheKey(this.getCacheKeyVars());
 
 		// No cache key → just run live
 		if (!cacheKey) {
-			return this.send(message);
+			return this.send(message, opts);
 		}
 
 		// Cache hit (and not skipping) → restore from checkpoint
@@ -251,7 +278,7 @@ export class TestSession {
 		}
 
 		const turnsBefore = this.turns.length;
-		const turn = await this.send(message);
+		const turn = await this.send(message, opts);
 
 		// Save checkpoint with all turns from this sendCached call
 		const newTurns = this.turns.slice(turnsBefore);
