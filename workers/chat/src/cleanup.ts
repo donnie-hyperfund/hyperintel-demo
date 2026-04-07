@@ -1,3 +1,10 @@
+// TODO: Also clean up orphaned artifact uploads — files that were confirmed ('uploaded')
+//       but never linked to a version/message (e.g. user abandoned the form after uploading).
+// TODO: Add cleanup for ChatMessageFileEntity image uploads:
+//       1. Stale 'pending_upload' records (same as artifact cleanup below)
+//       2. Orphaned records where chat_id IS NULL (chat was deleted, R2 delete may have failed)
+//          — delete bucket object + remove DB record
+
 import type { SqlEntityManager } from '@mikro-orm/knex';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';

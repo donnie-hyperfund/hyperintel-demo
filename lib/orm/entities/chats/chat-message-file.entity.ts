@@ -10,9 +10,9 @@ export class ChatMessageFileEntity extends IdCreatedColumns {
     @ManyToOne(() => 'ChatMessageEntity', { fieldName: 'chat_message_id', nullable: true })
     chat_message?: ChatMessageEntity;
 
-    /** Chat ID — set at upload time so we can query files before message is created. */
-    @Property({ type: 'uuid' })
-    chat_id!: string;
+    /** Chat ID — set at upload time so we can query files before message is created. Nullable for orphan cleanup on chat delete. */
+    @Property({ type: 'uuid', nullable: true })
+    chat_id?: string | null;
 
     @Property({ type: 'text' })
     storage_key!: string;

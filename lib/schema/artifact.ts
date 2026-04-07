@@ -159,7 +159,19 @@ export const MAX_ARTIFACT_UPLOAD_SIZE = 50 * 1024 * 1024;
 export const TEXT_ARTIFACT_EXTENSIONS = ['.md', '.txt', '.rtf'] as const;
 export const BINARY_ARTIFACT_EXTENSIONS = ['.pdf', '.docx', '.pptx'] as const;
 export const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'] as const;
-export const ALLOWED_ARTIFACT_EXTENSIONS = [...TEXT_ARTIFACT_EXTENSIONS, ...BINARY_ARTIFACT_EXTENSIONS, ...IMAGE_EXTENSIONS] as string[];
+export const ALLOWED_ARTIFACT_EXTENSIONS = [
+    ...TEXT_ARTIFACT_EXTENSIONS,
+    ...BINARY_ARTIFACT_EXTENSIONS,
+    ...IMAGE_EXTENSIONS,
+] as string[];
+
+export const IMAGE_MIME_TYPES: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+};
 
 export function isImageExtension(ext: string): boolean {
     return (IMAGE_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());

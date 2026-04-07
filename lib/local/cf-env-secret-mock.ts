@@ -33,6 +33,7 @@ export const envSecretMocks: Record<string, unknown> = {
     LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY ?? '',
     LANGFUSE_HOST: process.env.LANGFUSE_HOST ?? '',
     CHAT_OUTPUT_SAFETY_ENABLED: process.env.CHAT_OUTPUT_SAFETY_ENABLED ?? 'true',
+    // TODO IS_DEV?
     ENV: process.env.NODE_ENV === 'production' ? 'production' : 'dev',
     CORS_ALLOWED_ORIGIN: '*',
 };

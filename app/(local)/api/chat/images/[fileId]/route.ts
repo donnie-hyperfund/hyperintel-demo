@@ -1,9 +1,11 @@
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { NextResponse } from 'next/server';
 import { assertAuth } from '@/lib/api/auth-guard';
+import { IS_DEV } from '@/lib/config';
 import { initNextjsWorkerContext } from '@/lib/local/context';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { createR2Client, getR2CredentialsFromEnv } from '@/lib/vendor/r2';
 
 export async function GET(_req: Request, { params }: { params: Promise<{ fileId: string }> }) {
     const user = await assertAuth();
@@ -24,20 +26,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ fileId:
     });
     if (!chat) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    const accountId = process.env.CF_ACCOUNT_ID;
-    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-    if (!accountId || !accessKeyId || !secretAccessKey) {
-        return NextResponse.json({ error: 'R2 credentials not configured' }, { status: 500 });
-    }
+    const creds = getR2CredentialsFromEnv();
+    if (!creds) return NextResponse.json({ error: 'R2 credentials not configured' }, { status: 500 });
 
-    const s3 = new S3Client({
-        region: 'auto',
-        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-        credentials: { accessKeyId, secretAccessKey },
-    });
-
-    const bucket = process.env.NODE_ENV === 'production' ? 'hi-user-images' : 'hi-user-images-dev';
+    const s3 = createR2Client(creds);
+    const bucket = IS_DEV ? 'hi-user-images-dev' : 'hi-user-images';
     const command = new GetObjectCommand({ Bucket: bucket, Key: file.storage_key });
     const r2Response = await s3.send(command);
 

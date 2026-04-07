@@ -4,29 +4,21 @@
  * Flow: presign → upload to R2 → confirm → attach to message at send time.
  */
 
-import { HeadObjectCommand, PutObjectCommand, S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PublicError } from '@common/common/error.helpers';
-import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
+import { createR2Client, getR2CredentialsFromWorkerEnv } from '@/lib/vendor/r2';
 import type { Ctx } from './context';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'] as const;
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20 MB
 const PRESIGN_EXPIRY_SECONDS = 60 * 10;
 const READ_URL_EXPIRY_SECONDS = 60 * 60; // 1 hour for signed GET URLs
-
-const IMAGE_MIME_TYPES: Record<string, string> = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-};
 
 // ============================================================================
 // HELPERS
@@ -36,33 +28,19 @@ function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
 }
 
-function isImageExtension(ext: string): boolean {
-    return (IMAGE_EXTENSIONS as readonly string[]).includes(ext);
-}
-
 function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-user-images-dev' : 'hi-user-images';
 }
 
-async function createS3Client(env: Env): Promise<S3Client> {
-    const [accountId, accessKeyId, secretAccessKey] = await Promise.all([
-        env.CF_ACCOUNT_ID.get(),
-        env.R2_ACCESS_KEY_ID.get(),
-        env.R2_SECRET_ACCESS_KEY.get(),
-    ]);
-
-    if (!accountId || !accessKeyId || !secretAccessKey) {
+async function createS3Client(env: Env) {
+    const creds = await getR2CredentialsFromWorkerEnv(env);
+    if (!creds) {
         throw new PublicError(500, {
             message: 'R2 credentials not configured (CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)',
             code: 'R2_NOT_CONFIGURED',
         });
     }
-
-    return new S3Client({
-        region: 'auto',
-        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-        credentials: { accessKeyId, secretAccessKey },
-    });
+    return createR2Client(creds);
 }
 
 function buildStorageKey(chatId: string, filename: string): string {
@@ -75,6 +53,7 @@ function buildStorageKey(chatId: string, filename: string): string {
 // ============================================================================
 
 import { z } from 'zod';
+import { IMAGE_EXTENSIONS, IMAGE_MIME_TYPES, isImageExtension } from '@/lib/schema/artifact';
 
 export const PresignImageUploadSchema = z.object({
     filename: z.string().min(1),
@@ -114,10 +93,7 @@ export async function presignImageUploadHandler(data: PresignImageUploadDto, ctx
     // Verify chat ownership (phase chats go through project.user, intake chats have direct user FK)
     await em.findOneOrFail(ChatEntity, {
         id: chatId,
-        $or: [
-            { project: { user: { clerkId: user.userId } } },
-            { user: { clerkId: user.userId } },
-        ],
+        $or: [{ project: { user: { clerkId: user.userId } } }, { user: { clerkId: user.userId } }],
     });
 
     const mimeType = IMAGE_MIME_TYPES[ext] ?? 'application/octet-stream';
@@ -155,9 +131,15 @@ export async function presignImageUploadHandler(data: PresignImageUploadDto, ctx
 
 export async function confirmImageUploadHandler(data: ConfirmImageUploadDto, ctx: Ctx) {
     const { fileId } = data;
-    const { em } = ctx;
+    const { em, user } = ctx;
 
     const file = await em.findOneOrFail(ChatMessageFileEntity, { id: fileId });
+
+    // Verify chat ownership
+    await em.findOneOrFail(ChatEntity, {
+        id: file.chat_id,
+        $or: [{ project: { user: { clerkId: user.userId } } }, { user: { clerkId: user.userId } }],
+    });
 
     if (file.status !== 'pending_upload') {
         throw new PublicError(400, {
@@ -194,10 +176,7 @@ export async function confirmImageUploadHandler(data: ConfirmImageUploadDto, ctx
  * Generate signed GET URLs for image files.
  * Called when building LLM context to create temporary readable URLs.
  */
-export async function generateSignedImageUrls(
-    env: Env,
-    files: ChatMessageFileEntity[],
-): Promise<Map<string, string>> {
+export async function generateSignedImageUrls(env: Env, files: ChatMessageFileEntity[]): Promise<Map<string, string>> {
     if (files.length === 0) return new Map();
 
     const s3 = await createS3Client(env);
