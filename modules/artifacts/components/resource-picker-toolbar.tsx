@@ -1,0 +1,86 @@
+'use client';
+
+import { Search, X } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { useResourceListFilters } from '@/hooks/use-resource-list-filters';
+import { cn } from '@/lib/utils';
+import type { useResourceTabs } from '../hooks/use-resource-tabs';
+
+type ResourcePickerToolbarProps = {
+    filters: ReturnType<typeof useResourceListFilters>;
+    tabState: ReturnType<typeof useResourceTabs>;
+    searchPlaceholder?: string;
+};
+
+export function ResourcePickerToolbar({ filters, tabState, searchPlaceholder }: ResourcePickerToolbarProps) {
+    const placeholder = searchPlaceholder ?? `Search ${tabState.activeTabConfig.searchLabel}...`;
+
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                        value={filters.search}
+                        onChange={(e) => filters.setSearch(e.target.value)}
+                        placeholder={placeholder}
+                        size="sm"
+                        className="pl-8 pr-8"
+                    />
+                    {filters.search && (
+                        <button
+                            type="button"
+                            onClick={() => filters.setSearch('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <X className="size-3.5" />
+                        </button>
+                    )}
+                </div>
+                <Select
+                    value={filters.ownership ?? 'all'}
+                    onValueChange={(v) => filters.setOwnership(v === 'mine' || v === 'shared' ? v : undefined)}
+                >
+                    <SelectTrigger size="sm" className="w-auto cursor-pointer">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all" className="cursor-pointer">
+                            All
+                        </SelectItem>
+                        <SelectItem value="mine" className="cursor-pointer">
+                            Mine
+                        </SelectItem>
+                        <SelectItem value="shared" className="cursor-pointer">
+                            Shared
+                        </SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+
+            <div className="flex gap-1 border-b border-border" role="tablist">
+                {tabState.tabs.map((tab) => (
+                    <button
+                        key={tab.value}
+                        type="button"
+                        role="tab"
+                        aria-selected={tabState.activeTab === tab.value}
+                        onClick={() => tabState.setActiveTab(tab.value)}
+                        className={cn(
+                            'relative flex-1 px-3 pb-2.5 text-sm font-medium text-center transition-colors cursor-pointer',
+                            tabState.activeTab === tab.value
+                                ? 'text-foreground'
+                                : 'text-muted-foreground hover:text-foreground/80',
+                        )}
+                    >
+                        {tab.label}
+                        {tabState.activeTab === tab.value && (
+                            <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary" />
+                        )}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
