@@ -40,7 +40,7 @@ export function ResourcePickerPanel({
     className,
     skeletonCount = 3,
 }: ResourcePickerPanelProps) {
-    const rootClassName = className ?? 'overflow-y-auto py-2';
+    const rootClassName = className ?? 'overflow-y-auto pr-1 sm:pr-0';
     const { data, isLoading, hasNextPage, size, setSize } = useFetchResources({
         limit: 20,
         approvedOnly: true,
@@ -65,7 +65,7 @@ export function ResourcePickerPanel({
     if (isLoading && size === 1) {
         return (
             <div className={rootClassName}>
-                <div className="space-y-2 py-2">
+                <div className="space-y-2">
                     {Array.from({ length: skeletonCount }).map((_, i) => (
                         <ArtifactListItemSkeleton key={i} size="sm" />
                     ))}

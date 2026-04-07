@@ -21,7 +21,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
                 <ResourcePickerToolbar filters={filters} tabState={tabState} />
             </div>
 
-            <div className="flex flex-1 flex-col overflow-hidden px-4 pt-4">
+            <div className="flex flex-1 flex-col overflow-hidden px-4 py-4">
                 {tabState.tabs.map((tab) =>
                     tabState.activeTab === tab.value ? (
                         <ResourcePickerPanel
@@ -31,7 +31,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
                             icon={tab.icon}
                             selectedIds={selectedIds}
                             onToggle={onToggle}
-                            className="h-96 overflow-y-auto py-4"
+                            className="h-96 overflow-y-auto pr-1 sm:pr-0"
                             skeletonCount={4}
                         />
                     ) : null,

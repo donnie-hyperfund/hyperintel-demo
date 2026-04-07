@@ -1,6 +1,7 @@
 'use client';
 
 import { Search, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { useResourceListFilters } from '@/hooks/use-resource-list-filters';
@@ -15,6 +16,38 @@ type ResourcePickerToolbarProps = {
 
 export function ResourcePickerToolbar({ filters, tabState, searchPlaceholder }: ResourcePickerToolbarProps) {
     const placeholder = searchPlaceholder ?? `Search ${tabState.activeTabConfig.searchLabel}...`;
+
+    const tabListRef = useRef<HTMLDivElement>(null);
+    const [canScrollLeft, setCanScrollLeft] = useState(false);
+    const [canScrollRight, setCanScrollRight] = useState(false);
+
+    const updateScrollState = useCallback(() => {
+        const el = tabListRef.current;
+        if (!el) return;
+        setCanScrollLeft(el.scrollLeft > 1);
+        setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    }, []);
+
+    useEffect(() => {
+        const el = tabListRef.current;
+        if (!el) return;
+        updateScrollState();
+        el.addEventListener('scroll', updateScrollState, { passive: true });
+        const ro = new ResizeObserver(updateScrollState);
+        ro.observe(el);
+        return () => {
+            el.removeEventListener('scroll', updateScrollState);
+            ro.disconnect();
+        };
+    }, [updateScrollState]);
+
+    const fadeMask = useMemo(() => {
+        if (canScrollLeft && canScrollRight)
+            return 'linear-gradient(to right, transparent, black 2rem, black calc(100% - 2rem), transparent)';
+        if (canScrollLeft) return 'linear-gradient(to right, transparent, black 2rem)';
+        if (canScrollRight) return 'linear-gradient(to left, transparent, black 2rem)';
+        return undefined;
+    }, [canScrollLeft, canScrollRight]);
 
     return (
         <div className="flex flex-col gap-3">
@@ -59,7 +92,12 @@ export function ResourcePickerToolbar({ filters, tabState, searchPlaceholder }: 
                 </Select>
             </div>
 
-            <div className="flex gap-1 border-b border-border" role="tablist">
+            <div
+                ref={tabListRef}
+                className="flex gap-1 overflow-x-auto border-b border-border scrollbar-none"
+                role="tablist"
+                style={fadeMask ? { maskImage: fadeMask, WebkitMaskImage: fadeMask } : undefined}
+            >
                 {tabState.tabs.map((tab) => (
                     <button
                         key={tab.value}
@@ -68,7 +106,7 @@ export function ResourcePickerToolbar({ filters, tabState, searchPlaceholder }: 
                         aria-selected={tabState.activeTab === tab.value}
                         onClick={() => tabState.setActiveTab(tab.value)}
                         className={cn(
-                            'relative flex-1 px-3 pb-2.5 text-sm font-medium text-center transition-colors cursor-pointer',
+                            'relative shrink-0 whitespace-nowrap px-3 pb-2.5 text-sm font-medium text-center transition-colors cursor-pointer sm:flex-1',
                             tabState.activeTab === tab.value
                                 ? 'text-foreground'
                                 : 'text-muted-foreground hover:text-foreground/80',
