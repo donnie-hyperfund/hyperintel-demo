@@ -11,6 +11,7 @@ import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
@@ -126,7 +127,7 @@ export async function intakeActionHandler(
     ctx: Ctx,
     options: ChatHandlerOptions = {},
 ): Promise<IntakeActionResult | ReadableStream | Response> {
-    const { chatId, message } = data;
+    const { chatId, message, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
 
@@ -172,6 +173,19 @@ export async function intakeActionHandler(
             created_at: requestStartedAt,
         });
         em!.persist(userMsg);
+
+        // Link uploaded image files to this message
+        if (imageFileIds?.length) {
+            const imageFiles = await em!.find(ChatMessageFileEntity, {
+                id: { $in: imageFileIds },
+                chat_id: chatId,
+                status: 'uploaded',
+                chat_message: null,
+            });
+            for (const file of imageFiles) {
+                file.chat_message = userMsg;
+            }
+        }
     }
 
     // Set activeAgentMessageId on chat entity
@@ -285,7 +299,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         // Load history + safety check in parallel (doesn't slow happy path)
         // For nudge (message=null), skip safety check — the system event was injected server-side
         const [historyMessages, safetyVerdict] = await Promise.all([
-            loadChatHistory(em!, chatId),
+            loadChatHistory(em!, chatId, ctx.env),
             message ? safetyCheck(ctx, message) : Promise.resolve(null),
         ]);
 

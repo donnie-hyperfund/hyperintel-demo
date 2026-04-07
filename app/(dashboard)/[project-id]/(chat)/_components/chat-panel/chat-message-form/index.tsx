@@ -54,7 +54,15 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
     } = useChatContext();
     const { selectedModel } = useModelSelection();
 
-    const { files, removeFile, submitFiles, isSubmitting, consumeStagedArtifactIds } = useFileUploadContext();
+    const {
+        files,
+        addFiles,
+        removeFile,
+        submitFiles,
+        isSubmitting,
+        consumeStagedArtifactIds,
+        consumeStagedImageFileIds,
+    } = useFileUploadContext();
     const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
@@ -84,8 +92,9 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         // Capture file names before submitFiles clears them
         const uploadedFiles = files.map((entry) => ({ name: entry.name, size: entry.size }));
 
-        // Consume staged artifact IDs before submitFiles clears state
+        // Consume staged IDs before submitFiles clears state
         const stagedArtifactIds = consumeStagedArtifactIds();
+        const imageFileIds = consumeStagedImageFileIds();
 
         if (uploadedFiles.length > 0) {
             await submitFiles();
@@ -101,7 +110,10 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         textareaRef.current?.updateTextareaHeight();
 
         if (message) {
-            await sendMessage(message, stagedArtifactIds.length > 0 ? { stagedArtifactIds } : undefined);
+            const opts: { stagedArtifactIds?: string[]; imageFileIds?: string[] } = {};
+            if (stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
+            if (imageFileIds.length > 0) opts.imageFileIds = imageFileIds;
+            await sendMessage(message, Object.keys(opts).length > 0 ? opts : undefined);
         }
     };
 
@@ -113,6 +125,26 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
             }
         }
     };
+
+    const handlePaste = useCallback(
+        (e: React.ClipboardEvent) => {
+            const imageFiles = Array.from(e.clipboardData.items)
+                .filter((item) => item.type.startsWith('image/'))
+                .map((item) => item.getAsFile())
+                .filter((f): f is File => f !== null);
+
+            if (imageFiles.length > 0) {
+                // Give pasted screenshots a sensible name
+                const named = imageFiles.map((f, i) => {
+                    const ext = f.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png';
+                    const name = `screenshot-${Date.now()}${imageFiles.length > 1 ? `-${i + 1}` : ''}.${ext}`;
+                    return new File([f], name, { type: f.type });
+                });
+                addFiles(named);
+            }
+        },
+        [addFiles],
+    );
 
     const handleContainerClick = useCallback(() => {
         textareaRef.current?.focus();
@@ -193,6 +225,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                 }}
                                 onBlur={onBlur}
                                 onKeyDown={handleKeyDown}
+                                onPaste={handlePaste}
                                 placeholder="Type your message..."
                                 className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground"
                                 maxHeight={384}

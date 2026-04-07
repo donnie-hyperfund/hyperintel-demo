@@ -12,4 +12,6 @@ export type FileEntry = {
     artifactId?: string;
     fileId?: string;
     presignData?: PresignUploadResponseDto;
+    /** Set when the upload is a chat image (not an artifact). */
+    imageFileId?: string;
 };

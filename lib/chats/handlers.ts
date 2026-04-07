@@ -10,15 +10,18 @@
  * - Without:        `WHERE chat.user = userId OR project.user = userId`
  */
 
+import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { sql, wrap } from '@mikro-orm/core';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { type NextRequest, NextResponse } from 'next/server';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { workerSystemAction } from '@/lib/broadcast/worker-internal';
+import { IS_DEV } from '@/lib/config';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
@@ -33,6 +36,7 @@ import {
     ListChatsQuerySchema,
     ListMessagesQuerySchema,
 } from '@/lib/schema/message';
+import { createR2Client, getR2CredentialsFromEnv } from '@/lib/vendor/r2';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -205,6 +209,7 @@ export async function handleGetChat(chatId: string, user: UserEntity, projectId?
 
 /**
  * Delete a chat.
+ * Image files in R2 are best-effort deleted; orphans are cleaned up by the scheduled cleanup job.
  */
 export async function handleDeleteChat(chatId: string, user: UserEntity, projectId?: string): Promise<NextResponse> {
     const { em } = await getOrm();
@@ -212,7 +217,28 @@ export async function handleDeleteChat(chatId: string, user: UserEntity, project
     const chat = await verifyChatAccess(em, chatId, user.id, projectId);
     if (!chat) return chatNotFound();
 
+    // Collect image file storage keys before delete (FK will set null on cascade)
+    const imageFiles = await em.find(ChatMessageFileEntity, { chat_id: chatId });
+    const storageKeys = imageFiles.map((f) => f.storage_key);
+
     await em.removeAndFlush(chat);
+
+    // Best-effort R2 cleanup — failures are silent, cleanup job handles orphans
+    if (storageKeys.length > 0) {
+        try {
+            const creds = getR2CredentialsFromEnv();
+            if (creds) {
+                const s3 = createR2Client(creds);
+                const bucket = IS_DEV ? 'hi-user-images-dev' : 'hi-user-images';
+                await Promise.allSettled(
+                    storageKeys.map((key) => s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))),
+                );
+            }
+        } catch {
+            // Silent — cleanup job will handle orphaned bucket objects
+        }
+    }
+
     return NextResponse.json({ message: 'Chat deleted successfully' });
 }
 

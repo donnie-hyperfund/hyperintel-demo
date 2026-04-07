@@ -1,4 +1,4 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
@@ -19,6 +19,7 @@ import {
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
 import { type ProjectResourceUploadUpdatedPayload, UserEventType } from '@/lib/schema/user-events';
+import { createR2Client, getR2CredentialsFromWorkerEnv } from '@/lib/vendor/r2';
 import type { Ctx } from './context';
 import { broadcastUserEvent } from './utils/broadcast';
 
@@ -80,18 +81,15 @@ function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-artifacts-dev' : 'hi-artifacts';
 }
 
-async function createS3Client(env: Env): Promise<S3Client> {
-    const [accountId, accessKeyId, secretAccessKey] = await Promise.all([
-        env.CF_ACCOUNT_ID.get(),
-        env.R2_ACCESS_KEY_ID.get(),
-        env.R2_SECRET_ACCESS_KEY.get(),
-    ]);
-
-    return new S3Client({
-        region: 'auto',
-        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-        credentials: { accessKeyId, secretAccessKey },
-    });
+async function createS3Client(env: Env) {
+    const creds = await getR2CredentialsFromWorkerEnv(env);
+    if (!creds) {
+        throw new PublicError(500, {
+            message: 'R2 credentials not configured',
+            code: 'R2_NOT_CONFIGURED',
+        });
+    }
+    return createR2Client(creds);
 }
 
 interface UpsertInput {

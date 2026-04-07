@@ -18,6 +18,10 @@ r2_buckets:
     bucket_name:
       production: hi-artifacts
       dev: hi-artifacts-dev
+  - binding: USER_IMAGES_BUCKET
+    bucket_name:
+      production: hi-user-images
+      dev: hi-user-images-dev
 
 queues:
   producers:
@@ -28,6 +32,10 @@ queues:
 
 vars:
   - CHAT_OUTPUT_SAFETY_ENABLED
+  - ALLOWED_PRESETS:
+      production: "opus"
+  - DEFAULT_PRESET:
+      production: "opus"
 
 # ai: true
 # browser: true

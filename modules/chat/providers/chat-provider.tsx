@@ -41,7 +41,7 @@ export type BaseChatContextValue = {
     /** Load more (older) messages for infinite scroll */
     loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
-    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[] }) => Promise<void>;
+    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => Promise<void>;
     /** Send a nudge (message: null) to trigger generation on last injected system event */
     sendNudge: () => Promise<void>;
     /** Stop the current generation */
@@ -917,7 +917,7 @@ export function ChatProvider({
 
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
-        async (content: string, opts?: { stagedArtifactIds?: string[] }) => {
+        async (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
             if (!content.trim() || state.isGenerating) return;
 
             if (!isModelAvailable) {
@@ -964,6 +964,7 @@ export function ChatProvider({
                         chatId: chatIdToUse,
                         model: selectedModel,
                         tempId: userMessage.id, // Reconcile across WS boundaries
+                        ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
                     },
                     accessToken,
                 );
