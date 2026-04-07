@@ -59,6 +59,10 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const activeVersion = getLatestArtifactVersion(artifact);
     const content = getLatestArtifactContent(artifact);
 
+    // PECP content for internal docs: prefer live-streamed, fall back to API response
+    const pecpContent = artifact.pecpContent || artifact.pecp?.content || '';
+    const isPECPStreaming = !!artifact.isPECPStreaming;
+
     const updatedAt = artifact.proposedVersion?.updatedAt ? new Date(artifact.proposedVersion.updatedAt) : undefined;
     const previousContent =
         artifact.proposedVersion && artifact.currentVersion ? artifact.currentVersion.content : undefined;
@@ -82,10 +86,10 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         return computeDiffWithDirectives(previousContent, content);
     }, [canShowDiff, previousContent, content]);
 
-    // Auto-scroll is disabled when not streaming
-    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content], {
+    // Auto-scroll is disabled when not streaming (including PECP streaming)
+    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content, pecpContent], {
         threshold: 100,
-        disabled: !isStreaming,
+        disabled: !isStreaming && !isPECPStreaming,
     });
 
     const toggleDiffVisibility = () => setIsDiffVisible((prev) => !prev);
@@ -132,16 +136,40 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
             <div className="relative flex-1 min-h-0">
                 <div ref={containerRef} className="h-full overflow-y-auto">
                     {activeVersion?.isInternal ? (
-                        <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming}>
-                            {showInternalActions && (
-                                <InternalDocumentActions
-                                    artifactId={artifactId}
-                                    version={version}
-                                    disabled={isUpdating}
-                                    onProcessingChange={setIsProcessingApproval}
-                                />
-                            )}
-                        </InternalDocumentContent>
+                        pecpContent || isPECPStreaming ? (
+                            <div className="flex flex-col h-full">
+                                <div className="flex-1 p-6">
+                                    <MarkdownRenderer
+                                        markdown={pecpContent}
+                                        scrollContainerRef={containerRef}
+                                    />
+                                    {isPECPStreaming && (
+                                        <span className="inline-block w-2 h-4 ml-0.5 bg-primary/60 animate-pulse rounded-sm" />
+                                    )}
+                                </div>
+                                {showInternalActions && (
+                                    <div className="p-4 border-t border-border">
+                                        <InternalDocumentActions
+                                            artifactId={artifactId}
+                                            version={version}
+                                            disabled={isUpdating}
+                                            onProcessingChange={setIsProcessingApproval}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming}>
+                                {showInternalActions && (
+                                    <InternalDocumentActions
+                                        artifactId={artifactId}
+                                        version={version}
+                                        disabled={isUpdating}
+                                        onProcessingChange={setIsProcessingApproval}
+                                    />
+                                )}
+                            </InternalDocumentContent>
+                        )
                     ) : markdownContent ? (
                         <div className="p-6">
                             <MarkdownRenderer

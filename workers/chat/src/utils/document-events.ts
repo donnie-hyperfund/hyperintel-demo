@@ -74,7 +74,7 @@ export interface DocumentContext {
  */
 export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentEventEmitter) {
     // Current document being written (set by begin_document, cleared by finalize_document)
-    let activeDoc: { name: string; title: string; isInternal: boolean } | null = null;
+    let activeDoc: { name: string; title: string; isInternal: boolean; isPECP?: boolean; parentDocument?: string } | null = null;
 
     // Parser for write_document content streaming
     let writeParser: ReturnType<typeof createStreamFieldParser> | null = null;
@@ -131,12 +131,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     return;
                 }
 
-                // begin_document: set active doc and emit document_start
+                // begin_document: set active doc and emit document_start (or pecp_start for PECP)
                 if (result.status === 'editing' && result.name) {
                     activeDoc = {
                         name: result.name,
                         title: result.title || result.name,
                         isInternal: result.is_internal ?? true,
+                        isPECP: result.isPECP ?? false,
+                        parentDocument: result.parentDocument,
                     };
 
                     // Reset progress tracking
@@ -147,34 +149,42 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES.Other)
                         : DOCUMENT_CHAR_ESTIMATES.Other;
 
-                    const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
+                    // PECP: emit pecp_start with parent document name instead of document_start
+                    if (activeDoc.isPECP && activeDoc.parentDocument) {
+                        emit({
+                            type: 'pecp_start',
+                            parentDocument: activeDoc.parentDocument,
+                        } as any);
+                    } else {
+                        const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
 
-                    const startEvent: DocumentEvent = {
-                        type: 'document_start',
-                        name: activeDoc.name,
-                        title: activeDoc.title,
-                        mode: result.mode || 'create',
-                        isInternal: activeDoc.isInternal,
-                        pendingVersion,
-                        estimatedChars,
-                    };
+                        const startEvent: DocumentEvent = {
+                            type: 'document_start',
+                            name: activeDoc.name,
+                            title: activeDoc.title,
+                            mode: result.mode || 'create',
+                            isInternal: activeDoc.isInternal,
+                            pendingVersion,
+                            estimatedChars,
+                        };
 
-                    if (result.document_type) {
-                        startEvent.documentType = result.document_type;
-                    }
+                        if (result.document_type) {
+                            startEvent.documentType = result.document_type;
+                        }
 
-                    // Add edit-mode specific fields
-                    if (result.loadedFrom) {
-                        startEvent.loadedFrom = result.loadedFrom;
-                    }
-                    if (result.loadedVersion !== undefined) {
-                        startEvent.loadedVersion = result.loadedVersion;
-                    }
-                    if (result.rejectionReason) {
-                        startEvent.rejectionReason = result.rejectionReason;
-                    }
+                        // Add edit-mode specific fields
+                        if (result.loadedFrom) {
+                            startEvent.loadedFrom = result.loadedFrom;
+                        }
+                        if (result.loadedVersion !== undefined) {
+                            startEvent.loadedVersion = result.loadedVersion;
+                        }
+                        if (result.rejectionReason) {
+                            startEvent.rejectionReason = result.rejectionReason;
+                        }
 
-                    emit(startEvent);
+                        emit(startEvent);
+                    }
                 }
 
                 // patch_document: emit document_edit with the captured edits
@@ -202,24 +212,32 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     editBuffer = '';
                 }
 
-                // finalize_document: emit document_complete and clear state
+                // finalize_document: emit document_complete (or pecp_complete) and clear state
                 if (result.version !== undefined && result.lines !== undefined) {
-                    const name = result.name || activeDoc?.name;
-                    if (name) {
-                        const completeEvent: DocumentEvent = {
-                            type: 'document_complete',
-                            name,
-                            version: result.version,
-                            lines: result.lines,
-                            action: result.action || 'created',
-                            status: 'proposed',
-                        };
+                    if (result.isPECP && activeDoc?.parentDocument) {
+                        // PECP: emit pecp_complete with parent document name
+                        emit({
+                            type: 'pecp_complete',
+                            parentDocument: activeDoc.parentDocument,
+                        } as any);
+                    } else {
+                        const name = result.name || activeDoc?.name;
+                        if (name) {
+                            const completeEvent: DocumentEvent = {
+                                type: 'document_complete',
+                                name,
+                                version: result.version,
+                                lines: result.lines,
+                                action: result.action || 'created',
+                                status: 'proposed',
+                            };
 
-                        if (result.supersededVersion !== undefined) {
-                            completeEvent.supersededVersion = result.supersededVersion;
+                            if (result.supersededVersion !== undefined) {
+                                completeEvent.supersededVersion = result.supersededVersion;
+                            }
+
+                            emit(completeEvent);
                         }
-
-                        emit(completeEvent);
                     }
                     activeDoc = null;
                     writeParser = null;
@@ -243,15 +261,25 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
 
                                 // Track chars for progress (always, even for internal docs)
                                 accumulatedChars += delta.length;
-                                maybeEmitProgress();
 
-                                // Only emit content deltas for non-internal docs
-                                if (!activeDoc.isInternal) {
+                                // PECP: emit pecp_delta with parent document name
+                                if (activeDoc.isPECP && activeDoc.parentDocument) {
                                     emit({
-                                        type: 'document_delta',
-                                        name: activeDoc.name,
+                                        type: 'pecp_delta',
+                                        parentDocument: activeDoc.parentDocument,
                                         content: delta,
-                                    });
+                                    } as any);
+                                } else {
+                                    maybeEmitProgress();
+
+                                    // Only emit content deltas for non-internal docs
+                                    if (!activeDoc.isInternal) {
+                                        emit({
+                                            type: 'document_delta',
+                                            name: activeDoc.name,
+                                            content: delta,
+                                        });
+                                    }
                                 }
                             },
                         });

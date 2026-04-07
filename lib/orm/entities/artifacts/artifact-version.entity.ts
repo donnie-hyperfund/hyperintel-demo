@@ -65,6 +65,10 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'text', default: 'Other' })
     document_type: DocumentType & Opt = 'Other';
 
+    /** For PECP artifacts: points to the internal document version this summary was generated from */
+    @ManyToOne(() => 'ArtifactVersionEntity', { fieldName: 'parent_version_id', nullable: true })
+    parent_version?: ArtifactVersionEntity;
+
     @Property({
         type: 'timestamptz',
         nullable: true,

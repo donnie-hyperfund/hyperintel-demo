@@ -334,6 +334,7 @@ export async function listDocuments(
         {
             $and: [
                 scopeFilter(scope),
+                { is_pecp: false },
                 { $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
             ],
         } as any,

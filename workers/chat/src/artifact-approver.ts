@@ -9,6 +9,7 @@ import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/sc
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
+import { supersedePECPsForParent } from './tools/documents/pecp-service';
 import { broadcastUserEvent } from './utils/broadcast';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { injectSystemEvent } from './utils/system-events';
@@ -304,6 +305,16 @@ export async function rejectArtifactHandler(
     version.artifact.current_version = version;
 
     await em.flush();
+
+    // Supersede any PECP summaries linked to this rejected version
+    try {
+        const superseded = await supersedePECPsForParent(em, versionId);
+        if (superseded > 0) {
+            console.log(`[rejectArtifact] Superseded ${superseded} PECP version(s) for parent ${versionId}`);
+        }
+    } catch (err) {
+        console.error('[rejectArtifact] Failed to supersede PECPs (non-fatal):', err);
+    }
 
     await broadcastUserEvent(ctx, 'artifact_version_updated', {
         artifactId: version.artifact.id,

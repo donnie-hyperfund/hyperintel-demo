@@ -41,6 +41,9 @@ export type StreamEventType =
     | 'document_edit'
     | 'document_progress'
     | 'document_complete'
+    | 'pecp_start'
+    | 'pecp_delta'
+    | 'pecp_complete'
     | 'status_update'
     | 'error'
     | 'done'
@@ -97,6 +100,10 @@ export type StreamEvent =
     | { type: 'document_edit'; name: string; pendingVersion?: number; edits: DocumentEdit[] }
     | { type: 'document_progress'; name: string; progress: number }
     | { type: 'document_complete'; name: string; version: number; lines?: number; action?: string }
+    // PECP (public summary preview for internal documents — streamed under parent doc identity)
+    | { type: 'pecp_start'; parentDocument: string }
+    | { type: 'pecp_delta'; parentDocument: string; content: string }
+    | { type: 'pecp_complete'; parentDocument: string }
     // Status & control
     | { type: 'status_update'; status: string }
     | { type: 'error'; error: string; soft?: boolean }

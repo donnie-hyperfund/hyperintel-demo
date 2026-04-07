@@ -41,7 +41,7 @@ export type ToolDocumentDecision = {
 
 export type UseStreamOptions = {
     /** Artifact context for document side-effects. If omitted, activeDocuments are tracked but no artifact provider calls are made. */
-    artifactContext?: Pick<ArtifactContextValue, 'getArtifact' | 'addArtifact' | 'updateArtifact'>;
+    artifactContext?: Pick<ArtifactContextValue, 'getArtifact' | 'getStore' | 'addArtifact' | 'updateArtifact'>;
     /** Called on WS reconnect — consumer provides refetch logic (e.g., reload messages) */
     onReconnect?: () => void;
     /** Called when stream reaches a terminal status (done, aborted, error), potentially carrying terminal data payload */
@@ -757,6 +757,35 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         case 'document_complete':
                             documentQueueRef.current?.push({ type: event.type, payload: event });
                             break;
+
+                        // PECP (PE Communication) streaming — mapped to parent internal doc
+                        case 'pecp_start':
+                        case 'pecp_delta':
+                        case 'pecp_complete': {
+                            const ac = optsRef.current.artifactContext;
+                            if (!ac) break;
+
+                            // Find the version key under which the parent artifact is stored
+                            const parentId = event.parentDocument;
+                            const versions = ac.getStore()[parentId];
+                            if (!versions) break;
+                            const vKey = Object.keys(versions)[0];
+                            if (!vKey) break;
+                            const ver = (Number(vKey) || vKey) as number | 'latest';
+
+                            if (event.type === 'pecp_start') {
+                                ac.updateArtifact(parentId, { pecpContent: '', isPECPStreaming: true } as any, ver);
+                                optsRef.current.onArtifactOpen?.(parentId, typeof ver === 'number' ? ver : 1);
+                            } else if (event.type === 'pecp_delta') {
+                                const existing = ac.getArtifact(parentId, ver);
+                                ac.updateArtifact(parentId, {
+                                    pecpContent: (existing?.pecpContent ?? '') + event.content,
+                                } as any, ver);
+                            } else {
+                                ac.updateArtifact(parentId, { isPECPStreaming: false } as any, ver);
+                            }
+                            break;
+                        }
 
                         // ----- Status & terminal -----
                         case 'status_update':

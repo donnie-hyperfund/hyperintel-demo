@@ -24,6 +24,7 @@ export const DOCUMENT_TYPES = [
     // 'Analysis',
     'Research Report',
     'Executive Summary',
+    'PECP',
     'Other',
 ] as const;
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
@@ -46,6 +47,7 @@ export const DOCUMENT_CHAR_ESTIMATES: Record<DocumentType, number> = {
     'Human Persona': 8000,
     'Research Report': 14000,
     'Executive Summary': 10000,
+    PECP: 4000,
     Other: 14000,
 };
 
@@ -138,6 +140,16 @@ export const ArtifactDtoSchema = z.object({
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),
     metadata: z.record(z.unknown()).nullable().optional(),
+    /** PECP (public summary) for internal documents */
+    pecp: z
+        .object({
+            id: z.string().uuid(),
+            content: z.string(),
+            version: z.number().int(),
+            created_at: z.union([z.string(), z.date()]),
+        })
+        .nullable()
+        .optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),
 });

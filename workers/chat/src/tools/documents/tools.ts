@@ -20,7 +20,9 @@ import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapte
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
+import { pecpKeyForDocument, shouldGeneratePECP } from './pecp-service';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
 import { shouldGenerateAiContent } from './document-classifier';
@@ -141,8 +143,17 @@ When the user asks about a specific file or document (e.g., "what's in the UX do
 3. Then use \`read_document\` with the exact document name to view its full content.
 Never skip straight to \`read_document\` with a guessed name — always discover the correct name first via search or listing.
 
+## PECP — PE Communication Protocol (MANDATORY)
+After finalizing any internal document, finalize_document will instruct you to generate a PECP.
+The PECP is the PE-facing communication for the deliverable — use the PECP stage templates from your loaded prompts (Identity Framework Part 10).
+**This is the ONE exception to the "no proactive documents" rule.** When finalize_document returns \`pecpRequired\`, you MUST immediately:
+1. Call \`begin_document\` with the exact name, document_type="PECP", parent_document, and is_internal=false as specified
+2. Write the PECP using the appropriate stage template from your system prompt
+3. Call \`finalize_document\` — the PECP will be auto-approved
+After the PECP is finalized, STOP and wait for the user.
+
 ## Proactive Actions (FORBIDDEN)
-**NEVER create documents the user did not explicitly request.** After an approval or rejection (whether via chat or \`<system>\` event), STOP and wait for the user's next message. Do NOT:
+**NEVER create documents the user did not explicitly request** (except PECPs as described above). After an approval or rejection (whether via chat or \`<system>\` event), STOP and wait for the user's next message. Do NOT:
 - Automatically start creating "the next logical document"
 - Generate follow-up content without being asked
 - Chain approvals into new document creation
@@ -151,7 +162,7 @@ Never skip straight to \`read_document\` with a guessed name — always discover
 - Mention "Phase 2", "next step", or suggest what comes next — let the user drive the workflow
 Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
     behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request. After approving a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval. Only create documents when the user explicitly asks for them.',
+        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval.',
     tools: [
         'begin_document',
         'write_document',
@@ -186,6 +197,13 @@ const BeginDocumentParams = z.object({
     document_type: DocumentTypeSchema.describe(
         'Classification of the document type. Must be one of the allowed types. In edit mode, you should generally keep the same value as the existing version.',
     ),
+    parent_document: z
+        .string()
+        .optional()
+        .nullable()
+        .describe(
+            'Required for PECP document_type: the name of the parent internal document this PECP summarizes. The PECP will be linked to the parent\'s latest proposed version.',
+        ),
 });
 
 const WriteDocumentParams = z.object({
@@ -264,11 +282,40 @@ After calling this, use write_document to add content or patch_document for prec
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
-                const { mode, name, title, document_type } = input;
+                const { mode, name, title, document_type, parent_document } = input;
                 let { is_internal } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
                 const scopeId = ctx.projectId ?? ctx.userId!;
+
+                const isPECP = document_type === 'PECP';
+
+                // PECP validation: must have parent_document, must be create mode, must not be internal
+                if (isPECP) {
+                    if (!parent_document) {
+                        return { error: 'PECP documents require parent_document — the name of the internal document to summarize.' };
+                    }
+                    if (mode !== 'create') {
+                        return { error: 'PECP documents can only be created (mode="create"), not edited.' };
+                    }
+                    is_internal = false; // PECPs are always public
+                }
+
+                // Resolve parent version for PECP
+                let parentVersionId: string | undefined;
+                if (isPECP && parent_document) {
+                    const parentNormalized = normalizeArtifactKey(parent_document);
+                    const parentDoc = await findDocumentByName(em, scope, parentNormalized);
+                    if (!parentDoc) {
+                        return { error: `Parent document "${parentNormalized}" not found.` };
+                    }
+                    // Find the proposed version (PECP is generated right after finalize, so proposed should exist)
+                    const proposedVersion = await findVersionByStatus(em, parentDoc.id, 'proposed');
+                    if (!proposedVersion) {
+                        return { error: `Parent document "${parentNormalized}" has no proposed version to summarize.` };
+                    }
+                    parentVersionId = proposedVersion.id;
+                }
 
                 // Enforce is_internal for internal document types
                 const isInternalType = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
@@ -291,8 +338,9 @@ You MUST call finalize_document when done or content will be lost.`,
 
                 // Validate based on mode
                 // Allow create on deleted artifacts (overwrites / restores them)
+                // Allow create on PECP artifacts (they get replaced with each new parent version)
                 const isDeleted = existing?.currentStatus === 'deleted';
-                if (mode === 'create' && existing && !isDeleted) {
+                if (mode === 'create' && existing && !isDeleted && !isPECP) {
                     return {
                         error: `Document "${normalizedName}" already exists. Use mode="edit" to modify it.`,
                     };
@@ -311,11 +359,12 @@ You MUST call finalize_document when done or content will be lost.`,
                             scopeId,
                             normalizedName,
                             docTitle,
-                            mode,
+                            isPECP && existing ? 'replace' : mode,
                             '',
                             undefined,
                             is_internal,
                             document_type,
+                            parentVersionId,
                         );
                         return {
                             status: 'editing',
@@ -325,6 +374,7 @@ You MUST call finalize_document when done or content will be lost.`,
                             is_internal: draft.is_internal,
                             document_type: draft.document_type,
                             lines: 0,
+                            ...(isPECP && parent_document && { isPECP: true, parentDocument: normalizeArtifactKey(parent_document) }),
                             ...(isDeleted && { previouslyDeleted: true }),
                             ...(internalEnforced && { internalEnforced: true }),
                             message: isDeleted
@@ -510,6 +560,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
 
                 try {
                     const draft = draftManager.requireCurrent();
+                    const isPECP = draft.document_type === 'PECP';
 
                     // Persist to database as proposed
                     const result = await upsertDocument(
@@ -522,6 +573,24 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         draft.is_internal,
                         draft.document_type,
                     );
+
+                    // For PECP: auto-approve, set hidden, link parent_version
+                    if (isPECP && draft.parentVersionId) {
+                        const pecpVersion = await em.findOneOrFail(ArtifactVersionEntity, { id: result.versionId }, { populate: ['artifact'] });
+
+                        // Auto-approve
+                        pecpVersion.status = 'approved';
+                        pecpVersion.status_changed_at = new Date();
+
+                        // Link to parent internal document version
+                        pecpVersion.parent_version = em.getReference(ArtifactVersionEntity, draft.parentVersionId);
+
+                        // Mark artifact as PECP
+                        pecpVersion.artifact.is_pecp = true;
+                        pecpVersion.artifact.current_version = pecpVersion;
+
+                        await em.flush();
+                    }
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
@@ -537,17 +606,29 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     // Only clear draft after successful persist
                     draftManager.discard();
 
+                    // PECP finalize — auto-approved, no embedding, no AI content, no chat directive
+                    if (isPECP) {
+                        return {
+                            result: {
+                                action: result.action,
+                                name: draft.name,
+                                version: result.version,
+                                status: 'approved',
+                                lines: result.lines,
+                                isPECP: true,
+                            },
+                            // Empty appendedOutput so the agent runner uses result.{version,lines}
+                            // for document-events parsing, but no directive is injected into chat
+                            appendedOutput: '',
+                            message: `PECP saved and auto-approved as v${result.version}.`,
+                        };
+                    }
+
                     // Queue embedding job for the new version (fire-and-forget)
                     if (embeddingQueue && (ctx.projectId || ctx.chatId)) {
-                        // Classify document to determine if AI-readable content should be generated
                         const generateAiContent = rCtx
                             ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
-                            : true; // Default to true if no context
-
-                        console.log('[finalize_document] AI content classification:', {
-                            documentName: draft.name,
-                            generateAiContent,
-                        });
+                            : true;
 
                         const embedPromise = embeddingQueue
                             .send({
@@ -565,6 +646,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         rCtx?.eCtx?.waitUntil(embedPromise);
                     }
 
+                    // Regular document finalize
                     const response: Record<string, unknown> = {
                         result: {
                             action: result.action,
@@ -580,6 +662,17 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     if (result.supersededVersion) {
                         response.supersededVersion = result.supersededVersion;
                         response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded. STOP HERE — do not create any more documents until the user asks.`;
+                    }
+
+                    // For internal documents: instruct the agent to generate a PECP next
+                    if (shouldGeneratePECP(draft.document_type)) {
+                        const pecpKey = pecpKeyForDocument(draft.name);
+                        response.pecpRequired = {
+                            parentDocument: draft.name,
+                            parentDocumentType: draft.document_type,
+                            pecpKey,
+                        };
+                        response.message = `Saved as proposed v${result.version}. Awaiting user approval. Now you MUST generate a PECP for this "${draft.document_type}". Call begin_document with mode="create", name="${pecpKey}", document_type="PECP", parent_document="${draft.name}", is_internal=false. Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
                     }
 
                     return response;
