@@ -11,6 +11,14 @@ export type ModelPreset = {
     label: string;
     description?: string;
     inference: ParamsWithType;
+    pricing?: {
+        inputPer1M: number;        // USD per 1M input tokens
+        outputPer1M: number;       // USD per 1M output tokens
+        reasoningPer1M?: number;   // USD per 1M reasoning tokens (defaults to output rate)
+        cacheReadPer1M?: number;   // USD per 1M cached input tokens
+        cacheWritePer1M?: number;  // USD per 1M cache-write tokens
+        webSearchPer1M?: number;   // USD per 1M web search tokens
+    };
 };
 
 // ---------------------------------------------------------------------------
@@ -26,6 +34,10 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.HAIKU, thinking: false },
         },
+        pricing: {
+            inputPer1M: 1,
+            outputPer1M: 5,
+        },
     },
     {
         id: 'sonnet',
@@ -35,6 +47,10 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.SONNET, thinking: true, thinkingBudget: 8000 },
         },
+        pricing: {
+            inputPer1M: 3,
+            outputPer1M: 15,
+        },
     },
     {
         id: 'opus',
@@ -43,6 +59,10 @@ const BASE_PRESETS: ModelPreset[] = [
         inference: {
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.OPUS, thinking: true, thinkingBudget: 16000 },
+        },
+        pricing: {
+            inputPer1M: 5,
+            outputPer1M: 25,
         },
     },
     //

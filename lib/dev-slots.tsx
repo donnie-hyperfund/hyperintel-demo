@@ -19,6 +19,7 @@ export type DevSlotProps = {
 	'chat-header': {
 		chatId: string;
 	};
+	'chat-footer': Record<string, never>;
 };
 
 export type DevSlotName = keyof DevSlotProps;

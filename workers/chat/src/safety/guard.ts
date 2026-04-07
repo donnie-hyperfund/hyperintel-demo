@@ -107,10 +107,11 @@ export async function safetyCheck(ctx: Ctx, message: string): Promise<SafetyVerd
     if (!ctx.orouterSdk) return null;
 
     // Wrap entire check in a timeout — a hanging API call must never block generation
+    let timer: ReturnType<typeof setTimeout>;
     return Promise.race([
-        safetyCheckInner(ctx, message),
+        safetyCheckInner(ctx, message).finally(() => clearTimeout(timer)),
         new Promise<null>((resolve) => {
-            setTimeout(() => {
+            timer = setTimeout(() => {
                 console.warn('[safetyCheck] timed out after', SAFETY_CHECK_TIMEOUT_MS, 'ms — failing open');
                 resolve(null);
             }, SAFETY_CHECK_TIMEOUT_MS);

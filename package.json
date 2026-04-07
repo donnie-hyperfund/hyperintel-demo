@@ -208,6 +208,7 @@
         },
         "onlyBuiltDependencies": [
             "@clerk/shared",
+            "@openrouter/sdk",
             "esbuild",
             "sharp",
             "workerd"

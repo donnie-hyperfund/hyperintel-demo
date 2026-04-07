@@ -22,6 +22,7 @@ import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
+import { DevSlot } from '@/lib/dev-slots';
 import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
 import { FilePreviewItem } from './file-preview-item';
@@ -272,6 +273,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                 </motion.p>
                             )}
 
+                            <DevSlot name="chat-footer" />
                             <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
                         </div>
                     </div>

@@ -1,6 +1,7 @@
 import { Entity, ManyToOne, Property, wrap } from '@mikro-orm/core';
 import type { StreamBlock } from '@/common/ai/agent/types';
 import type { Nullable } from '@/common/orm/utils';
+import { IS_DEV } from '@/lib/config';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 
@@ -47,6 +48,15 @@ export class ChatMessageEntity extends IdCreatedColumns {
     toJSON(groups?: string[]): Record<string, unknown> {
         const base = wrap(this).toObject() as Record<string, unknown>;
         delete base.debug_data;
+
+        // Strip dev-only fields from metadata in production
+        if (!IS_DEV && base.metadata) {
+            const meta = { ...(base.metadata as Record<string, unknown>) };
+            delete meta.preset;
+            delete meta.inference;
+            delete meta.usage;
+            base.metadata = Object.keys(meta).length > 0 ? meta : null;
+        }
 
         if (this.blocks) {
             base.blocks = this.redactBlocks(this.blocks, groups);

@@ -25,6 +25,27 @@ export type MessageMetadata = {
         model?: string;
         [key: string]: unknown;
     };
+    usage?: {
+        inputTokens: number;
+        outputTokens: number;
+        reasoningTokens?: number;
+        cacheReadTokens?: number;
+        cacheWriteTokens?: number;
+        cost?: number;
+        segments: Array<{
+            inputTokens: number;
+            outputTokens: number;
+            reasoningTokens?: number;
+            cost?: number;
+            toolCalls?: Array<{
+                toolName: string;
+                inputTokens?: number;
+                outputTokens?: number;
+                usageLabel?: string;
+            }>;
+        }>;
+        providerIds: string[];
+    };
     [key: string]: unknown;
 };
 
@@ -67,6 +88,7 @@ export type ChatState = {
     error: Error | null;
     streamingMessageId: string | null;
     tokenUsage: TokenUsage | null;
+    totalCost: number | null;
     hasPendingChanges: boolean;
     phaseIndex: number | null;
     /** Chat ID of the new phase after summarization completes */
