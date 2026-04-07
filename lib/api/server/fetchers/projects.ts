@@ -8,7 +8,7 @@ import type { ProjectDto } from '@/lib/schema/project';
 
 export async function fetchProject(projectId: string, user: UserEntity): Promise<ProjectDto | null> {
     const { em } = await getOrm();
-    const project = await em.findOne(ProjectEntity, { id: projectId, user: { id: user.id } });
+    const project = await em.findOne(ProjectEntity, { id: projectId, user: { id: user.id }, archived_at: null });
     if (!project) return null;
-    return wrap(project).toJSON();
+    return wrap(project).toJSON() as ProjectDto;
 }

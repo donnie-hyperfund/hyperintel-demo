@@ -5,8 +5,10 @@ import type { LucideIcon } from 'lucide-react';
 import { Lock } from 'lucide-react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
+import { HighlightText } from '@/components/ui/highlight-text';
 import { Skeleton } from '@/components/ui/skeleton';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { getSourceProjectName } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
@@ -43,7 +45,7 @@ const skeletonVariants = cva('flex items-center border', {
 });
 
 type ArtifactListItemProps = VariantProps<typeof containerVariants> & {
-    artifact: ArtifactDto;
+    artifact: CamelCaseDto<ArtifactDto>;
     icon?: LucideIcon;
     isSelected?: boolean;
     isShared?: boolean;
@@ -51,6 +53,7 @@ type ArtifactListItemProps = VariantProps<typeof containerVariants> & {
     badge?: React.ReactNode;
     href?: string;
     onClick?: () => void;
+    searchQuery?: string;
 };
 
 export const ArtifactListItem = ({
@@ -63,9 +66,10 @@ export const ArtifactListItem = ({
     badge,
     href,
     onClick,
+    searchQuery,
 }: ArtifactListItemProps) => {
     const artifactVersion = getLatestArtifactVersion(artifact);
-    const Icon = icon ?? getDocumentTypeIcon(artifactVersion?.document_type);
+    const Icon = icon ?? getDocumentTypeIcon(artifactVersion?.documentType);
 
     return (
         <ArtifactListItemContainer
@@ -81,14 +85,13 @@ export const ArtifactListItem = ({
             <Icon className={iconSizeVariants({ size })} />
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                    <span className="line-clamp-1 text-sm font-medium">{artifact.title}</span>
+                    <span className="line-clamp-1 text-sm font-medium">
+                        <HighlightText text={artifact.title} query={searchQuery ?? ''} />
+                    </span>
                     {isShared && <Badge variant="secondary">Shared</Badge>}
                     {badge}
                     {shouldDisplayVersionInfo && (
-                        <VersionStatusBadge
-                            status={artifactVersion?.status}
-                            isUploaded={artifactVersion?.is_uploaded}
-                        />
+                        <VersionStatusBadge status={artifactVersion?.status} isUploaded={artifactVersion?.isUploaded} />
                     )}
                 </div>
 
@@ -135,15 +138,15 @@ function ArtifactListItemContainer({ children, className, title, href, onClick }
 }
 
 type ArtifactListItemVersionMetaProps = {
-    artifact: ArtifactDto;
+    artifact: CamelCaseDto<ArtifactDto>;
 };
 
 function ArtifactListItemVersionMeta({ artifact }: ArtifactListItemVersionMetaProps) {
     const artifactVersion = getLatestArtifactVersion(artifact);
-    const updatedAt = artifact.updated_at ? new Date(artifact.updated_at) : null;
+    const updatedAt = artifact.updatedAt ? new Date(artifact.updatedAt) : null;
     const timeAgo = updatedAt ? formatDistanceToNow(updatedAt, { addSuffix: true }) : null;
     const updatedAtFormatted = updatedAt ? format(updatedAt, 'PPP HH:mm', { locale: enUS }) : undefined;
-    const isInternal = artifactVersion?.is_internal === true;
+    const isInternal = artifactVersion?.isInternal === true;
 
     return (
         <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
@@ -167,8 +170,8 @@ function ArtifactListItemVersionMeta({ artifact }: ArtifactListItemVersionMetaPr
     );
 }
 
-function ArtifactListItemDateMeta({ artifact }: { artifact: ArtifactDto }) {
-    const createdDate = artifact.created_at ? new Date(artifact.created_at) : null;
+function ArtifactListItemDateMeta({ artifact }: { artifact: CamelCaseDto<ArtifactDto> }) {
+    const createdDate = artifact.createdAt ? new Date(artifact.createdAt) : null;
     const formattedDate = createdDate ? format(createdDate, 'MMM d, yyyy') : null;
     const projectName = getSourceProjectName(artifact);
 

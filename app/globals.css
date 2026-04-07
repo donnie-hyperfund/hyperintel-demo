@@ -3,6 +3,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
+html {
+  scrollbar-gutter: stable;
+}
+
 :root {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -64,6 +68,7 @@
 
   /* Numeric radius tokens (px values) */
   --radius-0: 0px;
+  --radius-0.5: 2px;
   --radius-1: 4px;
   --radius-2: 8px;
   --radius-2.5: 10px;

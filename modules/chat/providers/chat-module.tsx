@@ -40,7 +40,7 @@ export function ChatModule({
         <ActivePanelProvider>
             <ArtifactProvider>
                 <PendingUploadsProvider>
-                    <ModelSelectionProvider>
+                    <ModelSelectionProvider projectId={projectId}>
                         <ChatProvider
                             projectId={projectId}
                             chatType={chatType}

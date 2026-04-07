@@ -12,10 +12,10 @@ import {
     BreadcrumbList,
     BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
-import { cn } from '@/lib/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
@@ -46,7 +46,12 @@ export const PhaseHeader = () => {
             {/* Mobile */}
             <div className="md:hidden">
                 <div className="flex h-12 items-center px-4 gap-3">
-                    <SidebarTrigger className="size-8 shrink-0" />
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <SidebarTrigger className="size-8 shrink-0" />
+                        </TooltipTrigger>
+                        <TooltipContent>Toggle sidebar</TooltipContent>
+                    </Tooltip>
                     <div className="ml-auto flex items-center gap-2">
                         <NextPhaseButton />
                         <PanelButtons panelState={panelState} togglePanel={togglePanel} />
@@ -73,22 +78,28 @@ type PanelButtonsProps = {
 function PanelButtons({ panelState, togglePanel }: PanelButtonsProps) {
     return (
         <div className="flex items-center gap-1">
-            <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => togglePanel({ panel: 'artifacts' })}
-                className={cn('text-neutral-400', panelState?.panel === 'artifacts' && 'bg-accent text-neutral-100')}
-            >
-                <Layers className="size-4" />
-            </Button>
-            <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => togglePanel({ panel: 'resources' })}
-                className={cn('text-neutral-400', panelState?.panel === 'resources' && 'bg-accent text-neutral-100')}
-            >
-                <Building2 className="size-4" />
-            </Button>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <IconButton
+                        data-active={panelState?.panel === 'artifacts' || undefined}
+                        onClick={() => togglePanel({ panel: 'artifacts' })}
+                    >
+                        <Layers />
+                    </IconButton>
+                </TooltipTrigger>
+                <TooltipContent>Artifacts</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <IconButton
+                        data-active={panelState?.panel === 'resources' || undefined}
+                        onClick={() => togglePanel({ panel: 'resources' })}
+                    >
+                        <Building2 />
+                    </IconButton>
+                </TooltipTrigger>
+                <TooltipContent>Project Intel</TooltipContent>
+            </Tooltip>
         </div>
     );
 }
@@ -102,11 +113,11 @@ type PhaseBreadcrumbsProps = {
 
 function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex }: PhaseBreadcrumbsProps) {
     return (
-        <Breadcrumb className="min-w-0">
-            <BreadcrumbList>
+        <Breadcrumb className="min-w-0 overflow-hidden">
+            <BreadcrumbList className="min-w-0 flex-nowrap">
                 {projectName && (
                     <>
-                        <BreadcrumbItem className="min-w-0">
+                        <BreadcrumbItem className="min-w-0 shrink">
                             <BreadcrumbLink asChild>
                                 <Link href={`/${projectId}/chats`} className="truncate">
                                     {projectName}
@@ -116,7 +127,7 @@ function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex }: PhaseB
                         <BreadcrumbSeparator className="shrink-0" />
                     </>
                 )}
-                <BreadcrumbItem className="min-w-0">
+                <BreadcrumbItem className="min-w-0 shrink">
                     <PhasePicker projectId={projectId} currentChatId={chatId} currentPhaseIndex={phaseIndex} />
                 </BreadcrumbItem>
             </BreadcrumbList>

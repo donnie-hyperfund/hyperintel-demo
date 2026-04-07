@@ -2,8 +2,8 @@
 
 import { Filter, X } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
-import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { IconButton } from '@/components/ui/icon-button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
@@ -45,8 +45,8 @@ export function ProjectArtifactFilterDropdown({ filters, onChange }: ProjectArti
     const phases = useMemo(() => {
         if (!chatsData?.data) return [];
         return [...chatsData.data]
-            .sort((a, b) => a.phase_index - b.phase_index)
-            .map((chat) => ({ value: chat.id, label: `Phase ${chat.phase_index + 1}` }));
+            .sort((a, b) => a.phaseIndex - b.phaseIndex)
+            .map((chat) => ({ value: chat.id, label: `Phase ${chat.phaseIndex + 1}` }));
     }, [chatsData?.data]);
 
     const activeCount = getActiveFilterCount(filters);
@@ -67,14 +67,14 @@ export function ProjectArtifactFilterDropdown({ filters, onChange }: ProjectArti
             <Tooltip>
                 <TooltipTrigger asChild>
                     <PopoverTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-7 relative">
-                            <Filter className="size-4" />
+                        <IconButton size="sm" className="relative">
+                            <Filter />
                             {activeCount > 0 && (
                                 <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
                                     {activeCount}
                                 </span>
                             )}
-                        </Button>
+                        </IconButton>
                     </PopoverTrigger>
                 </TooltipTrigger>
                 <TooltipContent>Filter artifacts</TooltipContent>

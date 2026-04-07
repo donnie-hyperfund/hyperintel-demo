@@ -1,10 +1,10 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
-import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useRef } from 'react';
 import { frontendEnv } from '@/lib/env';
-import { DirectWebsocketClient } from './direct';
 import type { WebsocketClient } from './base';
+import { DirectWebsocketClient } from './direct';
 
 function getWsUrl(): string {
     if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS) {
@@ -20,7 +20,7 @@ function getWsUrl(): string {
 const WebsocketContext = createContext<WebsocketClient | null>(null);
 
 export function WebsocketProvider({ children }: { children: ReactNode }) {
-    const { getToken } = useAuth();
+    const { getToken, isLoaded } = useAuth();
     const clientRef = useRef<DirectWebsocketClient | null>(null);
 
     if (!clientRef.current) {
@@ -28,6 +28,8 @@ export function WebsocketProvider({ children }: { children: ReactNode }) {
     }
 
     useEffect(() => {
+        if (!isLoaded) return;
+
         const client = clientRef.current!;
         client.setTokenProvider(getToken);
         let cancelled = false;
@@ -48,7 +50,7 @@ export function WebsocketProvider({ children }: { children: ReactNode }) {
             cancelled = true;
             client.disconnect();
         };
-    }, [getToken]);
+    }, [getToken, isLoaded]);
 
     return <WebsocketContext.Provider value={clientRef.current}>{children}</WebsocketContext.Provider>;
 }

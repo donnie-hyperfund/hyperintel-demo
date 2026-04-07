@@ -3,7 +3,7 @@ import type { Artifact, ChatType } from '@/modules/chat/types';
 import { DEFAULT_DOCUMENT_TYPE_ICON, DOCUMENT_TYPE_ICONS } from './constants';
 
 export const getLatestArtifactVersion = (artifact: Artifact) => {
-    return artifact.proposed_version ?? artifact.current_version;
+    return artifact.proposedVersion ?? artifact.currentVersion;
 };
 
 export const getLatestArtifactContent = (artifact: Artifact) => {

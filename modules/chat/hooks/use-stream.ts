@@ -193,7 +193,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             doc.content += item.content;
             o.artifactContext?.updateArtifact(
                 doc.artifactId,
-                { proposed_version: { content: doc.content } },
+                { proposedVersion: { content: doc.content } },
                 doc.version,
             );
         }
@@ -289,18 +289,18 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             key: payload.name,
                             title: payload.title,
                             version: 1,
-                            proposed_version: {
+                            proposedVersion: {
                                 id: '',
                                 version: 1,
                                 content: '',
                                 status: 'proposed',
-                                document_type: payload.documentType,
-                                is_internal: payload.isInternal,
-                                created_at: now,
-                                updated_at: now,
+                                documentType: payload.documentType,
+                                isInternal: payload.isInternal,
+                                createdAt: now,
+                                updatedAt: now,
                             },
-                            created_at: now,
-                            updated_at: now,
+                            createdAt: now,
+                            updatedAt: now,
                             isStreaming: true,
                             isUpdating: false,
                             isLoading: false,
@@ -309,7 +309,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         1,
                     );
 
-                    o.onArtifactOpen?.(artifactId, 1);
+                    if (!payload.isInternal) {
+                        o.onArtifactOpen?.(artifactId, 1);
+                    }
                 } else if (payload.mode === 'edit') {
                     const loadedVersion = payload.loadedVersion ?? 1;
                     let existingArtifact = ac?.getArtifact(artifactId, loadedVersion) ?? null;
@@ -329,28 +331,28 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             key: payload.name,
                             title: payload.title,
                             version: newVersion,
-                            current_version: loadedContent
+                            currentVersion: loadedContent
                                 ? {
                                       id: '',
                                       version: loadedVersion,
                                       content: loadedContent,
                                       status: 'approved',
-                                      created_at: now,
-                                      updated_at: now,
+                                      createdAt: now,
+                                      updatedAt: now,
                                   }
                                 : undefined,
-                            proposed_version: {
+                            proposedVersion: {
                                 id: '',
                                 version: newVersion,
                                 content: loadedContent,
                                 status: 'proposed',
-                                document_type: payload.documentType,
-                                is_internal: payload.isInternal,
-                                created_at: now,
-                                updated_at: now,
+                                documentType: payload.documentType,
+                                isInternal: payload.isInternal,
+                                createdAt: now,
+                                updatedAt: now,
                             },
-                            created_at: now,
-                            updated_at: now,
+                            createdAt: now,
+                            updatedAt: now,
                             isStreaming: true,
                             isUpdating: true,
                             progress: 0,
@@ -358,7 +360,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         newVersion,
                     );
 
-                    o.onArtifactOpen?.(artifactId, newVersion);
+                    if (!payload.isInternal) {
+                        o.onArtifactOpen?.(artifactId, newVersion);
+                    }
                 }
 
                 flushActiveDocuments();
@@ -400,7 +404,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                     ac?.updateArtifact(
                         doc.artifactId,
-                        { proposed_version: { content: doc.content }, isUpdating: false, isStreaming: false },
+                        { proposedVersion: { content: doc.content }, isUpdating: false, isStreaming: false },
                         doc.version,
                     );
                     o.revalidateArtifact?.(doc.artifactId, doc.version);
@@ -430,7 +434,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         isUpdating: false,
                         progress: 100,
                         version: doc.version,
-                        proposed_version: { version: doc.version, status: 'proposed' },
+                        proposedVersion: { version: doc.version, status: 'proposed' },
                     },
                     doc.version,
                 );
@@ -507,28 +511,28 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         key: doc.name,
                                         title: doc.title,
                                         version: doc.pendingVersion,
-                                        proposed_version: {
+                                        proposedVersion: {
                                             id: '',
                                             version: doc.pendingVersion,
                                             content: doc.content,
                                             status: 'proposed',
-                                            created_at: now,
-                                            updated_at: now,
+                                            createdAt: now,
+                                            updatedAt: now,
                                         },
                                         ...(doc.loadedVersion && doc.mode === 'edit'
                                             ? {
-                                                  current_version: {
+                                                  currentVersion: {
                                                       id: '',
                                                       version: doc.loadedVersion,
                                                       content: '',
                                                       status: 'approved',
-                                                      created_at: now,
-                                                      updated_at: now,
+                                                      createdAt: now,
+                                                      updatedAt: now,
                                                   },
                                               }
                                             : {}),
-                                        created_at: now,
-                                        updated_at: now,
+                                        createdAt: now,
+                                        updatedAt: now,
                                         isStreaming: true,
                                         isUpdating: doc.mode === 'edit',
                                         isLoading: false,

@@ -1,6 +1,6 @@
 import { Paperclip } from 'lucide-react';
 import { useCallback, useRef } from 'react';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
@@ -36,15 +36,9 @@ export function AttachFileButton() {
             />
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="text-neutral-400"
-                        onClick={handleClick}
-                    >
-                        <Paperclip className="size-4" />
-                    </Button>
+                    <IconButton onClick={handleClick}>
+                        <Paperclip />
+                    </IconButton>
                 </TooltipTrigger>
                 <TooltipContent>Attach file</TooltipContent>
             </Tooltip>

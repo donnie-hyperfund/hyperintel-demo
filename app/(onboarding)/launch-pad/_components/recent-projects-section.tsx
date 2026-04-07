@@ -1,24 +1,25 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
 import { useRouter } from 'nextjs-toploader/app';
 import { ProjectItem, ProjectItemSkeleton } from '@/app/(dashboard)/projects/_components/project-item';
 import { Button } from '@/components/ui/button';
 import { useFetchProjects } from '@/lib/api/client/hooks/use-projects';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 
 export function RecentProjectsSection() {
     const router = useRouter();
     const { user } = useUser();
-    const { data, isLoading, error } = useFetchProjects({ page: 1, limit: 6 });
+    const { data, isLoading, error } = useFetchProjects({ page: 1, limit: 6, status: 'active' });
 
     const projects = data?.data ?? [];
     const total = data?.pagination.total ?? 0;
 
-    const openProject = (project: ProjectDto) => {
+    const openProject = (project: CamelCaseDto<ProjectDto>) => {
         if (!user?.id) return;
         setCurrentProjectCookie(user.id, project.id);
         router.push(`/${project.id}`);
@@ -81,17 +82,29 @@ function ProjectsEmpty() {
     );
 }
 
-function ProjectsGrid({ projects, onOpen }: { projects: ProjectDto[]; onOpen: (project: ProjectDto) => void }) {
+function ProjectsGrid({
+    projects,
+    onOpen,
+}: {
+    projects: CamelCaseDto<ProjectDto>[];
+    onOpen: (project: CamelCaseDto<ProjectDto>) => void;
+}) {
     return (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {projects.map((project) => (
-                <ProjectItem
-                    key={project.id}
-                    project={project}
-                    href={`/${project.id}`}
-                    onNavigate={() => onOpen(project)}
-                />
-            ))}
-        </div>
+        <motion.div layout className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <AnimatePresence initial={false} mode="popLayout">
+                {projects.map((project) => (
+                    <motion.div
+                        key={project.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.96 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.96 }}
+                        transition={{ duration: 0.25, ease: 'easeInOut' }}
+                    >
+                        <ProjectItem project={project} href={`/${project.id}`} onNavigate={() => onOpen(project)} />
+                    </motion.div>
+                ))}
+            </AnimatePresence>
+        </motion.div>
     );
 }

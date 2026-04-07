@@ -1,6 +1,6 @@
 ﻿import { runAgentStream } from '@common/ai/agent';
-import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
-import { ANTHROPIC_MODELS } from '@common/ai/types';
+import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
+import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -150,8 +150,14 @@ export async function summarizeActionHandler(
         // First event: IDs (read by GenerationProxyDO, returned to frontend)
         enqueue({ type: 'ids', agentMessageId });
 
-        // Run generation inline — Worker stays alive because the DO reads this stream
-        await runSummarizer({ data, ctx, options, chat, agentMessageId, ugStub });
+        // SSE keepalive — prevents Cloudflare from killing the idle connection
+        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+
+        try {
+            await runSummarizer({ data, ctx, options, chat, agentMessageId, ugStub });
+        } finally {
+            clearInterval(heartbeat);
+        }
 
         try {
             controller.close();
@@ -390,6 +396,41 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 .update({ chat: newChat.id, chat_message: summaryMessage.id })
                 .where({ id: { $in: createdVersionIds } })
                 .execute();
+        }
+
+        // Auto-generate a short name for the source chat if it doesn't have one
+        if (!chat.name && summaryContent) {
+            try {
+                const docs = extractDocuments(messages).filter(
+                    (d) => !d.name.toLowerCase().includes('completion brief'),
+                );
+                const docContext =
+                    docs.length > 0
+                        ? `\n\nDocuments generated during this phase:\n${docs.map((d) => `- ${d.name}`).join('\n')}`
+                        : '';
+
+                const nameResult = await runInferenceNoStream(ctx, {
+                    paramsType: AIParamsType.OpenRouter,
+                    instructions:
+                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs — they are generated automatically and are not relevant. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
+                    context: [{ role: 'user', content: summaryContent + docContext }],
+                    params: {
+                        model: COMMON_MODELS.GEMINI_FLASH_3_LITE,
+                        maxTokens: 30,
+                    },
+                });
+
+                if (nameResult.status === 'error') {
+                    throw new Error(nameResult.error?.message ?? 'Failed to generate phase name');
+                }
+
+                if (nameResult.status === 'success' && nameResult.result) {
+                    chat.name = (nameResult.result as string).trim().slice(0, 100);
+                    await em!.flush();
+                }
+            } catch (err) {
+                console.error('[summarizer] failed to generate phase name:', err);
+            }
         }
 
         // Broadcast chat_created to all user WS connections (fire-and-forget)

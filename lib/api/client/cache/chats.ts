@@ -1,14 +1,19 @@
 import type { Cache, ScopedMutator } from 'swr';
 import type { ChatDto } from '@/lib/schema/message';
-import type { PaginatedResponse } from '../types';
+import type { CamelCaseDto, PaginatedResponse } from '../types';
 
-export function insertChatToCache(cache: Cache, mutate: ScopedMutator, projectId: string, newChat: ChatDto) {
+export function insertChatToCache(
+    cache: Cache,
+    mutate: ScopedMutator,
+    projectId: string,
+    newChat: CamelCaseDto<ChatDto>,
+) {
     for (const key of cache.keys()) {
         if (!key.includes('"chats"') || !key.includes('"list"') || !key.includes(projectId)) continue;
 
         mutate(
             key,
-            (current: PaginatedResponse<ChatDto>[] | undefined) => {
+            (current: PaginatedResponse<CamelCaseDto<ChatDto>>[] | undefined) => {
                 if (!current || current.length === 0) return current;
 
                 const pages = [...current];

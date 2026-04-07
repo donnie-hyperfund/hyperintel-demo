@@ -15,6 +15,7 @@ import {
 } from '@/lib/api/client/fetchers/project-artifacts';
 import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
 import type {
+    CamelCaseDto,
     InfinitePaginationParams,
     PaginatedResponse,
     PaginationParams,
@@ -29,11 +30,11 @@ import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 export function useFetchProjectArtifacts(
     projectId: string | undefined,
     params?: PaginationParams,
-    config?: SWRConfiguration<PaginatedResponse<ArtifactDto>>,
+    config?: SWRConfiguration<PaginatedResponse<CamelCaseDto<ArtifactDto>>>,
 ) {
     const { getToken } = useAuth();
 
-    return useSWR<PaginatedResponse<ArtifactDto>>(
+    return useSWR<PaginatedResponse<CamelCaseDto<ArtifactDto>>>(
         projectId ? projectArtifactKeys.list(projectId, params) : null,
         () => {
             if (!projectId) throw new Error('Project ID is required');
@@ -46,12 +47,12 @@ export function useFetchProjectArtifacts(
 export function useFetchProjectArtifactsInfinite(
     projectId: string | undefined,
     params: InfinitePaginationParams & ProjectArtifactFilterParams = { limit: 20 },
-    config?: SWRInfiniteConfiguration<PaginatedResponse<ArtifactDto>>,
+    config?: SWRInfiniteConfiguration<PaginatedResponse<CamelCaseDto<ArtifactDto>>>,
 ) {
     const { getToken } = useAuth();
     const { limit, ...filters } = params;
 
-    return useSWRInfinitePaginated<ArtifactDto>(
+    return useSWRInfinitePaginated<CamelCaseDto<ArtifactDto>>(
         getProjectArtifactListInfiniteKey(projectId, limit, filters),
         (key) => {
             if (!projectId) throw new Error('Project ID is required');
@@ -65,11 +66,11 @@ export function useFetchProjectArtifactsInfinite(
 export function useFetchProjectArtifact(
     projectId: string | undefined,
     artifactId: string | undefined,
-    config?: SWRConfiguration<ArtifactDto>,
+    config?: SWRConfiguration<CamelCaseDto<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
 
-    return useSWR<ArtifactDto>(
+    return useSWR<CamelCaseDto<ArtifactDto>>(
         projectId && artifactId ? projectArtifactKeys.detail(projectId, artifactId) : null,
         () => {
             if (!projectId || !artifactId) throw new Error('Project ID and Artifact ID are required');
@@ -82,11 +83,11 @@ export function useFetchProjectArtifact(
 export function useFetchProjectArtifactByKey(
     projectId: string | undefined,
     key: string | undefined,
-    config?: SWRConfiguration<ArtifactDto>,
+    config?: SWRConfiguration<CamelCaseDto<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
 
-    return useSWR<ArtifactDto>(
+    return useSWR<CamelCaseDto<ArtifactDto>>(
         projectId && key ? projectArtifactKeys.byKey(projectId, key) : null,
         () => {
             if (!projectId || !key) throw new Error('Project ID and key are required');
@@ -105,7 +106,7 @@ export function useApproveProjectArtifactVersion(
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[]>(
+    return useSWRMutation<CamelCaseDto<ArtifactDto>, Error, readonly (string | undefined)[]>(
         [...projectArtifactKeys.byKey(projectId ?? '_user', artifactKey)],
         async () => {
             const token = await getToken();
@@ -135,7 +136,7 @@ export function useRejectProjectArtifactVersion(
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ArtifactDto, Error, readonly (string | undefined)[], string>(
+    return useSWRMutation<CamelCaseDto<ArtifactDto>, Error, readonly (string | undefined)[], string>(
         [...projectArtifactKeys.byKey(projectId ?? '_user', artifactKey)],
         async (_, { arg: reason }) => {
             const token = await getToken();
@@ -181,7 +182,7 @@ export function useUploadProjectArtifact(projectId: string, chatId: string | nul
 
     const uploadKey = projectId ? [...projectArtifactKeys.all, 'upload', projectId, chatId ?? 'project'] : null;
 
-    const mutation = useSWRMutation<UploadArtifactResponseDto, Error, string[] | null, File>(
+    const mutation = useSWRMutation<CamelCaseDto<UploadArtifactResponseDto>, Error, string[] | null, File>(
         uploadKey,
         async (_, { arg: file }) => {
             const validation = validateArtifactFile(file);

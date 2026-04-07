@@ -15,9 +15,34 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
+import type { OwnershipFilter } from '@/lib/schema/artifact';
 import { GetArtifactQuerySchema, ListArtifactsQuerySchema, ListUserResourcesQuerySchema } from '@/lib/schema/artifact';
 import { ImportArtifactsBodySchema } from '@/lib/schema/project';
 import { UserEventType } from '@/lib/schema/user-events';
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/** Escape ILIKE special characters so user input is matched literally. */
+function escapeIlike(value: string): string {
+    return value.replace(/[%_\\]/g, (ch) => `\\${ch}`);
+}
+
+/**
+ * Build the `$or` conditions array for ownership filtering.
+ * When `ownership` is 'shared' but no shared types exist, returns `null`
+ * to signal "no possible results".
+ */
+function buildOwnershipConditions(
+    ownership: OwnershipFilter | undefined,
+    ownCondition: Record<string, unknown>,
+    sharedCondition: Record<string, unknown> | null,
+): Record<string, unknown>[] | null {
+    if (ownership === 'mine') return [ownCondition];
+    if (ownership === 'shared') return sharedCondition ? [sharedCondition] : null;
+    return sharedCondition ? [ownCondition, sharedCondition] : [ownCondition];
+}
 
 // ---------------------------------------------------------------------------
 // Project artifact handlers
@@ -58,6 +83,7 @@ export async function handleListProjectArtifacts(
                 'a.key': normalizedKey,
                 'p.id': projectId,
                 'p.user': user.id,
+                'p.archived_at': null,
                 $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
             })
             .getSingleResult();
@@ -111,6 +137,7 @@ export async function handleListProjectArtifacts(
         .where({
             'p.id': projectId,
             'p.user': user.id,
+            'p.archived_at': null,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
         });
 
@@ -118,7 +145,11 @@ export async function handleListProjectArtifacts(
     query.andWhere({
         $or: [{ [raw("a.metadata->>'importedFrom'")]: null }, { [raw('a.metadata')]: null }],
     });
-    query.andWhere({ $or: [{ 'cv.is_uploaded': null }, { 'cv.is_uploaded': false }] });
+    // Exclude artifacts that have ANY uploaded version (not just current_version, which may be null during processing)
+    query.andWhere({
+        [raw(`NOT EXISTS (SELECT 1 FROM artifact_versions av WHERE av.artifact_id = a.id AND av.is_uploaded = true)`)]:
+            [],
+    });
 
     // Apply user-selected filters (prefer proposed version, fall back to current)
     if (queryData.visibility?.length) {
@@ -167,7 +198,7 @@ export async function handleListProjectArtifacts(
 // Unified artifact router
 // ---------------------------------------------------------------------------
 
-export async function handleGetArtifacts(req: NextRequest, user: UserEntity): Promise<NextResponse> {
+export function handleGetArtifacts(req: NextRequest, user: UserEntity): Promise<NextResponse> {
     const { searchParams } = new URL(req.url);
     const projectId = searchParams.get('projectId');
     const chatId = searchParams.get('chatId');
@@ -191,6 +222,8 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
         page: searchParams.get('page') ?? undefined,
         limit: searchParams.get('limit') ?? undefined,
         document_type: searchParams.get('document_type') ?? undefined,
+        search: searchParams.get('search') ?? undefined,
+        ownership: searchParams.get('ownership') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
@@ -198,22 +231,29 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
     const SHARED_DOCUMENT_TYPES: string[] = ['Company Profile', 'Human Persona'];
     const isSharedType = queryData.document_type && SHARED_DOCUMENT_TYPES.includes(queryData.document_type);
 
+    const ownershipConditions = buildOwnershipConditions(
+        queryData.ownership,
+        { 'a.user': user.id },
+        isSharedType ? { 'a.user': { $ne: user.id }, 'cv.status': 'approved' } : null,
+    );
+
+    if (!ownershipConditions) {
+        return NextResponse.json(createPaginatedResponse([], 0, queryData.page ?? 1, queryData.limit ?? 20));
+    }
+
     const query = em
         .createQueryBuilder(ArtifactEntity, 'a')
         .select('a.*')
         .leftJoinAndSelect('a.current_version', 'cv')
         .where({
             'a.project': null,
-            $or: isSharedType
-                ? [
-                      // Own artifacts — any status
-                      { 'a.user': user.id },
-                      // Other users' artifacts — only approved
-                      { 'a.user': { $ne: user.id }, 'cv.status': 'approved' },
-                  ]
-                : [{ 'a.user': user.id }],
+            $or: ownershipConditions,
         })
         .orderBy({ 'a.created_at': 'DESC' });
+
+    if (queryData.search) {
+        query.andWhere(raw('a.title ILIKE ?', [`%${escapeIlike(queryData.search)}%`]));
+    }
 
     // Filter by document_type through versions (an artifact may have the type on any version)
     if (queryData.document_type) {
@@ -361,7 +401,7 @@ export async function handleImportArtifacts(
     const resolvedProjectId = projectId ?? bodyData.projectId;
 
     // Verify project ownership
-    const project = await em.findOne(ProjectEntity, { id: resolvedProjectId, user: user.id });
+    const project = await em.findOne(ProjectEntity, { id: resolvedProjectId, user: user.id, archived_at: null });
     if (!project) {
         return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
     }
@@ -421,11 +461,13 @@ export async function handleListResources(
         documentType: searchParams.get('documentType') ?? undefined,
         approvedOnly: searchParams.get('approvedOnly') ?? undefined,
         excludeProjectId: searchParams.get('excludeProjectId') ?? undefined,
+        search: searchParams.get('search') ?? undefined,
+        ownership: searchParams.get('ownership') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
 
-    const { page, limit, documentType, approvedOnly, excludeProjectId } = queryData;
+    const { page, limit, documentType, approvedOnly, excludeProjectId, search, ownership } = queryData;
 
     const query = em.createQueryBuilder(ArtifactEntity, 'a').select('a.*');
 
@@ -437,6 +479,7 @@ export async function handleListResources(
             .where({
                 'p.id': projectId,
                 'p.user': user.id,
+                'p.archived_at': null,
                 $or: [{ [raw("a.metadata->>'importedFrom'")]: { $ne: null } }, { 'cv.is_uploaded': true }],
                 $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
             });
@@ -445,22 +488,25 @@ export async function handleListResources(
         const SHARED_DOCUMENT_TYPES: string[] = ['Company Profile', 'Human Persona'];
         const hasSharedTypes = documentType?.some((dt) => SHARED_DOCUMENT_TYPES.includes(dt));
 
+        const ownershipConditions = buildOwnershipConditions(
+            ownership,
+            { 'a.user': user.id },
+            hasSharedTypes
+                ? {
+                      'a.user': { $ne: user.id },
+                      'cv.document_type': { $in: SHARED_DOCUMENT_TYPES },
+                      'cv.status': 'approved',
+                  }
+                : null,
+        );
+
+        if (!ownershipConditions) {
+            return NextResponse.json(createPaginatedResponse([], 0, page, limit));
+        }
+
         query.leftJoinAndSelect('a.current_version', 'cv').where({
             'a.project': null,
-            $or: [
-                // Own artifacts (any document type, any status)
-                { 'a.user': user.id },
-                // Other users' artifacts — only shared document types with approved status
-                ...(hasSharedTypes
-                    ? [
-                          {
-                              'a.user': { $ne: user.id },
-                              'cv.document_type': { $in: SHARED_DOCUMENT_TYPES },
-                              'cv.status': 'approved',
-                          },
-                      ]
-                    : []),
-            ],
+            $or: ownershipConditions,
         });
 
         if (documentType?.length) {
@@ -468,6 +514,10 @@ export async function handleListResources(
         }
         if (approvedOnly) {
             query.andWhere({ 'cv.status': 'approved' });
+        }
+
+        if (search) {
+            query.andWhere(raw('a.title ILIKE ?', [`%${escapeIlike(search)}%`]));
         }
 
         // Exclude artifacts published from a specific project
@@ -585,6 +635,7 @@ export async function handleRemoveProjectResource(
             'a.id': artifactId,
             'p.id': projectId,
             'p.user': user.id,
+            'p.archived_at': null,
             [raw("a.metadata->>'importedFrom'")]: { $ne: null },
         })
         .getSingleResult();
@@ -645,7 +696,7 @@ export async function handleGetFileStatuses(req: NextRequest, user: UserEntity):
         .where({
             'f.id': { $in: fileIds },
             $or: [
-                { 'p.user': user.id },
+                { 'p.user': user.id, 'p.archived_at': null },
                 { 'c.user': user.id },
                 { 'a.user': user.id },
                 { [raw("a.metadata->>'stagedBy'")]: user.id },

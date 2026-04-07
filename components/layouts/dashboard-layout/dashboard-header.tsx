@@ -10,6 +10,7 @@ import {
     BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 type DashboardHeaderProps = {
     title: string;
@@ -23,7 +24,12 @@ type DashboardHeaderProps = {
 export const DashboardHeader = ({ title, parent, ActionComponent }: DashboardHeaderProps) => {
     return (
         <header className="h-14 border-b border-border flex items-center px-4 md:px-6 gap-3">
-            <SidebarTrigger className="md:hidden size-8 shrink-0" />
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <SidebarTrigger className="md:hidden size-8 shrink-0" />
+                </TooltipTrigger>
+                <TooltipContent>Toggle sidebar</TooltipContent>
+            </Tooltip>
             <Breadcrumb className="min-w-0">
                 <BreadcrumbList>
                     {parent && (

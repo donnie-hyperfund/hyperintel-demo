@@ -68,7 +68,7 @@ export function ResourceList() {
         async (artifactId: string) => {
             const artifact = allItems.find((a) => a.id === artifactId);
             const version = artifact && getLatestArtifactVersion(artifact);
-            if (version?.is_uploaded) {
+            if (version?.isUploaded) {
                 const token = await getToken();
                 if (token) await deleteArtifact({ artifactId }, token);
             } else {

@@ -1,3 +1,4 @@
+import camelcaseKeys from 'camelcase-keys';
 import { SWRConfig } from 'swr';
 import { unstable_serialize } from 'swr/infinite';
 import { assertAuthPage } from '@/lib/api/auth-guard';
@@ -10,7 +11,7 @@ export default async function NewProjectLayout({ children }: { children: React.R
     const resources = await fetchResources(user, { page: 1, limit: 20 });
 
     const fallback: Record<string, unknown> = {
-        [unstable_serialize(getResourceListInfiniteKey(20))]: [resources],
+        [unstable_serialize(getResourceListInfiniteKey(20))]: [camelcaseKeys(resources, { deep: true })],
     };
 
     return (

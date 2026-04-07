@@ -1,4 +1,5 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
+import camelcaseKeys from 'camelcase-keys';
 import { ApiClientError } from './types';
 
 export type TokenGetter = () => Promise<string | null>;
@@ -24,9 +25,15 @@ export function createAxiosInstance(getToken: TokenGetter): AxiosInstance {
         (error) => Promise.reject(error),
     );
 
-    // Response interceptor - transform errors
+    // Response interceptor
     instance.interceptors.response.use(
-        (response) => response,
+        // Convert snake_case to camelCase
+        (response) => {
+            if (response.data && typeof response.data === 'object') {
+                response.data = camelcaseKeys(response.data, { deep: true });
+            }
+            return response;
+        },
         (error: AxiosError<{ message?: string; code?: string; details?: Record<string, unknown> }>) => {
             const status = error.response?.status ?? 500;
             const data = error.response?.data;
