@@ -91,10 +91,7 @@ export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     isStreaming?: boolean;
     isUpdating?: boolean;
     progress?: number;
-    /** Live-streamed PECP content (public summary of internal doc) */
     pecpContent?: string;
-    /** True while PECP is being streamed */
-    isPECPStreaming?: boolean;
 };
 
 // =============================================================================
