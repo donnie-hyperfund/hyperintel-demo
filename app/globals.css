@@ -124,6 +124,14 @@ html {
   background-color: oklch(from var(--color-muted-foreground) l c h / 0.5);
 }
 
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* prose-message: For chat messages - 16px base, slower header scaling, compact spacing */
 .prose-message {
   font-size: 1rem;
