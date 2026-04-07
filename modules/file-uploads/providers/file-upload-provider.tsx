@@ -15,7 +15,12 @@ import {
     uploadArtifact,
 } from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
-import { type ArtifactDto, isBinaryArtifactExtension, isImageExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
+import {
+    type ArtifactDto,
+    isBinaryArtifactExtension,
+    isImageExtension,
+    type PresignUploadResponseDto,
+} from '@/lib/schema/artifact';
 import type { ProjectResourceUploadUpdatedPayload } from '@/lib/schema/user-events';
 import { getUploadStorageKey } from '@/lib/storage/storage-keys';
 import { useCrossTabUploadSync } from '../hooks/use-cross-tab-upload-sync';
@@ -650,7 +655,16 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     return (
         <FileUploadContext.Provider
-            value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting, consumeStagedArtifactIds, consumeStagedImageFileIds }}
+            value={{
+                files,
+                addFiles,
+                removeFile,
+                clearFiles,
+                submitFiles,
+                isSubmitting,
+                consumeStagedArtifactIds,
+                consumeStagedImageFileIds,
+            }}
         >
             {children}
         </FileUploadContext.Provider>

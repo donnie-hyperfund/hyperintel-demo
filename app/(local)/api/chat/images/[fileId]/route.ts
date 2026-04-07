@@ -3,8 +3,8 @@ import { NextResponse } from 'next/server';
 import { assertAuth } from '@/lib/api/auth-guard';
 import { IS_DEV } from '@/lib/config';
 import { initNextjsWorkerContext } from '@/lib/local/context';
-import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { createR2Client, getR2CredentialsFromEnv } from '@/lib/vendor/r2';
 
 export async function GET(_req: Request, { params }: { params: Promise<{ fileId: string }> }) {
@@ -19,10 +19,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ fileId:
 
     const chat = await em.findOne(ChatEntity, {
         id: file.chat_id,
-        $or: [
-            { project: { user: { clerkId: user.userId } } },
-            { user: { clerkId: user.userId } },
-        ],
+        $or: [{ project: { user: { clerkId: user.userId } } }, { user: { clerkId: user.userId } }],
     });
     if (!chat) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 

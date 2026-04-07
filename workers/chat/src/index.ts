@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import { ChatEntity, ChatMessageFileEntity } from '@/lib/orm/entities';
-import type { UserGatewayStub } from './utils/do-stubs';
+import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import {
     ApproveArtifactActionSchema,
     AssociateArtifactsSchema,
@@ -35,18 +35,18 @@ import {
     presignUploadHandler,
     uploadArtifactHandler,
 } from './artifact-uploader';
-import {
-    PresignImageUploadSchema,
-    ConfirmImageUploadSchema,
-    presignImageUploadHandler,
-    confirmImageUploadHandler,
-} from './image-uploader';
-import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import { chatActionHandler } from './chat-handler';
 import { cleanupStaleUploads } from './cleanup';
 import type { Ctx } from './context';
+import {
+    ConfirmImageUploadSchema,
+    confirmImageUploadHandler,
+    PresignImageUploadSchema,
+    presignImageUploadHandler,
+} from './image-uploader';
 import { intakeActionHandler } from './intake-handler';
 import { summarizeActionHandler } from './summarizer';
+import type { UserGatewayStub } from './utils/do-stubs';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
 
@@ -270,10 +270,7 @@ app.get('/images/:fileId', async (c) => {
     // Verify ownership via chat → project → user chain
     const chat = await em.findOne(ChatEntity, {
         id: file.chat_id,
-        $or: [
-            { project: { user: { clerkId: c.var.user.userId } } },
-            { user: { clerkId: c.var.user.userId } },
-        ],
+        $or: [{ project: { user: { clerkId: c.var.user.userId } } }, { user: { clerkId: c.var.user.userId } }],
     });
     if (!chat) return c.json({ error: 'Not found' }, 404);
 

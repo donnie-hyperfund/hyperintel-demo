@@ -10,13 +10,14 @@
  * - Without:        `WHERE chat.user = userId OR project.user = userId`
  */
 
+import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { sql, wrap } from '@mikro-orm/core';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { type NextRequest, NextResponse } from 'next/server';
-import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { workerSystemAction } from '@/lib/broadcast/worker-internal';
+import { IS_DEV } from '@/lib/config';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
@@ -26,8 +27,6 @@ import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import { getAvailablePresets } from '@/lib/presets';
 import { ListArtifactsQuerySchema } from '@/lib/schema/artifact';
-import { IS_DEV } from '@/lib/config';
-import { createR2Client, getR2CredentialsFromEnv } from '@/lib/vendor/r2';
 import { CreateUnifiedChatBodySchema, UpdateChatModelSchema, UpdateChatNameSchema } from '@/lib/schema/chat';
 import {
     type ChatDocumentSummaryDto,
@@ -37,6 +36,7 @@ import {
     ListChatsQuerySchema,
     ListMessagesQuerySchema,
 } from '@/lib/schema/message';
+import { createR2Client, getR2CredentialsFromEnv } from '@/lib/vendor/r2';
 
 // ---------------------------------------------------------------------------
 // Helpers

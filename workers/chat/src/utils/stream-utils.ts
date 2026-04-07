@@ -329,9 +329,10 @@ export async function loadChatHistory(em: any, chatId: string, env?: Env) {
     }
 
     // Generate signed URLs for all image files (single batch)
-    const signedUrls = env && imageFiles.length > 0
-        ? await generateSignedImageUrls(env, imageFiles as ChatMessageFileEntity[])
-        : new Map<string, string>();
+    const signedUrls =
+        env && imageFiles.length > 0
+            ? await generateSignedImageUrls(env, imageFiles as ChatMessageFileEntity[])
+            : new Map<string, string>();
 
     return dbMessages.map((m: ChatMessageEntity) => {
         if (m.is_error || m.is_aborted) {

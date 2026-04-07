@@ -54,7 +54,15 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
     } = useChatContext();
     const { selectedModel } = useModelSelection();
 
-    const { files, addFiles, removeFile, submitFiles, isSubmitting, consumeStagedArtifactIds, consumeStagedImageFileIds } = useFileUploadContext();
+    const {
+        files,
+        addFiles,
+        removeFile,
+        submitFiles,
+        isSubmitting,
+        consumeStagedArtifactIds,
+        consumeStagedImageFileIds,
+    } = useFileUploadContext();
     const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 

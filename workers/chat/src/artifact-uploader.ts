@@ -1,6 +1,5 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { createR2Client, getR2CredentialsFromWorkerEnv } from '@/lib/vendor/r2';
 import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { ExtractionQueueAdapter } from '@common/queue/extraction-queue.adapter';
@@ -20,6 +19,7 @@ import {
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
 import { type ProjectResourceUploadUpdatedPayload, UserEventType } from '@/lib/schema/user-events';
+import { createR2Client, getR2CredentialsFromWorkerEnv } from '@/lib/vendor/r2';
 import type { Ctx } from './context';
 import { broadcastUserEvent } from './utils/broadcast';
 
