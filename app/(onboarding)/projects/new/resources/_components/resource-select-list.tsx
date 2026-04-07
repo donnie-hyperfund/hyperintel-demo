@@ -31,7 +31,7 @@ export function ResourceSelectList({ selectedIds, onToggle, onClearAll }: Resour
                             icon={tab.icon}
                             selectedIds={selectedIds}
                             onToggle={onToggle}
-                            className="max-h-[min(28rem,45dvh)] overflow-y-auto py-4"
+                            className="h-96 overflow-y-auto py-4"
                             skeletonCount={4}
                         />
                     ) : null,

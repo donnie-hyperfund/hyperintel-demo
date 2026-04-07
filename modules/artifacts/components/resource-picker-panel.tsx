@@ -40,6 +40,7 @@ export function ResourcePickerPanel({
     className,
     skeletonCount = 3,
 }: ResourcePickerPanelProps) {
+    const rootClassName = className ?? 'overflow-y-auto py-2';
     const { data, isLoading, hasNextPage, size, setSize } = useFetchResources({
         limit: 20,
         approvedOnly: true,
@@ -63,31 +64,35 @@ export function ResourcePickerPanel({
 
     if (isLoading && size === 1) {
         return (
-            <div className="space-y-2 py-2">
-                {Array.from({ length: skeletonCount }).map((_, i) => (
-                    <ArtifactListItemSkeleton key={i} size="sm" />
-                ))}
+            <div className={rootClassName}>
+                <div className="space-y-2 py-2">
+                    {Array.from({ length: skeletonCount }).map((_, i) => (
+                        <ArtifactListItemSkeleton key={i} size="sm" />
+                    ))}
+                </div>
             </div>
         );
     }
 
     if (visibleItems.length === 0) {
         return (
-            <EmptyState
-                className="flex-1 py-8"
-                icon={Building2}
-                title={filters.hasFilters ? 'No matching resources' : (emptyTitle ?? 'No resources yet')}
-                description={
-                    filters.hasFilters
-                        ? 'Try adjusting your search or filters.'
-                        : (emptyDescription ?? 'Items will appear here once created.')
-                }
-            />
+            <div className={rootClassName}>
+                <EmptyState
+                    className="flex-1 py-8"
+                    icon={Building2}
+                    title={filters.hasFilters ? 'No matching resources' : (emptyTitle ?? 'No resources yet')}
+                    description={
+                        filters.hasFilters
+                            ? 'Try adjusting your search or filters.'
+                            : (emptyDescription ?? 'Items will appear here once created.')
+                    }
+                />
+            </div>
         );
     }
 
     return (
-        <div ref={scrollContainerRef} className={className ?? 'overflow-y-auto py-2'}>
+        <div ref={scrollContainerRef} className={rootClassName}>
             <div className="space-y-1.5">
                 {visibleItems.map((artifact) => (
                     <ArtifactListItem
