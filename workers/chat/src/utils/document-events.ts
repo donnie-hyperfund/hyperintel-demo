@@ -149,42 +149,36 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES.Other)
                         : DOCUMENT_CHAR_ESTIMATES.Other;
 
-                    // PECP: emit pecp_start with parent document name instead of document_start
-                    if (activeDoc.isPECP && activeDoc.parentDocument) {
-                        emit({
-                            type: 'pecp_start',
-                            parentDocument: activeDoc.parentDocument,
-                        } as any);
-                    } else {
-                        const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
+                    const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
 
-                        const startEvent: DocumentEvent = {
-                            type: 'document_start',
-                            name: activeDoc.name,
-                            title: activeDoc.title,
-                            mode: result.mode || 'create',
-                            isInternal: activeDoc.isInternal,
-                            pendingVersion,
-                            estimatedChars,
-                        };
+                    const startEvent: DocumentEvent = {
+                        type: 'document_start',
+                        name: activeDoc.name,
+                        title: activeDoc.title,
+                        mode: result.mode || 'create',
+                        isInternal: activeDoc.isInternal,
+                        pendingVersion,
+                        estimatedChars,
+                    };
 
-                        if (result.document_type) {
-                            startEvent.documentType = result.document_type;
-                        }
-
-                        // Add edit-mode specific fields
-                        if (result.loadedFrom) {
-                            startEvent.loadedFrom = result.loadedFrom;
-                        }
-                        if (result.loadedVersion !== undefined) {
-                            startEvent.loadedVersion = result.loadedVersion;
-                        }
-                        if (result.rejectionReason) {
-                            startEvent.rejectionReason = result.rejectionReason;
-                        }
-
-                        emit(startEvent);
+                    if (result.document_type) {
+                        startEvent.documentType = result.document_type;
                     }
+                    if (activeDoc.isPECP && activeDoc.parentDocument) {
+                        (startEvent as any).isPECP = true;
+                        (startEvent as any).parentDocument = activeDoc.parentDocument;
+                    }
+                    if (result.loadedFrom) {
+                        startEvent.loadedFrom = result.loadedFrom;
+                    }
+                    if (result.loadedVersion !== undefined) {
+                        startEvent.loadedVersion = result.loadedVersion;
+                    }
+                    if (result.rejectionReason) {
+                        startEvent.rejectionReason = result.rejectionReason;
+                    }
+
+                    emit(startEvent);
                 }
 
                 // patch_document: emit document_edit with the captured edits
@@ -212,32 +206,28 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     editBuffer = '';
                 }
 
-                // finalize_document: emit document_complete (or pecp_complete) and clear state
+                // finalize_document: emit document_complete and clear state
                 if (result.version !== undefined && result.lines !== undefined) {
-                    if (result.isPECP && activeDoc?.parentDocument) {
-                        // PECP: emit pecp_complete with parent document name
-                        emit({
-                            type: 'pecp_complete',
-                            parentDocument: activeDoc.parentDocument,
-                        } as any);
-                    } else {
-                        const name = result.name || activeDoc?.name;
-                        if (name) {
-                            const completeEvent: DocumentEvent = {
-                                type: 'document_complete',
-                                name,
-                                version: result.version,
-                                lines: result.lines,
-                                action: result.action || 'created',
-                                status: 'proposed',
-                            };
+                    const name = result.name || activeDoc?.name;
+                    if (name) {
+                        const completeEvent: DocumentEvent = {
+                            type: 'document_complete',
+                            name,
+                            version: result.version,
+                            lines: result.lines,
+                            action: result.action || 'created',
+                            status: 'proposed',
+                        };
 
-                            if (result.supersededVersion !== undefined) {
-                                completeEvent.supersededVersion = result.supersededVersion;
-                            }
-
-                            emit(completeEvent);
+                        if (result.isPECP && activeDoc?.parentDocument) {
+                            (completeEvent as any).isPECP = true;
+                            (completeEvent as any).parentDocument = activeDoc.parentDocument;
                         }
+                        if (result.supersededVersion !== undefined) {
+                            completeEvent.supersededVersion = result.supersededVersion;
+                        }
+
+                        emit(completeEvent);
                     }
                     activeDoc = null;
                     writeParser = null;
@@ -262,12 +252,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                                 // Track chars for progress (always, even for internal docs)
                                 accumulatedChars += delta.length;
 
-                                // PECP: emit pecp_delta with parent document name
                                 if (activeDoc.isPECP && activeDoc.parentDocument) {
+                                    // PECP: emit document_delta with isPECP flag and parent name
                                     emit({
-                                        type: 'pecp_delta',
-                                        parentDocument: activeDoc.parentDocument,
+                                        type: 'document_delta',
+                                        name: activeDoc.name,
                                         content: delta,
+                                        isPECP: true,
+                                        parentDocument: activeDoc.parentDocument,
                                     } as any);
                                 } else {
                                     maybeEmitProgress();

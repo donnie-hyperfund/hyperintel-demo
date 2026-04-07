@@ -276,6 +276,21 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
         switch (type) {
             case 'document_start': {
+                // PECP: update parent artifact instead of creating a new one
+                if (payload.isPECP && payload.parentDocument && ac) {
+                    const parentId = payload.parentDocument;
+                    const versions = ac.getStore()[parentId];
+                    if (versions) {
+                        const vKey = Object.keys(versions)[0];
+                        if (vKey) {
+                            const ver = (Number(vKey) || vKey) as number | 'latest';
+                            ac.updateArtifact(parentId, { pecpContent: '', isPECPStreaming: true } as any, ver);
+                            o.onArtifactOpen?.(parentId, typeof ver === 'number' ? ver : 1);
+                        }
+                    }
+                    break;
+                }
+
                 const artifactId = payload.name;
                 const now = new Date().toISOString();
                 o.onDocumentStart?.();
@@ -370,6 +385,23 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             }
 
             case 'document_delta': {
+                // PECP: append to parent artifact's pecpContent
+                if (payload.isPECP && payload.parentDocument && ac) {
+                    const parentId = payload.parentDocument;
+                    const versions = ac.getStore()[parentId];
+                    if (versions) {
+                        const vKey = Object.keys(versions)[0];
+                        if (vKey) {
+                            const ver = (Number(vKey) || vKey) as number | 'latest';
+                            const existing = ac.getArtifact(parentId, ver);
+                            ac.updateArtifact(parentId, {
+                                pecpContent: (existing?.pecpContent ?? '') + payload.content,
+                            } as any, ver);
+                        }
+                    }
+                    break;
+                }
+
                 if (s.streamingDocs.has(payload.name)) {
                     const chunks = chunkText(payload.content);
                     if (chunks.length === 1) {
@@ -422,6 +454,20 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             }
 
             case 'document_complete': {
+                // PECP: mark streaming done on parent artifact
+                if (payload.isPECP && payload.parentDocument && ac) {
+                    const parentId = payload.parentDocument;
+                    const versions = ac.getStore()[parentId];
+                    if (versions) {
+                        const vKey = Object.keys(versions)[0];
+                        if (vKey) {
+                            const ver = (Number(vKey) || vKey) as number | 'latest';
+                            ac.updateArtifact(parentId, { isPECPStreaming: false } as any, ver);
+                        }
+                    }
+                    break;
+                }
+
                 // Flush pending drip deltas before marking complete
                 docDripRef.current.drain();
                 const doc = s.streamingDocs.get(payload.name);
@@ -757,35 +803,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         case 'document_complete':
                             documentQueueRef.current?.push({ type: event.type, payload: event });
                             break;
-
-                        // PECP (PE Communication) streaming — mapped to parent internal doc
-                        case 'pecp_start':
-                        case 'pecp_delta':
-                        case 'pecp_complete': {
-                            const ac = optsRef.current.artifactContext;
-                            if (!ac) break;
-
-                            // Find the version key under which the parent artifact is stored
-                            const parentId = event.parentDocument;
-                            const versions = ac.getStore()[parentId];
-                            if (!versions) break;
-                            const vKey = Object.keys(versions)[0];
-                            if (!vKey) break;
-                            const ver = (Number(vKey) || vKey) as number | 'latest';
-
-                            if (event.type === 'pecp_start') {
-                                ac.updateArtifact(parentId, { pecpContent: '', isPECPStreaming: true } as any, ver);
-                                optsRef.current.onArtifactOpen?.(parentId, typeof ver === 'number' ? ver : 1);
-                            } else if (event.type === 'pecp_delta') {
-                                const existing = ac.getArtifact(parentId, ver);
-                                ac.updateArtifact(parentId, {
-                                    pecpContent: (existing?.pecpContent ?? '') + event.content,
-                                } as any, ver);
-                            } else {
-                                ac.updateArtifact(parentId, { isPECPStreaming: false } as any, ver);
-                            }
-                            break;
-                        }
 
                         // ----- Status & terminal -----
                         case 'status_update':

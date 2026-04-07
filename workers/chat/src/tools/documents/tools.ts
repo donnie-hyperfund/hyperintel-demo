@@ -560,7 +560,6 @@ If a proposed version already exists, it will be marked as "superseded".`,
 
                 try {
                     const draft = draftManager.requireCurrent();
-                    const isPECP = draft.document_type === 'PECP';
 
                     // Persist to database as proposed
                     const result = await upsertDocument(
@@ -574,28 +573,10 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         draft.document_type,
                     );
 
-                    // For PECP: auto-approve, set hidden, link parent_version
-                    if (isPECP && draft.parentVersionId) {
-                        const pecpVersion = await em.findOneOrFail(ArtifactVersionEntity, { id: result.versionId }, { populate: ['artifact'] });
-
-                        // Auto-approve
-                        pecpVersion.status = 'approved';
-                        pecpVersion.status_changed_at = new Date();
-
-                        // Link to parent internal document version
-                        pecpVersion.parent_version = em.getReference(ArtifactVersionEntity, draft.parentVersionId);
-
-                        // Mark artifact as PECP
-                        pecpVersion.artifact.is_pecp = true;
-                        pecpVersion.artifact.current_version = pecpVersion;
-
-                        await em.flush();
-                    }
-
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
 
-                    // Notify listener (user-scoped broadcast) — fire-and-forget
+                    // Notify listener (user-scoped broadcast)
                     ctx.onVersionCreated?.({
                         artifactName: draft.name,
                         versionId: result.versionId,
@@ -603,11 +584,26 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         action: result.action,
                     });
 
-                    // Only clear draft after successful persist
                     draftManager.discard();
 
-                    // PECP finalize — auto-approved, no embedding, no AI content, no chat directive
-                    if (isPECP) {
+                    // ── PECP path ────────────────────────────────────────────
+                    // Auto-approve, link parent, mark artifact, no embedding,
+                    // no AI content, no chat directive.
+                    if (draft.document_type === 'PECP') {
+                        if (draft.parentVersionId) {
+                            const pecpVersion = await em.findOneOrFail(
+                                ArtifactVersionEntity,
+                                { id: result.versionId },
+                                { populate: ['artifact'] },
+                            );
+                            pecpVersion.status = 'approved';
+                            pecpVersion.status_changed_at = new Date();
+                            pecpVersion.parent_version = em.getReference(ArtifactVersionEntity, draft.parentVersionId);
+                            pecpVersion.artifact.is_pecp = true;
+                            pecpVersion.artifact.current_version = pecpVersion;
+                            await em.flush();
+                        }
+
                         return {
                             result: {
                                 action: result.action,
@@ -617,14 +613,13 @@ If a proposed version already exists, it will be marked as "superseded".`,
                                 lines: result.lines,
                                 isPECP: true,
                             },
-                            // Empty appendedOutput so the agent runner uses result.{version,lines}
-                            // for document-events parsing, but no directive is injected into chat
                             appendedOutput: '',
                             message: `PECP saved and auto-approved as v${result.version}.`,
                         };
                     }
 
-                    // Queue embedding job for the new version (fire-and-forget)
+                    // ── Regular document path ────────────────────────────────
+                    // Embedding + AI content generation
                     if (embeddingQueue && (ctx.projectId || ctx.chatId)) {
                         const generateAiContent = rCtx
                             ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
@@ -646,7 +641,6 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         rCtx?.eCtx?.waitUntil(embedPromise);
                     }
 
-                    // Regular document finalize
                     const response: Record<string, unknown> = {
                         result: {
                             action: result.action,
@@ -664,7 +658,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded. STOP HERE — do not create any more documents until the user asks.`;
                     }
 
-                    // For internal documents: instruct the agent to generate a PECP next
+                    // Internal documents → instruct agent to generate PECP
                     if (shouldGeneratePECP(draft.document_type)) {
                         const pecpKey = pecpKeyForDocument(draft.name);
                         response.pecpRequired = {
