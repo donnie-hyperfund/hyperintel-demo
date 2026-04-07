@@ -5,8 +5,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { useResourceListFilters } from '@/hooks/use-resource-list-filters';
+import { OwnershipFilterSchema } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
 import type { useResourceTabs } from '../hooks/use-resource-tabs';
+
+const MINE = OwnershipFilterSchema.enum.mine;
+const SHARED = OwnershipFilterSchema.enum.shared;
 
 type ResourcePickerToolbarProps = {
     filters: ReturnType<typeof useResourceListFilters>;
@@ -73,7 +77,7 @@ export function ResourcePickerToolbar({ filters, tabState, searchPlaceholder }: 
                 </div>
                 <Select
                     value={filters.ownership ?? 'all'}
-                    onValueChange={(v) => filters.setOwnership(v === 'mine' || v === 'shared' ? v : undefined)}
+                    onValueChange={(v) => filters.setOwnership(v === MINE || v === SHARED ? v : undefined)}
                 >
                     <SelectTrigger size="sm" className="w-auto cursor-pointer">
                         <SelectValue />
@@ -82,10 +86,10 @@ export function ResourcePickerToolbar({ filters, tabState, searchPlaceholder }: 
                         <SelectItem value="all" className="cursor-pointer">
                             All
                         </SelectItem>
-                        <SelectItem value="mine" className="cursor-pointer">
+                        <SelectItem value={MINE} className="cursor-pointer">
                             Mine
                         </SelectItem>
-                        <SelectItem value="shared" className="cursor-pointer">
+                        <SelectItem value={SHARED} className="cursor-pointer">
                             Shared
                         </SelectItem>
                     </SelectContent>
