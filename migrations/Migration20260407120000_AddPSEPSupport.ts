@@ -6,9 +6,7 @@ export class Migration20260407120000_AddPECPSupport extends Migration {
         this.addSql(`alter table "artifacts" add column "is_pecp" boolean not null default false;`);
 
         // Parent version reference on artifact_versions (links PECP to its source internal doc version)
-        this.addSql(
-            `alter table "artifact_versions" add column "parent_version_id" uuid;`,
-        );
+        this.addSql(`alter table "artifact_versions" add column "parent_version_id" uuid;`);
         this.addSql(
             `alter table "artifact_versions" add constraint "artifact_versions_parent_version_id_foreign" foreign key ("parent_version_id") references "artifact_versions" ("id") on update cascade on delete set null;`,
         );

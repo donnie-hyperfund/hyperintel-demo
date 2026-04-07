@@ -6,10 +6,8 @@ import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
 
-export type { VersionStatus } from '@/lib/schema/artifact';
-export { VERSION_STATUSES } from '@/lib/schema/artifact';
-export type { DocumentType } from '@/lib/schema/artifact';
-export { DOCUMENT_TYPES } from '@/lib/schema/artifact';
+export type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
+export { DOCUMENT_TYPES, VERSION_STATUSES } from '@/lib/schema/artifact';
 
 @Entity({ tableName: 'artifact_versions' })
 @Index({ properties: ['artifact', 'status'] })

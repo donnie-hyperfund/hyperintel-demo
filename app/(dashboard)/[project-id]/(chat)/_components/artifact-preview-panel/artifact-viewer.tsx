@@ -139,10 +139,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                         pecpContent || isPECPStreaming ? (
                             <div className="flex flex-col h-full">
                                 <div className="flex-1 p-6">
-                                    <MarkdownRenderer
-                                        markdown={pecpContent}
-                                        scrollContainerRef={containerRef}
-                                    />
+                                    <MarkdownRenderer markdown={pecpContent} scrollContainerRef={containerRef} />
                                     {isPECPStreaming && (
                                         <span className="inline-block w-2 h-4 ml-0.5 bg-primary/60 animate-pulse rounded-sm" />
                                     )}

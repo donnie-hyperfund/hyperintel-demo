@@ -74,7 +74,13 @@ export interface DocumentContext {
  */
 export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentEventEmitter) {
     // Current document being written (set by begin_document, cleared by finalize_document)
-    let activeDoc: { name: string; title: string; isInternal: boolean; isPECP?: boolean; parentDocument?: string } | null = null;
+    let activeDoc: {
+        name: string;
+        title: string;
+        isInternal: boolean;
+        isPECP?: boolean;
+        parentDocument?: string;
+    } | null = null;
 
     // Parser for write_document content streaming
     let writeParser: ReturnType<typeof createStreamFieldParser> | null = null;

@@ -22,7 +22,6 @@ import { z } from 'zod';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
-import { pecpKeyForDocument, shouldGeneratePECP } from './pecp-service';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
 import { shouldGenerateAiContent } from './document-classifier';
@@ -39,6 +38,7 @@ import {
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
+import { pecpKeyForDocument, shouldGeneratePECP } from './pecp-service';
 
 // ============================================================================
 // TYPES
@@ -202,7 +202,7 @@ const BeginDocumentParams = z.object({
         .optional()
         .nullable()
         .describe(
-            'Required for PECP document_type: the name of the parent internal document this PECP summarizes. The PECP will be linked to the parent\'s latest proposed version.',
+            "Required for PECP document_type: the name of the parent internal document this PECP summarizes. The PECP will be linked to the parent's latest proposed version.",
         ),
 });
 
@@ -293,7 +293,9 @@ You MUST call finalize_document when done or content will be lost.`,
                 // PECP validation: must have parent_document, must be create mode, must not be internal
                 if (isPECP) {
                     if (!parent_document) {
-                        return { error: 'PECP documents require parent_document — the name of the internal document to summarize.' };
+                        return {
+                            error: 'PECP documents require parent_document — the name of the internal document to summarize.',
+                        };
                     }
                     if (mode !== 'create') {
                         return { error: 'PECP documents can only be created (mode="create"), not edited.' };
@@ -374,7 +376,11 @@ You MUST call finalize_document when done or content will be lost.`,
                             is_internal: draft.is_internal,
                             document_type: draft.document_type,
                             lines: 0,
-                            ...(isPECP && parent_document && { isPECP: true, parentDocument: normalizeArtifactKey(parent_document) }),
+                            ...(isPECP &&
+                                parent_document && {
+                                    isPECP: true,
+                                    parentDocument: normalizeArtifactKey(parent_document),
+                                }),
                             ...(isDeleted && { previouslyDeleted: true }),
                             ...(internalEnforced && { internalEnforced: true }),
                             message: isDeleted

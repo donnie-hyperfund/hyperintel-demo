@@ -348,9 +348,7 @@ export async function handleGetArtifact(req: NextRequest, artifactId: string, us
     if (!artifact) return ARTIFACT_ERRORS.NOT_FOUND();
 
     // Determine scope for PECP lookup
-    const projectId = typeof artifact.project === 'object' && artifact.project
-        ? artifact.project.id
-        : artifact.project;
+    const projectId = typeof artifact.project === 'object' && artifact.project ? artifact.project.id : artifact.project;
     const scopeFilter = projectId ? { project: projectId } : { user: user.id, project: null };
 
     const [proposedVersion, requestedVersion, pecpMap] = await Promise.all([

@@ -394,9 +394,13 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         if (vKey) {
                             const ver = (Number(vKey) || vKey) as number | 'latest';
                             const existing = ac.getArtifact(parentId, ver);
-                            ac.updateArtifact(parentId, {
-                                pecpContent: (existing?.pecpContent ?? '') + payload.content,
-                            } as any, ver);
+                            ac.updateArtifact(
+                                parentId,
+                                {
+                                    pecpContent: (existing?.pecpContent ?? '') + payload.content,
+                                } as any,
+                                ver,
+                            );
                         }
                     }
                     break;
