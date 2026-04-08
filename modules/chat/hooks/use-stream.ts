@@ -24,7 +24,7 @@ import type { Artifact } from '@/modules/chat/types';
 // TYPES
 // ============================================================================
 
-type StreamingDoc = { artifactId: string; content: string; version: number };
+type StreamingDoc = { artifactId: string; content: string; version: number; isPECP?: boolean };
 
 type StreamingState = {
     blocks: StreamBlock[];
@@ -91,6 +91,15 @@ export type UseStreamReturn = {
 // ============================================================================
 // HELPERS
 // ============================================================================
+
+function resolveParentVersion(ac: Pick<ArtifactContextValue, 'getStore'>, parentId: string) {
+    const versions = ac.getStore()[parentId];
+    if (!versions) return null;
+    const keys = Object.keys(versions);
+    if (!keys.length) return null;
+    const maxKey = keys.reduce((a, b) => (Number(b) > Number(a) ? b : a));
+    return (Number(maxKey) || maxKey) as number | 'latest';
+}
 
 function createStreamingState(): StreamingState {
     return {
@@ -186,16 +195,14 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     // Document delta drip (same adaptive smoothing for artifact content)
     type DocDripItem = { name: string; content: string };
     const applyDocDrip = (item: DocDripItem) => {
-        const s = stateRef.current;
-        const o = optsRef.current;
-        const doc = s.streamingDocs.get(item.name);
-        if (doc) {
-            doc.content += item.content;
-            o.artifactContext?.updateArtifact(
-                doc.artifactId,
-                { proposedVersion: { content: doc.content } },
-                doc.version,
-            );
+        const doc = stateRef.current.streamingDocs.get(item.name);
+        if (!doc) return;
+        doc.content += item.content;
+        const ac = optsRef.current.artifactContext;
+        if (doc.isPECP) {
+            ac?.updateArtifact(doc.artifactId, { pecpContent: doc.content }, doc.version);
+        } else {
+            ac?.updateArtifact(doc.artifactId, { proposedVersion: { content: doc.content } }, doc.version);
         }
     };
     const docDripRef = useRef(new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()));
@@ -276,17 +283,18 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
         switch (type) {
             case 'document_start': {
-                // PECP: update parent artifact instead of creating a new one
                 if (payload.isPECP && payload.parentDocument && ac) {
                     const parentId = payload.parentDocument;
-                    const versions = ac.getStore()[parentId];
-                    if (versions) {
-                        const vKey = Object.keys(versions)[0];
-                        if (vKey) {
-                            const ver = (Number(vKey) || vKey) as number | 'latest';
-                            ac.updateArtifact(parentId, { pecpContent: '', isPECPStreaming: true } as any, ver);
-                            o.onArtifactOpen?.(parentId, typeof ver === 'number' ? ver : 1);
-                        }
+                    const ver = resolveParentVersion(ac, parentId);
+                    if (ver != null) {
+                        s.streamingDocs.set(payload.name, {
+                            artifactId: parentId,
+                            content: '',
+                            version: ver as number,
+                            isPECP: true,
+                        });
+                        ac.updateArtifact(parentId, { pecpContent: '', isStreaming: true }, ver);
+                        o.onArtifactOpen?.(parentId, typeof ver === 'number' ? ver : 1);
                     }
                     break;
                 }
@@ -385,27 +393,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             }
 
             case 'document_delta': {
-                // PECP: append to parent artifact's pecpContent
-                if (payload.isPECP && payload.parentDocument && ac) {
-                    const parentId = payload.parentDocument;
-                    const versions = ac.getStore()[parentId];
-                    if (versions) {
-                        const vKey = Object.keys(versions)[0];
-                        if (vKey) {
-                            const ver = (Number(vKey) || vKey) as number | 'latest';
-                            const existing = ac.getArtifact(parentId, ver);
-                            ac.updateArtifact(
-                                parentId,
-                                {
-                                    pecpContent: (existing?.pecpContent ?? '') + payload.content,
-                                } as any,
-                                ver,
-                            );
-                        }
-                    }
-                    break;
-                }
-
                 if (s.streamingDocs.has(payload.name)) {
                     const chunks = chunkText(payload.content);
                     if (chunks.length === 1) {
@@ -458,24 +445,16 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             }
 
             case 'document_complete': {
-                // PECP: mark streaming done on parent artifact
-                if (payload.isPECP && payload.parentDocument && ac) {
-                    const parentId = payload.parentDocument;
-                    const versions = ac.getStore()[parentId];
-                    if (versions) {
-                        const vKey = Object.keys(versions)[0];
-                        if (vKey) {
-                            const ver = (Number(vKey) || vKey) as number | 'latest';
-                            ac.updateArtifact(parentId, { isPECPStreaming: false } as any, ver);
-                        }
-                    }
-                    break;
-                }
-
-                // Flush pending drip deltas before marking complete
                 docDripRef.current.drain();
                 const doc = s.streamingDocs.get(payload.name);
                 if (!doc) break;
+
+                if (doc.isPECP) {
+                    ac?.updateArtifact(doc.artifactId, { isStreaming: false }, doc.version);
+                    s.streamingDocs.delete(payload.name);
+                    flushActiveDocuments();
+                    break;
+                }
 
                 ac?.updateArtifact(
                     doc.artifactId,
