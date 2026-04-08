@@ -151,7 +151,7 @@ export type ActiveDocument = {
     content: string;
     documentType?: DocumentType;
     isInternal?: boolean;
-    estimatedChars?: number;
+    progress?: number;
 };
 
 /** Full state snapshot returned on subscribe */
