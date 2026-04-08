@@ -306,7 +306,20 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             tools,
             {
                 toolGroups: [DocumentToolGroup],
-                config: { preprocessContext, abortSignal: abortController.signal },
+                config: {
+                    preprocessContext,
+                    abortSignal: abortController.signal,
+                    onTurnComplete: () => {
+                        if (agentCtx.draftManager.hasActive()) {
+                            return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
+                        }
+                        if (agentCtx.pendingPECP) {
+                            const p = agentCtx.pendingPECP;
+                            return `You MUST generate a PECP for "${p.parentDocumentType}". Call begin_document with mode="create", name="${p.pecpKey}", document_type="PECP", parent_document="${p.parentDocument}", is_internal=false. Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
+                        }
+                        return null;
+                    },
+                },
             },
         );
 
