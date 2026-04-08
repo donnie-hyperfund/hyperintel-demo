@@ -264,7 +264,6 @@ export class ChatStreamDO extends DurableObject<Env> {
                     content: '',
                     documentType: event.documentType,
                     isInternal: event.isInternal,
-                    estimatedChars: event.estimatedChars,
                 });
                 break;
             }
@@ -288,6 +287,12 @@ export class ChatStreamDO extends DurableObject<Env> {
                     }
                     doc.content = lines.join('\n');
                 }
+                break;
+            }
+
+            case 'document_progress': {
+                const doc = this.activeDocuments.get(event.name);
+                if (doc) doc.progress = event.progress;
                 break;
             }
 

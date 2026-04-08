@@ -567,9 +567,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         isStreaming: true,
                                         isUpdating: doc.mode === 'edit',
                                         isLoading: false,
-                                        progress: doc.estimatedChars
-                                            ? Math.min(99, Math.round((doc.content.length / doc.estimatedChars) * 100))
-                                            : 0,
+                                        progress: doc.progress ?? 0,
                                     },
                                     doc.pendingVersion,
                                 );
