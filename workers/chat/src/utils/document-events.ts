@@ -31,7 +31,7 @@ export type DocumentEvent =
           mode: 'create' | 'edit';
           isInternal: boolean;
           pendingVersion: number;
-          documentType?: string;
+          documentType?: DocumentType;
           estimatedChars?: number;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           loadedVersion?: number;

@@ -262,6 +262,9 @@ export class ChatStreamDO extends DurableObject<Env> {
                     pendingVersion: event.pendingVersion,
                     loadedVersion: event.loadedVersion,
                     content: '',
+                    documentType: event.documentType,
+                    isInternal: event.isInternal,
+                    estimatedChars: event.estimatedChars,
                 });
                 break;
             }

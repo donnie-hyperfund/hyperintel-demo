@@ -7,6 +7,7 @@ export type { StreamBlock } from '@/common/ai/agent/types';
 // TOKEN USAGE (canonical definitions in chat.ts via Zod schemas)
 // ============================================================================
 
+import type { DocumentType } from './artifact';
 import type { TokenBreakdown, TokenUsage } from './chat';
 export type { TokenBreakdown, TokenUsage };
 
@@ -88,7 +89,7 @@ export type StreamEvent =
           mode?: 'create' | 'edit';
           loadedVersion?: number;
           /** document_type from begin_document tool result */
-          documentType?: string;
+          documentType?: DocumentType;
           /** Estimated content size in characters for progress tracking */
           estimatedChars?: number;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
@@ -148,6 +149,9 @@ export type ActiveDocument = {
     pendingVersion: number;
     loadedVersion?: number;
     content: string;
+    documentType?: DocumentType;
+    isInternal?: boolean;
+    estimatedChars?: number;
 };
 
 /** Full state snapshot returned on subscribe */

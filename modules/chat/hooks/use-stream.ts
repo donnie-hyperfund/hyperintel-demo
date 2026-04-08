@@ -545,6 +545,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                             version: doc.pendingVersion,
                                             content: doc.content,
                                             status: 'proposed',
+                                            documentType: doc.documentType,
+                                            isInternal: doc.isInternal,
                                             createdAt: now,
                                             updatedAt: now,
                                         },
@@ -565,7 +567,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         isStreaming: true,
                                         isUpdating: doc.mode === 'edit',
                                         isLoading: false,
-                                        progress: 0,
+                                        progress: doc.estimatedChars
+                                            ? Math.min(99, Math.round((doc.content.length / doc.estimatedChars) * 100))
+                                            : 0,
                                     },
                                     doc.pendingVersion,
                                 );
