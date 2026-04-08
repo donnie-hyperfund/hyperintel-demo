@@ -315,12 +315,16 @@ You MUST call finalize_document when done or content will be lost.`,
                     if (!parentDoc) {
                         return { error: `Parent document "${parentNormalized}" not found.` };
                     }
-                    // Find the proposed version (PECP is generated right after finalize, so proposed should exist)
-                    const proposedVersion = await findVersionByStatus(em, parentDoc.id, 'proposed');
-                    if (!proposedVersion) {
-                        return { error: `Parent document "${parentNormalized}" has no proposed version to summarize.` };
+                    // Find the latest proposed or approved version (covers both chat and summarizer flows)
+                    const parentVersion = await em.findOne(
+                        ArtifactVersionEntity,
+                        { artifact: parentDoc.id, status: { $in: ['proposed', 'approved'] } },
+                        { orderBy: { version: 'DESC' } },
+                    );
+                    if (!parentVersion) {
+                        return { error: `Parent document "${parentNormalized}" has no version to summarize.` };
                     }
-                    parentVersionId = proposedVersion.id;
+                    parentVersionId = parentVersion.id;
                 }
 
                 // Enforce is_internal for internal document types

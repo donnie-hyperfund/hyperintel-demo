@@ -338,10 +338,10 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
 
         // Stream loop  push standard StreamEvent[] to ChatStream DO
         for await (const event of stream) {
-            // Force all summarizer documents to be internal Completion Briefs
+            // Force non-PECP summarizer documents to be internal Completion Briefs
             if (event.type === 'tool_result' && (event as any).tool === 'begin_document' && event.success) {
                 const draft = agentCtx.draftManager.getCurrent();
-                if (draft) {
+                if (draft && draft.document_type !== 'PECP') {
                     draft.is_internal = true;
                     draft.document_type = 'Completion Brief';
                 }
