@@ -1,5 +1,6 @@
 import type { AnyEntity, EntityClass } from '@mikro-orm/core';
 import { Options, PostgreSqlDriver, UnderscoreNamingStrategy } from '@mikro-orm/postgresql';
+import { ScopedEntityManager } from '@/common/orm/entity-manager';
 import * as entities from '@/lib/orm/entities';
 
 class CustomUnderscoreNamingStrategy extends UnderscoreNamingStrategy {
@@ -24,6 +25,7 @@ const filteredEntities = Object.entries(entities)
     .filter(([name, v]) => v && name.endsWith('Entity'))
     .map(([, v]) => v);
 export const config: Options = {
+    entityManager: ScopedEntityManager as any,
     entities: filteredEntities as EntityClass<AnyEntity>[],
     clientUrl: process.env.DATABASE_URL,
     debug: false,

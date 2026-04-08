@@ -35,9 +35,9 @@ afterAll(async () => {
 });
 
 // Access the private method for direct testing
-function redactBlocks(blocks: StreamBlock[], groups?: string[]): StreamBlock[] {
+function redactBlocks(blocks: StreamBlock[]): StreamBlock[] {
 	const entity = new ChatMessageEntity();
-	return (entity as any).redactBlocks(blocks, groups);
+	return (entity as any).redactBlocks(blocks);
 }
 
 // -- fixtures ----------------------------------------------------------------
