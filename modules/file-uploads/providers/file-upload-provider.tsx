@@ -70,9 +70,11 @@ type FileUploadProviderProps = {
     scope?: { projectId?: string; chatId?: string };
     /** When true, uploaded artifact IDs are tracked as "pending" so the resource list hides them until the message is sent. */
     trackAsPending?: boolean;
+    /** Lazily create the chat if it doesn't exist yet, returns the chatId. Required for image uploads before first message. */
+    ensureChatId?: () => Promise<string>;
 };
 
-export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
+export function FileUploadProvider({ children, scope, trackAsPending = false, ensureChatId }: FileUploadProviderProps) {
     const {
         pendingArtifactIds,
         addPendingArtifactId: _addPending,
@@ -388,7 +390,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
                 if (isImageExtension(ext)) {
                     // Image upload — separate flow, no artifact/document pipeline
-                    const chatId = scope?.chatId;
+                    const chatId = scope?.chatId ?? (ensureChatId ? await ensureChatId() : undefined);
                     if (!chatId) throw new Error('Chat ID required for image uploads');
 
                     const presignRes = await presignImageUpload(
@@ -514,6 +516,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         },
         [
             addPendingArtifactId,
+            ensureChatId,
             failEntry,
             finalizeEntry,
             getToken,

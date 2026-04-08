@@ -64,6 +64,8 @@ export type BaseChatContextValue = {
     changeModel: (presetId: string) => Promise<void>;
     /** Dismiss the invalid model alert dialog */
     dismissInvalidModelAlert: () => void;
+    /** Lazily create the chat if it doesn't exist yet, returns the chatId */
+    ensureChatId: () => Promise<string>;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -1166,6 +1168,7 @@ export function ChatProvider({
                 setProcessingArtifactAction,
                 changeModel,
                 dismissInvalidModelAlert,
+                ensureChatId,
             })}
         >
             {children}
