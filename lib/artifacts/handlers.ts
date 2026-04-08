@@ -5,7 +5,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
-import { loadPECPsForArtifactKeys, loadVersionsForArtifacts } from '@/lib/artifacts/queries';
+import { loadPECPsForArtifacts, loadVersionsForArtifacts } from '@/lib/artifacts/queries';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { handleListChatArtifacts } from '@/lib/chats/handlers';
@@ -92,8 +92,8 @@ export async function handleListProjectArtifacts(
             return NextResponse.json({ error: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 });
         }
 
-        // Load PECP for internal docs
-        const pecpMap = await loadPECPsForArtifactKeys(em, [normalizedKey], { project: projectId });
+        // Load PECP for internal docs (via parent_version FK)
+        const pecpMap = await loadPECPsForArtifacts(em, [artifact.id]);
 
         if (queryData.version !== undefined) {
             const requestedVersion = await em.findOne(ArtifactVersionEntity, {
@@ -116,7 +116,7 @@ export async function handleListProjectArtifacts(
                 ...wrap(artifact).toJSON(),
                 current_version: previousVersion ? wrap(previousVersion).toJSON() : undefined,
                 proposed_version: wrap(requestedVersion).toJSON(),
-                pecp: pecpMap.get(normalizedKey) ?? null,
+                pecp: pecpMap.get(artifact.id) ?? null,
             });
         }
 
@@ -128,7 +128,7 @@ export async function handleListProjectArtifacts(
         return NextResponse.json({
             ...wrap(artifact).toJSON(),
             proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
-            pecp: pecpMap.get(normalizedKey) ?? null,
+            pecp: pecpMap.get(artifact.id) ?? null,
         });
     }
 
@@ -185,11 +185,10 @@ export async function handleListProjectArtifacts(
     });
 
     const artifactIds = nodes.map((a: ArtifactEntity) => a.id);
-    const artifactKeys = nodes.map((a: ArtifactEntity) => a.key);
 
     const [proposedByArtifact, pecpMap] = await Promise.all([
         loadVersionsForArtifacts(em, artifactIds, 'proposed'),
-        loadPECPsForArtifactKeys(em, artifactKeys, { project: projectId }),
+        loadPECPsForArtifacts(em, artifactIds),
     ]);
 
     const mappedNodes = nodes.map((artifact: ArtifactEntity) => {
@@ -197,7 +196,7 @@ export async function handleListProjectArtifacts(
         return {
             ...wrap(artifact).toJSON(),
             proposed_version: proposed ? wrap(proposed).toJSON() : undefined,
-            pecp: pecpMap.get(artifact.key) ?? null,
+            pecp: pecpMap.get(artifact.id) ?? null,
         };
     });
 
@@ -347,16 +346,12 @@ export async function handleGetArtifact(req: NextRequest, artifactId: string, us
     const artifact = await findArtifactForOwner(em, artifactId, user.id);
     if (!artifact) return ARTIFACT_ERRORS.NOT_FOUND();
 
-    // Determine scope for PECP lookup
-    const projectId = typeof artifact.project === 'object' && artifact.project ? artifact.project.id : artifact.project;
-    const scopeFilter = projectId ? { project: projectId } : { user: user.id, project: null };
-
     const [proposedVersion, requestedVersion, pecpMap] = await Promise.all([
         em.findOne(ArtifactVersionEntity, { artifact: artifact.id, status: 'proposed' }),
         query.version !== undefined
             ? em.findOne(ArtifactVersionEntity, { artifact: artifact.id, version: query.version })
             : null,
-        loadPECPsForArtifactKeys(em, [artifact.key], scopeFilter),
+        loadPECPsForArtifacts(em, [artifact.id]),
     ]);
 
     if (query.version !== undefined && !requestedVersion) return ARTIFACT_ERRORS.VERSION_NOT_FOUND();
@@ -365,7 +360,7 @@ export async function handleGetArtifact(req: NextRequest, artifactId: string, us
         ...wrap(artifact).toJSON(),
         proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
         loaded_version: requestedVersion ? wrap(requestedVersion).toJSON() : undefined,
-        pecp: pecpMap.get(artifact.key) ?? null,
+        pecp: pecpMap.get(artifact.id) ?? null,
     });
 }
 
