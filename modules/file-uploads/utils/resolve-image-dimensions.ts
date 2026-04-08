@@ -1,4 +1,3 @@
-
 export function resolveImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
     return new Promise((resolve) => {
         const url = URL.createObjectURL(file);

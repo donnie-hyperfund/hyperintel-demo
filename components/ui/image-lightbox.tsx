@@ -44,7 +44,9 @@ function ImageLightboxContent({
                     {...props}
                 >
                     <DialogPrimitive.Title className="sr-only">{alt || 'Image preview'}</DialogPrimitive.Title>
-                    <DialogPrimitive.Description className="sr-only">Full-size image preview</DialogPrimitive.Description>
+                    <DialogPrimitive.Description className="sr-only">
+                        Full-size image preview
+                    </DialogPrimitive.Description>
 
                     <img
                         src={src}
@@ -54,7 +56,10 @@ function ImageLightboxContent({
                 </DialogPrimitive.Content>
 
                 <DialogPrimitive.Close data-slot="image-lightbox-close" asChild>
-                    <IconButton className="absolute top-4 right-4 rounded-full bg-black/50 text-white/80 hover:bg-black/70 hover:text-white" size="lg">
+                    <IconButton
+                        className="absolute top-4 right-4 rounded-full bg-black/50 text-white/80 hover:bg-black/70 hover:text-white"
+                        size="lg"
+                    >
                         <XIcon />
                         <span className="sr-only">Close</span>
                     </IconButton>

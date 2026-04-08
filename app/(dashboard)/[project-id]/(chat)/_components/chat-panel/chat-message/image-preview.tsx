@@ -7,7 +7,7 @@ import { ImageLightbox, ImageLightboxContent, ImageLightboxTrigger } from '@/com
 import { formatFileSize } from '@/lib/files';
 
 const MAX_PREVIEW_W = 288;
-const MAX_PREVIEW_H = 288; 
+const MAX_PREVIEW_H = 288;
 
 function getPreviewDimensions(w?: number, h?: number) {
     if (!w || !h) return undefined;
@@ -34,9 +34,7 @@ export function ImagePreview({ label, fileId, size, width, height }: ImagePrevie
                 <div className="flex items-center gap-3 rounded-3 bg-neutral-700/40 p-2">
                     <FileTypeIcon filename={label} size={28} className="mb-0! mt-0!" />
                     <span className="truncate text-sm">{label}</span>
-                    {size > 0 && (
-                        <span className="text-muted-foreground shrink-0 text-xs">{formatFileSize(size)}</span>
-                    )}
+                    {size > 0 && <span className="text-muted-foreground shrink-0 text-xs">{formatFileSize(size)}</span>}
                 </div>
             </div>
         );

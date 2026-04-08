@@ -1,10 +1,10 @@
 'use client';
 
 import { Loader2, X } from 'lucide-react';
+import { useImageObjectUrl } from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel/chat-message-form/file-preview-item/use-image-object-url';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { formatFileSize, getFileExtension } from '@/lib/files';
 import type { FileEntryStatus } from '@/modules/file-uploads/types';
-import { useImageObjectUrl } from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel/chat-message-form/file-preview-item/use-image-object-url';
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp']);
 

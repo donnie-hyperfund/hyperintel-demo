@@ -23,6 +23,7 @@ import {
 } from '@/lib/schema/artifact';
 import type { ProjectResourceUploadUpdatedPayload } from '@/lib/schema/user-events';
 import { getUploadStorageKey } from '@/lib/storage/storage-keys';
+import { resolveImageDimensions } from '@/modules/file-uploads/utils/resolve-image-dimensions';
 import { useCrossTabUploadSync } from '../hooks/use-cross-tab-upload-sync';
 import { useProjectResourceUploadSync } from '../hooks/use-project-resource-upload-sync';
 import { usePendingUploads } from '../providers/pending-uploads-provider';
@@ -33,7 +34,6 @@ import {
     readPersistedUploadState,
     writePersistedUploadState,
 } from '../utils/persisted-upload-state';
-import { resolveImageDimensions } from '@/modules/file-uploads/utils/resolve-image-dimensions';
 
 const BINARY_MIME_TYPES: Record<string, string> = {
     '.pdf': 'application/pdf',
