@@ -61,6 +61,8 @@ export interface DocumentToolsContext {
     previewAlias?: string | null;
     /** Version IDs created during this turn - will be linked to assistant message after persist */
     createdVersionIds: string[];
+    /** Set by finalize_document when an internal doc needs a PECP generated next */
+    pendingPECP?: { parentDocument: string; parentDocumentType: string; pecpKey: string } | null;
     /** Optional callback fired when a new artifact version is created (for user-scoped broadcasts) */
     onVersionCreated?: (event: {
         artifactName: string;
@@ -338,6 +340,13 @@ You MUST call finalize_document when done or content will be lost.`,
                     };
                 }
 
+                // Block direct editing of PECP artifacts — they are auto-generated from parent docs
+                if (existing?.isPECP && !isPECP) {
+                    return {
+                        error: `Document "${normalizedName}" is a PECP (auto-generated PE Communication). It cannot be edited directly — edit the parent internal document instead, and a new PECP will be generated automatically.`,
+                    };
+                }
+
                 // Validate based on mode
                 // Allow create on deleted artifacts (overwrites / restores them)
                 // Allow create on PECP artifacts (they get replaced with each new parent version)
@@ -610,6 +619,8 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             await em.flush();
                         }
 
+                        ctx.pendingPECP = null;
+
                         return {
                             result: {
                                 action: result.action,
@@ -625,14 +636,14 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     }
 
                     // ── Regular document path ────────────────────────────────
-                    // Embedding + AI content generation
+                    // Embedding + AI content classification (fire-and-forget, non-blocking)
                     if (embeddingQueue && (ctx.projectId || ctx.chatId)) {
-                        const generateAiContent = rCtx
-                            ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
-                            : true;
+                        const classifyAndEmbed = async () => {
+                            const generateAiContent = rCtx
+                                ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
+                                : true;
 
-                        const embedPromise = embeddingQueue
-                            .send({
+                            await embeddingQueue.send({
                                 type: 'index_artifact_version',
                                 projectId: ctx.projectId ?? null,
                                 chatId: ctx.chatId ?? null,
@@ -641,8 +652,11 @@ If a proposed version already exists, it will be marked as "superseded".`,
                                 documentName: draft.name,
                                 is_ai_content: generateAiContent,
                                 previewAlias: ctx.previewAlias,
-                            })
-                            .catch((err) => console.error('[finalize_document] Embedding queue error:', err));
+                            });
+                        };
+
+                        const embedPromise = classifyAndEmbed()
+                            .catch((err) => console.error('[finalize_document] Classify/embed error:', err));
 
                         rCtx?.eCtx?.waitUntil(embedPromise);
                     }
@@ -667,11 +681,14 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     // Internal documents → instruct agent to generate PECP
                     if (shouldGeneratePECP(draft.document_type)) {
                         const pecpKey = pecpKeyForDocument(draft.name);
-                        response.pecpRequired = {
+                        const pecpInfo = {
                             parentDocument: draft.name,
                             parentDocumentType: draft.document_type,
                             pecpKey,
                         };
+                        response.pecpRequired = pecpInfo;
+                        // Store on context so onTurnComplete can nudge the agent
+                        ctx.pendingPECP = pecpInfo;
                         response.message = `Saved as proposed v${result.version}. Awaiting user approval. Now you MUST generate a PECP for this "${draft.document_type}". Call begin_document with mode="create", name="${pecpKey}", document_type="PECP", parent_document="${draft.name}", is_internal=false. Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
                     }
 
