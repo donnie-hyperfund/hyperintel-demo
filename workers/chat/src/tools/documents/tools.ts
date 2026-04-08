@@ -655,8 +655,9 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             });
                         };
 
-                        const embedPromise = classifyAndEmbed()
-                            .catch((err) => console.error('[finalize_document] Classify/embed error:', err));
+                        const embedPromise = classifyAndEmbed().catch((err) =>
+                            console.error('[finalize_document] Classify/embed error:', err),
+                        );
 
                         rCtx?.eCtx?.waitUntil(embedPromise);
                     }
