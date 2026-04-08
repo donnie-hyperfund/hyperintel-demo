@@ -1,9 +1,20 @@
+'use client';
+
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import type { DirectiveHandler } from '@/components/ui/markdown-renderer';
 import { formatFileSize } from '@/lib/files';
+import { ImagePreview } from './image-preview';
 
 export const UploadDirective: DirectiveHandler = ({ label, attributes }) => {
     const size = Number(attributes.size);
+    const fileId = attributes.fileid || attributes['file-id'];
+    const isImage = attributes.type === 'image' && fileId;
+
+    if (isImage) {
+        const width = Number(attributes.w) || undefined;
+        const height = Number(attributes.h) || undefined;
+        return <ImagePreview label={label} fileId={fileId} size={size} width={width} height={height} />;
+    }
 
     return (
         <div className="mb-2 max-w-128">

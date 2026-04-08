@@ -33,6 +33,7 @@ import {
     readPersistedUploadState,
     writePersistedUploadState,
 } from '../utils/persisted-upload-state';
+import { resolveImageDimensions } from '@/modules/file-uploads/utils/resolve-image-dimensions';
 
 const BINARY_MIME_TYPES: Record<string, string> = {
     '.pdf': 'application/pdf',
@@ -390,6 +391,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     // Image upload — separate flow, no artifact/document pipeline
                     const chatId = scope?.chatId;
                     if (!chatId) throw new Error('Chat ID required for image uploads');
+
+                    // Resolve natural dimensions so the chat can reserve space before the image loads
+                    resolveImageDimensions(file).then((dims) => {
+                        if (dims) updateEntry(entryId, { imageWidth: dims.width, imageHeight: dims.height });
+                    });
 
                     const presignRes = await presignImageUpload(
                         { filename: file.name, fileSize: file.size, chatId },
