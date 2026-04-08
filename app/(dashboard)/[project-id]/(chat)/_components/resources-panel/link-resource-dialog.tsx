@@ -119,7 +119,7 @@ export function LinkResourceDialog() {
             </Tooltip>
 
             <DialogContent
-                className="sm:max-w-xl flex max-h-140 h-full flex-col"
+                className="px-4 sm:px-8 sm:max-w-xl flex max-h-140 h-full flex-col"
                 onOpenAutoFocus={(e) => e.preventDefault()}
             >
                 <DialogHeader>

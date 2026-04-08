@@ -11,7 +11,7 @@ export type ResourceTab = {
 };
 
 export const RESOURCE_TABS: ResourceTab[] = [
-    { value: 'all', label: 'All resources', documentTypes: [...RESOURCE_DOCUMENT_TYPES], searchLabel: 'all resources' },
+    { value: 'all', label: 'All', documentTypes: [...RESOURCE_DOCUMENT_TYPES], searchLabel: 'all resources' },
     { value: 'legacy-dna', label: 'Legacy DNA', documentTypes: ['Legacy DNA'], icon: Dna, searchLabel: 'legacy DNA' },
     {
         value: 'companies',
