@@ -12,7 +12,11 @@ export function ActiveInternalDocs() {
         const docs: { key: string; progress: number }[] = [];
         for (const [key, versions] of Object.entries(store)) {
             for (const artifact of Object.values(versions)) {
-                if (artifact.isStreaming && artifact.proposedVersion?.isInternal) {
+                if (
+                    artifact.isStreaming &&
+                    artifact.proposedVersion?.isInternal &&
+                    artifact.pecpContent === undefined
+                ) {
                     docs.push({ key, progress: artifact.progress ?? 0 });
                     break;
                 }

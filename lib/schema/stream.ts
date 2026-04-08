@@ -94,11 +94,30 @@ export type StreamEvent =
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           rejectionReason?: string;
           isInternal?: boolean;
+          /** PECP: this document is a PE Communication for the parent document */
+          isPECP?: boolean;
+          /** PECP: the internal document this PECP summarizes */
+          parentDocument?: string;
       }
-    | { type: 'document_delta'; name: string; pendingVersion?: number; content: string }
+    | {
+          type: 'document_delta';
+          name: string;
+          pendingVersion?: number;
+          content: string;
+          isPECP?: boolean;
+          parentDocument?: string;
+      }
     | { type: 'document_edit'; name: string; pendingVersion?: number; edits: DocumentEdit[] }
     | { type: 'document_progress'; name: string; progress: number }
-    | { type: 'document_complete'; name: string; version: number; lines?: number; action?: string }
+    | {
+          type: 'document_complete';
+          name: string;
+          version: number;
+          lines?: number;
+          action?: string;
+          isPECP?: boolean;
+          parentDocument?: string;
+      }
     // Status & control
     | { type: 'status_update'; status: string }
     | { type: 'error'; error: string; soft?: boolean }

@@ -91,6 +91,7 @@ export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     isStreaming?: boolean;
     isUpdating?: boolean;
     progress?: number;
+    pecpContent?: string;
 };
 
 // =============================================================================

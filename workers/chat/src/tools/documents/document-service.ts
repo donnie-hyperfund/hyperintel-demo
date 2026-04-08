@@ -282,6 +282,8 @@ export interface DocumentInfo {
     lineCount: number;
     /** Whether this artifact is a read-only public resource (or imported from one) */
     isReadOnly: boolean;
+    /** Whether this artifact is a PECP (auto-generated, cannot be edited directly) */
+    isPECP: boolean;
 }
 
 /**
@@ -330,6 +332,7 @@ export async function findDocumentByName(
         rejectionReason: rejected?.rejection_reason ?? null,
         lineCount: countLines(proposedContent ?? currentContent ?? ''),
         isReadOnly,
+        isPECP: !!(artifact as any).is_pecp,
     };
 }
 
@@ -361,6 +364,7 @@ export async function listDocuments(
         {
             $and: [
                 scopeFilter(scope),
+                { is_pecp: false },
                 { $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
             ],
         } as any,

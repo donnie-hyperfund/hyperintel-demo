@@ -74,7 +74,13 @@ export interface DocumentContext {
  */
 export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentEventEmitter) {
     // Current document being written (set by begin_document, cleared by finalize_document)
-    let activeDoc: { name: string; title: string; isInternal: boolean } | null = null;
+    let activeDoc: {
+        name: string;
+        title: string;
+        isInternal: boolean;
+        isPECP?: boolean;
+        parentDocument?: string;
+    } | null = null;
 
     // Parser for write_document content streaming
     let writeParser: ReturnType<typeof createStreamFieldParser> | null = null;
@@ -131,12 +137,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     return;
                 }
 
-                // begin_document: set active doc and emit document_start
+                // begin_document: set active doc and emit document_start (or pecp_start for PECP)
                 if (result.status === 'editing' && result.name) {
                     activeDoc = {
                         name: result.name,
                         title: result.title || result.name,
                         isInternal: result.is_internal ?? true,
+                        isPECP: result.isPECP ?? false,
+                        parentDocument: result.parentDocument,
                     };
 
                     // Reset progress tracking
@@ -162,8 +170,10 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     if (result.document_type) {
                         startEvent.documentType = result.document_type;
                     }
-
-                    // Add edit-mode specific fields
+                    if (activeDoc.isPECP && activeDoc.parentDocument) {
+                        (startEvent as any).isPECP = true;
+                        (startEvent as any).parentDocument = activeDoc.parentDocument;
+                    }
                     if (result.loadedFrom) {
                         startEvent.loadedFrom = result.loadedFrom;
                     }
@@ -215,6 +225,10 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             status: 'proposed',
                         };
 
+                        if (result.isPECP && activeDoc?.parentDocument) {
+                            (completeEvent as any).isPECP = true;
+                            (completeEvent as any).parentDocument = activeDoc.parentDocument;
+                        }
                         if (result.supersededVersion !== undefined) {
                             completeEvent.supersededVersion = result.supersededVersion;
                         }
@@ -243,15 +257,27 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
 
                                 // Track chars for progress (always, even for internal docs)
                                 accumulatedChars += delta.length;
-                                maybeEmitProgress();
 
-                                // Only emit content deltas for non-internal docs
-                                if (!activeDoc.isInternal) {
+                                if (activeDoc.isPECP && activeDoc.parentDocument) {
+                                    // PECP: emit document_delta with isPECP flag and parent name
                                     emit({
                                         type: 'document_delta',
                                         name: activeDoc.name,
                                         content: delta,
-                                    });
+                                        isPECP: true,
+                                        parentDocument: activeDoc.parentDocument,
+                                    } as any);
+                                } else {
+                                    maybeEmitProgress();
+
+                                    // Only emit content deltas for non-internal docs
+                                    if (!activeDoc.isInternal) {
+                                        emit({
+                                            type: 'document_delta',
+                                            name: activeDoc.name,
+                                            content: delta,
+                                        });
+                                    }
                                 }
                             },
                         });
