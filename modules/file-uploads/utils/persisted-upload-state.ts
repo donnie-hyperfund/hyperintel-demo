@@ -8,7 +8,9 @@ type PersistedUploadEntry = {
     status: 'pending' | 'uploading' | 'processing' | 'ready';
     createdAt: number;
     artifactId?: string;
+    requiresAssociation?: boolean;
     fileId?: string;
+    imageFileId?: string;
     presignData?: PresignUploadResponseDto;
 };
 
