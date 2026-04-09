@@ -2,7 +2,7 @@
 
 import { Upload } from 'lucide-react';
 import { useCallback, useRef } from 'react';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
@@ -38,9 +38,9 @@ export function UploadResource() {
             />
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="size-7" onClick={handleClick}>
-                        <Upload className="size-4" />
-                    </Button>
+                    <IconButton size="sm" onClick={handleClick}>
+                        <Upload />
+                    </IconButton>
                 </TooltipTrigger>
                 <TooltipContent>Upload document</TooltipContent>
             </Tooltip>

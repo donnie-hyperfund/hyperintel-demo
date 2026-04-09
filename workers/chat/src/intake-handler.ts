@@ -6,12 +6,13 @@
  */
 
 import { runAgentStream } from '@common/ai/agent';
-import { type ParamsWithType, extractInferenceMetadata } from '@common/ai/inference';
-import { resolvePreset, getDefaultPresetId } from '@/lib/presets';
+import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
 import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
+import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
@@ -126,7 +127,7 @@ export async function intakeActionHandler(
     ctx: Ctx,
     options: ChatHandlerOptions = {},
 ): Promise<IntakeActionResult | ReadableStream | Response> {
-    const { chatId, message } = data;
+    const { chatId, message, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
 
@@ -172,6 +173,19 @@ export async function intakeActionHandler(
             created_at: requestStartedAt,
         });
         em!.persist(userMsg);
+
+        // Link uploaded image files to this message
+        if (imageFileIds?.length) {
+            const imageFiles = await em!.find(ChatMessageFileEntity, {
+                id: { $in: imageFileIds },
+                chat_id: chatId,
+                status: 'uploaded',
+                chat_message: null,
+            });
+            for (const file of imageFiles) {
+                file.chat_message = userMsg;
+            }
+        }
     }
 
     // Set activeAgentMessageId on chat entity
@@ -225,8 +239,14 @@ export async function intakeActionHandler(
         // First event: IDs (read by GenerationProxyDO, returned to frontend)
         enqueue({ type: 'ids', userMessageId, agentMessageId });
 
-        // Run generation inline — Worker stays alive because the DO reads this stream
-        await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        // SSE keepalive — prevents Cloudflare from killing the idle connection
+        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+
+        try {
+            await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        } finally {
+            clearInterval(heartbeat);
+        }
 
         try {
             controller.close();
@@ -268,8 +288,8 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     const pusher = createPusher(streamDO, 'intake-handler');
 
     try {
-        if (!anthropic || !langfuse) {
-            throw new Error('Anthropic and Langfuse clients are required');
+        if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
+            throw new Error('Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)');
         }
 
         const framework = chat.metadata?.framework as 'cpf' | 'hpf';
@@ -279,7 +299,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         // Load history + safety check in parallel (doesn't slow happy path)
         // For nudge (message=null), skip safety check — the system event was injected server-side
         const [historyMessages, safetyVerdict] = await Promise.all([
-            loadChatHistory(em!, chatId),
+            loadChatHistory(em!, chatId, ctx.env),
             message ? safetyCheck(ctx, message) : Promise.resolve(null),
         ]);
 

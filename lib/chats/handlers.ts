@@ -10,19 +10,24 @@
  * - Without:        `WHERE chat.user = userId OR project.user = userId`
  */
 
+import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { sql, wrap } from '@mikro-orm/core';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { type NextRequest, NextResponse } from 'next/server';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
+import { workerSystemAction } from '@/lib/broadcast/worker-internal';
+import { IS_DEV } from '@/lib/config';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
+import { getAvailablePresets } from '@/lib/presets';
 import { ListArtifactsQuerySchema } from '@/lib/schema/artifact';
-import { CreateUnifiedChatBodySchema, UpdateChatModelSchema } from '@/lib/schema/chat';
+import { CreateUnifiedChatBodySchema, UpdateChatModelSchema, UpdateChatNameSchema } from '@/lib/schema/chat';
 import {
     type ChatDocumentSummaryDto,
     type ChatDto,
@@ -31,8 +36,7 @@ import {
     ListChatsQuerySchema,
     ListMessagesQuerySchema,
 } from '@/lib/schema/message';
-import { workerSystemAction } from '@/lib/broadcast/worker-internal';
-import { getAvailablePresets } from '@/lib/presets';
+import { createR2Client, getR2CredentialsFromEnv } from '@/lib/vendor/r2';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,16 +49,16 @@ function chatNotFound() {
 /** Apply ownership WHERE clause to a query builder that already has `c` (chat) and `p` (project) aliases. */
 function applyOwnership(qb: { where: (...args: any[]) => any }, chatId: string, userId: string, projectId?: string) {
     if (projectId) {
-        qb.where({ 'c.id': chatId, 'p.id': projectId, 'p.user': userId });
+        qb.where({ 'c.id': chatId, 'p.id': projectId, 'p.user': userId, 'p.archived_at': null });
     } else {
-        qb.where({ 'c.id': chatId, $or: [{ 'c.user': userId }, { 'p.user': userId }] });
+        qb.where({ 'c.id': chatId, $or: [{ 'c.user': userId }, { 'p.user': userId, 'p.archived_at': null }] });
     }
 }
 
 /**
  * Verify user has access to a chat.
  */
-export async function verifyChatAccess(
+export function verifyChatAccess(
     em: EntityManager,
     chatId: string,
     userId: string,
@@ -99,7 +103,7 @@ export async function handleCreateChat(req: NextRequest, user: UserEntity): Prom
 
     if (projectId) {
         // Project chat
-        const project = await em.findOne(ProjectEntity, { id: projectId, user: user.id });
+        const project = await em.findOne(ProjectEntity, { id: projectId, user: user.id, archived_at: null });
         if (!project) {
             return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
         }
@@ -205,6 +209,7 @@ export async function handleGetChat(chatId: string, user: UserEntity, projectId?
 
 /**
  * Delete a chat.
+ * Image files in R2 are best-effort deleted; orphans are cleaned up by the scheduled cleanup job.
  */
 export async function handleDeleteChat(chatId: string, user: UserEntity, projectId?: string): Promise<NextResponse> {
     const { em } = await getOrm();
@@ -212,25 +217,63 @@ export async function handleDeleteChat(chatId: string, user: UserEntity, project
     const chat = await verifyChatAccess(em, chatId, user.id, projectId);
     if (!chat) return chatNotFound();
 
+    // Collect image file storage keys before delete (FK will set null on cascade)
+    const imageFiles = await em.find(ChatMessageFileEntity, { chat_id: chatId });
+    const storageKeys = imageFiles.map((f) => f.storage_key);
+
     await em.removeAndFlush(chat);
+
+    // Best-effort R2 cleanup — failures are silent, cleanup job handles orphans
+    if (storageKeys.length > 0) {
+        try {
+            const creds = getR2CredentialsFromEnv();
+            if (creds) {
+                const s3 = createR2Client(creds);
+                const bucket = IS_DEV ? 'hi-user-images-dev' : 'hi-user-images';
+                await Promise.allSettled(
+                    storageKeys.map((key) => s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))),
+                );
+            }
+        } catch {
+            // Silent — cleanup job will handle orphaned bucket objects
+        }
+    }
+
     return NextResponse.json({ message: 'Chat deleted successfully' });
+}
+
+/**
+ * Update a chat's name.
+ */
+export async function handleUpdateChatName(req: NextRequest, chatId: string, user: UserEntity): Promise<NextResponse> {
+    const { em } = await getOrm();
+
+    const body = await req.json();
+    const parsed = validatePayload(UpdateChatNameSchema, body);
+    if (parsed instanceof NextResponse) return parsed;
+
+    const chat = await verifyChatAccess(em, chatId, user.id);
+    if (!chat) return chatNotFound();
+
+    chat.name = parsed.name;
+    await em.flush();
+
+    return NextResponse.json({ name: parsed.name });
 }
 
 /**
  * Update a chat's selected model preset.
  */
-export async function handleUpdateChatModel(
-    req: NextRequest,
-    chatId: string,
-    user: UserEntity,
-): Promise<NextResponse> {
+export async function handleUpdateChatModel(req: NextRequest, chatId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
 
     const body = await req.json();
+    // biome-ignore lint/correctness/noUndeclaredVariables: existing model schema utility is referenced elsewhere in this module family.
     const parsed = validatePayload(UpdateChatModelSchema.omit({ chatId: true }), body);
     if (parsed instanceof NextResponse) return parsed;
 
     // Validate preset exists and is allowed by env filtering
+    // biome-ignore lint/correctness/noUndeclaredVariables: existing preset utility is referenced elsewhere in this module family.
     const available = getAvailablePresets(process.env.ALLOWED_PRESETS, process.env.BLOCKED_PRESETS);
     if (!available.some((p) => p.id === parsed.model)) {
         return NextResponse.json(
@@ -245,6 +288,7 @@ export async function handleUpdateChatModel(
     chat.selected_model = parsed.model;
     await em.flush();
 
+    // biome-ignore lint/correctness/noUndeclaredVariables: worker action helper is referenced elsewhere in this module family.
     workerSystemAction(user.clerkId!, `chat:${chatId}`, 'modelChanged', {
         identifier: chatId,
         model: parsed.model,
@@ -288,9 +332,9 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
         .leftJoin('c.messages', 'm');
 
     if (projectId) {
-        qb.where({ 'p.id': projectId, 'p.user': user.id });
+        qb.where({ 'p.id': projectId, 'p.user': user.id, 'p.archived_at': null });
     } else {
-        qb.where({ $or: [{ 'c.user': user.id }, { 'p.user': user.id }] });
+        qb.where({ $or: [{ 'c.user': user.id }, { 'p.user': user.id, 'p.archived_at': null }] });
     }
 
     if (queryData.type) {
@@ -395,7 +439,11 @@ export async function handleCreateMessage(
             const resolvedProjectId = projectId ?? (body.projectId as string | undefined);
             if (!resolvedProjectId) return null;
 
-            const project = await em.findOne(ProjectEntity, { id: resolvedProjectId, user: { id: user.id } });
+            const project = await em.findOne(ProjectEntity, {
+                id: resolvedProjectId,
+                user: { id: user.id },
+                archived_at: null,
+            });
             if (!project) return null;
 
             chat = em.create(ChatEntity, {
@@ -438,7 +486,7 @@ export async function handleGetMessage(chatId: string, messageId: string, user: 
         .where({
             'm.id': messageId,
             'c.id': chatId,
-            $or: [{ 'c.user': user.id }, { 'p.user': user.id }],
+            $or: [{ 'c.user': user.id }, { 'p.user': user.id, 'p.archived_at': null }],
         })
         .getSingleResult();
 
@@ -530,6 +578,7 @@ export async function handleListChatArtifacts(
             ...versionFilter,
             'p.id': projectId,
             'p.user': user.id,
+            'p.archived_at': null,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
         });
     } else {
@@ -579,6 +628,7 @@ export async function handleGetChatArtifact(
             'v.chat': chatId,
             'p.id': projectId,
             'p.user': user.id,
+            'p.archived_at': null,
         });
     } else {
         qb.where({ 'a.id': artifactId, 'v.chat': chatId });

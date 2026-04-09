@@ -10,9 +10,9 @@ export function useSignOut(options: UseSignOutOptions = {}) {
     const { redirectUrl = '/sign-in' } = options;
     const { signOut } = useClerk();
 
-    const handleSignOut = useCallback(() => {
+    const handleSignOut = useCallback(async () => {
         clearAllUserCookies();
-        signOut({ redirectUrl });
+        await signOut({ redirectUrl });
     }, [signOut, redirectUrl]);
 
     return { signOut: handleSignOut };

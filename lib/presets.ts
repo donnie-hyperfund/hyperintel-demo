@@ -38,7 +38,7 @@ const BASE_PRESETS: ModelPreset[] = [
     },
     {
         id: 'opus',
-        label: 'Opus 4.5',
+        label: 'Opus 4.6',
         description: 'Max quality',
         inference: {
             paramsType: AIParamsType.Anthropic,
@@ -82,6 +82,7 @@ const BASE_PRESETS: ModelPreset[] = [
             params: {
                 model: 'mradermacher/brayniac-qwen3.5-27b-heretic-i1',
                 baseUrl: 'http://localhost:1234/v1',
+                stripImages: true,
                 // reasoning: true,
                 // Use KV quant Q4 and high context
                 // Q4_K_S is good
@@ -97,6 +98,7 @@ const BASE_PRESETS: ModelPreset[] = [
             params: {
                 model: 'qwen/qwen3.5-9b',
                 baseUrl: 'http://localhost:1234/v1',
+                stripImages: true,
                 // reasoning: true,
                 // Q4_K_M is good
             },

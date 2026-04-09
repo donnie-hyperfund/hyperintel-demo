@@ -15,7 +15,7 @@ type ChatPanelProps = {
 };
 
 export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }: ChatPanelProps) {
-    const { chatId, chatType, projectId } = useChatContext();
+    const { chatId, chatType, projectId, ensureChatId } = useChatContext();
     const isEmpty = !chatId;
     const allowUploadBeforeFirstMessage = chatType !== 'phase';
 
@@ -46,7 +46,11 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
     }, [isEmpty]);
 
     return (
-        <FileUploadProvider scope={{ projectId, chatId: chatId ?? undefined }} trackAsPending>
+        <FileUploadProvider
+            scope={{ projectId, chatId: chatId ?? undefined }}
+            trackAsPending
+            ensureChatId={ensureChatId}
+        >
             <ChatPanelContent
                 isEmpty={isEmpty}
                 allowUploadBeforeFirstMessage={allowUploadBeforeFirstMessage}

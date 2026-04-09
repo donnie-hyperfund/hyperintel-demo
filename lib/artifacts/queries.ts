@@ -38,3 +38,46 @@ export async function loadVersionsForArtifacts(
     }
     return map;
 }
+
+/**
+ * For a list of artifact IDs, find their associated PECP content via the
+ * parent_version FK. Returns the latest approved PECP version,
+ * keyed by the parent artifact ID.
+ */
+export async function loadPECPsForArtifacts(
+    em: EntityManager,
+    parentArtifactIds: string[],
+): Promise<Map<string, { id: string; content: string; version: number; created_at: Date }>> {
+    if (!parentArtifactIds.length) return new Map();
+
+    // Find approved PECP versions whose parent_version belongs to one of the given artifacts
+    const pecpVersions = await em.find(
+        ArtifactVersionEntity,
+        {
+            document_type: 'PECP',
+            status: 'approved',
+            parent_version: { artifact: { $in: parentArtifactIds } },
+        },
+        {
+            populate: ['parent_version.artifact'],
+            orderBy: { version: 'DESC' },
+        },
+    );
+
+    const result = new Map<string, { id: string; content: string; version: number; created_at: Date }>();
+
+    for (const pv of pecpVersions) {
+        const parentArtifactId = pv.parent_version?.artifact?.id;
+        if (!parentArtifactId || !pv.content) continue;
+        if (result.has(parentArtifactId)) continue; // already have latest
+
+        result.set(parentArtifactId, {
+            id: pv.id,
+            content: pv.content,
+            version: pv.version,
+            created_at: pv.created_at,
+        });
+    }
+
+    return result;
+}

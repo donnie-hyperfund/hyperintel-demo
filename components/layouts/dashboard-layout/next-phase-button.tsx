@@ -1,19 +1,13 @@
 'use client';
 
-import { ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { PhaseTransitionDialogContent } from './phase-transition-dialog-content';
 
 export function NextPhaseButton() {
     const { projectId, summarizeChat, navigateToNewPhase, clearPendingPhaseTransition, state } =
@@ -34,9 +28,7 @@ export function NextPhaseButton() {
 
     const isButtonVisible = canTransition && !state.isGenerating;
 
-    const isSummaryReady = !!state.summaryNewChatId;
-
-    const isLocked = state.isSummarizing || isSummaryReady;
+    const isLocked = dialogOpen && !state.error;
 
     const handleClick = useCallback(() => {
         setDialogOpen(true);
@@ -54,6 +46,13 @@ export function NextPhaseButton() {
         revalidateChats();
         navigateToNewPhase();
     }, [pendingNavigation, dialogOpen, revalidateChats, navigateToNewPhase]);
+
+    // Cross-tab sync: open dialog when summary starts on another tab
+    useEffect(() => {
+        if (state.isSummarizing && !dialogOpen) {
+            setDialogOpen(true);
+        }
+    }, [state.isSummarizing, dialogOpen]);
 
     // React to chat-triggered phase transition (AI called generate_summary)
     useEffect(() => {
@@ -120,41 +119,14 @@ export function NextPhaseButton() {
                         if (isLocked) e.preventDefault();
                     }}
                 >
-                    <DialogHeader>
-                        <DialogTitle>{isSummaryReady ? 'Summary ready' : 'Preparing next phase'}</DialogTitle>
-                        <DialogDescription>
-                            {isSummaryReady
-                                ? 'Your phase summary is ready. Continue to the next phase to start a new conversation with the context carried over.'
-                                : 'We\u2019re generating a summary of the current phase. Once it\u2019s ready, you\u2019ll be able to continue to the next phase with full context.'}
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    {state.isSummarizing && (
-                        <div className="flex items-center justify-center pt-4">
-                            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-                        </div>
-                    )}
-
-                    {state.error && !state.isSummarizing && (
-                        <div className="flex flex-col items-center justify-center gap-2">
-                            <p className="text-sm text-destructive text-center py-2">
-                                Something went wrong. Please try again.
-                            </p>
-                            <Button onClick={handleClick} className="gap-2 ml-auto">
-                                Try again
-                                <ArrowRight className="size-4" />
-                            </Button>
-                        </div>
-                    )}
-
-                    {isSummaryReady && (
-                        <DialogFooter>
-                            <Button onClick={handleGoToNextPhase} className="gap-2">
-                                Go to next phase
-                                <ArrowRight className="size-4" />
-                            </Button>
-                        </DialogFooter>
-                    )}
+                    <PhaseTransitionDialogContent
+                        isSummarizing={state.isSummarizing}
+                        summaryDocKey={state.summaryDocKey}
+                        summaryNewChatId={state.summaryNewChatId}
+                        error={state.error}
+                        onRetry={handleClick}
+                        onGoToNextPhase={handleGoToNextPhase}
+                    />
                 </DialogContent>
             </Dialog>
         </>

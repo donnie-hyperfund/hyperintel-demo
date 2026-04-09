@@ -1,6 +1,6 @@
-import type { ArtifactDto, DocumentType } from '@/lib/schema/artifact';
+import type { ArtifactDto, DocumentType, OwnershipFilter } from '@/lib/schema/artifact';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import type { CamelCaseDto, PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
     root: '/api/artifacts',
@@ -8,18 +8,33 @@ const ENDPOINTS = {
     byKey: (key: string) => `/api/resources/${key}`,
 } as const;
 
+export type ArtifactListFilterParams = {
+    search?: string;
+    ownership?: OwnershipFilter;
+};
+
 export const artifactKeys = {
     all: ['artifacts'] as const,
     lists: () => [...artifactKeys.all, 'list'] as const,
-    list: (documentType?: DocumentType, params?: PaginationParams) =>
+    list: (documentType?: DocumentType, params?: PaginationParams & ArtifactListFilterParams) =>
         [...artifactKeys.lists(), documentType, params] as const,
 };
 
-export function getArtifactListInfiniteKey(documentType: DocumentType | undefined, limit = 20) {
-    return (pageIndex: number, previousPageData: PaginatedResponse<ArtifactDto> | null) => {
+export function getArtifactListInfiniteKey({
+    documentType,
+    limit = 20,
+    search,
+    ownership,
+}: {
+    documentType: DocumentType | undefined;
+    limit?: number;
+    search?: string;
+    ownership?: OwnershipFilter;
+}) {
+    return (pageIndex: number, previousPageData: PaginatedResponse<CamelCaseDto<ArtifactDto>> | null) => {
         if (!documentType) return null;
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
-        return artifactKeys.list(documentType, { page: pageIndex + 1, limit });
+        return artifactKeys.list(documentType, { page: pageIndex + 1, limit, search, ownership });
     };
 }
 
@@ -37,17 +52,20 @@ export function createArtifactApi(getToken: TokenGetter) {
             if (version !== undefined) {
                 params.version = version;
             }
-            const { data } = await axios.get<ArtifactDto>(buildUrl(ENDPOINTS.byKey(key), params));
+            const { data } = await axios.get<CamelCaseDto<ArtifactDto>>(buildUrl(ENDPOINTS.byKey(key), params));
             return data;
         },
 
-        list: async (documentType?: DocumentType, paginationParams?: PaginationParams) => {
-            const params = {
+        list: async (documentType?: DocumentType, params?: PaginationParams & ArtifactListFilterParams) => {
+            const { search, ownership, ...paginationParams } = params ?? {};
+            const queryParams = {
                 ...(documentType ? { document_type: documentType } : undefined),
                 ...paginationParams,
+                search,
+                ownership,
             };
-            const { data } = await axios.get<PaginatedResponse<ArtifactDto>>(
-                buildUrl(ENDPOINTS.root, params as Record<string, string | number | undefined>),
+            const { data } = await axios.get<PaginatedResponse<CamelCaseDto<ArtifactDto>>>(
+                buildUrl(ENDPOINTS.root, queryParams as Record<string, string | number | undefined>),
             );
             return data;
         },

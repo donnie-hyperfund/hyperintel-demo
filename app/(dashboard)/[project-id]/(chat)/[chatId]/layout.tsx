@@ -1,3 +1,4 @@
+import camelcaseKeys from 'camelcase-keys';
 import { notFound } from 'next/navigation';
 import { SWRConfig, unstable_serialize } from 'swr';
 import { assertAuthPage } from '@/lib/api/auth-guard';
@@ -14,7 +15,7 @@ export default async function ChatLayout({ children, params }: ChatLayoutProps) 
     if (!chat) notFound();
 
     const fallback: Record<string, unknown> = {
-        [unstable_serialize(chatKeys.detail(chatId))]: chat,
+        [unstable_serialize(chatKeys.detail(chatId))]: camelcaseKeys(chat, { deep: true }),
     };
 
     return <SWRConfig value={{ fallback }}>{children}</SWRConfig>;

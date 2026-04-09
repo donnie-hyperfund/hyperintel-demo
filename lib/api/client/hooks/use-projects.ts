@@ -1,15 +1,25 @@
 import { useAuth } from '@clerk/nextjs';
-import useSWR, { type SWRConfiguration } from 'swr';
-import useSWRInfinite, { type SWRInfiniteConfiguration } from 'swr/infinite';
+import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
+import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import type { CreateProjectBodyDto, ProjectDto, UpdateProjectBodyDto } from '@/lib/schema/project';
-import { createProjectApi, getProjectListInfiniteKey, projectKeys } from '../fetchers/projects';
-import type { InfinitePaginationParams, PaginatedResponse, PaginationParams } from '../types';
+import {
+    createProjectApi,
+    getProjectListInfiniteKey,
+    invalidateProjectLists,
+    type ProjectListParams,
+    projectKeys,
+} from '../fetchers/projects';
+import type { CamelCaseDto, PaginatedResponse } from '../types';
+import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
-export function useFetchProjects(params?: PaginationParams, config?: SWRConfiguration<PaginatedResponse<ProjectDto>>) {
+export function useFetchProjects(
+    params?: ProjectListParams,
+    config?: SWRConfiguration<PaginatedResponse<CamelCaseDto<ProjectDto>>>,
+) {
     const { getToken } = useAuth();
 
-    return useSWR<PaginatedResponse<ProjectDto>>(
+    return useSWR<PaginatedResponse<CamelCaseDto<ProjectDto>>>(
         projectKeys.list(params),
         () => createProjectApi(getToken).list(params),
         { revalidateOnFocus: false, ...config },
@@ -17,30 +27,26 @@ export function useFetchProjects(params?: PaginationParams, config?: SWRConfigur
 }
 
 export function useFetchProjectsInfinite(
-    params: InfinitePaginationParams = { limit: 20 },
-    config?: SWRInfiniteConfiguration<PaginatedResponse<ProjectDto>>,
+    params: ProjectListParams = { limit: 20 },
+    config?: SWRInfiniteConfiguration<PaginatedResponse<CamelCaseDto<ProjectDto>>>,
 ) {
     const { getToken } = useAuth();
+    const { status, limit = 20 } = params;
 
-    const result = useSWRInfinite<PaginatedResponse<ProjectDto>>(
-        getProjectListInfiniteKey(params.limit),
+    return useSWRInfinitePaginated<CamelCaseDto<ProjectDto>>(
+        getProjectListInfiniteKey(status, limit),
         (key) => {
-            const params = key[key.length - 1] as PaginationParams;
+            const params = key[key.length - 1] as ProjectListParams;
             return createProjectApi(getToken).list(params);
         },
         { revalidateOnFocus: false, ...config },
     );
-
-    const lastPage = result.data?.[result.data.length - 1];
-    const hasNextPage = lastPage ? lastPage.pagination.page < lastPage.pagination.totalPages : false;
-
-    return { ...result, hasNextPage };
 }
 
-export function useFetchProject(projectId: string | undefined, config?: SWRConfiguration<ProjectDto>) {
+export function useFetchProject(projectId: string | undefined, config?: SWRConfiguration<CamelCaseDto<ProjectDto>>) {
     const { getToken } = useAuth();
 
-    return useSWR<ProjectDto>(
+    return useSWR<CamelCaseDto<ProjectDto>>(
         projectId ? projectKeys.detail(projectId) : null,
         () => {
             if (!projectId) throw new Error('Project ID is required');
@@ -52,25 +58,42 @@ export function useFetchProject(projectId: string | undefined, config?: SWRConfi
 
 export function useCreateProject() {
     const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ProjectDto, Error, string, CreateProjectBodyDto>('create-project', (_, { arg }) =>
-        createProjectApi(getToken).create(arg),
+    return useSWRMutation<CamelCaseDto<ProjectDto>, Error, string, CreateProjectBodyDto>(
+        'create-project',
+        async (_, { arg }) => {
+            const project = await createProjectApi(getToken).create(arg);
+            invalidateProjectLists(globalMutate);
+            return project;
+        },
     );
 }
 
 export function useUpdateProject(projectId: string) {
     const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<ProjectDto, Error, readonly string[], UpdateProjectBodyDto>(
+    return useSWRMutation<CamelCaseDto<ProjectDto>, Error, readonly string[], UpdateProjectBodyDto>(
         [...projectKeys.detail(projectId)],
-        (_, { arg }) => createProjectApi(getToken).update(projectId, arg),
+        async (_, { arg }) => {
+            const project = await createProjectApi(getToken).update(projectId, arg);
+            invalidateProjectLists(globalMutate, arg.archived !== undefined ? projectId : undefined);
+            return project;
+        },
     );
 }
 
 export function useDeleteProject(projectId: string) {
     const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
 
-    return useSWRMutation<{ message: string }, Error, readonly string[]>([...projectKeys.detail(projectId)], () =>
-        createProjectApi(getToken).delete(projectId),
+    return useSWRMutation<{ message: string }, Error, readonly string[]>(
+        [...projectKeys.detail(projectId)],
+        async () => {
+            const result = await createProjectApi(getToken).delete(projectId);
+            invalidateProjectLists(globalMutate, projectId);
+            return result;
+        },
     );
 }

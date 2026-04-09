@@ -6,9 +6,21 @@ import { useSWRConfig } from 'swr';
 import { toast } from '@/hooks/use-toast';
 import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
 import type { PaginatedResponse } from '@/lib/api/client/types';
-import { confirmUpload, deleteArtifact, presignUpload, uploadArtifact } from '@/lib/api/requests/worker/chat';
+import {
+    confirmImageUpload,
+    confirmUpload,
+    deleteArtifact,
+    presignImageUpload,
+    presignUpload,
+    uploadArtifact,
+} from '@/lib/api/requests/worker/chat';
 import { validateArtifactFile } from '@/lib/artifacts/utils';
-import { type ArtifactDto, isBinaryArtifactExtension, type PresignUploadResponseDto } from '@/lib/schema/artifact';
+import {
+    type ArtifactDto,
+    isBinaryArtifactExtension,
+    isImageExtension,
+    type PresignUploadResponseDto,
+} from '@/lib/schema/artifact';
 import type { ProjectResourceUploadUpdatedPayload } from '@/lib/schema/user-events';
 import { getUploadStorageKey } from '@/lib/storage/storage-keys';
 import { useCrossTabUploadSync } from '../hooks/use-cross-tab-upload-sync';
@@ -28,6 +40,14 @@ const BINARY_MIME_TYPES: Record<string, string> = {
     '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 };
 
+const IMAGE_MIME_TYPES: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+};
+
 type UploadBatch = { pendingIds: Set<string>; total: number; firstName: string };
 
 export type FileUploadContextValue = {
@@ -39,6 +59,8 @@ export type FileUploadContextValue = {
     isSubmitting: boolean;
     /** Consume staged artifact IDs (uploads without scope). Returns IDs and clears the list. */
     consumeStagedArtifactIds: () => string[];
+    /** Consume staged image file IDs. Returns IDs and clears the list. */
+    consumeStagedImageFileIds: () => string[];
 };
 
 const FileUploadContext = createContext<FileUploadContextValue | null>(null);
@@ -48,9 +70,11 @@ type FileUploadProviderProps = {
     scope?: { projectId?: string; chatId?: string };
     /** When true, uploaded artifact IDs are tracked as "pending" so the resource list hides them until the message is sent. */
     trackAsPending?: boolean;
+    /** Lazily create the chat if it doesn't exist yet, returns the chatId. Required for image uploads before first message. */
+    ensureChatId?: () => Promise<string>;
 };
 
-export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
+export function FileUploadProvider({ children, scope, trackAsPending = false, ensureChatId }: FileUploadProviderProps) {
     const {
         pendingArtifactIds,
         addPendingArtifactId: _addPending,
@@ -71,6 +95,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const filesRef = useRef(files);
     filesRef.current = files;
     const stagedArtifactIdsRef = useRef<string[]>([]);
+    const stagedImageFileIdsRef = useRef<string[]>([]);
     const hiddenArtifactIdsRef = useRef(trackAsPending ? (initialPersistedState?.hiddenArtifactIds ?? []) : []);
     hiddenArtifactIdsRef.current = trackAsPending ? pendingArtifactIds : [];
     const { getToken } = useAuth();
@@ -225,6 +250,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         return ids;
     }, []);
 
+    const consumeStagedImageFileIds = useCallback(() => {
+        const ids = stagedImageFileIdsRef.current;
+        stagedImageFileIdsRef.current = [];
+        return ids;
+    }, []);
+
     const finalizeEntry = useCallback(
         (entryId: string, extra?: Partial<FileEntry>) => {
             pollingEntryIdsRef.current.delete(entryId);
@@ -253,6 +284,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             setFiles((prev) => prev.filter((e) => e.id !== entryId));
             if (failedEntry?.artifactId) {
                 removePendingArtifactId(failedEntry.artifactId);
+                // Clean up the orphaned artifact from the database
+                getToken().then((token) => {
+                    if (!token) return;
+                    deleteArtifact({ artifactId: failedEntry.artifactId! }, token).catch(() => {});
+                    pruneRemovedArtifactsFromResourceCache([failedEntry.artifactId!]);
+                });
             }
             invalidateResources();
             toast({ title: 'Upload failed', description, variant: 'destructive' });
@@ -264,7 +301,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 if (batch.pendingIds.size === 0) batchesRef.current.splice(i, 1);
             }
         },
-        [invalidateResources, removePendingArtifactId],
+        [getToken, invalidateResources, pruneRemovedArtifactsFromResourceCache, removePendingArtifactId],
     );
 
     const pollFileStatus = useCallback(
@@ -350,6 +387,42 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             try {
                 const token = await getToken();
                 if (!token) throw new Error('Not authenticated');
+
+                if (isImageExtension(ext)) {
+                    // Image upload — separate flow, no artifact/document pipeline
+                    const chatId = scope?.chatId ?? (ensureChatId ? await ensureChatId() : undefined);
+                    if (!chatId) throw new Error('Chat ID required for image uploads');
+
+                    const presignRes = await presignImageUpload(
+                        { filename: file.name, fileSize: file.size, chatId },
+                        token,
+                    );
+                    if (!presignRes.ok) {
+                        const err = await presignRes.json();
+                        throw new Error(err.message || 'Presign failed');
+                    }
+
+                    const presignData: { uploadUrl: string; fileId: string } = await presignRes.json();
+                    updateEntry(entryId, { imageFileId: presignData.fileId });
+
+                    const mimeType = IMAGE_MIME_TYPES[ext] ?? 'application/octet-stream';
+                    const putRes = await fetch(presignData.uploadUrl, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': mimeType },
+                        body: file,
+                    });
+                    if (!putRes.ok) throw new Error('Upload to storage failed');
+
+                    const confirmRes = await confirmImageUpload({ fileId: presignData.fileId }, token);
+                    if (!confirmRes.ok) {
+                        const err = await confirmRes.json();
+                        throw new Error(err.message || 'Confirm failed');
+                    }
+
+                    stagedImageFileIdsRef.current = [...stagedImageFileIdsRef.current, presignData.fileId];
+                    finalizeEntry(entryId, { imageFileId: presignData.fileId });
+                    return;
+                }
 
                 if (isBinaryArtifactExtension(ext)) {
                     const presignRes = await presignUpload(
@@ -443,6 +516,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         },
         [
             addPendingArtifactId,
+            ensureChatId,
             failEntry,
             finalizeEntry,
             getToken,
@@ -584,7 +658,16 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     return (
         <FileUploadContext.Provider
-            value={{ files, addFiles, removeFile, clearFiles, submitFiles, isSubmitting, consumeStagedArtifactIds }}
+            value={{
+                files,
+                addFiles,
+                removeFile,
+                clearFiles,
+                submitFiles,
+                isSubmitting,
+                consumeStagedArtifactIds,
+                consumeStagedImageFileIds,
+            }}
         >
             {children}
         </FileUploadContext.Provider>

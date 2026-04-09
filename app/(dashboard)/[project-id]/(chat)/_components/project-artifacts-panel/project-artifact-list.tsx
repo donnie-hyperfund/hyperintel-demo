@@ -8,6 +8,7 @@ import type { ProjectArtifactFilterParams } from '@/lib/api/client/fetchers/proj
 import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
 import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { SEARCH_PARAMS } from '@/lib/search-params';
@@ -74,7 +75,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     });
 
     const openArtifactPreview = useCallback(
-        async (artifact: ArtifactDto) => {
+        async (artifact: CamelCaseDto<ArtifactDto>) => {
             if (!projectId) return;
             const localId = artifact.key;
             const version = artifact.version;
@@ -106,7 +107,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     );
 
     const scrollToArtifact = useCallback(
-        (artifact: ArtifactDto) => {
+        (artifact: CamelCaseDto<ArtifactDto>) => {
             const artifactChatId = getArtifactChatId(artifact);
             if (!artifactChatId) return;
             navigateToArtifact(artifactChatId, artifact.key, artifact.version);
@@ -115,7 +116,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     );
 
     const handleArtifactClick = useCallback(
-        (artifact: ArtifactDto) => {
+        (artifact: CamelCaseDto<ArtifactDto>) => {
             if (!projectId) return;
 
             const artifactChatId = getArtifactChatId(artifact);

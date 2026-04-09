@@ -24,6 +24,7 @@ export const DOCUMENT_TYPES = [
     // 'Analysis',
     'Research Report',
     'Executive Summary',
+    'PECP',
     'Other',
 ] as const;
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
@@ -46,6 +47,7 @@ export const DOCUMENT_CHAR_ESTIMATES: Record<DocumentType, number> = {
     'Human Persona': 8000,
     'Research Report': 14000,
     'Executive Summary': 10000,
+    PECP: 4000,
     Other: 14000,
 };
 
@@ -69,6 +71,10 @@ export type FilterableStatus = z.infer<typeof FilterableStatusSchema>;
 export const VisibilityFilterSchema = z.enum(['client', 'internal']);
 export type VisibilityFilter = z.infer<typeof VisibilityFilterSchema>;
 
+export const OWNERSHIP_FILTERS = ['mine', 'shared'] as const;
+export const OwnershipFilterSchema = z.enum(OWNERSHIP_FILTERS);
+export type OwnershipFilter = z.infer<typeof OwnershipFilterSchema>;
+
 const csvOf = <T extends z.ZodTypeAny>(schema: T) =>
     z
         .string()
@@ -84,6 +90,8 @@ export const ListArtifactsQuerySchema = z.object({
     status: csvOf(FilterableStatusSchema).optional(),
     chatId: csvOf(z.string().uuid()).optional(),
     document_type: DocumentTypeSchema.optional(),
+    search: z.string().max(200).optional(),
+    ownership: OwnershipFilterSchema.optional(),
 });
 export type ListArtifactsQueryDto = z.infer<typeof ListArtifactsQuerySchema>;
 
@@ -132,6 +140,16 @@ export const ArtifactDtoSchema = z.object({
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),
     metadata: z.record(z.unknown()).nullable().optional(),
+    /** PECP (public summary) for internal documents */
+    pecp: z
+        .object({
+            id: z.string().uuid(),
+            content: z.string(),
+            version: z.number().int(),
+            created_at: z.union([z.string(), z.date()]),
+        })
+        .nullable()
+        .optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),
 });
@@ -152,7 +170,24 @@ export const MAX_ARTIFACT_UPLOAD_SIZE = 50 * 1024 * 1024;
 
 export const TEXT_ARTIFACT_EXTENSIONS = ['.md', '.txt', '.rtf'] as const;
 export const BINARY_ARTIFACT_EXTENSIONS = ['.pdf', '.docx', '.pptx'] as const;
-export const ALLOWED_ARTIFACT_EXTENSIONS = [...TEXT_ARTIFACT_EXTENSIONS, ...BINARY_ARTIFACT_EXTENSIONS] as string[];
+export const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'] as const;
+export const ALLOWED_ARTIFACT_EXTENSIONS = [
+    ...TEXT_ARTIFACT_EXTENSIONS,
+    ...BINARY_ARTIFACT_EXTENSIONS,
+    ...IMAGE_EXTENSIONS,
+] as string[];
+
+export const IMAGE_MIME_TYPES: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+};
+
+export function isImageExtension(ext: string): boolean {
+    return (IMAGE_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
+}
 
 export function isBinaryArtifactExtension(ext: string): boolean {
     return (BINARY_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
@@ -251,6 +286,8 @@ export const ListUserResourcesQuerySchema = z.object({
         .optional(),
     /** Exclude resources originally published from this project */
     excludeProjectId: z.string().uuid().optional(),
+    search: z.string().max(200).optional(),
+    ownership: OwnershipFilterSchema.optional(),
 });
 export type ListUserResourcesQueryDto = z.infer<typeof ListUserResourcesQuerySchema>;
 

@@ -203,6 +203,62 @@ export const confirmUpload = (data: ConfirmUploadDto, accessToken: string) => {
     });
 };
 
+// ── Image serving ──
+
+/**
+ * Build the URL to serve a chat message image (auth-gated via worker).
+ * Use as `src` on `<img>` tags — the browser will send the auth cookie.
+ */
+export function getImageUrl(fileId: string): string {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        return `${getWorkerUrl(WORKERS.Chat, CHAT_EP.ImageServe)}/${fileId}`;
+    }
+    return `${WORKERS_LOCAL_ENDPOINTS.ImageServe}/${fileId}`;
+}
+
+// ── Image upload (chat message attachments) ──
+
+export type PresignImageUploadDto = { filename: string; fileSize: number; chatId: string };
+export type ConfirmImageUploadDto = { fileId: string };
+
+export const presignImageUpload = (data: PresignImageUploadDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ImagePresignAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.ImagePresignAction, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+};
+
+export const confirmImageUpload = (data: ConfirmImageUploadDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ImageConfirmAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.ImageConfirmAction, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+};
+
 export const associateArtifacts = (data: AssociateArtifactsDto, accessToken: string) => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.AssociateAction);

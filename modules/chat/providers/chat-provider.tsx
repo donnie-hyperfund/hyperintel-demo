@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
+import camelcaseKeys from 'camelcase-keys';
 import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
@@ -9,6 +10,7 @@ import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { abort, associateArtifacts, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
@@ -39,7 +41,7 @@ export type BaseChatContextValue = {
     /** Load more (older) messages for infinite scroll */
     loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
-    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[] }) => Promise<void>;
+    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => Promise<void>;
     /** Send a nudge (message: null) to trigger generation on last injected system event */
     sendNudge: () => Promise<void>;
     /** Stop the current generation */
@@ -62,6 +64,8 @@ export type BaseChatContextValue = {
     changeModel: (presetId: string) => Promise<void>;
     /** Dismiss the invalid model alert dialog */
     dismissInvalidModelAlert: () => void;
+    /** Lazily create the chat if it doesn't exist yet, returns the chatId */
+    ensureChatId: () => Promise<string>;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -150,7 +154,14 @@ export function ChatProvider({
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
-    const { selectedModel, setSelectedModel, isModelAvailable, setIsChangingModel } = useModelSelection();
+    const {
+        selectedModel,
+        setSelectedModel,
+        persistSelection,
+        clearPersistedSelection,
+        isModelAvailable,
+        setIsChangingModel,
+    } = useModelSelection();
     const skipNextLoad = useRef(false);
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
@@ -164,13 +175,14 @@ export function ChatProvider({
             isLoading: !!initialChatId,
             error: null,
             streamingMessageId: null,
-            tokenUsage: cached?.token_usage ?? null,
-            hasPendingChanges: cached?.has_pending_changes ?? false,
-            phaseIndex: cached?.phase_index ?? null,
+            tokenUsage: cached?.tokenUsage ?? null,
+            hasPendingChanges: cached?.hasPendingChanges ?? false,
+            phaseIndex: cached?.phaseIndex ?? null,
+            phaseName: cached?.name ?? null,
             summaryNewChatId: null,
             pendingPhaseTransition: false,
             activeResponseId: null,
-            summaryBlocks: [],
+            summaryDocKey: null,
             isProcessingArtifactAction: false,
             showInvalidModelAlert: false,
         };
@@ -218,7 +230,7 @@ export function ChatProvider({
 
                 skipNextLoad.current = true;
                 setChatId(nextChatId);
-                setState((prev) => ({ ...prev, phaseIndex: newChat.phase_index }));
+                setState((prev) => ({ ...prev, phaseIndex: newChat.phaseIndex }));
 
                 window.history.replaceState(null, '', buildChatRoute(nextChatId));
                 insertChatToCache(cache, globalMutate, projectId, newChat);
@@ -268,9 +280,12 @@ export function ChatProvider({
 
                 for (const data of results) {
                     if (data) {
-                        artifactContext.updateArtifact(keyId, data, getLatestArtifactVersion(data)?.version, {
-                            merge: false,
-                        });
+                        artifactContext.updateArtifact(
+                            keyId,
+                            { ...data, id: keyId, key: data.key || keyId },
+                            getLatestArtifactVersion(data)?.version,
+                            { merge: false },
+                        );
                     }
                 }
             } catch {
@@ -297,7 +312,7 @@ export function ChatProvider({
             return Object.values(artifactContext.getStore()).some((versions) =>
                 Object.values(versions as Record<string, any>).some(
                     (artifact) =>
-                        artifact.key !== excludeArtifactKey && artifact.proposed_version?.status === 'proposed',
+                        artifact.key !== excludeArtifactKey && artifact.proposedVersion?.status === 'proposed',
                 ),
             );
         },
@@ -316,9 +331,10 @@ export function ChatProvider({
 
     const handleArtifactOpen = useCallback(
         (artifactId: string, version: number) => {
+            if (state.isSummarizing) return;
             openPanel({ panel: 'artifact-preview', artifactId, version });
         },
-        [openPanel],
+        [openPanel, state.isSummarizing],
     );
 
     const fetchArtifact = useCallback(
@@ -369,53 +385,62 @@ export function ChatProvider({
     );
 
     /** Convert API message to internal Message format */
-    const mapApiMessage = useCallback((m: ChatMessageDto, activeAgentMessageId?: string | null): Message => {
-        // Detect system event messages injected by backend (e.g. artifact approved via UI)
-        const meta = (m.metadata ?? {}) as Record<string, unknown>;
-        const systemEventType = meta.systemEvent as string | undefined;
+    const mapApiMessage = useCallback(
+        (m: CamelCaseDto<ChatMessageDto>, activeAgentMessageId?: string | null): Message => {
+            // Detect system event messages injected by backend (e.g. artifact approved via UI)
+            const meta = (m.metadata ?? {}) as Record<string, unknown>;
+            const systemEventType = meta.systemEvent as string | undefined;
 
-        // Detect safety-retracted messages persisted by finalizeSafetyMonitor:
-        // 1. metadata.safetyAnalysis.leaked (always set by finalizeSafetyMonitor)
-        // 2. fallback: content marker + empty blocks
-        const isRetracted =
-            m.role === 'assistant' &&
-            ((meta as Record<string, any>).safetyAnalysis?.leaked === true ||
-                ((!m.blocks || m.blocks.length === 0) && m.content === '[omitted due to security/policy violation]'));
+            // Detect safety-retracted messages persisted by finalizeSafetyMonitor:
+            // 1. metadata.safetyAnalysis.leaked (always set by finalizeSafetyMonitor)
+            // 2. fallback: content marker + empty blocks
+            const isRetracted =
+                m.role === 'assistant' &&
+                ((meta as Record<string, any>).safetyAnalysis?.leaked === true ||
+                    ((!m.blocks || m.blocks.length === 0) &&
+                        m.content === '[omitted due to security/policy violation]'));
 
-        // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
-        const blocks: StreamBlock[] = isRetracted
-            ? []
-            : m.blocks && m.blocks.length > 0
-              ? (m.blocks as StreamBlock[])
-              : m.content
-                ? [{ id: m.id, type: 'text' as const, content: m.content }]
-                : [];
-        return {
-            id: m.id,
-            role: m.role as 'user' | 'assistant',
-            blocks,
-            isStreaming: activeAgentMessageId === m.id,
-            ...(m.is_error && { isError: true }),
-            ...(m.is_aborted && { isAborted: true }),
-            ...(isRetracted && { isRetracted: true }),
-            ...(systemEventType && {
-                systemEvent: {
-                    type: systemEventType,
-                    artifactKey: meta.artifactKey as string | undefined,
-                    versionNumber: meta.versionNumber as number | undefined,
-                    reason: meta.reason as string | undefined,
-                },
-            }),
-            feedbackScore: (m as any).feedback_score ?? null,
-            feedbackComment: (m as any).feedback ?? null,
-        };
-    }, []);
+            // LEGACY: fallback for old messages with content but no blocks (remove after DB nuke)
+            const blocks: StreamBlock[] = isRetracted
+                ? []
+                : m.blocks && m.blocks.length > 0
+                  ? (m.blocks as StreamBlock[])
+                  : m.content
+                    ? [{ id: m.id, type: 'text' as const, content: m.content }]
+                    : [];
+            return {
+                id: m.id,
+                role: m.role as 'user' | 'assistant',
+                blocks,
+                isStreaming: activeAgentMessageId === m.id,
+                ...(m.isError && { isError: true }),
+                ...(m.isAborted && { isAborted: true }),
+                ...(isRetracted && { isRetracted: true }),
+                ...(systemEventType && {
+                    systemEvent: {
+                        type: systemEventType,
+                        artifactKey: meta.artifactKey as string | undefined,
+                        versionNumber: meta.versionNumber as number | undefined,
+                        reason: meta.reason as string | undefined,
+                    },
+                }),
+                feedbackScore: (m as any).feedback_score ?? null,
+                feedbackComment: (m as any).feedback ?? null,
+            };
+        },
+        [],
+    );
 
     const handleStreamStarted = useCallback(
         (agentMessageId: string, userMessageId: string, tempId?: string, streamType?: 'chat' | 'summary') => {
             if (streamType === 'summary') {
                 // Summary stream arrived on existing chat: subscription — enter summarize mode
-                setState((prev) => ({ ...prev, isSummarizing: true, summaryNewChatId: null, summaryBlocks: [] }));
+                setState((prev) => ({
+                    ...prev,
+                    isSummarizing: true,
+                    summaryNewChatId: null,
+                    summaryDocKey: null,
+                }));
             } else {
                 // Normal chat response — reconcile user message ID and set generating state
                 setState((prev) => {
@@ -433,7 +458,10 @@ export function ChatProvider({
 
     const handleMessageCreated = useCallback(
         (apiMessage: unknown, tempId?: string) => {
-            const mapped = mapApiMessage(apiMessage as ChatMessageDto, null);
+            const camelMessage = camelcaseKeys(apiMessage as Record<string, unknown>, {
+                deep: true,
+            }) as CamelCaseDto<ChatMessageDto>;
+            const mapped = mapApiMessage(camelMessage, null);
             setState((prev) => {
                 const existingIdx = prev.messages.findIndex(
                     (m) =>
@@ -767,11 +795,14 @@ export function ChatProvider({
         }
     }, [stream.streamType]);
 
-    // Sync summary stream blocks into state so the summary modal can render them.
+    // Track active summary document key (never clears — handleStreamDone resets).
     useEffect(() => {
         if (stream.streamType !== 'summary') return;
-        setState((prev) => (prev.summaryBlocks === stream.blocks ? prev : { ...prev, summaryBlocks: stream.blocks }));
-    }, [stream.streamType, stream.blocks]);
+        const docKey = stream.activeDocuments[0]?.name;
+        if (docKey) {
+            setState((prev) => (prev.summaryDocKey === docKey ? prev : { ...prev, summaryDocKey: docKey }));
+        }
+    }, [stream.streamType, stream.activeDocuments]);
 
     // ========================================================================
     // MESSAGE LOADING
@@ -799,11 +830,12 @@ export function ChatProvider({
 
             // API returns DESC order (newest first), reverse for display (newest at bottom)
             const apiMessages: Message[] =
-                messagesData.data?.map((m) => mapApiMessage(m, chatData.active_agent_message_id)) || [];
+                messagesData.data?.map((m) => mapApiMessage(m, chatData.activeAgentMessageId)) || [];
 
-            // Sync persisted model selection
-            if (chatData.selected_model) {
-                setSelectedModel(chatData.selected_model);
+            // Sync persisted model selection — DB is source of truth, clear localStorage bridge
+            if (chatData.selectedModel) {
+                setSelectedModel(chatData.selectedModel);
+                clearPersistedSelection();
             }
 
             setState((prev) => {
@@ -818,16 +850,16 @@ export function ChatProvider({
 
                 // Don't set isGenerating if we already know this is a summary stream
                 // (active_agent_message_id is set for both chat and summary streams in DB)
-                const hasActiveStream = !!chatData.active_agent_message_id;
+                const hasActiveStream = !!chatData.activeAgentMessageId;
                 return {
                     ...prev,
                     messages: apiMessagesReversed,
                     isLoading: false,
                     isGenerating: prev.isSummarizing ? false : hasActiveStream,
-                    activeResponseId: prev.isSummarizing ? null : (chatData.active_agent_message_id ?? null),
-                    tokenUsage: chatData.token_usage ?? null,
-                    hasPendingChanges: chatData.has_pending_changes ?? false,
-                    phaseIndex: chatData.phase_index,
+                    activeResponseId: prev.isSummarizing ? null : (chatData.activeAgentMessageId ?? null),
+                    tokenUsage: chatData.tokenUsage ?? null,
+                    hasPendingChanges: chatData.hasPendingChanges ?? false,
+                    phaseIndex: chatData.phaseIndex,
                 };
             });
             setPagination({
@@ -840,7 +872,7 @@ export function ChatProvider({
             console.error('Error loading messages:', error);
             setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
         }
-    }, [api, chatId, mapApiMessage, setSelectedModel]);
+    }, [api, chatId, mapApiMessage, setSelectedModel, clearPersistedSelection]);
 
     // Keep reconnect ref in sync with loadMessages
     loadMessagesRef.current = loadMessages;
@@ -887,7 +919,7 @@ export function ChatProvider({
 
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
-        async (content: string, opts?: { stagedArtifactIds?: string[] }) => {
+        async (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
             if (!content.trim() || state.isGenerating) return;
 
             if (!isModelAvailable) {
@@ -912,6 +944,14 @@ export function ChatProvider({
             try {
                 const chatIdToUse = await ensureChatId();
 
+                // Persist pre-chat model pick to DB (clear localStorage only on success)
+                if (!chatId && selectedModel) {
+                    api.chats.updateModel(chatIdToUse, selectedModel).then(
+                        () => clearPersistedSelection(),
+                        (err) => console.error('Failed to persist initial model selection:', err),
+                    );
+                }
+
                 // Associate staged uploads with the newly created (or existing) chat
                 if (opts?.stagedArtifactIds?.length) {
                     await associateArtifacts({ artifactIds: opts.stagedArtifactIds, chatId: chatIdToUse }, accessToken);
@@ -926,6 +966,7 @@ export function ChatProvider({
                         chatId: chatIdToUse,
                         model: selectedModel,
                         tempId: userMessage.id, // Reconcile across WS boundaries
+                        ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
                     },
                     accessToken,
                 );
@@ -964,7 +1005,9 @@ export function ChatProvider({
         [
             api,
             cache,
+            chatId,
             chatType,
+            clearPersistedSelection,
             ensureChatId,
             getToken,
             globalMutate,
@@ -1076,12 +1119,11 @@ export function ChatProvider({
         }));
     }, [chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
 
-    /** Change the chat's selected model — persists via API when a chat exists */
+    /** Change the chat's selected model — persists via API when a chat exists, localStorage when not */
     const changeModel = useCallback(
         async (presetId: string) => {
             if (!chatId) {
-                // No chat yet — just update local state (will be sent with first message)
-                setSelectedModel(presetId);
+                persistSelection(presetId);
                 return;
             }
 
@@ -1098,7 +1140,7 @@ export function ChatProvider({
                 setIsChangingModel(false);
             }
         },
-        [chatId, api, setSelectedModel, selectedModel, setIsChangingModel],
+        [chatId, api, persistSelection, setSelectedModel, selectedModel, setIsChangingModel],
     );
 
     const dismissInvalidModelAlert = useCallback(() => {
@@ -1126,6 +1168,7 @@ export function ChatProvider({
                 setProcessingArtifactAction,
                 changeModel,
                 dismissInvalidModelAlert,
+                ensureChatId,
             })}
         >
             {children}

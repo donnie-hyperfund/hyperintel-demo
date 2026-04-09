@@ -1,6 +1,6 @@
 import { runAgentStream } from '@common/ai/agent';
 import type { AgentStreamEvent } from '@common/ai/agent/types';
-import { type ParamsWithType, extractInferenceMetadata } from '@common/ai/inference';
+import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
 import { COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { AsyncHandlebars } from 'handlebars-jle';
@@ -9,6 +9,7 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
@@ -225,7 +226,7 @@ export async function chatActionHandler(
     ctx: Ctx,
     options: ChatHandlerOptions = {},
 ): Promise<ChatActionResult | ReadableStream | Response> {
-    const { chatId, message, tempId } = data;
+    const { chatId, message, tempId, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
 
@@ -266,6 +267,19 @@ export async function chatActionHandler(
             created_at: requestStartedAt,
         });
         em!.persist(userMsg);
+
+        // Link uploaded image files to this message
+        if (imageFileIds?.length) {
+            const imageFiles = await em!.find(ChatMessageFileEntity, {
+                id: { $in: imageFileIds },
+                chat_id: chatId,
+                status: 'uploaded',
+                chat_message: null,
+            });
+            for (const file of imageFiles) {
+                file.chat_message = userMsg;
+            }
+        }
     }
 
     // Set activeAgentMessageId on chat entity
@@ -318,8 +332,16 @@ export async function chatActionHandler(
         // First event: IDs (read by GenerationProxyDO, returned to frontend)
         enqueue({ type: 'ids', userMessageId, agentMessageId });
 
+        // SSE keepalive — prevents Cloudflare from killing the idle connection
+        // while runGeneration pushes content to ChatStreamDO (not to this SSE stream).
+        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+
         // Run generation inline — Worker stays alive because the DO reads this stream
-        await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        try {
+            await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        } finally {
+            clearInterval(heartbeat);
+        }
 
         try {
             controller.close();
@@ -361,14 +383,14 @@ async function runGeneration(params: GenerationParams): Promise<void> {
     const pusher = createPusher(streamDO, 'chat-handler');
 
     try {
-        if (!anthropic || !langfuse) {
-            throw new Error('Anthropic and Langfuse clients are required');
+        if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
+            throw new Error('Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)');
         }
 
         // Load history + safety check in parallel (doesn't slow happy path)
         // For nudge (message=null), skip safety check — the system event was injected server-side
         const [historyMessages, safetyVerdict] = await Promise.all([
-            loadChatHistory(em!, chatId),
+            loadChatHistory(em!, chatId, ctx.env),
             message ? safetyCheck(ctx, message) : Promise.resolve(null),
         ]);
 
@@ -474,6 +496,10 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         if (agentCtx.draftManager.hasActive()) {
                             return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
                         }
+                        if (agentCtx.pendingPECP) {
+                            const p = agentCtx.pendingPECP;
+                            return `You MUST generate a PECP for "${p.parentDocumentType}". Call begin_document with mode="create", name="${p.pecpKey}", document_type="PECP", parent_document="${p.parentDocument}", is_internal=false. Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
+                        }
                         return null;
                     },
                 },
@@ -523,6 +549,11 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             // Feed content deltas to safety monitor
             if (event.type === 'delta') {
                 safetyMonitor.appendContent(event.content);
+            }
+
+            // Forward tool_call_complete to onEvent only (not to frontend/DO)
+            if (event.type === 'tool_call_complete' && options.onEvent) {
+                options.onEvent({ type: 'tool_call_complete', tool: event.tool, id: event.id, input: event.input });
             }
 
             // Let document handler process the event (queues doc events locally)

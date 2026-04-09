@@ -1,6 +1,8 @@
-import type { CreateProjectBodyDto, ProjectDto, UpdateProjectBodyDto } from '@/lib/schema/project';
+import type { ScopedMutator } from 'swr';
+import type { CreateProjectBodyDto, ProjectDto, ProjectListStatus, UpdateProjectBodyDto } from '@/lib/schema/project';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
-import type { PaginatedResponse, PaginationParams } from '../types';
+import { revalidateProjectInfiniteLists } from '../cache/project-lists';
+import type { CamelCaseDto, PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
     root: '/api/projects',
@@ -10,41 +12,50 @@ const ENDPOINTS = {
 export const projectKeys = {
     all: ['projects'] as const,
     lists: () => [...projectKeys.all, 'list'] as const,
-    list: (params?: PaginationParams) => [...projectKeys.lists(), params] as const,
+    list: (params?: ProjectListParams) => [...projectKeys.lists(), params] as const,
     details: () => [...projectKeys.all, 'detail'] as const,
     detail: (id: string) => [...projectKeys.details(), id] as const,
 };
 
-export function getProjectListInfiniteKey(limit = 20) {
-    return (pageIndex: number, previousPageData: PaginatedResponse<ProjectDto> | null) => {
+export type ProjectListParams = PaginationParams & {
+    status?: ProjectListStatus;
+};
+
+export function getProjectListInfiniteKey(status?: ProjectListStatus, limit = 20) {
+    return (pageIndex: number, previousPageData: PaginatedResponse<CamelCaseDto<ProjectDto>> | null) => {
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
-        return projectKeys.list({ page: pageIndex + 1, limit });
+        return projectKeys.list({ page: pageIndex + 1, limit, status });
     };
+}
+
+export function invalidateProjectLists(globalMutate: ScopedMutator, affectedProjectId?: string) {
+    revalidateProjectInfiniteLists(affectedProjectId);
+    globalMutate((key: unknown) => Array.isArray(key) && key[0] === projectKeys.all[0] && key[1] === 'list');
 }
 
 export function createProjectApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 
     return {
-        list: async (params?: PaginationParams) => {
-            const { data } = await axios.get<PaginatedResponse<ProjectDto>>(
+        list: async (params?: ProjectListParams) => {
+            const { data } = await axios.get<PaginatedResponse<CamelCaseDto<ProjectDto>>>(
                 buildUrl(ENDPOINTS.root, params as Record<string, string | number | undefined>),
             );
             return data;
         },
 
         get: async (id: string) => {
-            const { data } = await axios.get<ProjectDto>(ENDPOINTS.byId(id));
+            const { data } = await axios.get<CamelCaseDto<ProjectDto>>(ENDPOINTS.byId(id));
             return data;
         },
 
         create: async (body: CreateProjectBodyDto) => {
-            const { data } = await axios.post<ProjectDto>(ENDPOINTS.root, body);
+            const { data } = await axios.post<CamelCaseDto<ProjectDto>>(ENDPOINTS.root, body);
             return data;
         },
 
         update: async (id: string, body: UpdateProjectBodyDto) => {
-            const { data } = await axios.patch<ProjectDto>(ENDPOINTS.byId(id), body);
+            const { data } = await axios.patch<CamelCaseDto<ProjectDto>>(ENDPOINTS.byId(id), body);
             return data;
         },
 

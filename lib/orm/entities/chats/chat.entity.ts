@@ -11,6 +11,9 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text', default: 'phase' })
     type!: string & Opt;
 
+    @Property({ type: 'text', nullable: true })
+    name?: Nullable<string>;
+
     @Property({ type: 'text' })
     phase!: string;
 

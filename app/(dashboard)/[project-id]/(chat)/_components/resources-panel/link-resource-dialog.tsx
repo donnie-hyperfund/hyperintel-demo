@@ -1,11 +1,9 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
-import type { LucideIcon } from 'lucide-react';
-import { Building, Building2, Dna, Link, Loader2, Users } from 'lucide-react';
+import { Link, Loader2 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import useInfiniteScroll from 'react-infinite-scroll-hook';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -16,14 +14,17 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
-import { EmptyState } from '@/components/ui/empty-state';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useResourceListFilters } from '@/hooks/use-resource-list-filters';
 import { toast } from '@/hooks/use-toast';
 import { useFetchProjectResources } from '@/lib/api/client/hooks/use-project-resources';
-import { useFetchResources } from '@/lib/api/client/hooks/use-resources';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { importArtifacts } from '@/lib/api/requests/worker/projects';
 import type { ArtifactDto } from '@/lib/schema/artifact';
-import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
+import { ResourcePickerPanel } from '@/modules/artifacts/components/resource-picker-panel';
+import { ResourcePickerToolbar } from '@/modules/artifacts/components/resource-picker-toolbar';
+import { useResourceTabs } from '@/modules/artifacts/hooks/use-resource-tabs';
 import { NewResourceDropdown } from './new-resource-dropdown';
 
 type LinkResourceDialogParams = PageParams<'/[project-id]'>;
@@ -38,38 +39,16 @@ export function LinkResourceDialog() {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isImporting, setIsImporting] = useState(false);
 
-    const { companies, stakeholders, legacyDna, isLoading, hasNextPage, size, setSize } = useFetchResources({
-        limit: 20,
-        approvedOnly: true,
-        documentType: ['Legacy DNA', 'Company Profile', 'Human Persona'],
-        excludeProjectId: projectId,
-    });
+    const filters = useResourceListFilters();
+    const tabState = useResourceTabs();
+
     const { allItems: projectResources, mutate: mutateProjectResources } = useFetchProjectResources(projectId);
-
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const [sentryRef] = useInfiniteScroll({
-        loading: isLoading,
-        hasNextPage,
-        onLoadMore: () => setSize(size + 1),
-        rootMargin: '0px 0px 100px 0px',
-    });
-
     const alreadyLinkedKeys = useMemo(() => new Set(projectResources.map((a) => a.key)), [projectResources]);
 
-    const availableCompanies = useMemo(
-        () => companies.filter((a) => !alreadyLinkedKeys.has(a.key)),
-        [companies, alreadyLinkedKeys],
+    const filterItem = useCallback(
+        (a: CamelCaseDto<ArtifactDto>) => !alreadyLinkedKeys.has(a.key),
+        [alreadyLinkedKeys],
     );
-    const availableStakeholders = useMemo(
-        () => stakeholders.filter((a) => !alreadyLinkedKeys.has(a.key)),
-        [stakeholders, alreadyLinkedKeys],
-    );
-    const availableLegacyDna = useMemo(
-        () => legacyDna.filter((a) => !alreadyLinkedKeys.has(a.key)),
-        [legacyDna, alreadyLinkedKeys],
-    );
-
-    const totalAvailable = availableCompanies.length + availableStakeholders.length + availableLegacyDna.length;
 
     const handleToggle = useCallback((id: string) => {
         setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -99,13 +78,18 @@ export function LinkResourceDialog() {
         }
     }, [selectedIds, getToken, projectId, mutateProjectResources]);
 
-    const handleOpenChange = useCallback((next: boolean) => {
-        setOpen(next);
-        if (!next) {
-            setDropdownOpen(false);
-            setSelectedIds([]);
-        }
-    }, []);
+    const handleOpenChange = useCallback(
+        (next: boolean) => {
+            setOpen(next);
+            if (!next) {
+                setDropdownOpen(false);
+                setSelectedIds([]);
+                tabState.reset();
+                filters.reset();
+            }
+        },
+        [filters, tabState],
+    );
 
     const handleNavigate = useCallback((path: string) => {
         setPendingPath(path);
@@ -126,16 +110,16 @@ export function LinkResourceDialog() {
             <Tooltip>
                 <DialogTrigger asChild>
                     <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-7">
-                            <Link className="size-4" />
-                        </Button>
+                        <IconButton size="sm">
+                            <Link />
+                        </IconButton>
                     </TooltipTrigger>
                 </DialogTrigger>
                 <TooltipContent>Link resource</TooltipContent>
             </Tooltip>
 
             <DialogContent
-                className="sm:max-w-xl flex max-h-140 h-full flex-col"
+                className="px-4 sm:px-8 sm:max-w-xl flex max-h-140 h-full flex-col"
                 onOpenAutoFocus={(e) => e.preventDefault()}
             >
                 <DialogHeader>
@@ -145,49 +129,24 @@ export function LinkResourceDialog() {
                     </DialogDescription>
                 </DialogHeader>
 
-                <div ref={scrollContainerRef} className="flex flex-1 flex-col overflow-y-auto space-y-4 py-2">
-                    {isLoading && size === 1 ? (
-                        <div className="flex flex-1 items-center justify-center space-y-2">
-                            {Array.from({ length: 3 }).map((_, i) => (
-                                <ArtifactListItemSkeleton key={i} size="sm" />
-                            ))}
-                        </div>
-                    ) : totalAvailable === 0 ? (
-                        <EmptyState
-                            className="flex-1"
-                            icon={Building2}
-                            title="All Project Intel linked"
-                            description="All available profiles and personas are already linked to this project."
-                        />
-                    ) : (
-                        <>
-                            <SelectableSection
-                                title="Legacy DNA"
-                                icon={Dna}
-                                artifacts={availableLegacyDna}
+                <ResourcePickerToolbar filters={filters} tabState={tabState} />
+
+                <div className="flex flex-1 flex-col overflow-hidden">
+                    {tabState.tabs.map((tab) =>
+                        tabState.activeTab === tab.value ? (
+                            <ResourcePickerPanel
+                                key={tab.value}
+                                documentTypes={tab.documentTypes}
+                                filters={filters}
+                                icon={tab.icon}
+                                excludeProjectId={projectId}
+                                filterItem={filterItem}
                                 selectedIds={selectedIds}
                                 onToggle={handleToggle}
+                                emptyTitle="All linked"
+                                emptyDescription="All available items are already linked to this project."
                             />
-                            <SelectableSection
-                                title="Companies"
-                                icon={Building}
-                                artifacts={availableCompanies}
-                                selectedIds={selectedIds}
-                                onToggle={handleToggle}
-                            />
-                            <SelectableSection
-                                title="Stakeholders"
-                                icon={Users}
-                                artifacts={availableStakeholders}
-                                selectedIds={selectedIds}
-                                onToggle={handleToggle}
-                            />
-                            {(isLoading || hasNextPage) && (
-                                <div ref={sentryRef} className="flex items-center justify-center py-3">
-                                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                                </div>
-                            )}
-                        </>
+                        ) : null,
                     )}
                 </div>
 
@@ -209,47 +168,11 @@ export function LinkResourceDialog() {
                                 Adding...
                             </>
                         ) : (
-                            `Add Project Intel`
+                            'Add Project Intel'
                         )}
                     </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
-    );
-}
-
-function SelectableSection({
-    title,
-    icon,
-    artifacts,
-    selectedIds,
-    onToggle,
-}: {
-    title: string;
-    icon: LucideIcon;
-    artifacts: ArtifactDto[];
-    selectedIds: string[];
-    onToggle: (id: string) => void;
-}) {
-    if (artifacts.length === 0) return null;
-
-    return (
-        <div className="space-y-2">
-            <h3 className="text-xs font-medium uppercase tracking-wider text-neutral-500">{title}</h3>
-            <div className="space-y-1.5">
-                {artifacts.map((artifact) => (
-                    <ArtifactListItem
-                        key={artifact.id}
-                        artifact={artifact}
-                        icon={icon}
-                        size="sm"
-                        isSelected={selectedIds.includes(artifact.id)}
-                        isShared={artifact.is_own === false}
-                        shouldDisplayVersionInfo={false}
-                        onClick={() => onToggle(artifact.id)}
-                    />
-                ))}
-            </div>
-        </div>
     );
 }

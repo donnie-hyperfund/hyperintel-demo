@@ -15,6 +15,8 @@ const ABORT_WAIT_TIMEOUT_MS = 60_000; // 60 seconds
 const TOOL_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 /** How often to flush state to storage during streaming (crash-recovery only). */
 const PERSIST_INTERVAL_MS = 1_000;
+/** If a sequence gap isn't filled within this window, skip ahead and drain what we have. */
+const REORDER_GAP_TIMEOUT_MS = 5_000;
 
 // Storage keys
 const SK_BLOCKS = 'blocks';
@@ -68,6 +70,8 @@ export class ChatStreamDO extends DurableObject<Env> {
     // --- Reorder buffer for fire-and-forget push (in-memory only) ---
     private nextExpectedSeq = 0;
     private pendingBatches = new Map<number, StreamEvent[]>();
+    /** Timestamp when we first noticed a gap (pendingBatches has items but nextExpectedSeq is missing) */
+    private gapDetectedAt: number | null = null;
 
     // --- Broadcast queue — serializes delivery, prevents interleaving ---
     private broadcastQueue: unknown[][] = [];
@@ -258,6 +262,8 @@ export class ChatStreamDO extends DurableObject<Env> {
                     pendingVersion: event.pendingVersion,
                     loadedVersion: event.loadedVersion,
                     content: '',
+                    documentType: event.documentType,
+                    isInternal: event.isInternal,
                 });
                 break;
             }
@@ -281,6 +287,12 @@ export class ChatStreamDO extends DurableObject<Env> {
                     }
                     doc.content = lines.join('\n');
                 }
+                break;
+            }
+
+            case 'document_progress': {
+                const doc = this.activeDocuments.get(event.name);
+                if (doc) doc.progress = event.progress;
                 break;
             }
 
@@ -382,13 +394,15 @@ export class ChatStreamDO extends DurableObject<Env> {
 
     /** Queue a stream_status message for broadcast. */
     private broadcastStatus(status: StreamStatus) {
-        this.queueBroadcast([{
-            topic: this.topic,
-            type: 'stream_status',
-            status,
-            agentMessageId: this.agentMessageId,
-            _seq: this.broadcastSeq++,
-        }]);
+        this.queueBroadcast([
+            {
+                topic: this.topic,
+                type: 'stream_status',
+                status,
+                agentMessageId: this.agentMessageId,
+                _seq: this.broadcastSeq++,
+            },
+        ]);
     }
 
     // ========================================================================
@@ -426,6 +440,39 @@ export class ChatStreamDO extends DurableObject<Env> {
                 this.applyEvent(event);
             }
             allDrained.push(...batch);
+        }
+
+        // Gap detection: if we have buffered batches but the next expected seq is missing,
+        // a fire-and-forget push was lost. After REORDER_GAP_TIMEOUT_MS, skip ahead.
+        if (this.pendingBatches.size > 0 && allDrained.length === 0) {
+            const now2 = Date.now();
+            if (!this.gapDetectedAt) {
+                this.gapDetectedAt = now2;
+                console.warn(
+                    `[ChatStreamDO] gap detected: waiting for seq=${this.nextExpectedSeq}, have ${[...this.pendingBatches.keys()].join(',')}`,
+                );
+            } else if (now2 - this.gapDetectedAt >= REORDER_GAP_TIMEOUT_MS) {
+                // Skip ahead to the lowest buffered seq and drain from there
+                const sortedSeqs = [...this.pendingBatches.keys()].sort((a, b) => a - b);
+                console.warn(
+                    `[ChatStreamDO] gap timeout: skipping seq ${this.nextExpectedSeq}→${sortedSeqs[0]}, lost ${sortedSeqs[0] - this.nextExpectedSeq} batch(es)`,
+                );
+                this.nextExpectedSeq = sortedSeqs[0];
+                this.gapDetectedAt = null;
+                // Re-drain from the new position
+                while (this.pendingBatches.has(this.nextExpectedSeq)) {
+                    const batch = this.pendingBatches.get(this.nextExpectedSeq)!;
+                    this.pendingBatches.delete(this.nextExpectedSeq);
+                    this.nextExpectedSeq++;
+                    for (const event of batch) {
+                        this.applyEvent(event);
+                    }
+                    allDrained.push(...batch);
+                }
+            }
+        } else {
+            // No gap — reset detector
+            this.gapDetectedAt = null;
         }
 
         // Queue for serial broadcast — each event tagged with _seq for client-side verification
@@ -492,6 +539,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         this.status = 'idle';
         this.nextExpectedSeq = 0;
         this.pendingBatches.clear();
+        this.gapDetectedAt = null;
         this.broadcastQueue = [];
         this.isBroadcasting = false;
         this.broadcastSeq = 0;

@@ -5,8 +5,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
-import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
+import { getLatestArtifactContent, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import type { Artifact } from '@/modules/chat/types';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
@@ -17,38 +18,12 @@ import { InternalDocumentActions } from './internal-document-actions';
 import { InternalDocumentContent } from './internal-document-content';
 
 type ArtifactViewerProps = {
-    title: string;
-    content: string;
-    /** Previous version content for diff comparison */
-    previousContent?: string;
-    /** Version number to display */
+    artifact: Artifact;
     version: number;
-    /** Version status */
-    status?: VersionStatus;
-    /** Whether the artifact is uploaded */
-    isUploaded?: boolean;
-    /** Whether the artifact is internal (not exportable) */
-    isInternal?: boolean;
-    /** Document type of the artifact */
-    documentType?: DocumentType;
-    /** The active version's UUID */
-    artifactVersionId?: string;
-    /** Artifact identifier (key) for API lookups */
-    artifactKey?: string;
-    /** Artifact ID for store lookups */
-    artifactId?: string;
-    /** Updated at date */
-    updatedAt?: Date;
     /** Back link URL - shows back arrow */
     backHref?: string;
     /** Close handler - shows X button */
     onCloseAction?: () => void;
-    /** Whether content is being streamed - enables auto-scroll to bottom */
-    isStreaming?: boolean;
-    /** Whether an existing document is being patched */
-    isUpdating?: boolean;
-    /** Generation progress percentage (0-100) */
-    progress?: number;
 };
 
 const diffDirectives: Record<string, DirectiveHandler> = {
@@ -65,25 +40,7 @@ const diffDirectives: Record<string, DirectiveHandler> = {
 };
 
 /** Reusable artifact viewer with header and markdown content */
-export const ArtifactViewer = ({
-    title,
-    content,
-    previousContent,
-    version,
-    status,
-    isUploaded,
-    isInternal,
-    documentType,
-    artifactVersionId,
-    artifactKey,
-    artifactId,
-    updatedAt,
-    backHref,
-    onCloseAction,
-    isStreaming = false,
-    isUpdating = false,
-    progress,
-}: ArtifactViewerProps) => {
+export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: ArtifactViewerProps) => {
     const prevTitleRef = useRef<string | null>(null);
     const [isDiffVisible, setIsDiffVisible] = useState(false);
     const [isProcessingApproval, setIsProcessingApproval] = useState(false);
@@ -95,12 +52,31 @@ export const ArtifactViewer = ({
     } = useChatContext();
     const { isLinking: isLinkingToProject } = useOptionalProjectOrigin();
 
+    const { title, id: artifactId, key: artifactKey, progress } = artifact;
+    const isStreaming = !!artifact.isStreaming;
+    const isUpdating = !!artifact.isUpdating;
+
+    const activeVersion = getLatestArtifactVersion(artifact);
+    const content = getLatestArtifactContent(artifact);
+
+    const pecpContent = artifact.pecpContent ?? artifact.pecp?.content ?? '';
+    const hasPecp = artifact.pecpContent !== undefined || !!artifact.pecp;
+
+    const updatedAt = artifact.proposedVersion?.updatedAt ? new Date(artifact.proposedVersion.updatedAt) : undefined;
+    const previousContent =
+        artifact.proposedVersion && artifact.currentVersion ? artifact.currentVersion.content : undefined;
+
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
     const canApprove =
-        status === 'proposed' && !isStreaming && !!artifactId && !!artifactKey && !isLastMessageStreaming;
-    const showApprovalBar = canApprove && !isInternal;
-    const showInternalActions = canApprove && !!isInternal;
-    const canDelete = !!artifactKey && !!isUploaded && !isStreaming && status !== 'deleted';
+        activeVersion?.status === 'proposed' &&
+        !isStreaming &&
+        !!artifactId &&
+        !!artifactKey &&
+        !isLastMessageStreaming;
+    const showApprovalBar = canApprove && (!activeVersion?.isInternal || hasPecp);
+    const showInternalActions = canApprove && !!activeVersion?.isInternal && !hasPecp;
+    const canDelete =
+        !!artifactKey && !!activeVersion?.isUploaded && !isStreaming && activeVersion?.status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
     const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
 
@@ -109,8 +85,7 @@ export const ArtifactViewer = ({
         return computeDiffWithDirectives(previousContent, content);
     }, [canShowDiff, previousContent, content]);
 
-    // Auto-scroll is disabled when not streaming
-    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content], {
+    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content, pecpContent], {
         threshold: 100,
         disabled: !isStreaming,
     });
@@ -126,6 +101,42 @@ export const ArtifactViewer = ({
     }, [isStreaming, title, containerRef]);
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
+
+    const renderContent = () => {
+        if (activeVersion?.isInternal && !hasPecp) {
+            return (
+                <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming}>
+                    {showInternalActions && (
+                        <InternalDocumentActions
+                            artifactId={artifactId}
+                            version={version}
+                            disabled={isUpdating}
+                            onProcessingChange={setIsProcessingApproval}
+                        />
+                    )}
+                </InternalDocumentContent>
+            );
+        }
+
+        const displayContent = pecpContent || markdownContent;
+        if (displayContent) {
+            return (
+                <div className="p-6">
+                    <MarkdownRenderer
+                        markdown={displayContent}
+                        directives={pecpContent ? undefined : diffDirectives}
+                        scrollContainerRef={containerRef}
+                    />
+                </div>
+            );
+        }
+
+        return (
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+                <p>No content available</p>
+            </div>
+        );
+    };
 
     // TODO: Remove the !!projectId when backend is updated and we can use a unified artifact API
     const deleteAction = canDelete && !!projectId && (
@@ -143,45 +154,22 @@ export const ArtifactViewer = ({
                 title={title}
                 content={content}
                 version={version}
-                status={status}
-                documentType={documentType}
-                isUploaded={isUploaded}
-                isInternal={isInternal}
-                artifactVersionId={artifactVersionId}
+                status={activeVersion?.status}
+                documentType={activeVersion?.documentType}
+                isUploaded={activeVersion?.isUploaded}
+                isInternal={activeVersion?.isInternal}
+                artifactVersionId={activeVersion?.id}
                 updatedAt={updatedAt}
                 backHref={backHref}
                 onCloseAction={onCloseAction}
                 actions={deleteAction}
-                isStreaming={!!isStreaming}
+                isStreaming={isStreaming}
             />
 
             {/* Preview */}
             <div className="relative flex-1 min-h-0">
                 <div ref={containerRef} className="h-full overflow-y-auto">
-                    {isInternal ? (
-                        <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming}>
-                            {showInternalActions && (
-                                <InternalDocumentActions
-                                    artifactId={artifactId}
-                                    version={version}
-                                    disabled={isUpdating}
-                                    onProcessingChange={setIsProcessingApproval}
-                                />
-                            )}
-                        </InternalDocumentContent>
-                    ) : markdownContent ? (
-                        <div className="p-6">
-                            <MarkdownRenderer
-                                markdown={markdownContent}
-                                directives={diffDirectives}
-                                scrollContainerRef={containerRef}
-                            />
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground">
-                            <p>No content available</p>
-                        </div>
-                    )}
+                    {renderContent()}
                 </div>
 
                 {/* Busy overlay */}
@@ -193,7 +181,7 @@ export const ArtifactViewer = ({
                                 ? 'Deleting...'
                                 : isLinkingToProject
                                   ? 'Adding to Project Intel...'
-                                  : isProcessingApproval || status === 'proposed'
+                                  : isProcessingApproval || activeVersion?.status === 'proposed'
                                     ? 'Processing...'
                                     : 'Making changes...'}
                         </div>
@@ -204,9 +192,8 @@ export const ArtifactViewer = ({
                 {!isAtBottom && content.length > 0 && (
                     <Button
                         onClick={() => scrollToBottom({ behavior: 'smooth' })}
-                        size="icon-lg"
                         variant="secondary"
-                        className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-xl z-10"
+                        className="size-10 absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-xl z-10"
                         aria-label="Scroll to bottom"
                     >
                         <ChevronDown className="size-4" />

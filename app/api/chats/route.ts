@@ -43,7 +43,7 @@ async function handleCreateChat(req: NextRequest, user: UserEntity): Promise<Nex
 
     if (projectId) {
         // Project chat
-        const project = await em.findOne(ProjectEntity, { id: projectId, user: user.id });
+        const project = await em.findOne(ProjectEntity, { id: projectId, user: user.id, archived_at: null });
         if (!project) {
             return NextResponse.json({ error: 'Project not found', code: 'PROJECT_NOT_FOUND' }, { status: 404 });
         }

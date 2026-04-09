@@ -6,6 +6,8 @@ export const SendChatActionSchema = z.object({
     chatId: z.string().uuid(),
     model: z.string().optional(),
     tempId: z.string().uuid('tempId must be a valid UUID').optional(),
+    /** IDs of uploaded image files (ChatMessageFileEntity) to attach to this message. */
+    imageFileIds: z.array(z.string().uuid()).max(10).optional(),
 });
 
 export type SendChatActionDto = z.infer<typeof SendChatActionSchema>;
@@ -28,6 +30,11 @@ export const UpdateChatModelSchema = z.object({
     model: z.string(),
 });
 export type UpdateChatModelDto = z.infer<typeof UpdateChatModelSchema>;
+
+export const UpdateChatNameSchema = z.object({
+    name: z.string().trim().min(1).max(100),
+});
+export type UpdateChatNameDto = z.infer<typeof UpdateChatNameSchema>;
 
 export const TokenBreakdownSchema = z.object({
     context: z.number(),

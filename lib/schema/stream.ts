@@ -7,6 +7,7 @@ export type { StreamBlock } from '@/common/ai/agent/types';
 // TOKEN USAGE (canonical definitions in chat.ts via Zod schemas)
 // ============================================================================
 
+import type { DocumentType } from './artifact';
 import type { TokenBreakdown, TokenUsage } from './chat';
 export type { TokenBreakdown, TokenUsage };
 
@@ -31,6 +32,7 @@ export type StreamEventType =
     | 'reasoning_delta'
     | 'reasoning_done'
     | 'tool_start'
+    | 'tool_call_complete'
     | 'tool_result'
     | 'search_start'
     | 'search_results'
@@ -63,6 +65,7 @@ export type StreamEvent =
     | { type: 'reasoning_done'; durationMs?: number; blockId?: string }
     // Tool calls
     | { type: 'tool_start'; id: string; tool: string }
+    | { type: 'tool_call_complete'; id: string; tool: string; input: Record<string, unknown> }
     | { type: 'tool_result'; id: string; result: unknown; success: boolean }
     // Search & citations
     | { type: 'search_start'; query: string; blockId: string }
@@ -86,17 +89,36 @@ export type StreamEvent =
           mode?: 'create' | 'edit';
           loadedVersion?: number;
           /** document_type from begin_document tool result */
-          documentType?: string;
+          documentType?: DocumentType;
           /** Estimated content size in characters for progress tracking */
           estimatedChars?: number;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           rejectionReason?: string;
           isInternal?: boolean;
+          /** PECP: this document is a PE Communication for the parent document */
+          isPECP?: boolean;
+          /** PECP: the internal document this PECP summarizes */
+          parentDocument?: string;
       }
-    | { type: 'document_delta'; name: string; pendingVersion?: number; content: string }
+    | {
+          type: 'document_delta';
+          name: string;
+          pendingVersion?: number;
+          content: string;
+          isPECP?: boolean;
+          parentDocument?: string;
+      }
     | { type: 'document_edit'; name: string; pendingVersion?: number; edits: DocumentEdit[] }
     | { type: 'document_progress'; name: string; progress: number }
-    | { type: 'document_complete'; name: string; version: number; lines?: number; action?: string }
+    | {
+          type: 'document_complete';
+          name: string;
+          version: number;
+          lines?: number;
+          action?: string;
+          isPECP?: boolean;
+          parentDocument?: string;
+      }
     // Status & control
     | { type: 'status_update'; status: string }
     | { type: 'error'; error: string; soft?: boolean }
@@ -127,6 +149,9 @@ export type ActiveDocument = {
     pendingVersion: number;
     loadedVersion?: number;
     content: string;
+    documentType?: DocumentType;
+    isInternal?: boolean;
+    progress?: number;
 };
 
 /** Full state snapshot returned on subscribe */

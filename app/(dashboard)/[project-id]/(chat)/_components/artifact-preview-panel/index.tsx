@@ -14,25 +14,14 @@ type ArtifactPreviewPanelProps = {
 export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactPreviewPanelProps) => {
     const currentArtifact = useArtifact(artifactId, version);
 
-    const updatedAt = currentArtifact?.proposed_version?.updated_at
-        ? new Date(currentArtifact?.proposed_version?.updated_at)
-        : undefined;
-    const isLoading = currentArtifact?.isLoading;
-    const isStreaming = currentArtifact?.isStreaming;
-    const isUpdating = currentArtifact?.isUpdating;
+    const { isLoading, isStreaming } = currentArtifact ?? {};
+
     const content = currentArtifact ? getLatestArtifactContent(currentArtifact) : '';
     const activeVersion = currentArtifact ? getLatestArtifactVersion(currentArtifact) : undefined;
-    const isUploaded = activeVersion?.is_uploaded;
-    const isInternal = activeVersion?.is_internal;
-    const documentType = activeVersion?.document_type;
-    const artifactVersionId = activeVersion?.id;
-    const showSkeleton = (isLoading || (isStreaming && !isInternal)) && !content;
+    const isInternal = activeVersion?.isInternal;
 
-    // Get previous content for diff comparison (current_version when viewing proposed)
-    const previousContent =
-        currentArtifact?.proposed_version && currentArtifact?.current_version
-            ? currentArtifact.current_version.content
-            : undefined;
+    const pecpContent = currentArtifact?.pecpContent ?? currentArtifact?.pecp?.content ?? '';
+    const showSkeleton = (isLoading || (isStreaming && (!isInternal || !pecpContent))) && !content;
 
     if (showSkeleton) {
         return (
@@ -67,24 +56,7 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
 
     return (
         <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
-            <ArtifactViewer
-                title={currentArtifact.title}
-                content={content}
-                previousContent={previousContent}
-                version={version}
-                status={activeVersion?.status}
-                isUploaded={isUploaded}
-                isInternal={isInternal}
-                artifactVersionId={artifactVersionId}
-                artifactId={artifactId}
-                artifactKey={currentArtifact.key}
-                updatedAt={updatedAt}
-                onCloseAction={onClose}
-                documentType={documentType}
-                isStreaming={!!isStreaming}
-                isUpdating={!!isUpdating}
-                progress={currentArtifact.progress}
-            />
+            <ArtifactViewer artifact={currentArtifact} version={version} onCloseAction={onClose} />
         </div>
     );
 };

@@ -24,7 +24,7 @@ import type { Artifact } from '@/modules/chat/types';
 // TYPES
 // ============================================================================
 
-type StreamingDoc = { artifactId: string; content: string; version: number };
+type StreamingDoc = { artifactId: string; content: string; version: number; isPECP?: boolean };
 
 type StreamingState = {
     blocks: StreamBlock[];
@@ -41,7 +41,7 @@ export type ToolDocumentDecision = {
 
 export type UseStreamOptions = {
     /** Artifact context for document side-effects. If omitted, activeDocuments are tracked but no artifact provider calls are made. */
-    artifactContext?: Pick<ArtifactContextValue, 'getArtifact' | 'addArtifact' | 'updateArtifact'>;
+    artifactContext?: Pick<ArtifactContextValue, 'getArtifact' | 'getStore' | 'addArtifact' | 'updateArtifact'>;
     /** Called on WS reconnect — consumer provides refetch logic (e.g., reload messages) */
     onReconnect?: () => void;
     /** Called when stream reaches a terminal status (done, aborted, error), potentially carrying terminal data payload */
@@ -91,6 +91,15 @@ export type UseStreamReturn = {
 // ============================================================================
 // HELPERS
 // ============================================================================
+
+function resolveParentVersion(ac: Pick<ArtifactContextValue, 'getStore'>, parentId: string) {
+    const versions = ac.getStore()[parentId];
+    if (!versions) return null;
+    const keys = Object.keys(versions);
+    if (!keys.length) return null;
+    const maxKey = keys.reduce((a, b) => (Number(b) > Number(a) ? b : a));
+    return (Number(maxKey) || maxKey) as number | 'latest';
+}
 
 function createStreamingState(): StreamingState {
     return {
@@ -186,16 +195,14 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     // Document delta drip (same adaptive smoothing for artifact content)
     type DocDripItem = { name: string; content: string };
     const applyDocDrip = (item: DocDripItem) => {
-        const s = stateRef.current;
-        const o = optsRef.current;
-        const doc = s.streamingDocs.get(item.name);
-        if (doc) {
-            doc.content += item.content;
-            o.artifactContext?.updateArtifact(
-                doc.artifactId,
-                { proposed_version: { content: doc.content } },
-                doc.version,
-            );
+        const doc = stateRef.current.streamingDocs.get(item.name);
+        if (!doc) return;
+        doc.content += item.content;
+        const ac = optsRef.current.artifactContext;
+        if (doc.isPECP) {
+            ac?.updateArtifact(doc.artifactId, { pecpContent: doc.content }, doc.version);
+        } else {
+            ac?.updateArtifact(doc.artifactId, { proposedVersion: { content: doc.content } }, doc.version);
         }
     };
     const docDripRef = useRef(new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()));
@@ -276,6 +283,22 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
         switch (type) {
             case 'document_start': {
+                if (payload.isPECP && payload.parentDocument && ac) {
+                    const parentId = payload.parentDocument;
+                    const ver = resolveParentVersion(ac, parentId);
+                    if (ver != null) {
+                        s.streamingDocs.set(payload.name, {
+                            artifactId: parentId,
+                            content: '',
+                            version: ver as number,
+                            isPECP: true,
+                        });
+                        ac.updateArtifact(parentId, { pecpContent: '', isStreaming: true }, ver);
+                        o.onArtifactOpen?.(parentId, typeof ver === 'number' ? ver : 1);
+                    }
+                    break;
+                }
+
                 const artifactId = payload.name;
                 const now = new Date().toISOString();
                 o.onDocumentStart?.();
@@ -289,18 +312,18 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             key: payload.name,
                             title: payload.title,
                             version: 1,
-                            proposed_version: {
+                            proposedVersion: {
                                 id: '',
                                 version: 1,
                                 content: '',
                                 status: 'proposed',
-                                document_type: payload.documentType,
-                                is_internal: payload.isInternal,
-                                created_at: now,
-                                updated_at: now,
+                                documentType: payload.documentType,
+                                isInternal: payload.isInternal,
+                                createdAt: now,
+                                updatedAt: now,
                             },
-                            created_at: now,
-                            updated_at: now,
+                            createdAt: now,
+                            updatedAt: now,
                             isStreaming: true,
                             isUpdating: false,
                             isLoading: false,
@@ -309,7 +332,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         1,
                     );
 
-                    o.onArtifactOpen?.(artifactId, 1);
+                    if (!payload.isInternal) {
+                        o.onArtifactOpen?.(artifactId, 1);
+                    }
                 } else if (payload.mode === 'edit') {
                     const loadedVersion = payload.loadedVersion ?? 1;
                     let existingArtifact = ac?.getArtifact(artifactId, loadedVersion) ?? null;
@@ -329,28 +354,28 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             key: payload.name,
                             title: payload.title,
                             version: newVersion,
-                            current_version: loadedContent
+                            currentVersion: loadedContent
                                 ? {
                                       id: '',
                                       version: loadedVersion,
                                       content: loadedContent,
                                       status: 'approved',
-                                      created_at: now,
-                                      updated_at: now,
+                                      createdAt: now,
+                                      updatedAt: now,
                                   }
                                 : undefined,
-                            proposed_version: {
+                            proposedVersion: {
                                 id: '',
                                 version: newVersion,
                                 content: loadedContent,
                                 status: 'proposed',
-                                document_type: payload.documentType,
-                                is_internal: payload.isInternal,
-                                created_at: now,
-                                updated_at: now,
+                                documentType: payload.documentType,
+                                isInternal: payload.isInternal,
+                                createdAt: now,
+                                updatedAt: now,
                             },
-                            created_at: now,
-                            updated_at: now,
+                            createdAt: now,
+                            updatedAt: now,
                             isStreaming: true,
                             isUpdating: true,
                             progress: 0,
@@ -358,7 +383,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         newVersion,
                     );
 
-                    o.onArtifactOpen?.(artifactId, newVersion);
+                    if (!payload.isInternal) {
+                        o.onArtifactOpen?.(artifactId, newVersion);
+                    }
                 }
 
                 flushActiveDocuments();
@@ -400,7 +427,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                     ac?.updateArtifact(
                         doc.artifactId,
-                        { proposed_version: { content: doc.content }, isUpdating: false, isStreaming: false },
+                        { proposedVersion: { content: doc.content }, isUpdating: false, isStreaming: false },
                         doc.version,
                     );
                     o.revalidateArtifact?.(doc.artifactId, doc.version);
@@ -418,10 +445,16 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             }
 
             case 'document_complete': {
-                // Flush pending drip deltas before marking complete
                 docDripRef.current.drain();
                 const doc = s.streamingDocs.get(payload.name);
                 if (!doc) break;
+
+                if (doc.isPECP) {
+                    ac?.updateArtifact(doc.artifactId, { isStreaming: false }, doc.version);
+                    s.streamingDocs.delete(payload.name);
+                    flushActiveDocuments();
+                    break;
+                }
 
                 ac?.updateArtifact(
                     doc.artifactId,
@@ -430,7 +463,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         isUpdating: false,
                         progress: 100,
                         version: doc.version,
-                        proposed_version: { version: doc.version, status: 'proposed' },
+                        proposedVersion: { version: doc.version, status: 'proposed' },
                     },
                     doc.version,
                 );
@@ -507,32 +540,34 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         key: doc.name,
                                         title: doc.title,
                                         version: doc.pendingVersion,
-                                        proposed_version: {
+                                        proposedVersion: {
                                             id: '',
                                             version: doc.pendingVersion,
                                             content: doc.content,
                                             status: 'proposed',
-                                            created_at: now,
-                                            updated_at: now,
+                                            documentType: doc.documentType,
+                                            isInternal: doc.isInternal,
+                                            createdAt: now,
+                                            updatedAt: now,
                                         },
                                         ...(doc.loadedVersion && doc.mode === 'edit'
                                             ? {
-                                                  current_version: {
+                                                  currentVersion: {
                                                       id: '',
                                                       version: doc.loadedVersion,
                                                       content: '',
                                                       status: 'approved',
-                                                      created_at: now,
-                                                      updated_at: now,
+                                                      createdAt: now,
+                                                      updatedAt: now,
                                                   },
                                               }
                                             : {}),
-                                        created_at: now,
-                                        updated_at: now,
+                                        createdAt: now,
+                                        updatedAt: now,
                                         isStreaming: true,
                                         isUpdating: doc.mode === 'edit',
                                         isLoading: false,
-                                        progress: 0,
+                                        progress: doc.progress ?? 0,
                                     },
                                     doc.pendingVersion,
                                 );

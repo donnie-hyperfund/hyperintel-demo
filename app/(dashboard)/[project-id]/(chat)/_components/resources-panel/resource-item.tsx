@@ -1,8 +1,9 @@
 import { Info, Loader2, Trash2 } from 'lucide-react';
 import { type Ref, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import { getArtifactDocumentType } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
@@ -13,7 +14,7 @@ const borderColorByType: Record<string, string> = {
     'Human Persona': 'border-l-blue-500',
 };
 
-export function isPublicImport(artifact: ArtifactDto): boolean {
+export function isPublicImport(artifact: CamelCaseDto<ArtifactDto>): boolean {
     return artifact.metadata?.importedFromPublic === true;
 }
 
@@ -23,7 +24,7 @@ export function ResourceItem({
     isHighlighted = false,
     itemRef,
 }: {
-    artifact: ArtifactDto;
+    artifact: CamelCaseDto<ArtifactDto>;
     onRemove?: (artifactId: string) => Promise<void>;
     isHighlighted?: boolean;
     itemRef?: Ref<HTMLDivElement>;
@@ -89,14 +90,13 @@ function AlwaysAttachedInfo() {
 
 function RemoveButton({ onClick, disabled }: { onClick: (e: React.MouseEvent) => void; disabled: boolean }) {
     return (
-        <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-2 top-1/2 -translate-y-1/2 size-7 opacity-0 group-hover:opacity-100 transition-opacity text-neutral-500 hover:text-red-400"
+        <IconButton
+            size="sm"
+            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 max-md:opacity-100 group-hover:opacity-100 transition-opacity hover:text-red-400"
             onClick={onClick}
             disabled={disabled}
         >
-            {disabled ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-        </Button>
+            {disabled ? <Loader2 className="animate-spin" /> : <Trash2 />}
+        </IconButton>
     );
 }
