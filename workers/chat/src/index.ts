@@ -5,7 +5,7 @@ import { HonoEnv, honoMiddlewareAuthedWithOrm, honoMiddlewareWithOrm } from '@wo
 import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
-import { ChatEntity, ChatMessageFileEntity } from '@/lib/orm/entities';
+import { ChatEntity, ChatMessageFileEntity, ProjectEntity } from '@/lib/orm/entities';
 import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import {
     ApproveArtifactActionSchema,
@@ -24,6 +24,7 @@ import {
     SummarizeActionSchema,
 } from '@/lib/schema/chat';
 import { ImportArtifactsActionSchema } from '@/lib/schema/project';
+import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
 import { branchDoName, getPreviewAlias } from '@/workers/_common/util/preview-alias';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
 import { deleteArtifactHandler } from './artifact-deleter';
@@ -284,6 +285,53 @@ app.get('/images/:fileId', async (c) => {
             'Content-Type': file.mime_type,
             'Cache-Control': 'private, max-age=3600',
             'Content-Disposition': `inline; filename="${file.original_name}"`,
+        },
+    });
+});
+
+// ── Artifact image redirect (signed R2 URL) ──
+
+app.get('/artifact-image/*', async (c) => {
+    const key = c.req.path.replace('/artifact-image/', '');
+    if (!key) return c.json({ error: 'Missing key' }, 404);
+
+    // Key pattern: uploads/{project|chat}/{id}/{versionId}/images/{filename}
+    const parts = key.split('/');
+    if (parts.length < 5 || parts[0] !== 'uploads') {
+        return c.json({ error: 'Invalid artifact image key' }, 404);
+    }
+
+    const scopeType = parts[1]; // 'project' or 'chat'
+    const scopeId = parts[2];
+    const em = c.var.em!;
+    const clerkId = c.var.user.userId;
+
+    if (scopeType === 'project') {
+        const project = await em.findOne(ProjectEntity, {
+            id: scopeId,
+            user: { clerkId },
+            archived_at: null,
+        });
+        if (!project) return c.json({ error: 'Not found' }, 404);
+    } else if (scopeType === 'chat') {
+        const chat = await em.findOne(ChatEntity, {
+            id: scopeId,
+            $or: [{ project: { user: { clerkId } } }, { user: { clerkId } }],
+        });
+        if (!chat) return c.json({ error: 'Not found' }, 404);
+    } else {
+        return c.json({ error: 'Invalid artifact image key' }, 404);
+    }
+
+    const urlMap = await signArtifactImageKeys(c.env, [key]);
+    const signedUrl = urlMap.get(key);
+    if (!signedUrl) return c.json({ error: 'Failed to sign image key' }, 500);
+
+    return new Response(null, {
+        status: 302,
+        headers: {
+            Location: signedUrl,
+            'Cache-Control': 'private, max-age=3000',
         },
     });
 });

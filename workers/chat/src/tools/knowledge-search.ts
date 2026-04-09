@@ -40,7 +40,11 @@ async function searchKnowledge(
     limit: number,
     minSimilarity: number,
 ): Promise<SearchResult[]> {
+    if (!query || typeof query !== 'string' || !query.trim()) {
+        return [];
+    }
     const [queryEmbedding] = await embedTexts(client, [query]);
+    if (!queryEmbedding) return [];
     const embeddingStr = `[${queryEmbedding.join(',')}]`;
 
     // Build scope filter: project-scoped OR chat-scoped

@@ -2,7 +2,20 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@radix-ui/react-tooltip
 import { ExternalLink, Info, Loader2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Components } from 'react-markdown';
+import { getWorkerUrl } from '@/lib/api/requests/worker/common';
+import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
+import { frontendEnv } from '@/lib/env';
 import { cn } from '@/lib/utils';
+
+const ARTIFACT_IMAGE_PROTOCOL = 'artifact-image://';
+
+function resolveArtifactImageSrc(src: string): string {
+    const key = src.slice(ARTIFACT_IMAGE_PROTOCOL.length);
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        return getWorkerUrl(WORKERS.Chat, `${CHAT_EP.ArtifactImageServe}/${key}`);
+    }
+    return `${WORKERS_LOCAL_ENDPOINTS.ArtifactImageServe}/${key}`;
+}
 
 type UseMarkdownComponentsParams = {
     id?: string;
@@ -56,12 +69,18 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
             },
             // TODO: Add separate styles for logo images and remove the square aspect ratio
             img: ({ src, alt, className, ...props }) => {
+                const resolvedSrc = typeof src === 'string' && src.startsWith(ARTIFACT_IMAGE_PROTOCOL)
+                    ? resolveArtifactImageSrc(src)
+                    : src;
                 return (
                     <img
-                        src={src}
-                        alt={alt}
+                        src={resolvedSrc}
+                        alt={alt ?? ''}
                         {...props}
                         className={cn('aspect-square object-cover max-w-[300px] rounded-lg w-full', className)}
+                        onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                        }}
                     />
                 );
             },

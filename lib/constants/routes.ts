@@ -15,6 +15,7 @@ export enum WORKERS_LOCAL_ENDPOINTS {
     ImagePresignAction = '/api/chat/images/upload/presign',
     ImageConfirmAction = '/api/chat/images/upload/confirm',
     ImageServe = '/api/chat/images',
+    ArtifactImageServe = '/api/chat/artifact-image',
     Presets = '/api/chat/presets',
 }
 
@@ -40,5 +41,6 @@ export enum CHAT_EP {
     ImagePresignAction = '/images/upload/presign',
     ImageConfirmAction = '/images/upload/confirm',
     ImageServe = '/images',
+    ArtifactImageServe = '/artifact-image',
     Presets = '/presets',
 }
