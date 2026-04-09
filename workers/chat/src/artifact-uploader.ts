@@ -19,7 +19,7 @@ import {
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
 import { type ProjectResourceUploadUpdatedPayload, UserEventType } from '@/lib/schema/user-events';
-import { createR2Client, getR2CredentialsFromWorkerEnv } from '@/lib/vendor/r2';
+import { createWorkerS3Client } from '@/lib/vendor/r2';
 import type { Ctx } from './context';
 import { broadcastUserEvent } from './utils/broadcast';
 
@@ -79,17 +79,6 @@ function normalizeTextUploadContent(filename: string, content: string): string {
 
 function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-artifacts-dev' : 'hi-artifacts';
-}
-
-async function createS3Client(env: Env) {
-    const creds = await getR2CredentialsFromWorkerEnv(env);
-    if (!creds) {
-        throw new PublicError(500, {
-            message: 'R2 credentials not configured',
-            code: 'R2_NOT_CONFIGURED',
-        });
-    }
-    return createR2Client(creds);
 }
 
 interface UpsertInput {
@@ -368,7 +357,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     await em.flush();
 
     // Generate presigned PUT URL
-    const s3 = await createS3Client(ctx.env);
+    const s3 = await createWorkerS3Client(ctx.env);
     const command = new PutObjectCommand({
         Bucket: getBucketName(ctx.env),
         Key: storageKey,

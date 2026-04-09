@@ -16,7 +16,10 @@ import type { EntityManager } from '@mikro-orm/postgresql';
 import { initInferredContext } from '@worker/context.helpers';
 import { Hono } from 'hono';
 import type Reducto from 'reductoai';
+import type { ParseResponse } from 'reductoai/resources/shared';
 import { toFile } from 'reductoai/uploads';
+import { uploadArtifactImage } from '@/lib/artifacts/artifact-images';
+import { persistMarkdownImages } from '@/lib/markdown/artifact-images';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 
@@ -89,7 +92,7 @@ async function extractViaRustWorker(
 ): Promise<RustExtractResponse> {
     const response = await env.EXTRACT_RUST.fetch('http://extract-rust/extract/v2', {
         method: 'POST',
-        headers: { 'X-File-Type': filetype },
+        headers: { 'X-File-Type': filetype, 'X-Embed-Images': 'true' },
         body: fileBytes,
     });
 
@@ -107,15 +110,29 @@ const FILETYPE_TO_MIME: Record<Filetype, string> = {
     pdf: 'application/pdf',
 };
 
+/** Max images to persist per document (prevent R2 bloat on huge PDFs) */
+const MAX_IMAGES_PER_DOCUMENT = 500;
+/** Max images per page (estimated via chunk count) */
+const MAX_IMAGES_PER_PAGE = 5;
+
+interface ReductoExtractionResult {
+    content: string;
+    imageCount: number;
+}
+
 /**
- * Upload file to Reducto and parse with OCR, returning aggregated markdown.
+ * Upload file to Reducto and parse with OCR.
+ * Fetches figure images from Reducto's temporary URLs, persists to R2,
+ * and injects `artifact-image://` references into the markdown.
  */
 async function extractViaReducto(
     fileBytes: ArrayBuffer,
     filetype: Filetype,
     originalName: string,
     reducto: Reducto,
-): Promise<string> {
+    r2Bucket: R2Bucket,
+    storagePrefix: string,
+): Promise<ReductoExtractionResult> {
     const file = await toFile(new Blob([fileBytes], { type: FILETYPE_TO_MIME[filetype] }), originalName);
     const upload = await reducto.upload({ file });
 
@@ -123,28 +140,114 @@ async function extractViaReducto(
         input: upload,
         formatting: { table_output_format: 'md' },
         enhance: { summarize_figures: true },
+        settings: { return_images: ['figure'] },
     });
 
     if ('job_id' in result && !('result' in result)) {
         throw new Error('Reducto returned async response — sync expected');
     }
 
-    const parseResult = (result as { result: { type: string; chunks?: Array<{ content: string }>; url?: string } })
-        .result;
+    const parseResult = (result as ParseResponse).result;
 
-    // Full result — aggregate chunks
-    if (parseResult.type === 'full' && parseResult.chunks) {
-        return parseResult.chunks.map((chunk) => chunk.content).join('\n\n');
-    }
+    let chunks: ParseResponse.FullResult.Chunk[];
 
-    // URL result — large response, fetch from presigned URL
-    if (parseResult.type === 'url' && parseResult.url) {
+    if (parseResult.type === 'full') {
+        chunks = parseResult.chunks;
+    } else if (parseResult.type === 'url') {
         const res = await fetch(parseResult.url);
-        const full = (await res.json()) as { chunks: Array<{ content: string }> };
-        return full.chunks.map((chunk) => chunk.content).join('\n\n');
+        const full = (await res.json()) as ParseResponse.FullResult;
+        chunks = full.chunks;
+    } else {
+        throw new Error('Unexpected Reducto response format');
     }
 
-    throw new Error('Unexpected Reducto response format');
+    // Extract figure images and inject artifact-image:// refs
+    const { contents, imageCount } = await processChunksWithImages(chunks, r2Bucket, storagePrefix);
+    return { content: contents.join('\n\n'), imageCount };
+}
+
+/**
+ * Process Reducto chunks: persist figure images to R2, inject artifact-image:// refs.
+ */
+async function processChunksWithImages(
+    chunks: ParseResponse.FullResult.Chunk[],
+    r2Bucket: R2Bucket,
+    storagePrefix: string,
+): Promise<{ contents: string[]; imageCount: number }> {
+    // Collect all figure images across chunks (respecting limits)
+    interface FigureRef {
+        chunkIndex: number;
+        blockContent: string;
+        alt: string;
+        imageUrl: string;
+    }
+
+    const figures: FigureRef[] = [];
+    const perChunkCount = new Map<number, number>();
+
+    for (const [ci, chunk] of chunks.entries()) {
+        for (const block of chunk.blocks) {
+            if (block.type !== 'Figure' || !block.image_url) continue;
+            if (figures.length >= MAX_IMAGES_PER_DOCUMENT) break;
+
+            const chunkCount = perChunkCount.get(ci) ?? 0;
+            if (chunkCount >= MAX_IMAGES_PER_PAGE) continue;
+            perChunkCount.set(ci, chunkCount + 1);
+
+            figures.push({
+                chunkIndex: ci,
+                blockContent: block.content,
+                alt: block.content.slice(0, 200),
+                imageUrl: block.image_url,
+            });
+        }
+    }
+
+    // Fetch + upload all images in parallel
+    const uploaded = await Promise.all(
+        figures.map(async (fig) => {
+            const response = await fetch(fig.imageUrl);
+            if (!response.ok) return null;
+
+            const bytes = await response.arrayBuffer();
+            const contentType = response.headers.get('content-type') ?? 'image/png';
+            const key = await uploadArtifactImage(r2Bucket, storagePrefix, bytes, contentType);
+            return { ...fig, key };
+        }),
+    );
+
+    // Group successful uploads by chunk index
+    const byChunk = new Map<number, Array<{ blockContent: string; alt: string; key: string }>>();
+    for (const entry of uploaded) {
+        if (!entry) continue;
+        const list = byChunk.get(entry.chunkIndex) ?? [];
+        list.push(entry);
+        byChunk.set(entry.chunkIndex, list);
+    }
+
+    // Build final content per chunk, injecting image refs after figure summaries
+    const contents = chunks.map((chunk, ci) => {
+        let content = chunk.content;
+        const chunkImages = byChunk.get(ci);
+        if (!chunkImages) return content;
+
+        // Inject in reverse order so earlier insertions don't shift later positions
+        for (const img of [...chunkImages].reverse()) {
+            const idx = content.indexOf(img.blockContent);
+            if (idx !== -1) {
+                const insertPoint = idx + img.blockContent.length;
+                const imageRef = `\n\n![${img.alt}](artifact-image://${img.key})`;
+                content = content.slice(0, insertPoint) + imageRef + content.slice(insertPoint);
+            } else {
+                // Fallback: append at end
+                content += `\n\n![${img.alt}](artifact-image://${img.key})`;
+            }
+        }
+        return content;
+    });
+
+    const imageCount = uploaded.filter(Boolean).length;
+    return { contents, imageCount };
 }
 
 // ============================================================================
@@ -195,6 +298,7 @@ async function processExtraction(
 
     // 3. Extract via Rust worker (v2 with embedded images + text detection)
     const MIN_CONTENT_LENGTH = 50;
+    const imageStoragePrefix = `${storageKey.substring(0, storageKey.lastIndexOf('/'))}/images`;
     let markdown: string;
     try {
         const rustResult = await extractDocument(fileBytes, filetype, ctx.env);
@@ -214,8 +318,9 @@ async function processExtraction(
                 `${logPrefix} Re-processing ${originalName} via Reducto OCR (imageText=${rustResult.imageText}, contentTooShort=${contentTooShort})`,
             );
             try {
-                markdown = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto);
-                console.log(`${logPrefix} Reducto OCR produced ${markdown.length} chars`);
+                const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
+                markdown = reductoResult.content;
+                console.log(`${logPrefix} Reducto OCR produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
             } catch (ocrError) {
                 console.error(`${logPrefix} Reducto OCR failed, falling back to Rust extraction:`, ocrError);
             }
@@ -230,8 +335,9 @@ async function processExtraction(
         if (ctx.reducto) {
             console.log(`${logPrefix} Attempting Reducto fallback after Rust failure`);
             try {
-                markdown = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto);
-                console.log(`${logPrefix} Reducto fallback produced ${markdown.length} chars`);
+                const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
+                markdown = reductoResult.content;
+                console.log(`${logPrefix} Reducto fallback produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
             } catch (reductoError) {
                 console.error(`${logPrefix} Reducto fallback also failed:`, reductoError);
                 await markFileFailed(ctx.em, fileId, errorMsg);
@@ -248,6 +354,12 @@ async function processExtraction(
         await markFileFailed(ctx.em, fileId, 'Extraction produced empty content');
         return { success: false, error: 'Empty extraction result' };
     }
+
+    // Persist any embedded data: URI images (from Rust extractor) to R2.
+    // No-op if markdown has no data: URIs (e.g. Reducto path already handled images).
+    markdown = await persistMarkdownImages(markdown, (bytes, contentType) =>
+        uploadArtifactImage(ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix, bytes, contentType),
+    );
 
     // Strip null bytes — PostgreSQL text columns reject \0
     markdown = markdown.replaceAll('\0', '');

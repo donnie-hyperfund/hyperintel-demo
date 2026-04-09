@@ -9,7 +9,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PublicError } from '@common/common/error.helpers';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
-import { createR2Client, getR2CredentialsFromWorkerEnv } from '@/lib/vendor/r2';
+import { createWorkerS3Client } from '@/lib/vendor/r2';
 import type { Ctx } from './context';
 
 // ============================================================================
@@ -30,17 +30,6 @@ function getExtension(filename: string): string {
 
 function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-user-images-dev' : 'hi-user-images';
-}
-
-async function createS3Client(env: Env) {
-    const creds = await getR2CredentialsFromWorkerEnv(env);
-    if (!creds) {
-        throw new PublicError(500, {
-            message: 'R2 credentials not configured (CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)',
-            code: 'R2_NOT_CONFIGURED',
-        });
-    }
-    return createR2Client(creds);
 }
 
 function buildStorageKey(chatId: string, filename: string): string {
@@ -112,7 +101,7 @@ export async function presignImageUploadHandler(data: PresignImageUploadDto, ctx
     await em.flush();
 
     // Generate presigned PUT URL
-    const s3 = await createS3Client(ctx.env);
+    const s3 = await createWorkerS3Client(ctx.env);
     const command = new PutObjectCommand({
         Bucket: getBucketName(ctx.env),
         Key: storageKey,
@@ -149,7 +138,7 @@ export async function confirmImageUploadHandler(data: ConfirmImageUploadDto, ctx
     }
 
     // Verify file exists in storage via S3 API (works both in CF workers and locally)
-    const s3 = await createS3Client(ctx.env);
+    const s3 = await createWorkerS3Client(ctx.env);
     try {
         await s3.send(new HeadObjectCommand({ Bucket: getBucketName(ctx.env), Key: file.storage_key }));
     } catch {
@@ -179,7 +168,7 @@ export async function confirmImageUploadHandler(data: ConfirmImageUploadDto, ctx
 export async function generateSignedImageUrls(env: Env, files: ChatMessageFileEntity[]): Promise<Map<string, string>> {
     if (files.length === 0) return new Map();
 
-    const s3 = await createS3Client(env);
+    const s3 = await createWorkerS3Client(env);
     const bucket = getBucketName(env);
     const urlMap = new Map<string, string>();
 
