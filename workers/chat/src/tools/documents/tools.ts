@@ -822,9 +822,11 @@ Version options:
 
                 // Resolve documentType from the version source
                 const documentType =
-                    source === 'proposed' ? doc.proposedDocumentType :
-                    source === 'rejected' ? doc.rejectedDocumentType :
-                    doc.currentDocumentType ?? 'Other';
+                    source === 'proposed'
+                        ? doc.proposedDocumentType
+                        : source === 'rejected'
+                          ? doc.rejectedDocumentType
+                          : (doc.currentDocumentType ?? 'Other');
 
                 const response: Record<string, unknown> = {
                     source,
