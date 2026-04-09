@@ -428,7 +428,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                         'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs — they are generated automatically and are not relevant. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
                     context: [{ role: 'user', content: summaryContent + docContext }],
                     params: {
-                        model: COMMON_MODELS.GEMINI_FLASH_3_LITE,
+                        model: COMMON_MODELS.GEMINI_FLASH,
                         maxTokens: 30,
                     },
                 });

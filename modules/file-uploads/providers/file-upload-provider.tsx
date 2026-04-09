@@ -221,7 +221,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
             .filter(
                 (entry) =>
                     (entry.status === 'processing' && (entry.fileId || entry.presignData?.fileId)) ||
-                    (entry.status === 'ready' && entry.artifactId),
+                    (entry.status === 'ready' && (entry.artifactId || entry.imageFileId)),
             )
             .map(({ file: _file, presignData, ...rest }) => ({
                 ...rest,
@@ -239,6 +239,45 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
         if (!trackAsPending) return;
         replacePendingArtifactIds(initialPersistedState?.hiddenArtifactIds ?? []);
     }, [initialPersistedState?.hiddenArtifactIds, replacePendingArtifactIds, trackAsPending]);
+
+    // Re-populate staged refs from restored draft entries so that consume*()
+    // returns correct IDs on send after a page refresh. Only entries that were
+    // originally uploaded without scope are restored for associateArtifacts();
+    // images are only persisted once they already have an uploaded file ID.
+    // TODO: cross-tab send needs to be supported too, rebuild these refs in
+    // syncFilesFromStorage as well instead of only on mount.
+    useEffect(() => {
+        if (!trackAsPending) return;
+
+        const entries = initialPersistedState?.entries ?? [];
+
+        const restoredArtifactIds = [
+            ...new Set(
+                entries
+                    .filter(
+                        (e): e is FileEntry & { artifactId: string } =>
+                            !!e.requiresAssociation &&
+                            (e.status === 'processing' || e.status === 'ready') &&
+                            !!e.artifactId,
+                    )
+                    .map((e) => e.artifactId),
+            ),
+        ];
+        if (restoredArtifactIds.length > 0) {
+            stagedArtifactIdsRef.current = restoredArtifactIds;
+        }
+
+        const restoredImageIds = [
+            ...new Set(
+                entries
+                    .filter((e): e is FileEntry & { imageFileId: string } => e.status === 'ready' && !!e.imageFileId)
+                    .map((e) => e.imageFileId),
+            ),
+        ];
+        if (restoredImageIds.length > 0) {
+            stagedImageFileIdsRef.current = restoredImageIds;
+        }
+    }, [initialPersistedState?.entries, trackAsPending]);
 
     const updateEntry = useCallback((entryId: string, update: Partial<FileEntry>) => {
         setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
@@ -444,6 +483,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
                     const presignData: PresignUploadResponseDto = await presignRes.json();
                     updateEntry(entryId, {
                         artifactId: presignData.artifactId,
+                        requiresAssociation: isStaged,
                         fileId: presignData.fileId,
                         presignData,
                     });
@@ -480,6 +520,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
                     updateEntry(entryId, {
                         status: 'processing',
                         artifactId: presignData.artifactId,
+                        requiresAssociation: isStaged,
                         fileId: presignData.fileId,
                         presignData,
                     });
@@ -508,7 +549,10 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
                         }
                     }
 
-                    finalizeEntry(entryId, { artifactId: resData.artifactId });
+                    finalizeEntry(entryId, {
+                        artifactId: resData.artifactId,
+                        requiresAssociation: !!resData.artifactId && isStaged,
+                    });
                 }
             } catch (err) {
                 failEntry(entryId, err instanceof Error ? err.message : undefined);
@@ -576,22 +620,32 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
     const removeFile = useCallback(
         (index: number) => {
             const entry = filesRef.current[index];
+            if (!entry) return;
 
-            if (entry?.artifactId) {
+            // Keep the eventual send payload in sync with visible chips.
+            if (entry.artifactId) {
+                stagedArtifactIdsRef.current = stagedArtifactIdsRef.current.filter((id) => id !== entry.artifactId);
+            }
+            if (entry.imageFileId) {
+                stagedImageFileIdsRef.current = stagedImageFileIdsRef.current.filter((id) => id !== entry.imageFileId);
+            }
+
+            const artifactId = entry.artifactId;
+            if (artifactId) {
                 getToken().then(async (token) => {
                     if (!token) {
-                        removePendingArtifactId(entry.artifactId!);
+                        removePendingArtifactId(artifactId);
                         invalidateResources();
                         return;
                     }
 
                     try {
-                        await deleteArtifact({ artifactId: entry.artifactId! }, token);
-                        pruneRemovedArtifactsFromResourceCache([entry.artifactId!]);
+                        await deleteArtifact({ artifactId }, token);
+                        pruneRemovedArtifactsFromResourceCache([artifactId]);
                     } catch {
                         toast({ title: 'Remove failed', description: entry.name, variant: 'destructive' });
                     } finally {
-                        removePendingArtifactId(entry.artifactId!);
+                        removePendingArtifactId(artifactId);
                         invalidateResources();
                     }
                 });
