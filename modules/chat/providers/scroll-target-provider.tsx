@@ -11,6 +11,8 @@ type ScrollTargetContextValue = {
     /** Called by the matching ArtifactIndicator to signal it exists in the DOM */
     markFound: () => void;
     clear: () => void;
+    /** Set a scroll target directly without URL navigation */
+    scrollTo: (target: ScrollTarget) => void;
 };
 
 const ScrollTargetContext = createContext<ScrollTargetContextValue>({
@@ -18,6 +20,7 @@ const ScrollTargetContext = createContext<ScrollTargetContextValue>({
     foundRef: { current: false },
     markFound: () => {},
     clear: () => {},
+    scrollTo: () => {},
 });
 
 export function ScrollTargetProvider({ children }: { children: ReactNode }) {
@@ -45,7 +48,15 @@ export function ScrollTargetProvider({ children }: { children: ReactNode }) {
         foundRef.current = false;
     }, []);
 
-    const value = useMemo(() => ({ target, foundRef, markFound, clear }), [target, markFound, clear]);
+    const scrollTo = useCallback((next: ScrollTarget) => {
+        setTarget(next);
+        foundRef.current = false;
+    }, []);
+
+    const value = useMemo(
+        () => ({ target, foundRef, markFound, clear, scrollTo }),
+        [target, markFound, clear, scrollTo],
+    );
     return <ScrollTargetContext.Provider value={value}>{children}</ScrollTargetContext.Provider>;
 }
 
