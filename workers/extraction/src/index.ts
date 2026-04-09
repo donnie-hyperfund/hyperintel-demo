@@ -169,7 +169,7 @@ async function extractViaReducto(
 /**
  * Process Reducto chunks: persist figure images to R2, inject artifact-image:// refs.
  */
-async function processChunksWithImages(
+export async function processChunksWithImages(
     chunks: ParseResponse.FullResult.Chunk[],
     r2Bucket: R2Bucket,
     storagePrefix: string,
@@ -177,7 +177,7 @@ async function processChunksWithImages(
     // Collect all figure images across chunks (respecting limits)
     interface FigureRef {
         chunkIndex: number;
-        blockContent: string;
+        blockIndex: number;
         alt: string;
         imageUrl: string;
     }
@@ -186,7 +186,7 @@ async function processChunksWithImages(
     const perChunkCount = new Map<number, number>();
 
     for (const [ci, chunk] of chunks.entries()) {
-        for (const block of chunk.blocks) {
+        for (const [bi, block] of chunk.blocks.entries()) {
             if (block.type !== 'Figure' || !block.image_url) continue;
             if (figures.length >= MAX_IMAGES_PER_DOCUMENT) break;
 
@@ -196,7 +196,7 @@ async function processChunksWithImages(
 
             figures.push({
                 chunkIndex: ci,
-                blockContent: block.content,
+                blockIndex: bi,
                 alt: block.content.slice(0, 200),
                 imageUrl: block.image_url,
             });
@@ -217,7 +217,7 @@ async function processChunksWithImages(
     );
 
     // Group successful uploads by chunk index
-    const byChunk = new Map<number, Array<{ blockContent: string; alt: string; key: string }>>();
+    const byChunk = new Map<number, Array<{ blockIndex: number; alt: string; key: string }>>();
     for (const entry of uploaded) {
         if (!entry) continue;
         const list = byChunk.get(entry.chunkIndex) ?? [];
@@ -225,25 +225,27 @@ async function processChunksWithImages(
         byChunk.set(entry.chunkIndex, list);
     }
 
-    // Build final content per chunk, injecting image refs after figure summaries
+    // Build final content per chunk from ordered blocks so repeated figure text
+    // still maps each uploaded image to the correct figure occurrence.
     const contents = chunks.map((chunk, ci) => {
-        let content = chunk.content;
         const chunkImages = byChunk.get(ci);
-        if (!chunkImages) return content;
+        if (!chunkImages) return chunk.content;
 
-        // Inject in reverse order so earlier insertions don't shift later positions
-        for (const img of [...chunkImages].reverse()) {
-            const idx = content.indexOf(img.blockContent);
-            if (idx !== -1) {
-                const insertPoint = idx + img.blockContent.length;
-                const imageRef = `\n\n![${img.alt}](artifact-image://${img.key})`;
-                content = content.slice(0, insertPoint) + imageRef + content.slice(insertPoint);
-            } else {
-                // Fallback: append at end
-                content += `\n\n![${img.alt}](artifact-image://${img.key})`;
+        const imagesByBlockIndex = new Map(chunkImages.map((img) => [img.blockIndex, img]));
+        const parts: string[] = [];
+
+        for (const [bi, block] of chunk.blocks.entries()) {
+            if (block.content) {
+                parts.push(block.content);
+            }
+
+            const img = imagesByBlockIndex.get(bi);
+            if (img) {
+                parts.push(`![${img.alt}](artifact-image://${img.key})`);
             }
         }
-        return content;
+
+        return parts.join('\n\n');
     });
 
     const imageCount = uploaded.filter(Boolean).length;

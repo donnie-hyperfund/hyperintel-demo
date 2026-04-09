@@ -5,6 +5,7 @@ import { HonoEnv, honoMiddlewareAuthedWithOrm, honoMiddlewareWithOrm } from '@wo
 import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
+import { z } from 'zod';
 import { ChatEntity, ChatMessageFileEntity, ProjectEntity } from '@/lib/orm/entities';
 import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import {
@@ -50,6 +51,7 @@ import { summarizeActionHandler } from './summarizer';
 import type { UserGatewayStub } from './utils/do-stubs';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
+const UuidSchema = z.string().uuid();
 
 /** Build Ctx with preview alias resolved from the request (null on prod) */
 function ctxWithAlias(c: { env: Env; req: { raw: Request }; var: any }): Ctx {
@@ -297,14 +299,19 @@ app.get('/artifact-image/*', async (c) => {
 
     // Key pattern: uploads/{project|chat}/{id}/{versionId}/images/{filename}
     const parts = key.split('/');
-    if (parts.length < 5 || parts[0] !== 'uploads') {
+    if (parts.length !== 6 || parts[0] !== 'uploads' || parts[4] !== 'images' || !parts[5]) {
         return c.json({ error: 'Invalid artifact image key' }, 404);
     }
 
     const scopeType = parts[1]; // 'project' or 'chat'
     const scopeId = parts[2];
+    const versionId = parts[3];
     const em = c.var.em!;
     const clerkId = c.var.user.userId;
+
+    if (!UuidSchema.safeParse(scopeId).success || !UuidSchema.safeParse(versionId).success) {
+        return c.json({ error: 'Invalid artifact image key' }, 404);
+    }
 
     if (scopeType === 'project') {
         const project = await em.findOne(ProjectEntity, {
