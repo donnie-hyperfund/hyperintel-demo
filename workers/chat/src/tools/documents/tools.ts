@@ -87,7 +87,18 @@ export const DocumentToolGroup: AgentToolGroup = {
     name: 'Document Management',
     slug: 'document_',
     description: 'Tools for creating, reading, and editing documents with version control.',
-    guidance: `## Workflow
+    guidance: `## Document Directives (MANDATORY)
+Whenever you reference or mention a document in your text response — whether listing documents, summarizing what exists, or referring to a specific document — you MUST use the directive syntax:
+\`::document[document-name]{version=X lines=Y documentType="Type"}\`
+
+**CRITICAL FORMATTING RULES:**
+- Each directive MUST be on its own line — never inside a markdown table, list item, or inline with other text.
+- When listing multiple documents, place each directive on a separate line with a blank line between them and any surrounding text.
+- NEVER wrap directives in tables, bullet lists, or other markdown structures. The directive IS the rendered UI element — it replaces what a table row or bullet would show.
+
+Use the metadata from tool results (list_documents, finalize_document, read_document, etc.) to fill in version, lines, and documentType. This renders as an interactive artifact indicator in the UI. NEVER reference documents as plain text when you have the metadata to construct a directive.
+
+## Workflow
 1. \`begin_document\` - Start editing (auto-loads best version to work from)
 2. \`write_document\` / \`patch_document\` - Make changes
 3. \`finalize_document\` - Save (MUST call or content is lost)
@@ -166,7 +177,7 @@ After the PECP is finalized, STOP and wait for the user.
 - Mention "Phase 2", "next step", or suggest what comes next — let the user drive the workflow
 Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
     behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval.',
+        'MANDATORY: When referencing documents in your text response, ALWAYS use the directive syntax ::document[name]{version=X lines=Y documentType="Type"} on its own line — never inside tables, lists, or inline text. The directive renders as an interactive UI card. NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval.',
     tools: [
         'begin_document',
         'write_document',
@@ -809,11 +820,18 @@ Version options:
 
                 const viewport = extractViewport(content, startLine ?? undefined, endLine ?? undefined);
 
+                // Resolve documentType from the version source
+                const documentType =
+                    source === 'proposed' ? doc.proposedDocumentType :
+                    source === 'rejected' ? doc.rejectedDocumentType :
+                    doc.currentDocumentType ?? 'Other';
+
                 const response: Record<string, unknown> = {
                     source,
                     name: normalizedName,
                     version,
                     status: source,
+                    documentType,
                     totalLines: viewport.totalLines,
                     viewport: { startLine: viewport.startLine, endLine: viewport.endLine },
                     content: viewport.content,
@@ -858,6 +876,7 @@ Shows for each document:
                         name: d.name,
                         title: d.title,
                         lines: d.lines,
+                        documentType: d.documentType,
                         currentVersion: d.currentVersion,
                         latestVersion: d.latestVersion,
                         latestStatus: d.latestStatus,

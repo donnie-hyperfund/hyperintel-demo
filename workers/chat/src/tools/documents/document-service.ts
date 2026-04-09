@@ -340,6 +340,7 @@ export interface DocumentListItem {
     name: string;
     title: string;
     lines: number;
+    documentType: string;
     currentVersion: number | null;
     currentStatus: VersionStatus | null;
     latestVersion: number;
@@ -383,6 +384,7 @@ export async function listDocuments(
             name: a.key,
             title: a.title,
             lines: countLines(contentForLines),
+            documentType: latest?.document_type ?? a.current_version?.document_type ?? 'Other',
             currentVersion: a.current_version?.version ?? null,
             currentStatus: a.current_version?.status ?? null,
             latestVersion: latest?.version ?? 0,

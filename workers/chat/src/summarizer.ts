@@ -235,10 +235,10 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             const allDocuments = await listDocuments(em!, { projectId: chat.project!.id });
             const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
             if (phaseDocuments.length > 0) {
-                instructions += `\n\n## Current Document Statuses (this phase)\n\nThese statuses are queried from the database at the time of summarization. Users may approve or reject documents via the UI  this does NOT appear in the conversation history. Use these statuses as the source of truth.\n\n`;
+                instructions += `\n\n## Current Document Statuses (this phase)\n\nThese statuses are queried from the database at the time of summarization. Users may approve or reject documents via the UI  this does NOT appear in the conversation history. Use these statuses as the source of truth.\nWhen referencing these documents in your summary text, use the directive syntax on its own line: ::document[name]{version=V lines=L documentType="Type"}\n\n`;
                 for (const doc of phaseDocuments) {
                     const status = doc.hasProposed ? 'proposed' : (doc.currentStatus ?? doc.latestStatus);
-                    instructions += `- \`${doc.name}\` (${doc.title}): v${doc.latestVersion}  **${status}**\n`;
+                    instructions += `- \`${doc.name}\` (${doc.title}): v${doc.latestVersion}, ${doc.lines} lines, type="${doc.documentType}", **${status}**\n`;
                 }
             }
         }
