@@ -158,6 +158,76 @@ export async function persistMarkdownImages(
 }
 
 // ---------------------------------------------------------------------------
+// 5. Split at images (interleaved segments)
+// ---------------------------------------------------------------------------
+
+export type MarkdownSegment =
+	| { type: 'text'; text: string }
+	| { type: 'image'; key: string; alt: string };
+
+/**
+ * Split markdown at `artifact-image://` nodes, returning interleaved text/image segments.
+ * Preserves document order — useful for building interleaved multimodal content parts.
+ *
+ * When an image is alone on its line, the entire line (including newline) is consumed
+ * so adjacent text segments don't contain empty placeholder lines.
+ */
+export function splitAtArtifactImages(markdown: string): MarkdownSegment[] {
+	const tree = parseMarkdown(markdown);
+	const nodes: Image[] = [];
+	visit(tree, 'image', (node: Image) => {
+		if (node.url.startsWith(ARTIFACT_IMAGE_SCHEME) && node.position) {
+			nodes.push(node);
+		}
+	});
+	// Ascending position (document order)
+	nodes.sort((a, b) => a.position!.start.offset! - b.position!.start.offset!);
+
+	if (nodes.length === 0) return [{ type: 'text', text: markdown }];
+
+	const segments: MarkdownSegment[] = [];
+	let cursor = 0;
+
+	for (const node of nodes) {
+		let start = node.position!.start.offset!;
+		let end = node.position!.end.offset!;
+
+		// If image is alone on its line, consume the full line
+		let lineStart = start;
+		while (lineStart > 0 && markdown[lineStart - 1] !== '\n') lineStart--;
+		let lineEnd = end;
+		while (lineEnd < markdown.length && markdown[lineEnd] !== '\n') lineEnd++;
+
+		const before = markdown.slice(lineStart, start).trim();
+		const after = markdown.slice(end, lineEnd).trim();
+		if (!before && !after) {
+			start = lineStart;
+			end = lineEnd < markdown.length ? lineEnd + 1 : lineEnd;
+		}
+
+		const textBefore = markdown.slice(cursor, start);
+		if (textBefore) {
+			segments.push({ type: 'text', text: textBefore });
+		}
+
+		segments.push({
+			type: 'image',
+			key: node.url.slice(ARTIFACT_IMAGE_SCHEME.length),
+			alt: node.alt || '',
+		});
+
+		cursor = end;
+	}
+
+	const remaining = markdown.slice(cursor);
+	if (remaining) {
+		segments.push({ type: 'text', text: remaining });
+	}
+
+	return segments;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

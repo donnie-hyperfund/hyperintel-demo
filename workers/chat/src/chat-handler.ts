@@ -630,13 +630,24 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                 debugData.rawResponse = event.error!.rawResponse ?? null;
                             }
 
+                            // Strip ephemeral toolContentParts (signed URLs) before DB persistence.
+                            // toolImageRefs (stable refs) are kept for history reconstruction.
+                            const blocksForDb =
+                                streamLog.blocks.length > 0
+                                    ? streamLog.blocks.map((b) =>
+                                          b.type === 'tool_call' && 'toolContentParts' in b
+                                              ? (({ toolContentParts, ...rest }) => rest)(b)
+                                              : b,
+                                      )
+                                    : null;
+
                             assistantMsg = em!.create(ChatMessageEntity, {
                                 id: agentMessageId,
                                 chat: chatId,
                                 role: 'assistant',
                                 content: assistantContent,
                                 reasoning: streamLog.fullReasoning || null,
-                                blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
+                                blocks: blocksForDb,
                                 metadata: msgMetadata,
                                 ...(isError && { is_error: true }),
                                 ...(isAborted && { is_aborted: true }),

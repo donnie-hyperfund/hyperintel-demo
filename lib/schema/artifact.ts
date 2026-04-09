@@ -189,6 +189,15 @@ export function isImageExtension(ext: string): boolean {
     return (IMAGE_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
 }
 
+export type ImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+
+/** Infer MIME type from a filename or R2 key. Defaults to `image/png`. */
+export function inferImageMimeType(key: string): ImageMimeType {
+    const dot = key.lastIndexOf('.');
+    if (dot === -1) return 'image/png';
+    return (IMAGE_MIME_TYPES[key.slice(dot).toLowerCase()] as ImageMimeType) ?? 'image/png';
+}
+
 export function isBinaryArtifactExtension(ext: string): boolean {
     return (BINARY_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
 }

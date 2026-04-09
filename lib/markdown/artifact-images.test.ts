@@ -3,6 +3,7 @@ import {
 	extractArtifactImageRefs,
 	persistMarkdownImages,
 	resolveArtifactImages,
+	splitAtArtifactImages,
 	stripArtifactImages,
 } from './artifact-images';
 
@@ -163,6 +164,74 @@ Line 2
 		const result = stripArtifactImages(md);
 		// Should not have more than 2 consecutive newlines (one blank line)
 		expect(result).not.toMatch(/\n{4,}/);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// splitAtArtifactImages
+// ---------------------------------------------------------------------------
+
+describe('splitAtArtifactImages', () => {
+	it('returns single text segment when no artifact images', () => {
+		const md = '# Hello\n\nJust text.\n';
+		const segments = splitAtArtifactImages(md);
+		expect(segments).toEqual([{ type: 'text', text: md }]);
+	});
+
+	it('splits markdown into interleaved text/image segments', () => {
+		const md = `# Report
+
+Some intro.
+
+![Chart A](artifact-image://uploads/a.png)
+
+Middle text.
+
+![Chart B](artifact-image://uploads/b.jpg)
+
+Conclusion.
+`;
+		const segments = splitAtArtifactImages(md);
+
+		expect(segments).toHaveLength(5);
+		expect(segments[0]).toEqual({ type: 'text', text: '# Report\n\nSome intro.\n\n' });
+		expect(segments[1]).toEqual({ type: 'image', key: 'uploads/a.png', alt: 'Chart A' });
+		expect(segments[2]).toMatchObject({ type: 'text' });
+		expect((segments[2] as any).text).toContain('Middle text.');
+		expect(segments[3]).toEqual({ type: 'image', key: 'uploads/b.jpg', alt: 'Chart B' });
+		expect(segments[4]).toMatchObject({ type: 'text' });
+		expect((segments[4] as any).text).toContain('Conclusion.');
+	});
+
+	it('handles image at start of document', () => {
+		const md = `![First](artifact-image://first.png)
+
+Some text after.
+`;
+		const segments = splitAtArtifactImages(md);
+		expect(segments[0]).toEqual({ type: 'image', key: 'first.png', alt: 'First' });
+		expect(segments[1]).toMatchObject({ type: 'text' });
+		expect((segments[1] as any).text).toContain('Some text after.');
+	});
+
+	it('handles image at end of document', () => {
+		const md = `Text before.\n\n![Last](artifact-image://last.png)\n`;
+		const segments = splitAtArtifactImages(md);
+		const lastSegment = segments[segments.length - 1];
+		expect(lastSegment).toEqual({ type: 'image', key: 'last.png', alt: 'Last' });
+	});
+
+	it('ignores artifact-image:// inside code blocks', () => {
+		const md = `Text.\n\n\`\`\`\n![fake](artifact-image://fake.png)\n\`\`\`\n`;
+		const segments = splitAtArtifactImages(md);
+		expect(segments).toEqual([{ type: 'text', text: md }]);
+	});
+
+	it('handles consecutive images', () => {
+		const md = `![a](artifact-image://a.png)\n![b](artifact-image://b.png)\n`;
+		const segments = splitAtArtifactImages(md);
+		const imageSegments = segments.filter((s) => s.type === 'image');
+		expect(imageSegments).toHaveLength(2);
 	});
 });
 

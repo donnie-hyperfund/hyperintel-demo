@@ -16,13 +16,16 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
+import type { ContentPart } from '@common/ai/inference/types';
 import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
+import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { extractArtifactImageRefs } from '@/lib/markdown/artifact-images';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
+import { DocumentTypeSchema, inferImageMimeType, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
 import { shouldGenerateAiContent } from './document-classifier';
@@ -745,14 +748,14 @@ Version options:
 - "proposed": The pending version awaiting approval
 - "latest": The most recent version regardless of status (default)`,
             parameters: ReadDocumentParams,
-            executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext) => {
+            executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
                 const { name, version: versionMode, startLine, endLine } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
 
                 const normalizedName = normalizeArtifactKey(name);
 
-                // Check for active editing draft first
+                // Check for active editing draft first — no image resolution for drafts
                 const draft = draftManager.getCurrent();
                 if (draft && draft.name === normalizedName) {
                     const viewport = extractViewport(draft.content, startLine ?? undefined, endLine ?? undefined);
@@ -856,6 +859,34 @@ Version options:
                 if (source === 'proposed' && doc.currentVersion !== null) {
                     response.hasApproved = true;
                     response.approvedVersion = doc.currentVersion;
+                }
+
+                // Resolve artifact images — sign refs and return multimodal content.
+                // Refs stay in toolOutput text (stable for DB, needed by Chat Completions replacement).
+                // TODO: switch to interleaved contentParts via splitAtArtifactImages() for better positional context
+                const imageRefs = extractArtifactImageRefs(viewport.content);
+                if (imageRefs.length > 0 && rCtx) {
+                    const SCHEME = 'artifact-image://';
+                    const fullRefs = imageRefs.map((r) => `${SCHEME}${r.key}`);
+                    const keys = imageRefs.map((r) => r.key);
+
+                    const signedUrls = await signArtifactImageKeys(rCtx.env, keys);
+
+                    const contentParts: ContentPart[] = [
+                        { type: 'text', text: viewport.content },
+                        ...keys.map((key) => ({
+                            type: 'image' as const,
+                            source: 'url' as const,
+                            url: signedUrls.get(key)!,
+                            mediaType: inferImageMimeType(key),
+                        })),
+                    ];
+
+                    return {
+                        result: response,
+                        imageRefs: fullRefs,
+                        contentParts,
+                    };
                 }
 
                 return response;
