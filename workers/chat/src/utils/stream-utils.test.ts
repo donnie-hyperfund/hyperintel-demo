@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { INTERLEAVE_ARTIFACT_IMAGE_CONTENT_PARTS } from '@/lib/markdown/artifact-images';
 
 vi.mock('@/lib/artifacts/artifact-images', () => ({
 	signArtifactImageKeys: vi.fn(async (_env: unknown, keys: string[]) => {
@@ -58,18 +59,33 @@ describe('loadChatHistory', () => {
 		expect(history[0]).toHaveProperty('blocks');
 
 		const toolBlock = (history[0] as any).blocks[0];
-		expect(toolBlock.toolContentParts).toEqual([
-			{
-				type: 'text',
-				text:
-					'# Report\n\n![Chart](artifact-image://uploads/project/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/images/chart.png)',
-			},
-			{
-				type: 'image',
-				source: 'url',
-				url: 'https://signed.example/uploads/project/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/images/chart.png',
-				mediaType: 'image/png',
-			},
-		]);
+		if (INTERLEAVE_ARTIFACT_IMAGE_CONTENT_PARTS) {
+			expect(toolBlock.toolContentParts).toEqual([
+				{
+					type: 'text',
+					text: '# Report\n\n',
+				},
+				{
+					type: 'image',
+					source: 'url',
+					url: 'https://signed.example/uploads/project/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/images/chart.png',
+					mediaType: 'image/png',
+				},
+			]);
+		} else {
+			expect(toolBlock.toolContentParts).toEqual([
+				{
+					type: 'text',
+					text:
+						'# Report\n\n![Chart](artifact-image://uploads/project/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/images/chart.png)',
+				},
+				{
+					type: 'image',
+					source: 'url',
+					url: 'https://signed.example/uploads/project/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/images/chart.png',
+					mediaType: 'image/png',
+				},
+			]);
+		}
 	});
 });

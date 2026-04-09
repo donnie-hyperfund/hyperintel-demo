@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { clearDatabase, closeTestOrm, getTestEm } from '@/tests/helpers/db';
 import type { EntityManager } from '@mikro-orm/postgresql';
+import { INTERLEAVE_ARTIFACT_IMAGE_CONTENT_PARTS } from '@/lib/markdown/artifact-images';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -196,23 +197,44 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 		expect(content).toContain('Figure 2 shows the data flow.');
 		expect(content).toContain('# Report');
 
-		// contentParts: text (with refs) + 2 images
-		expect(result.contentParts).toHaveLength(3);
-		expect(result.contentParts[0]).toEqual({ type: 'text', text: content });
-
-		expect(result.contentParts[1]).toMatchObject({
-			type: 'image',
-			source: 'url',
-			mediaType: 'image/png',
-		});
-		expect(result.contentParts[1].url).toContain('arch.png');
-
-		expect(result.contentParts[2]).toMatchObject({
-			type: 'image',
-			source: 'url',
-			mediaType: 'image/jpeg',
-		});
-		expect(result.contentParts[2].url).toContain('flow.jpg');
+		if (INTERLEAVE_ARTIFACT_IMAGE_CONTENT_PARTS) {
+			expect(result.contentParts).toHaveLength(5);
+			expect(result.contentParts[0]).toMatchObject({ type: 'text' });
+			expect(result.contentParts[0].text).toContain('# Report');
+			expect(result.contentParts[0].text).toContain('Figure 1 shows the architecture overview.');
+			expect(result.contentParts[1]).toMatchObject({
+				type: 'image',
+				source: 'url',
+				mediaType: 'image/png',
+			});
+			expect(result.contentParts[1].url).toContain('arch.png');
+			expect(result.contentParts[2]).toMatchObject({ type: 'text' });
+			expect(result.contentParts[2].text).toContain('Figure 2 shows the data flow.');
+			expect(result.contentParts[3]).toMatchObject({
+				type: 'image',
+				source: 'url',
+				mediaType: 'image/jpeg',
+			});
+			expect(result.contentParts[3].url).toContain('flow.jpg');
+			expect(result.contentParts[4]).toMatchObject({ type: 'text' });
+			expect(result.contentParts[4].text).toContain('## Conclusion');
+			expect(result.contentParts[4].text).toContain('That wraps up the report.');
+		} else {
+			expect(result.contentParts).toHaveLength(3);
+			expect(result.contentParts[0]).toEqual({ type: 'text', text: content });
+			expect(result.contentParts[1]).toMatchObject({
+				type: 'image',
+				source: 'url',
+				mediaType: 'image/png',
+			});
+			expect(result.contentParts[1].url).toContain('arch.png');
+			expect(result.contentParts[2]).toMatchObject({
+				type: 'image',
+				source: 'url',
+				mediaType: 'image/jpeg',
+			});
+			expect(result.contentParts[2].url).toContain('flow.jpg');
+		}
 	});
 
 	// ------------------------------------------------------------------
@@ -290,7 +312,8 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 			fakeCtx,
 		);
 
-		expect(result.contentParts[1]).toMatchObject({
+		const imagePart = result.contentParts.find((part: any) => part.type === 'image');
+		expect(imagePart).toMatchObject({
 			type: 'image',
 			source: 'url',
 			mediaType: 'image/webp',

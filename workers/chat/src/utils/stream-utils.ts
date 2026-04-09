@@ -10,9 +10,9 @@ import type { AgentStreamEvent } from '@common/ai/agent';
 import type { ContentPart, ImageContentPart } from '@common/ai/inference/types';
 import { serializeException, stringifyError } from '@/common/ai/utils';
 import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
+import { buildArtifactImageContentParts } from '@/lib/markdown/artifact-images';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
-import { inferImageMimeType } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
 import { generateSignedImageUrls } from '../image-uploader';
@@ -364,17 +364,7 @@ export async function loadChatHistory(em: any, chatId: string, env?: Env) {
                 for (const b of m.blocks as any[]) {
                     if (b.type !== 'tool_call' || !b.toolImageRefs?.length) continue;
 
-                    const parts: ContentPart[] = [
-                        { type: 'text', text: b.toolOutput ?? '' },
-                    ];
-                    for (const ref of b.toolImageRefs as string[]) {
-                        const key = ref.startsWith(SCHEME) ? ref.slice(SCHEME.length) : ref;
-                        const url = artifactSignedUrls.get(key);
-                        if (url) {
-                            parts.push({ type: 'image', source: 'url', url, mediaType: inferImageMimeType(key) });
-                        }
-                    }
-                    b.toolContentParts = parts;
+                    b.toolContentParts = buildArtifactImageContentParts(b.toolOutput ?? '', artifactSignedUrls);
                 }
             }
         }

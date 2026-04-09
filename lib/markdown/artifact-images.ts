@@ -8,12 +8,15 @@
  * rather than using remark-stringify, to avoid formatting normalization.
  */
 
+import type { ContentPart } from '@/common/ai/inference/types';
 import type { Image, Root } from 'mdast';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { visit } from 'unist-util-visit';
+import { inferImageMimeType } from '@/lib/schema/artifact';
 
 const ARTIFACT_IMAGE_SCHEME = 'artifact-image://';
+export const INTERLEAVE_ARTIFACT_IMAGE_CONTENT_PARTS = true;
 
 function parseMarkdown(markdown: string): Root {
 	return unified().use(remarkParse).parse(markdown);
@@ -225,6 +228,47 @@ export function splitAtArtifactImages(markdown: string): MarkdownSegment[] {
 	}
 
 	return segments;
+}
+
+/**
+ * Build multimodal content parts from markdown containing artifact-image refs.
+ * Keeps the original markdown intact for persistence/toolOutput, but chooses
+ * whether image parts are interleaved with surrounding text or appended after
+ * one full text block based on the exported toggle above.
+ */
+export function buildArtifactImageContentParts(markdown: string, signedUrls: Map<string, string>): ContentPart[] {
+	if (INTERLEAVE_ARTIFACT_IMAGE_CONTENT_PARTS) {
+		return splitAtArtifactImages(markdown).flatMap((segment): ContentPart[] => {
+			if (segment.type === 'text') {
+				return segment.text ? [{ type: 'text', text: segment.text }] : [];
+			}
+
+			const url = signedUrls.get(segment.key);
+			if (!url) return [];
+
+			return [{
+				type: 'image',
+				source: 'url',
+				url,
+				mediaType: inferImageMimeType(segment.key),
+			}];
+		});
+	}
+
+	const imageRefs = extractArtifactImageRefs(markdown);
+	return [
+		{ type: 'text', text: markdown },
+		...imageRefs.flatMap((ref): ContentPart[] => {
+			const url = signedUrls.get(ref.key);
+			if (!url) return [];
+			return [{
+				type: 'image',
+				source: 'url',
+				url,
+				mediaType: inferImageMimeType(ref.key),
+			}];
+		}),
+	];
 }
 
 // ---------------------------------------------------------------------------

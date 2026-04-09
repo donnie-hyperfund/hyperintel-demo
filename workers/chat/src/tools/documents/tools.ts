@@ -16,16 +16,15 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
-import type { ContentPart } from '@common/ai/inference/types';
 import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
-import { extractArtifactImageRefs } from '@/lib/markdown/artifact-images';
+import { buildArtifactImageContentParts, extractArtifactImageRefs } from '@/lib/markdown/artifact-images';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { DocumentTypeSchema, inferImageMimeType, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
+import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
 import { shouldGenerateAiContent } from './document-classifier';
@@ -872,20 +871,10 @@ Version options:
 
                     const signedUrls = await signArtifactImageKeys(rCtx.env, keys);
 
-                    const contentParts: ContentPart[] = [
-                        { type: 'text', text: viewport.content },
-                        ...keys.map((key) => ({
-                            type: 'image' as const,
-                            source: 'url' as const,
-                            url: signedUrls.get(key)!,
-                            mediaType: inferImageMimeType(key),
-                        })),
-                    ];
-
                     return {
                         result: response,
                         imageRefs: fullRefs,
-                        contentParts,
+                        contentParts: buildArtifactImageContentParts(viewport.content, signedUrls),
                     };
                 }
 
