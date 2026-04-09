@@ -14,6 +14,8 @@ import type { CamelCaseDto } from '@/lib/api/client/types';
 import { abort, associateArtifacts, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
+import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
+import { getDraftBaseKey } from '@/lib/storage/storage-keys';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
@@ -215,6 +217,23 @@ export function ChatProvider({
     // Forward ref for reconnect handler (loadMessages is defined later)
     const loadMessagesRef = useRef<() => void>(() => {});
 
+    // NOTE: When ensureChatId creates a chat, chatId changes from null → id,
+    // which flips isEmpty in ChatPanel and remounts ChatMessageForm.
+    // migrateDraft bridges the localStorage draft to the new chatId-scoped key
+    // so the remounted form picks it up via useChatDraft.
+    const migrateDraft = useCallback(
+        (nextChatId: string) => {
+            const oldKey = getDraftBaseKey(chatType, null, projectId);
+            const newKey = getDraftBaseKey(chatType, nextChatId, projectId);
+            const draft = safeGetItem(oldKey);
+            if (draft) {
+                safeSetItem(newKey, draft);
+                safeRemoveItem(oldKey);
+            }
+        },
+        [chatType, projectId],
+    );
+
     const ensureChatId = useCallback(async () => {
         if (chatId) return chatId;
         if (chatCreationPromiseRef.current) return chatCreationPromiseRef.current;
@@ -229,6 +248,7 @@ export function ChatProvider({
                 const nextChatId = newChat.id;
 
                 skipNextLoad.current = true;
+                migrateDraft(nextChatId);
                 setChatId(nextChatId);
                 setState((prev) => ({ ...prev, phaseIndex: newChat.phaseIndex }));
 
@@ -245,6 +265,7 @@ export function ChatProvider({
             const nextChatId = newChat.id;
 
             skipNextLoad.current = true;
+            migrateDraft(nextChatId);
             setChatId(nextChatId);
             window.history.replaceState(null, '', buildChatRoute(nextChatId));
 
@@ -258,7 +279,7 @@ export function ChatProvider({
         } finally {
             chatCreationPromiseRef.current = null;
         }
-    }, [api.chats, buildChatRoute, cache, chatId, chatType, globalMutate, projectId]);
+    }, [api.chats, buildChatRoute, cache, chatId, chatType, globalMutate, migrateDraft, projectId]);
 
     // ========================================================================
     // CALLBACKS FOR STREAM HOOK
