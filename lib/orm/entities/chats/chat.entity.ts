@@ -1,6 +1,5 @@
-import { Collection, Entity, ManyToOne, OneToMany, Opt, Property, wrap } from '@mikro-orm/core';
+import { Collection, Entity, ManyToOne, OneToMany, Opt, Property } from '@mikro-orm/core';
 import type { Nullable } from '@/common/orm/utils';
-import { IS_DEV } from '@/lib/config';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import type { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
@@ -45,7 +44,7 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'json', nullable: true })
     token_usage?: Nullable<TokenUsage>;
 
-    @Property({ type: 'number', nullable: true, columnType: 'numeric(12,6)' })
+    @Property({ type: 'number', nullable: true, columnType: 'numeric(12,6)', groups: ['dev'] })
     total_cost?: Nullable<number>;
 
     @Property({ type: 'number', persist: false })
@@ -57,11 +56,4 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text', persist: false })
     first_message_content?: Nullable<string>;
 
-    toJSON(): Record<string, unknown> {
-        const base = wrap(this).toObject() as Record<string, unknown>;
-        if (!IS_DEV) {
-            delete base.total_cost;
-        }
-        return base;
-    }
 }
