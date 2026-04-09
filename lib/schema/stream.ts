@@ -125,6 +125,9 @@ export type StreamEvent =
     | {
           type: 'done';
           tokenUsage?: TokenUsage;
+          totalCost?: number;
+          /** Per-message metadata (preset, inference config, usage) — applied to the streaming message on arrival */
+          messageMetadata?: Record<string, unknown>;
           error?: string;
           outputType?: 'text' | 'tool';
           outputTool?: string;

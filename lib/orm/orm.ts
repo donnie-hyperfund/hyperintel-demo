@@ -1,6 +1,8 @@
-import { type CacheAdapter, EntityManager, MikroORM, Options } from '@mikro-orm/postgresql';
+import { type CacheAdapter, MikroORM, Options } from '@mikro-orm/postgresql';
 import { cache } from 'react';
 import _ from 'underscore';
+import { ScopedEntityManager } from '@/common/orm/entity-manager';
+import { initSerializationGroups } from '@/common/orm/serialization';
 import config from '@/mikro-orm.config';
 import staticConfig from '@/mikro-orm.static.config';
 
@@ -73,9 +75,9 @@ if (process.env.NODE_ENV === 'development') {
 const reqStore = cache(() => ({ verified: false }));
 
 /** Reuse the same EM fork within a single Next.js request (RSC / route handler / middleware). */
-const getRequestFork = cache(async (): Promise<EntityManager> => {
+const getRequestFork = cache(async (): Promise<ScopedEntityManager> => {
     const orm = await globalThis.__ormPromise!;
-    return orm.em.fork();
+    return orm.em.fork() as ScopedEntityManager;
 });
 
 export function rawOrmGuard(verify: string) {
@@ -84,14 +86,14 @@ export function rawOrmGuard(verify: string) {
 }
 
 // raw does not auto-fork
-export async function getOrm(): Promise<{ em: EntityManager }>;
+export async function getOrm(): Promise<{ em: ScopedEntityManager }>;
 export async function getOrm(raw: true): Promise<MikroORM>;
-export async function getOrm(injectConfig?: Options): Promise<{ em: EntityManager }>;
+export async function getOrm(injectConfig?: Options): Promise<{ em: ScopedEntityManager }>;
 export async function getOrm(injectConfig: Options, raw: true): Promise<MikroORM>;
 export async function getOrm(
     injectConfigOrRaw: Options | boolean = false,
     raw = false,
-): Promise<MikroORM | { em: EntityManager }> {
+): Promise<MikroORM | { em: ScopedEntityManager }> {
     let injectConfig: Options;
     if (_.isBoolean(injectConfigOrRaw)) {
         raw = injectConfigOrRaw;
@@ -126,6 +128,14 @@ export async function getOrm(
             ...injectConfig,
             // TODO env var, prevent on prod
             // debug: true,
+        }).then((orm) => {
+            // Serialization group support (deployment-level + toObject patch)
+            initSerializationGroups(
+                orm,
+                process.env.NEXT_PUBLIC_APP_ENV === 'development' ? ['dev'] : undefined,
+            );
+
+            return orm;
         });
 
         // Capture metadata on first successful boot.

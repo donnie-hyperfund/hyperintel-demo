@@ -52,6 +52,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                         blocks={blocks}
                         feedbackScore={message.feedbackScore}
                         feedbackComment={message.feedbackComment}
+                        metadata={message.metadata}
                     />
                 </div>
             </div>
@@ -120,6 +121,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                 blocks={blocks}
                 feedbackScore={message.feedbackScore}
                 feedbackComment={message.feedbackComment}
+                metadata={message.metadata}
             />
         </div>
     );

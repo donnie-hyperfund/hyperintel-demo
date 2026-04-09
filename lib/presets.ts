@@ -1,5 +1,5 @@
 import { AIParamsType, type ParamsWithType } from '@common/ai/inference/types';
-import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import { ANTHROPIC_MODELS, COMMON_MODELS, OPENAI_MODELS } from '@common/ai/types';
 import { LOCAL_PRESETS } from './presets.local';
 
 // ---------------------------------------------------------------------------
@@ -11,6 +11,14 @@ export type ModelPreset = {
     label: string;
     description?: string;
     inference: ParamsWithType;
+    pricing?: {
+        inputPer1M: number; // USD per 1M input tokens
+        outputPer1M: number; // USD per 1M output tokens
+        reasoningPer1M?: number; // USD per 1M reasoning tokens (defaults to output rate)
+        cacheReadPer1M?: number; // USD per 1M cached input tokens
+        cacheWritePer1M?: number; // USD per 1M cache-write tokens
+        webSearchPer1M?: number; // USD per 1M web search tokens
+    };
 };
 
 // ---------------------------------------------------------------------------
@@ -26,6 +34,10 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.HAIKU, thinking: false },
         },
+        pricing: {
+            inputPer1M: 1,
+            outputPer1M: 5,
+        },
     },
     {
         id: 'sonnet',
@@ -34,6 +46,10 @@ const BASE_PRESETS: ModelPreset[] = [
         inference: {
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.SONNET, thinking: true, thinkingBudget: 8000 },
+        },
+        pricing: {
+            inputPer1M: 3,
+            outputPer1M: 15,
         },
     },
     {
@@ -44,6 +60,10 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.OPUS, thinking: true, thinkingBudget: 16000 },
         },
+        pricing: {
+            inputPer1M: 5,
+            outputPer1M: 25,
+        },
     },
     //
     {
@@ -53,6 +73,23 @@ const BASE_PRESETS: ModelPreset[] = [
         inference: {
             paramsType: AIParamsType.OpenRouter,
             params: { model: COMMON_MODELS.GPT_5_4, reasoning: true },
+        },
+    },
+    {
+        id: 'gpt-5.4-oai',
+        label: 'GPT 5.4 OAI',
+        description: 'OpenAI latest OAI',
+        inference: {
+            paramsType: AIParamsType.OpenAI,
+            params: {
+                model: OPENAI_MODELS.GPT_5_4,
+                reasoning: { effort: 'medium' },
+                useResponsesAPI: true,
+            },
+        },
+        pricing: {
+            inputPer1M: 2.5,
+            outputPer1M: 15,
         },
     },
     {
@@ -83,6 +120,7 @@ const BASE_PRESETS: ModelPreset[] = [
                 model: 'mradermacher/brayniac-qwen3.5-27b-heretic-i1',
                 baseUrl: 'http://localhost:1234/v1',
                 stripImages: true,
+                useResponsesAPI: true,
                 // reasoning: true,
                 // Use KV quant Q4 and high context
                 // Q4_K_S is good

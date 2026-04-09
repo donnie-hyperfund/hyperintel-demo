@@ -44,6 +44,9 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'json', nullable: true })
     token_usage?: Nullable<TokenUsage>;
 
+    @Property({ type: 'number', nullable: true, columnType: 'numeric(12,6)', groups: ['dev'] })
+    total_cost?: Nullable<number>;
+
     @Property({ type: 'number', persist: false })
     message_count?: number;
 
@@ -52,4 +55,5 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
 
     @Property({ type: 'text', persist: false })
     first_message_content?: Nullable<string>;
+
 }

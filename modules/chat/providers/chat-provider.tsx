@@ -26,7 +26,7 @@ import { useChatStream } from '../hooks/use-chat-stream';
 import type { ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
-import type { ChatState, ChatType, Message, PaginationState, StreamBlock } from '../types';
+import type { ChatState, ChatType, Message, MessageMetadata, PaginationState, StreamBlock } from '../types';
 
 export type BaseChatContextValue = {
     state: ChatState;
@@ -178,6 +178,7 @@ export function ChatProvider({
             error: null,
             streamingMessageId: null,
             tokenUsage: cached?.tokenUsage ?? null,
+            totalCost: cached?.totalCost ?? null,
             hasPendingChanges: cached?.hasPendingChanges ?? false,
             phaseIndex: cached?.phaseIndex ?? null,
             phaseName: cached?.name ?? null,
@@ -447,6 +448,14 @@ export function ChatProvider({
                 }),
                 feedbackScore: (m as any).feedback_score ?? null,
                 feedbackComment: (m as any).feedback ?? null,
+                // Only forward display-safe fields — metadata can contain safetyAnalysis, errors, etc.
+                metadata: (meta.preset || meta.inference || meta.usage)
+                    ? {
+                          ...(meta.preset ? { preset: meta.preset as string } : {}),
+                          ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
+                          ...(meta.usage ? { usage: meta.usage } : {}),
+                      } as MessageMetadata
+                    : undefined,
             };
         },
         [],
@@ -531,11 +540,20 @@ export function ChatProvider({
                 return;
             }
 
+            // Extract safe message metadata from done event (preset, inference, usage)
+            const doneMeta = isNormalDone ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined) : undefined;
+            const doneMessageMetadata = doneMeta ? {
+                ...(doneMeta.preset && { preset: doneMeta.preset as string }),
+                ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
+                ...(doneMeta.usage && { usage: doneMeta.usage }),
+            } : undefined;
+
             setState((prev) => ({
                 ...prev,
                 isGenerating: false,
                 activeResponseId: null,
                 tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
+                totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
                 hasPendingChanges: isNormalDone
                     ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
                     : prev.hasPendingChanges,
@@ -548,6 +566,7 @@ export function ChatProvider({
                               status: undefined,
                               ...(status === 'error' && { isError: true }),
                               ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
+                              ...(doneMessageMetadata && Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
                           }
                         : msg,
                 ),
@@ -745,6 +764,7 @@ export function ChatProvider({
             const active = s.status === 'streaming';
             setState((prev) => {
                 const msgId = s.agentMessageId!;
+                const existing = prev.messages.find((m) => m.id === msgId);
                 const streamMsg: Message = {
                     id: msgId,
                     role: 'assistant',
@@ -754,13 +774,14 @@ export function ChatProvider({
                     ...(s.status === 'error' && { isError: true }),
                     ...(s.status === 'aborted' && !s.isRetracted && { isAborted: true }),
                     ...(s.isRetracted && { isRetracted: true }),
+                    // Preserve metadata set by handleStreamDone (model badge, cost, etc.)
+                    ...(existing?.metadata && { metadata: existing.metadata }),
                 };
 
-                const exists = prev.messages.some((m) => m.id === msgId);
                 return {
                     ...prev,
                     isGenerating: active,
-                    messages: exists
+                    messages: existing
                         ? prev.messages.map((m) => (m.id === msgId ? streamMsg : m))
                         : [...prev.messages, streamMsg],
                 };
@@ -879,6 +900,7 @@ export function ChatProvider({
                     isGenerating: prev.isSummarizing ? false : hasActiveStream,
                     activeResponseId: prev.isSummarizing ? null : (chatData.activeAgentMessageId ?? null),
                     tokenUsage: chatData.tokenUsage ?? null,
+                    totalCost: chatData.totalCost != null ? Number(chatData.totalCost) : null,
                     hasPendingChanges: chatData.hasPendingChanges ?? false,
                     phaseIndex: chatData.phaseIndex,
                 };

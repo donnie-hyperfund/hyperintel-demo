@@ -1,6 +1,7 @@
 import { runAgentStream } from '@common/ai/agent';
 import type { AgentStreamEvent } from '@common/ai/agent/types';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
+import { ensurePricingCache, getModelPricing, calculateCost } from '@common/ai/inference/openrouter-pricing';
 import { COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { AsyncHandlebars } from 'handlebars-jle';
@@ -10,7 +11,8 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
-import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
+import { getAvailablePresets, getDefaultPresetId, resolvePreset } from '@/lib/presets';
+import type { MessageUsage } from '@common/ai/agent/usage-types';
 import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
@@ -442,6 +444,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             WEB_SEARCH_GUIDANCE,
         );
 
+        // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
+        if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
+
         // Determine inference params via preset resolution
         const presetId = data.model ?? getDefaultPresetId(ctx.env);
         const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
@@ -592,8 +597,60 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                     const streamLog = event.streamLog;
                     const assistantContent = streamLog.fullContent ?? '';
 
+                    // --- Cost calculation from apiUsage ---
+                    const apiUsage = event.apiUsage;
+                    let messageUsage: MessageUsage | null = null;
+
+                    if (apiUsage && (apiUsage.totalInputTokens > 0 || apiUsage.totalOutputTokens > 0)) {
+                        let totalCost: number | undefined;
+
+                        if (apiUsage.providerCost != null) {
+                            totalCost = apiUsage.providerCost;
+                        } else {
+                            // Try OpenRouter cached pricing (accurate, per-model from API)
+                            const modelId = inferenceParams.params?.model as string | undefined;
+                            const orPricing = modelId ? await getModelPricing(modelId) : undefined;
+                            if (orPricing) {
+                                totalCost = calculateCost(orPricing, {
+                                    inputTokens: apiUsage.totalInputTokens,
+                                    outputTokens: apiUsage.totalOutputTokens,
+                                    reasoningTokens: apiUsage.totalReasoningTokens,
+                                    cacheReadTokens: apiUsage.cacheReadTokens,
+                                    cacheWriteTokens: apiUsage.cacheWriteTokens,
+                                });
+                            } else {
+                                // Fallback to preset-defined pricing
+                                const preset = getAvailablePresets(ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS)
+                                    .find(p => p.id === presetId);
+                                if (preset?.pricing) {
+                                    totalCost =
+                                        (apiUsage.totalInputTokens * preset.pricing.inputPer1M / 1_000_000) +
+                                        (apiUsage.totalOutputTokens * preset.pricing.outputPer1M / 1_000_000);
+                                }
+                            }
+                        }
+
+                        messageUsage = {
+                            inputTokens: apiUsage.totalInputTokens,
+                            outputTokens: apiUsage.totalOutputTokens,
+                            ...(apiUsage.totalReasoningTokens && { reasoningTokens: apiUsage.totalReasoningTokens }),
+                            ...(apiUsage.cacheReadTokens && { cacheReadTokens: apiUsage.cacheReadTokens }),
+                            ...(apiUsage.cacheWriteTokens && { cacheWriteTokens: apiUsage.cacheWriteTokens }),
+                            ...(totalCost != null && { cost: totalCost }),
+                            segments: apiUsage.segments,
+                            providerIds: apiUsage.providerIds,
+                        };
+                    }
+
                     // --- Persist agent message to DB (using pre-generated ID) ---
                     let assistantMsg: ChatMessageEntity | null = null;
+                    const msgMetadata = {
+                        preset: presetId,
+                        inference: extractInferenceMetadata(inferenceParams),
+                        ...(isError && { error: event.error!.message }),
+                        ...(messageUsage && { usage: messageUsage }),
+                    };
+
                     if (isError || isAborted || assistantContent || streamLog.blocks.length > 0) {
                         const debugData: Record<string, unknown> = {};
                         if (event.inferenceLog) debugData.inferenceLog = event.inferenceLog;
@@ -609,11 +666,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                             content: assistantContent,
                             reasoning: streamLog.fullReasoning || null,
                             blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
-                            metadata: {
-                                preset: presetId,
-                                inference: extractInferenceMetadata(inferenceParams),
-                                ...(isError && { error: event.error!.message }),
-                            },
+                            metadata: msgMetadata,
                             ...(isError && { is_error: true }),
                             ...(isAborted && { is_aborted: true }),
                             ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
@@ -651,6 +704,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         loadedPrompts: Array.from(agentCtx.loadedPrompts),
                     };
                     chat.token_usage = { tokenBreakdown, usedTokens };
+                    if (messageUsage?.cost != null) {
+                        chat.total_cost = Number(chat.total_cost ?? 0) + messageUsage.cost;
+                    }
                     chat.active_agent_message_id = null;
 
                     // Save safety verdict to user message debug_data
@@ -696,9 +752,21 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                     }
 
                     // Push terminal done event to DO (subscriber gets it via broadcast)
+                    const isDev = ctx.env.ENV === 'dev';
+
+                    // Build safe message metadata for WS delivery (no error, safetyAnalysis, etc.)
+                    // Only include dev-only fields (preset, inference, usage) in dev mode
+                    const safeMessageMetadata: Record<string, unknown> | undefined = isDev ? {
+                        ...(msgMetadata.preset && { preset: msgMetadata.preset }),
+                        ...(msgMetadata.inference && { inference: msgMetadata.inference }),
+                        ...(msgMetadata.usage && { usage: msgMetadata.usage }),
+                    } : undefined;
+
                     const doneEvent: StreamEvent = {
                         type: 'done',
                         tokenUsage: { tokenBreakdown, usedTokens },
+                        ...(isDev && chat.total_cost != null && { totalCost: chat.total_cost }),
+                        ...(safeMessageMetadata && Object.keys(safeMessageMetadata).length > 0 && { messageMetadata: safeMessageMetadata }),
                         hasPendingChanges,
                         phaseIndex,
                         ...(isError && { error: event.error!.message }),
