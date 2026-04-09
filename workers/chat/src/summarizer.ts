@@ -235,10 +235,10 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             const allDocuments = await listDocuments(em!, { projectId: chat.project!.id });
             const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
             if (phaseDocuments.length > 0) {
-                instructions += `\n\n## Current Document Statuses (this phase)\n\nThese statuses are queried from the database at the time of summarization. Users may approve or reject documents via the UI  this does NOT appear in the conversation history. Use these statuses as the source of truth.\nWhen referencing these documents in your summary text, use the directive syntax on its own line: ::document[name]{version=V lines=L documentType="Type"}\n\n`;
+                instructions += `\n\n## Current Document Statuses (this phase)\n\nThese statuses are queried from the database at the time of summarization. Users may approve or reject documents via the UI  this does NOT appear in the conversation history. Use these statuses as the source of truth.\n\n`;
                 for (const doc of phaseDocuments) {
                     const status = doc.hasProposed ? 'proposed' : (doc.currentStatus ?? doc.latestStatus);
-                    instructions += `- \`${doc.name}\` (${doc.title}): v${doc.latestVersion}, ${doc.lines} lines, type="${doc.documentType}", **${status}**\n`;
+                    instructions += `- \`${doc.name}\` (${doc.title}): v${doc.latestVersion}, **${status}**\n`;
                 }
             }
         }
@@ -377,6 +377,17 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             await approveVersion(em!, versionId);
         }
 
+        // Build document directives to append to summary content
+        const allProjectDocs = await listDocuments(em!, { projectId: chat.project!.id });
+        const nonPecpDocs = allProjectDocs.filter((d) => d.documentType !== 'PECP');
+        const docDirectives = nonPecpDocs
+            .map((d) => `::document[${d.name}]{version=${d.latestVersion} lines=${d.lines} documentType="${d.documentType}" ref}`)
+            .join('\n');
+
+        const finalSummaryContent = docDirectives
+            ? `${summaryContent}\n\n${docDirectives}`
+            : summaryContent;
+
         // TODO: Can't use chat.phase_index + 1 because historical chats can trigger summarization too.
         // Once we block message sending on non-latest chats, switch to phase_index-based calculation.
         const newChat = em!.create(ChatEntity, {
@@ -394,7 +405,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const summaryMessage = em!.create(ChatMessageEntity, {
             chat: newChat,
             role: 'assistant',
-            content: SUMMARY_PREFIX + summaryContent,
+            content: SUMMARY_PREFIX + finalSummaryContent,
         });
         em!.persist(summaryMessage);
 
