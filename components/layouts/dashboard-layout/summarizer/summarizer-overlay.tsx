@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import type { SummaryStatus } from '@/modules/chat/types';
 import { AnimatedHeadline } from './animated-headline';
+import { CancelSummaryButton } from './cancel-summary-button';
 import { ShimmerProgress } from './shimmer-progress';
 import { ShimmerText } from './shimmer-text';
 import { useEasedProgress } from '@/hooks/use-eased-progress';
@@ -21,6 +22,7 @@ type SummarizerOverlayProps = {
     error: Error | null;
     onRetry: () => void;
     onGoToNextPhase: () => void;
+    onCancel: () => void;
 };
 
 
@@ -68,6 +70,7 @@ export function SummarizerOverlay({
     error,
     onRetry,
     onGoToNextPhase,
+    onCancel,
 }: SummarizerOverlayProps) {
     const [displayStatus, setDisplayStatus] = useState<SummaryStatus | null>(summaryStatus);
     const summaryArtifact = useArtifact(summaryDocKey ?? '', 1);
@@ -100,6 +103,11 @@ export function SummarizerOverlay({
                     transition={{ duration: 0.3 }}
                     className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/70 backdrop-blur-sm"
                 >
+                    {/* Cancel button — top right */}
+                    {isSummarizing && !isDone && (
+                        <CancelSummaryButton onConfirm={onCancel} />
+                    )}
+
                     <div className="flex flex-col items-center gap-4 px-6">
                         <AnimatedHeadline text={title} />
 
@@ -149,6 +157,7 @@ export function SummarizerOverlay({
                     </div>
                 </motion.div>
             )}
+
         </AnimatePresence>
     );
 }

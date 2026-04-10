@@ -2,6 +2,8 @@
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
@@ -197,6 +199,9 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
     // Fire-and-forget pusher — hoisted for catch block access
     const pusher = createPusher(streamDO, 'summarizer');
 
+    // Hoisted so the catch block can access it for rollback
+    const createdVersionIds: string[] = [];
+
     try {
         if (!anthropic) {
             throw new Error('Anthropic client required');
@@ -271,7 +276,6 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         });
 
         // Create document tools context
-        const createdVersionIds: string[] = [];
         const agentCtx: DocumentToolsContext = {
             em: em!,
             projectId: chat.project!.id,
@@ -327,6 +331,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const collector = createEventCollector();
         const state = { wasTool: false };
         let summaryContent = '';
+        let wasAborted = false;
 
         const fireAndForgetPush = pusher.push;
 
@@ -388,11 +393,44 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             // Summarizer-specific events
             if (event.type === 'done_ext') {
                 summaryContent = event.streamLog.fullContent ?? '';
+                wasAborted = event.aborted ?? false;
                 // done_ext is not pushed directly  terminal done event pushed after DB persist below
             }
         }
 
         await historyPromise;
+
+        // ── Abort check: roll back all side effects and exit early ──
+        // Check both the done_ext flag (runner detected abort) and the controller
+        // (abort arrived after runner finished but before post-stream work)
+        if (wasAborted || abortController.signal.aborted) {
+            console.log(`[summarizer] aborted — rolling back ${createdVersionIds.length} version(s)`);
+
+            if (createdVersionIds.length > 0) {
+                // Collect parent artifact IDs before deleting versions
+                const versions = await em!.find(ArtifactVersionEntity, { id: { $in: createdVersionIds } }, { fields: ['artifact'] });
+                const artifactIds = [...new Set(versions.map((v) => v.artifact.id))];
+
+                await em!.transactional(async (txEm) => {
+                    // Delete in FK order: embeddings → versions → orphaned artifacts
+                    await txEm.nativeDelete(ArtifactEmbeddingEntity, { artifact_version: { $in: createdVersionIds } });
+                    await txEm.nativeDelete(ArtifactVersionEntity, { id: { $in: createdVersionIds } });
+                    if (artifactIds.length > 0) {
+                        // Only delete artifacts that have no remaining versions
+                        const remaining = await txEm.count(ArtifactVersionEntity, { artifact: { $in: artifactIds } });
+                        if (remaining === 0) {
+                            await txEm.nativeDelete(ArtifactEntity, { id: { $in: artifactIds } });
+                        }
+                    }
+                });
+            }
+
+            chat.active_agent_message_id = null;
+            await em!.flush();
+
+            await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, new Error('Summarization cancelled'));
+            return;
+        }
 
         // Emit finalizing status before DB persistence
         pushStatus('finalizing');
@@ -493,6 +531,28 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         }
     } catch (error: any) {
         console.error('[summarizer] generation error:', error?.message ?? error, error?.stack);
+
+        // Roll back artifact versions and orphaned artifacts created during this attempt
+        if (createdVersionIds.length > 0) {
+            try {
+                const versions = await em!.find(ArtifactVersionEntity, { id: { $in: createdVersionIds } }, { fields: ['artifact'] });
+                const artifactIds = [...new Set(versions.map((v) => v.artifact.id))];
+
+                await em!.transactional(async (txEm) => {
+                    await txEm.nativeDelete(ArtifactEmbeddingEntity, { artifact_version: { $in: createdVersionIds } });
+                    await txEm.nativeDelete(ArtifactVersionEntity, { id: { $in: createdVersionIds } });
+                    if (artifactIds.length > 0) {
+                        const remaining = await txEm.count(ArtifactVersionEntity, { artifact: { $in: artifactIds } });
+                        if (remaining === 0) {
+                            await txEm.nativeDelete(ArtifactEntity, { id: { $in: artifactIds } });
+                        }
+                    }
+                });
+                console.log(`[summarizer] rolled back ${createdVersionIds.length} version(s) and orphaned artifacts`);
+            } catch (deleteErr) {
+                console.error('[summarizer] failed to rollback artifact versions:', deleteErr);
+            }
+        }
 
         // Clear active_agent_message_id on error (summarizer has no agent message to persist)
         try {

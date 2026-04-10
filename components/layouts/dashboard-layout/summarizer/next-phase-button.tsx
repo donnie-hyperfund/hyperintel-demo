@@ -9,7 +9,7 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { SummarizerOverlay } from './summarizer-overlay';
 
 export function NextPhaseButton() {
-    const { projectId, summarizeChat, navigateToNewPhase, clearPendingPhaseTransition, state } =
+    const { projectId, summarizeChat, cancelSummary, navigateToNewPhase, clearPendingPhaseTransition, state } =
         useChatContext<'phase'>();
 
     const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
@@ -38,6 +38,11 @@ export function NextPhaseButton() {
         setPendingNavigation(true);
         setDialogOpen(false);
     }, []);
+
+    const handleCancel = useCallback(() => {
+        cancelSummary();
+        setDialogOpen(false);
+    }, [cancelSummary]);
 
     useEffect(() => {
         if (!pendingNavigation || dialogOpen) return;
@@ -110,6 +115,7 @@ export function NextPhaseButton() {
                 error={state.error}
                 onRetry={handleClick}
                 onGoToNextPhase={handleGoToNextPhase}
+                onCancel={handleCancel}
             />
         </>
     );

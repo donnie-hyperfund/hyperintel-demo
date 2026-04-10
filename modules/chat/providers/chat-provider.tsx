@@ -52,6 +52,8 @@ export type BaseChatContextValue = {
     setChatId: (chatId: string | null) => void;
     /** Summarize the current chat and prepare the new phase */
     summarizeChat: () => void;
+    /** Cancel an in-progress summarization */
+    cancelSummary: () => void;
     /** Navigate to the new phase chat (after summarization completes) */
     navigateToNewPhase: () => void;
     /** Set hasPendingChanges to false (call after approve/reject) */
@@ -528,6 +530,13 @@ export function ChatProvider({
 
     const handleStreamDone = useCallback(
         (status: StreamStatus, terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' }) => {
+            // Summary was cancelled — ignore any terminal events from the backend
+            if (summaryCancelledRef.current) {
+                summaryCancelledRef.current = false;
+                summarizeInFlightRef.current = false;
+                return;
+            }
+
             const isNormalDone = terminalEvent?.type === 'done';
             const newChatId = isNormalDone ? terminalEvent.newChatId : undefined;
 
@@ -1108,6 +1117,7 @@ export function ChatProvider({
     // Ref guard: prevents duplicate POST when multiple NextPhaseButton
     // instances (desktop + mobile) react to pendingPhaseTransition simultaneously.
     const summarizeInFlightRef = useRef(false);
+    const summaryCancelledRef = useRef(false);
 
     /** Trigger summarization — fires POST, then waits for stream_started(streamType:'summary') via WS */
     const summarizeChat = useCallback(async () => {
@@ -1115,6 +1125,7 @@ export function ChatProvider({
         if (chatType !== 'phase' || !chatId || state.isSummarizing) return;
         if (summarizeInFlightRef.current) return;
         summarizeInFlightRef.current = true;
+        summaryCancelledRef.current = false;
 
         // Do NOT set isSummarizing here — stream_started(streamType:'summary') drives that state.
         // This avoids showing the summarizing UI if the POST itself fails.
@@ -1141,6 +1152,38 @@ export function ChatProvider({
             }));
         }
     }, [chatId, getToken, chatType, state.isSummarizing]);
+
+    /** Cancel an in-progress summarization — aborts the stream and rolls back created artifacts */
+    const cancelSummary = useCallback(async () => {
+        if (!state.isSummarizing || !chatId) return;
+
+        // Mark as cancelled so subsequent stream events (done/error) are ignored
+        summaryCancelledRef.current = true;
+        summarizeInFlightRef.current = false;
+
+        cleanupTransientArtifacts(stream.activeDocuments);
+
+        // Also abort via WebSocket for faster path
+        stream.abort();
+
+        // Reset state synchronously before any async work — prevents the
+        // cross-tab sync effect from reopening the overlay
+        setState((prev) => ({
+            ...prev,
+            isSummarizing: false,
+            summaryStatus: null,
+            summaryNewChatId: null,
+            summaryDocKey: null,
+            error: null,
+        }));
+
+        // Abort via HTTP (fire-and-forget, uses stream's agentMessageId)
+        const summaryAgentMessageId = stream.agentMessageId;
+        if (summaryAgentMessageId) {
+            const accessToken = (await getToken()) ?? '';
+            abort({ chatId, agentMessageId: summaryAgentMessageId }, accessToken).catch(() => {});
+        }
+    }, [chatId, state.isSummarizing, stream, cleanupTransientArtifacts, getToken]);
 
     /** Navigate to the new phase chat after summarization */
     const navigateToNewPhase = useCallback(() => {
@@ -1217,6 +1260,7 @@ export function ChatProvider({
                 stopGeneration,
                 setChatId,
                 summarizeChat,
+                cancelSummary,
                 navigateToNewPhase,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
