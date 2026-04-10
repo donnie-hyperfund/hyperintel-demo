@@ -242,7 +242,13 @@ const ReadDocumentParams = z.object({
 
 const ListDocumentsParams = z.object({
     search: z.string().optional().nullable().describe('Optional filter by name/title substring.'),
-    silent: z.boolean().optional().nullable().describe('If true, suppresses document cards in the UI. Use when checking documents internally (e.g. before editing). Default: false.'),
+    silent: z
+        .boolean()
+        .optional()
+        .nullable()
+        .describe(
+            'If true, suppresses document cards in the UI. Use when checking documents internally (e.g. before editing). Default: false.',
+        ),
 });
 
 const ApproveDocumentParams = z.object({
@@ -884,7 +890,10 @@ Use \`silent: true\` when you need to check documents internally (e.g. before ed
                 }
 
                 const directives = documents
-                    .map((d: DocumentListItem) => `::document[${d.name}]{version=${d.latestVersion} lines=${d.lines} documentType="${d.documentType}" ref}`)
+                    .map(
+                        (d: DocumentListItem) =>
+                            `::document[${d.name}]{version=${d.latestVersion} lines=${d.lines} documentType="${d.documentType}" ref}`,
+                    )
                     .join('\n');
 
                 return {
