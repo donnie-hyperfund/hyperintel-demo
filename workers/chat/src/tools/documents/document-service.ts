@@ -118,7 +118,10 @@ function findOldContent(
 
     // Validate base range is sane
     if (edit.startLine < 1 || edit.endLine > totalLines || edit.startLine > edit.endLine) {
-        return { success: false, error: `Invalid line range ${edit.startLine}-${edit.endLine}. Document has ${totalLines} lines.` };
+        return {
+            success: false,
+            error: `Invalid line range ${edit.startLine}-${edit.endLine}. Document has ${totalLines} lines.`,
+        };
     }
 
     // Try exact range first, then expand ±1, ±2, ... up to wiggle
@@ -137,14 +140,20 @@ function findOldContent(
             // Check for ambiguity
             const secondMatch = rangeContent.indexOf(edit.oldContent, matchIndex + 1);
             if (secondMatch !== -1) {
-                return { success: false, error: `Multiple matches for oldContent in lines ${start}-${end}. Edit is ambiguous.` };
+                return {
+                    success: false,
+                    error: `Multiple matches for oldContent in lines ${start}-${end}. Edit is ambiguous.`,
+                };
             }
 
             return { success: true, actualStart: start, actualEnd: end };
         }
     }
 
-    return { success: false, error: `oldContent not found in lines ${edit.startLine}-${edit.endLine} (±${wiggle}). Content may have changed.` };
+    return {
+        success: false,
+        error: `oldContent not found in lines ${edit.startLine}-${edit.endLine} (±${wiggle}). Content may have changed.`,
+    };
 }
 
 /**
@@ -340,6 +349,7 @@ export interface DocumentListItem {
     name: string;
     title: string;
     lines: number;
+    documentType: string;
     currentVersion: number | null;
     currentStatus: VersionStatus | null;
     latestVersion: number;
@@ -383,6 +393,7 @@ export async function listDocuments(
             name: a.key,
             title: a.title,
             lines: countLines(contentForLines),
+            documentType: latest?.document_type ?? a.current_version?.document_type ?? 'Other',
             currentVersion: a.current_version?.version ?? null,
             currentStatus: a.current_version?.status ?? null,
             latestVersion: latest?.version ?? 0,
