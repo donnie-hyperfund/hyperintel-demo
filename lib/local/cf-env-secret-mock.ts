@@ -15,9 +15,7 @@ import { MockRustWorkerFetcher } from '@/workers/extract-rust/tester/local-mock'
 const { UserGateway } = require('@/workers/objects/src/objects/user-gateway');
 const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do');
 
-// Lazy-loaded worker handlers (require to avoid tsc pulling worker deps into root)
-const { processMessage: embeddingProcessMessage } = require('@/workers/embedding/src/index');
-const { processMessage: extractionProcessMessage } = require('@/workers/extraction/src/index');
+
 
 // --- Secrets & plain config ---
 const envSecrets: Record<string, unknown> = {
@@ -63,13 +61,20 @@ export const workerEnv: Record<string, unknown> = {
 
 // Queue bindings — in-process mocks, call worker handlers directly.
 // Assigned after workerEnv exists so the MockQueue can hold a reference to it.
+// Uses dynamic import() to avoid Turbopack/webpack pulling in worker dep trees at bundle time.
 workerEnv.EMBEDDING_QUEUE = new MockQueue<EmbeddingQueueMessage>(
-    (message, ctx) => embeddingProcessMessage(message, ctx, '[embedding/local]'),
+    async (message, ctx) => {
+        const { processMessage } = await import('@/workers/embedding/src/index');
+        return processMessage(message, ctx, '[embedding/local]');
+    },
     workerEnv,
     { openai, orouterSdk },
 );
 workerEnv.EXTRACTION_QUEUE = new MockQueue<ExtractionQueueMessage>(
-    (message, ctx) => extractionProcessMessage(message, ctx, '[extraction/local]'),
+    async (message, ctx) => {
+        const { processMessage } = await import('@/workers/extraction/src/index');
+        return processMessage(message, ctx, '[extraction/local]');
+    },
     workerEnv,
     { reducto: process.env.REDUCTO_API_KEY ? new Reducto({ apiKey: process.env.REDUCTO_API_KEY }) : undefined },
 );

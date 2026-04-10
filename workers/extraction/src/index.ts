@@ -10,8 +10,7 @@
  */
 
 import type { MessageBatch } from '@cloudflare/workers-types';
-import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { type ExtractionQueueMessage, ExtractionQueueMessageSchema } from '@common/queue/extraction-queue.adapter';
+import { type ExtractionQueueMessage, ExtractionQueueMessageSchema } from '@/lib/api/client/queue/extraction-queue.adapter';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { initInferredContext } from '@worker/context.helpers';
 import { Hono } from 'hono';
@@ -387,8 +386,7 @@ async function processExtraction(
     // 5. Queue embedding (skip for staged uploads — embedding deferred until association)
     if (ctx.env.EMBEDDING_QUEUE && (projectId || chatId)) {
         try {
-            const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
-            await embeddingQueue.send({
+            await ctx.env.EMBEDDING_QUEUE.send({
                 type: 'index_artifact_version',
                 projectId: projectId ?? null,
                 chatId: chatId ?? null,

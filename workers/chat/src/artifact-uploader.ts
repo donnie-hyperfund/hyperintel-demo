@@ -1,9 +1,8 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PublicError } from '@common/common/error.helpers';
-import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { ExtractionQueueAdapter } from '@common/queue/extraction-queue.adapter';
 import { raw } from '@mikro-orm/core';
+import { ExtractionQueueAdapter } from '@/lib/api/client/queue/extraction-queue.adapter';
 import { normalizeUploadedFileKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
@@ -522,8 +521,7 @@ async function queueEmbedding(
     if (!ctx.env.EMBEDDING_QUEUE) return;
 
     try {
-        const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
-        await embeddingQueue.send({
+        await ctx.env.EMBEDDING_QUEUE.send({
             type: 'index_artifact_version',
             projectId: projectId ?? null,
             chatId: chatId ?? null,

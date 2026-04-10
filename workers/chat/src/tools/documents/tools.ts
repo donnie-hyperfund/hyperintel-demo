@@ -16,7 +16,7 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
-import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import type { QueueAdapter } from '@common/common/queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
@@ -59,7 +59,7 @@ export interface DocumentToolsContext {
     /** Draft manager instance */
     draftManager: DraftManager;
     /** Embedding queue adapter for async indexing (optional) */
-    embeddingQueue?: EmbeddingQueueAdapter;
+    embeddingQueue?: QueueAdapter;
     /** Preview branch alias for queue messages (so downstream workers connect to the correct DB branch) */
     previewAlias?: string | null;
     /** Version IDs created during this turn - will be linked to assistant message after persist */

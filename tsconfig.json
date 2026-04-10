@@ -42,6 +42,15 @@
       "@supabase/supabase-js": [
         "workers/_common/vendor/stubs/supabase-js"
       ],
+      "@cerebras/cerebras_cloud_sdk": [
+        "workers/_common/vendor/stubs/cerebras"
+      ],
+      "stripe": [
+        "workers/_common/vendor/stubs/stripe"
+      ],
+      "@sendgrid/mail": [
+        "workers/_common/vendor/stubs/sendgrid-mail"
+      ],
       "cloudflare:workers": [
         "common/common/local.do-mock"
       ]
