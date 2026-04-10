@@ -2,8 +2,8 @@
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
@@ -408,7 +408,11 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
 
             if (createdVersionIds.length > 0) {
                 // Collect parent artifact IDs before deleting versions
-                const versions = await em!.find(ArtifactVersionEntity, { id: { $in: createdVersionIds } }, { fields: ['artifact'] });
+                const versions = await em!.find(
+                    ArtifactVersionEntity,
+                    { id: { $in: createdVersionIds } },
+                    { fields: ['artifact'] },
+                );
                 const artifactIds = [...new Set(versions.map((v) => v.artifact.id))];
 
                 await em!.transactional(async (txEm) => {
@@ -535,7 +539,11 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Roll back artifact versions and orphaned artifacts created during this attempt
         if (createdVersionIds.length > 0) {
             try {
-                const versions = await em!.find(ArtifactVersionEntity, { id: { $in: createdVersionIds } }, { fields: ['artifact'] });
+                const versions = await em!.find(
+                    ArtifactVersionEntity,
+                    { id: { $in: createdVersionIds } },
+                    { fields: ['artifact'] },
+                );
                 const artifactIds = [...new Set(versions.map((v) => v.artifact.id))];
 
                 await em!.transactional(async (txEm) => {

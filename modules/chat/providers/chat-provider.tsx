@@ -26,7 +26,15 @@ import { useChatStream } from '../hooks/use-chat-stream';
 import type { ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
-import type { ChatState, ChatType, Message, MessageMetadata, PaginationState, StreamBlock, SummaryStatus } from '../types';
+import type {
+    ChatState,
+    ChatType,
+    Message,
+    MessageMetadata,
+    PaginationState,
+    StreamBlock,
+    SummaryStatus,
+} from '../types';
 
 export type BaseChatContextValue = {
     state: ChatState;
@@ -452,13 +460,14 @@ export function ChatProvider({
                 feedbackScore: (m as any).feedback_score ?? null,
                 feedbackComment: (m as any).feedback ?? null,
                 // Only forward display-safe fields — metadata can contain safetyAnalysis, errors, etc.
-                metadata: (meta.preset || meta.inference || meta.usage)
-                    ? {
-                          ...(meta.preset ? { preset: meta.preset as string } : {}),
-                          ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
-                          ...(meta.usage ? { usage: meta.usage } : {}),
-                      } as MessageMetadata
-                    : undefined,
+                metadata:
+                    meta.preset || meta.inference || meta.usage
+                        ? ({
+                              ...(meta.preset ? { preset: meta.preset as string } : {}),
+                              ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
+                              ...(meta.usage ? { usage: meta.usage } : {}),
+                          } as MessageMetadata)
+                        : undefined,
             };
         },
         [],
@@ -553,12 +562,16 @@ export function ChatProvider({
             }
 
             // Extract safe message metadata from done event (preset, inference, usage)
-            const doneMeta = isNormalDone ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined) : undefined;
-            const doneMessageMetadata = doneMeta ? {
-                ...(doneMeta.preset && { preset: doneMeta.preset as string }),
-                ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
-                ...(doneMeta.usage && { usage: doneMeta.usage }),
-            } : undefined;
+            const doneMeta = isNormalDone
+                ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
+                : undefined;
+            const doneMessageMetadata = doneMeta
+                ? {
+                      ...(doneMeta.preset && { preset: doneMeta.preset as string }),
+                      ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
+                      ...(doneMeta.usage && { usage: doneMeta.usage }),
+                  }
+                : undefined;
 
             setState((prev) => ({
                 ...prev,
@@ -578,7 +591,8 @@ export function ChatProvider({
                               status: undefined,
                               ...(status === 'error' && { isError: true }),
                               ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
-                              ...(doneMessageMetadata && Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
+                              ...(doneMessageMetadata &&
+                                  Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
                           }
                         : msg,
                 ),

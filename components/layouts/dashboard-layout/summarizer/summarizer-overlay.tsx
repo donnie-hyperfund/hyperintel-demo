@@ -4,14 +4,13 @@ import { ArrowRight, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { useEasedProgress } from '@/hooks/use-eased-progress';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import type { SummaryStatus } from '@/modules/chat/types';
 import { AnimatedHeadline } from './animated-headline';
 import { CancelSummaryButton } from './cancel-summary-button';
 import { ShimmerProgress } from './shimmer-progress';
 import { ShimmerText } from './shimmer-text';
-import { useEasedProgress } from '@/hooks/use-eased-progress';
-
 
 type SummarizerOverlayProps = {
     open: boolean;
@@ -25,13 +24,12 @@ type SummarizerOverlayProps = {
     onCancel: () => void;
 };
 
-
 const STATUS_HEADLINES: Record<SummaryStatus, string> = {
     'generating-summary': 'Distilling your conversation',
     'creating-completion-brief': 'Drafting the Completion Brief',
     'creating-pecp': 'Preparing the PECP',
     'saving-document': 'Saving your documents',
-    'finalizing': 'Wrapping things up',
+    finalizing: 'Wrapping things up',
 };
 
 const STATUS_SUBTITLES: Record<SummaryStatus, string[]> = {
@@ -56,7 +54,7 @@ const STATUS_SUBTITLES: Record<SummaryStatus, string[]> = {
         'Polishing the final document...',
     ],
     'saving-document': ['Persisting the generated artifacts...'],
-    'finalizing': ['Setting up your next phase...'],
+    finalizing: ['Setting up your next phase...'],
 };
 
 function useRotatingText(texts: string[], intervalMs: number, key: string | null): string {
@@ -64,7 +62,9 @@ function useRotatingText(texts: string[], intervalMs: number, key: string | null
     const textsRef = useRef(texts);
     textsRef.current = texts;
 
-    useEffect(() => { setIndex(0); }, [key]);
+    useEffect(() => {
+        setIndex(0);
+    }, [key]);
 
     useEffect(() => {
         if (textsRef.current.length <= 1) return;
@@ -106,8 +106,7 @@ export function SummarizerOverlay({
     useEffect(() => {
         if (!summaryStatus && !summaryNewChatId) {
             setDisplayStatus(null);
-        }
-        else if (summaryStatus && summaryStatus !== displayStatus) {
+        } else if (summaryStatus && summaryStatus !== displayStatus) {
             const timer = setTimeout(() => setDisplayStatus(summaryStatus), 600);
             return () => clearTimeout(timer);
         }
@@ -129,9 +128,7 @@ export function SummarizerOverlay({
                     className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/70 backdrop-blur-sm"
                 >
                     {/* Cancel button — top right */}
-                    {isSummarizing && !isDone && (
-                        <CancelSummaryButton onConfirm={onCancel} />
-                    )}
+                    {isSummarizing && !isDone && <CancelSummaryButton onConfirm={onCancel} />}
 
                     <div className="flex flex-col items-center gap-4 px-6">
                         <AnimatedHeadline text={title} />
@@ -182,7 +179,6 @@ export function SummarizerOverlay({
                     </div>
                 </motion.div>
             )}
-
         </AnimatePresence>
     );
 }
@@ -224,9 +220,7 @@ function FooterContent({ showError, isDone, displayStatus, onRetry }: FooterCont
             className="flex items-center gap-2.5 text-muted-foreground"
         >
             <Loader2 className="size-4 animate-spin" />
-            <span className="text-sm">
-                {displayStatus ? STATUS_HEADLINES[displayStatus] + '...' : 'Preparing...'}
-            </span>
+            <span className="text-sm">{displayStatus ? STATUS_HEADLINES[displayStatus] + '...' : 'Preparing...'}</span>
         </motion.div>
     );
 }

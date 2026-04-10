@@ -3,8 +3,8 @@
 import { Building2, Layers } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { NextPhaseButton } from '@/components/layouts/dashboard-layout/summarizer/next-phase-button';
 import { PhasePicker } from '@/components/layouts/dashboard-layout/phase-picker';
+import { NextPhaseButton } from '@/components/layouts/dashboard-layout/summarizer/next-phase-button';
 import {
     Breadcrumb,
     BreadcrumbItem,
@@ -15,10 +15,10 @@ import {
 import { IconButton } from '@/components/ui/icon-button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
 import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
 
 export const PhaseHeader = () => {
     const { 'project-id': projectId } = useParams<PageParams<'/[project-id]'>>();

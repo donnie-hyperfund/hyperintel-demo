@@ -12,7 +12,9 @@ export function useEasedProgress(value: number, key?: string | null): number {
 
     peakRef.current = Math.max(peakRef.current, value);
 
-    useEffect(() => { peakRef.current = 0; }, [key]);
+    useEffect(() => {
+        peakRef.current = 0;
+    }, [key]);
 
     if (peakRef.current <= 0) return 0;
     const t = peakRef.current / 100;

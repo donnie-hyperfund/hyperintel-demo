@@ -25,7 +25,12 @@ export function AnimatedHeadline({ text }: { text: string }) {
                         className="inline-block mr-[0.3em]"
                         variants={{
                             hidden: { opacity: 0, y: 14, filter: 'blur(6px)' },
-                            visible: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.35, ease: 'easeOut' } },
+                            visible: {
+                                opacity: 1,
+                                y: 0,
+                                filter: 'blur(0px)',
+                                transition: { duration: 0.35, ease: 'easeOut' },
+                            },
                         }}
                     >
                         {word}
