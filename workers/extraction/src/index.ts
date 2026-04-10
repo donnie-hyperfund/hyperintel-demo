@@ -51,7 +51,7 @@ function resolveFiletype(mimeType: string, originalName: string): Filetype | nul
 // EXTRACTION LOGIC
 // ============================================================================
 
-interface ExtractionContext {
+export interface ExtractionContext {
     env: Env;
     em: EntityManager;
     reducto?: Reducto;
@@ -257,7 +257,7 @@ export async function processChunksWithImages(
 // ============================================================================
 
 // biome-ignore lint/suspicious/useAwait: delegates to async processExtraction
-async function processMessage(
+export async function processMessage(
     message: ExtractionQueueMessage,
     ctx: ExtractionContext,
     logPrefix: string,

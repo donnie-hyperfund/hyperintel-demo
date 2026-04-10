@@ -22,7 +22,7 @@ import { waitUntil } from '@vercel/functions';
 import { Langfuse } from 'langfuse';
 import type postgres from 'postgres';
 import { assertClerkAuth } from '@/lib/api/auth-guard';
-import { ensureDevWsServer, envSecretMocks } from '@/lib/local/cf-env-secret-mock';
+import { ensureDevWsServer, workerEnv } from '@/lib/local/cf-env-secret-mock';
 import { getOrm } from '@/lib/orm';
 import type { ClerkUser } from '@/lib/types/clerk';
 import { anthropic } from '@/lib/vendor/anthropic';
@@ -42,7 +42,7 @@ const projectDeps = {
     anthropic,
     orouter,
     orouterSdk,
-    envSecretMocks,
+    envSecretMocks: workerEnv,
     // Worker Ctx compatibility - these satisfy the type even if unused
     clerk: createClerkClient({
         secretKey: process.env.CLERK_SECRET_KEY!,

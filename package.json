@@ -28,6 +28,7 @@
         "db:compile": "pnpm run db:compile-metadata && pnpm run db:compile-jit",
         "db:gen-entity": "npx mikro-orm generate-entities --save --path=lib/orm/entities/gen/ --schema=public -- ",
         "gen:workers": "npx tsx workers/_common/config/generate.ts",
+        "build:extract-wasm": "cd workers/extract-rust/tester && wasm-pack build --target nodejs",
         "dump:prompts": "tsx tools/dump-langfuse-prompts.ts",
         "test:clean-errors": "tsx tools/clean-test-errors.ts",
         "test": "vitest --project app-unit --project app-e2e --project common --project workers-* --project workers_common",
