@@ -6,6 +6,7 @@ export type DocumentDirective = {
     version?: number;
     action?: string;
     lines?: number;
+    ref?: boolean;
     status?: 'proposed' | 'approved' | 'rejected' | 'superseded';
 };
 
@@ -21,6 +22,7 @@ export function parseDocumentDirectives(text: string): DocumentDirective[] {
         const attrs = Object.fromEntries(
             match[2].split(' ').map((p) => {
                 const [k, v] = p.split('=');
+                if (v === undefined) return [k, true];
                 return [k, isNaN(+v) ? v : +v];
             }),
         );
@@ -57,6 +59,7 @@ export function splitByDocumentDirectives(text: string): ContentSegment[] {
         const attrs = Object.fromEntries(
             match[2].split(' ').map((p) => {
                 const [k, v] = p.split('=');
+                if (v === undefined) return [k, true];
                 return [k, isNaN(+v) ? v : +v];
             }),
         );
