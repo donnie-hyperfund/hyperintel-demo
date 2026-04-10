@@ -3,6 +3,7 @@ import { ArtifactIndicator } from '../../artifact-indicator';
 
 export const DocumentDirective: DirectiveHandler = ({ type, label, attributes, children }) => {
     const version = Number(attributes.version);
+    const isReference = 'ref' in attributes;
 
     if (type === 'container') {
         return (
@@ -11,6 +12,7 @@ export const DocumentDirective: DirectiveHandler = ({ type, label, attributes, c
                     documentName={label}
                     documentVersion={version}
                     documentType={attributes['document-type']}
+                    isReference={isReference}
                 />
                 {children}
             </div>
@@ -18,6 +20,11 @@ export const DocumentDirective: DirectiveHandler = ({ type, label, attributes, c
     }
 
     return (
-        <ArtifactIndicator documentName={label} documentVersion={version} documentType={attributes['document-type']} />
+        <ArtifactIndicator
+            documentName={label}
+            documentVersion={version}
+            documentType={attributes['document-type']}
+            isReference={isReference}
+        />
     );
 };
