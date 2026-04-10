@@ -26,7 +26,7 @@ import { useChatStream } from '../hooks/use-chat-stream';
 import type { ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
-import type { ChatState, ChatType, Message, MessageMetadata, PaginationState, StreamBlock } from '../types';
+import type { ChatState, ChatType, Message, MessageMetadata, PaginationState, StreamBlock, SummaryStatus } from '../types';
 
 export type BaseChatContextValue = {
     state: ChatState;
@@ -186,6 +186,7 @@ export function ChatProvider({
             pendingPhaseTransition: false,
             activeResponseId: null,
             summaryDocKey: null,
+            summaryStatus: null,
             isProcessingArtifactAction: false,
             showInvalidModelAlert: false,
         };
@@ -470,6 +471,7 @@ export function ChatProvider({
                     isSummarizing: true,
                     summaryNewChatId: null,
                     summaryDocKey: null,
+                    summaryStatus: null,
                 }));
             } else {
                 // Normal chat response — reconcile user message ID and set generating state
@@ -536,6 +538,7 @@ export function ChatProvider({
                     ...prev,
                     isSummarizing: false,
                     summaryNewChatId: newChatId,
+                    summaryStatus: null,
                 }));
                 return;
             }
@@ -846,6 +849,15 @@ export function ChatProvider({
         }
     }, [stream.streamType, stream.activeDocuments]);
 
+    // Sync summary stream displayStatus to state (never clears — handleStreamDone resets).
+    useEffect(() => {
+        if (stream.streamType !== 'summary') return;
+        const status = stream.displayStatus as SummaryStatus | null;
+        if (status) {
+            setState((prev) => (prev.summaryStatus === status ? prev : { ...prev, summaryStatus: status }));
+        }
+    }, [stream.streamType, stream.displayStatus]);
+
     // ========================================================================
     // MESSAGE LOADING
     // ========================================================================
@@ -1124,6 +1136,7 @@ export function ChatProvider({
             setState((prev) => ({
                 ...prev,
                 isSummarizing: false,
+                summaryStatus: null,
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }

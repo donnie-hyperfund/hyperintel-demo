@@ -3,7 +3,7 @@
 import { Building2, Layers } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { NextPhaseButton } from '@/components/layouts/dashboard-layout/next-phase-button';
+import { NextPhaseButton } from '@/components/layouts/dashboard-layout/summarizer/next-phase-button';
 import { PhasePicker } from '@/components/layouts/dashboard-layout/phase-picker';
 import {
     Breadcrumb,
@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
 
 export const PhaseHeader = () => {
     const { 'project-id': projectId } = useParams<PageParams<'/[project-id]'>>();
@@ -25,6 +26,9 @@ export const PhaseHeader = () => {
     const { chatId, state } = useChatContext();
     const { data: project } = useFetchProject(projectId);
     const { panelState, togglePanel } = useActivePanelContext();
+
+    const { breakpoint } = useBreakpoint();
+    const isMdViewportOrSmaller = !isAboveBreakpoint(breakpoint, 'md');
 
     return (
         <header className="border-b border-border max-sm:sticky max-sm:top-0 max-sm:left-0 max-sm:right-0 max-sm:z-10 bg-neutral-975">
@@ -37,7 +41,7 @@ export const PhaseHeader = () => {
                         chatId={chatId ?? undefined}
                         phaseIndex={state.phaseIndex}
                     />
-                    <NextPhaseButton />
+                    {!isMdViewportOrSmaller && <NextPhaseButton />}
                 </div>
                 <div className="ml-auto">
                     <PanelButtons panelState={panelState} togglePanel={togglePanel} />
@@ -53,7 +57,7 @@ export const PhaseHeader = () => {
                         <TooltipContent>Toggle sidebar</TooltipContent>
                     </Tooltip>
                     <div className="ml-auto flex items-center gap-2">
-                        <NextPhaseButton />
+                        {isMdViewportOrSmaller && <NextPhaseButton />}
                         <PanelButtons panelState={panelState} togglePanel={togglePanel} />
                     </div>
                 </div>

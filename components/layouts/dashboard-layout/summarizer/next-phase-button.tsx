@@ -3,11 +3,10 @@
 import { ArrowRight } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { PhaseTransitionDialogContent } from './phase-transition-dialog-content';
+import { SummarizerOverlay } from './summarizer-overlay';
 
 export function NextPhaseButton() {
     const { projectId, summarizeChat, navigateToNewPhase, clearPendingPhaseTransition, state } =
@@ -102,33 +101,16 @@ export function NextPhaseButton() {
                 </Button>
             )}
 
-            <Dialog
+            <SummarizerOverlay
                 open={dialogOpen}
-                onOpenChange={(open) => {
-                    if (!open && isLocked) return;
-                    setDialogOpen(open);
-                }}
-            >
-                <DialogContent
-                    className="outline-none"
-                    showCloseButton={!isLocked}
-                    onPointerDownOutside={(e) => {
-                        if (isLocked) e.preventDefault();
-                    }}
-                    onEscapeKeyDown={(e) => {
-                        if (isLocked) e.preventDefault();
-                    }}
-                >
-                    <PhaseTransitionDialogContent
-                        isSummarizing={state.isSummarizing}
-                        summaryDocKey={state.summaryDocKey}
-                        summaryNewChatId={state.summaryNewChatId}
-                        error={state.error}
-                        onRetry={handleClick}
-                        onGoToNextPhase={handleGoToNextPhase}
-                    />
-                </DialogContent>
-            </Dialog>
+                isSummarizing={state.isSummarizing}
+                summaryDocKey={state.summaryDocKey}
+                summaryNewChatId={state.summaryNewChatId}
+                summaryStatus={state.summaryStatus}
+                error={state.error}
+                onRetry={handleClick}
+                onGoToNextPhase={handleGoToNextPhase}
+            />
         </>
     );
 }

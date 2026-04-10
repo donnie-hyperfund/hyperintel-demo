@@ -330,14 +330,36 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
 
         const fireAndForgetPush = pusher.push;
 
+        /** Push a status_update event to the stream DO */
+        const pushStatus = (status: string) => {
+            fireAndForgetPush([{ type: 'status_update', status } as StreamEvent]);
+        };
+
         // Document events queue — batched into the main push instead of separate RPCs
         const pendingDocEvents: StreamEvent[] = [];
         const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) => {
             pendingDocEvents.push(docEvent as StreamEvent);
         });
 
+        // Emit initial status before the stream loop starts
+        pushStatus('generating-summary');
+
+        // Track document creation count for status messages
+        let beginDocumentCount = 0;
+
         // Stream loop  push standard StreamEvent[] to ChatStream DO
         for await (const event of stream) {
+            // Emit granular status updates based on tool events
+            if (event.type === 'tool_start') {
+                const toolName = (event as any).tool ?? (event as any).name;
+                if (toolName === 'begin_document') {
+                    beginDocumentCount++;
+                    pushStatus(beginDocumentCount === 1 ? 'creating-completion-brief' : 'creating-pecp');
+                } else if (toolName === 'finalize_document') {
+                    pushStatus('saving-document');
+                }
+            }
+
             // Force non-PECP summarizer documents to be internal Completion Briefs
             if (event.type === 'tool_result' && (event as any).tool === 'begin_document' && event.success) {
                 const draft = agentCtx.draftManager.getCurrent();
@@ -371,6 +393,9 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         }
 
         await historyPromise;
+
+        // Emit finalizing status before DB persistence
+        pushStatus('finalizing');
 
         // Auto-approve completion briefs (no user approval needed)
         for (const versionId of createdVersionIds) {
