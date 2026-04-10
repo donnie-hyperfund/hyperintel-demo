@@ -54,6 +54,12 @@ export function LinkResourceDialog() {
         setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
     }, []);
 
+    function getImportButtonLabel() {
+        if (isImporting) return 'Adding...';
+        if (selectedIds.length > 0) return `Add ${selectedIds.length} to Project Intel`;
+        return 'Add Project Intel';
+    }
+
     const handleImport = useCallback(async () => {
         if (selectedIds.length === 0) return;
         setIsImporting(true);
@@ -172,16 +178,8 @@ export function LinkResourceDialog() {
                             disabled={selectedIds.length === 0 || isImporting}
                             className="w-full sm:w-auto"
                         >
-                            {isImporting ? (
-                                <>
-                                    <Loader2 className="size-4 animate-spin" />
-                                    Adding...
-                                </>
-                            ) : selectedIds.length > 0 ? (
-                                `Add ${selectedIds.length} to Project Intel`
-                            ) : (
-                                'Add Project Intel'
-                            )}
+                            {isImporting && <Loader2 className="size-4 animate-spin" />}
+                            {getImportButtonLabel()}
                         </Button>
                     </div>
                 </DialogFooter>
