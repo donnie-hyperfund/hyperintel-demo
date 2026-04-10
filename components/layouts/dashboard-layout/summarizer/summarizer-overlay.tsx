@@ -2,7 +2,7 @@
 
 import { ArrowRight, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import type { SummaryStatus } from '@/modules/chat/types';
@@ -34,31 +34,53 @@ const STATUS_HEADLINES: Record<SummaryStatus, string> = {
     'finalizing': 'Wrapping things up',
 };
 
-const STATUS_SUBTITLES: Record<SummaryStatus, string> = {
-    'generating-summary': 'Reading through everything that was discussed...',
-    'creating-completion-brief': 'Capturing key decisions and outcomes...',
-    'creating-pecp': 'Summarizing for PE stakeholders...',
-    'saving-document': 'Persisting the generated artifacts...',
-    'finalizing': 'Setting up your next phase...',
+const STATUS_SUBTITLES: Record<SummaryStatus, string[]> = {
+    'generating-summary': [
+        'Reading through everything that was discussed...',
+        'Identifying key themes and decisions...',
+        'Extracting the most important takeaways...',
+        'Piecing together the full picture...',
+        'Almost done reading through the conversation...',
+    ],
+    'creating-completion-brief': [
+        'Capturing key decisions and outcomes...',
+        'Structuring the brief for the next phase...',
+        'Documenting action items and next steps...',
+        'Compiling the highlights into a brief...',
+    ],
+    'creating-pecp': [
+        'Summarizing for PE stakeholders...',
+        'Translating findings into stakeholder language...',
+        'Highlighting what matters most for PE...',
+        'Preparing the external communication...',
+        'Polishing the final document...',
+    ],
+    'saving-document': ['Persisting the generated artifacts...'],
+    'finalizing': ['Setting up your next phase...'],
 };
 
-function getStatusText(status: SummaryStatus | null, isDone: boolean): { title: string; subtitle: string | null } {
-    if (isDone) {
-        return {
-            title: 'Ready for the next phase',
-            subtitle: null,
-        };
-    }
-    if (status) {
-        return {
-            title: STATUS_HEADLINES[status],
-            subtitle: STATUS_SUBTITLES[status],
-        };
-    }
-    return {
-        title: 'Preparing next phase',
-        subtitle: 'Starting up...',
-    };
+function useRotatingText(texts: string[], intervalMs: number, key: string | null): string {
+    const [index, setIndex] = useState(0);
+    const textsRef = useRef(texts);
+    textsRef.current = texts;
+
+    useEffect(() => { setIndex(0); }, [key]);
+
+    useEffect(() => {
+        if (textsRef.current.length <= 1) return;
+        const timer = setInterval(() => {
+            setIndex((prev) => (prev + 1) % textsRef.current.length);
+        }, intervalMs);
+        return () => clearInterval(timer);
+    }, [intervalMs, key]);
+
+    return texts[index % texts.length];
+}
+
+function getStatusTitle(status: SummaryStatus | null, isDone: boolean): string {
+    if (isDone) return 'Ready for the next phase';
+    if (status) return STATUS_HEADLINES[status];
+    return 'Preparing next phase';
 }
 
 export function SummarizerOverlay({
@@ -91,7 +113,10 @@ export function SummarizerOverlay({
         }
     }, [summaryStatus, summaryNewChatId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const { title, subtitle } = getStatusText(displayStatus, isDone);
+    const title = getStatusTitle(displayStatus, isDone);
+    const subtitleTexts = displayStatus ? STATUS_SUBTITLES[displayStatus] : ['Starting up...'];
+    const rotatingSubtitle = useRotatingText(subtitleTexts, 8000, displayStatus);
+    const subtitle = isDone ? null : rotatingSubtitle;
 
     return (
         <AnimatePresence>
