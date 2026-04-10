@@ -4,8 +4,8 @@ import { ZoomIn } from 'lucide-react';
 import { useState } from 'react';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { ImageLightbox, ImageLightboxContent, ImageLightboxTrigger } from '@/components/ui/image-lightbox';
-import { formatFileSize } from '@/lib/files';
 import { getImageUrl } from '@/lib/api/requests/worker/chat';
+import { formatFileSize } from '@/lib/files';
 
 const MAX_PREVIEW_W = 288;
 const MAX_PREVIEW_H = 288;
