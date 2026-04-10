@@ -242,6 +242,7 @@ const ReadDocumentParams = z.object({
 
 const ListDocumentsParams = z.object({
     search: z.string().optional().nullable().describe('Optional filter by name/title substring.'),
+    silent: z.boolean().optional().nullable().describe('If true, suppresses document cards in the UI. Use when checking documents internally (e.g. before editing). Default: false.'),
 });
 
 const ApproveDocumentParams = z.object({
@@ -855,33 +856,39 @@ Shows for each document:
 - latestStatus: Status of the latest version (proposed/approved/rejected/superseded)
 - hasProposed: Whether there's a proposed version awaiting approval
 
-IMPORTANT: Document cards are automatically rendered in the UI from this tool's output. Do NOT repeat, list, or summarize individual documents in your text response (no tables, no bullet lists of documents). Just provide a brief commentary or answer the user's question.`,
+IMPORTANT: Document cards are automatically rendered in the UI from this tool's output. Do NOT repeat, list, or summarize individual documents in your text response (no tables, no bullet lists of documents). Just provide a brief commentary or answer the user's question.
+
+Use \`silent: true\` when you need to check documents internally (e.g. before editing, verifying status) without showing cards to the user.`,
             parameters: ListDocumentsParams,
             executor: async (input: z.infer<typeof ListDocumentsParams>, ctx: DocumentToolsContext) => {
-                const { search } = input;
+                const { search, silent } = input;
                 const { em } = ctx;
                 const scope = getScope(ctx);
 
                 const documents = await listDocumentsDb(em, scope, search ? { search } : undefined);
+
+                const mapped = documents.map((d: DocumentListItem) => ({
+                    name: d.name,
+                    title: d.title,
+                    lines: d.lines,
+                    documentType: d.documentType,
+                    currentVersion: d.currentVersion,
+                    latestVersion: d.latestVersion,
+                    latestStatus: d.latestStatus,
+                    hasProposed: d.hasProposed,
+                    ...(d.isReadOnly && { isReadOnly: true }),
+                }));
+
+                if (silent) {
+                    return { documents: mapped };
+                }
 
                 const directives = documents
                     .map((d: DocumentListItem) => `::document[${d.name}]{version=${d.latestVersion} lines=${d.lines} documentType="${d.documentType}" ref}`)
                     .join('\n');
 
                 return {
-                    result: {
-                        documents: documents.map((d: DocumentListItem) => ({
-                            name: d.name,
-                            title: d.title,
-                            lines: d.lines,
-                            documentType: d.documentType,
-                            currentVersion: d.currentVersion,
-                            latestVersion: d.latestVersion,
-                            latestStatus: d.latestStatus,
-                            hasProposed: d.hasProposed,
-                            ...(d.isReadOnly && { isReadOnly: true }),
-                        })),
-                    },
+                    result: { documents: mapped },
                     appendedOutput: directives,
                 };
             },

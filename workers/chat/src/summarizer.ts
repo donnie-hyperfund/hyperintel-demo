@@ -377,17 +377,6 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             await approveVersion(em!, versionId);
         }
 
-        // Build document directives to append to summary content
-        const allProjectDocs = await listDocuments(em!, { projectId: chat.project!.id });
-        const nonPecpDocs = allProjectDocs.filter((d) => d.documentType !== 'PECP');
-        const docDirectives = nonPecpDocs
-            .map((d) => `::document[${d.name}]{version=${d.latestVersion} lines=${d.lines} documentType="${d.documentType}" ref}`)
-            .join('\n');
-
-        const finalSummaryContent = docDirectives
-            ? `${summaryContent}\n\n${docDirectives}`
-            : summaryContent;
-
         // TODO: Can't use chat.phase_index + 1 because historical chats can trigger summarization too.
         // Once we block message sending on non-latest chats, switch to phase_index-based calculation.
         const newChat = em!.create(ChatEntity, {
@@ -405,7 +394,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const summaryMessage = em!.create(ChatMessageEntity, {
             chat: newChat,
             role: 'assistant',
-            content: SUMMARY_PREFIX + finalSummaryContent,
+            content: SUMMARY_PREFIX + summaryContent,
         });
         em!.persist(summaryMessage);
 
