@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { ImageLightbox, ImageLightboxContent, ImageLightboxTrigger } from '@/components/ui/image-lightbox';
 import { formatFileSize } from '@/lib/files';
+import { getImageUrl } from '@/lib/api/requests/worker/chat';
 
 const MAX_PREVIEW_W = 288;
 const MAX_PREVIEW_H = 288;
@@ -25,7 +26,7 @@ type ImagePreviewProps = {
 
 export function ImagePreview({ label, fileId, size, width, height }: ImagePreviewProps) {
     const [failed, setFailed] = useState(false);
-    const src = `/api/chat/images/${fileId}`;
+    const src = getImageUrl(fileId);
     const dims = getPreviewDimensions(width, height);
 
     if (failed) {
