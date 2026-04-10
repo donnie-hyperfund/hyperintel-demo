@@ -13,6 +13,7 @@ const iconButtonVariants = cva(
                 light: 'hover:bg-accent/50 text-neutral-400 hover:text-neutral-100',
             },
             size: {
+                lg: 'size-10 [&_svg]:size-5',
                 default: 'size-9 [&_svg]:size-4',
                 sm: 'size-8 [&_svg]:size-4',
                 xs: 'size-7 [&_svg]:size-4',

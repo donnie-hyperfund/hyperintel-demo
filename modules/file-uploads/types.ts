@@ -16,4 +16,7 @@ export type FileEntry = {
     presignData?: PresignUploadResponseDto;
     /** Set when the upload is a chat image (not an artifact). */
     imageFileId?: string;
+    /** Natural dimensions of an uploaded image (resolved from the File blob). */
+    imageWidth?: number;
+    imageHeight?: number;
 };

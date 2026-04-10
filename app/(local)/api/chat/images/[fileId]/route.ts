@@ -19,7 +19,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ fileId:
 
     const chat = await em.findOne(ChatEntity, {
         id: file.chat_id,
-        $or: [{ project: { user: { clerkId: user.userId } } }, { user: { clerkId: user.userId } }],
+        $or: [{ project: { user: { clerkId: user.clerkId } } }, { user: { clerkId: user.clerkId } }],
     });
     if (!chat) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 

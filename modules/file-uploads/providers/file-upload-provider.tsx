@@ -23,6 +23,7 @@ import {
 } from '@/lib/schema/artifact';
 import type { ProjectResourceUploadUpdatedPayload } from '@/lib/schema/user-events';
 import { getUploadStorageKey } from '@/lib/storage/storage-keys';
+import { resolveImageDimensions } from '@/modules/file-uploads/utils/resolve-image-dimensions';
 import { useCrossTabUploadSync } from '../hooks/use-cross-tab-upload-sync';
 import { useProjectResourceUploadSync } from '../hooks/use-project-resource-upload-sync';
 import { usePendingUploads } from '../providers/pending-uploads-provider';
@@ -431,6 +432,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
                     // Image upload — separate flow, no artifact/document pipeline
                     const chatId = scope?.chatId ?? (ensureChatId ? await ensureChatId() : undefined);
                     if (!chatId) throw new Error('Chat ID required for image uploads');
+
+                    // Resolve natural dimensions so the chat can reserve space before the image loads
+                    resolveImageDimensions(file).then((dims) => {
+                        if (dims) updateEntry(entryId, { imageWidth: dims.width, imageHeight: dims.height });
+                    });
 
                     const presignRes = await presignImageUpload(
                         { filename: file.name, fileSize: file.size, chatId },
