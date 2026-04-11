@@ -297,7 +297,7 @@ app.get('/artifact-image/*', async (c) => {
     const key = c.req.path.replace('/artifact-image/', '');
     if (!key) return c.json({ error: 'Missing key' }, 404);
 
-    // Key pattern: uploads/{project|chat}/{id}/{versionId}/images/{filename}
+    // Key pattern: uploads/{project|chat}/{id}/{artifactId}/images/{filename}
     const parts = key.split('/');
     if (parts.length !== 6 || parts[0] !== 'uploads' || parts[4] !== 'images' || !parts[5]) {
         return c.json({ error: 'Invalid artifact image key' }, 404);
@@ -305,11 +305,11 @@ app.get('/artifact-image/*', async (c) => {
 
     const scopeType = parts[1]; // 'project' or 'chat'
     const scopeId = parts[2];
-    const versionId = parts[3];
+    const artifactId = parts[3];
     const em = c.var.em!;
     const clerkId = c.var.user.userId;
 
-    if (!UuidSchema.safeParse(scopeId).success || !UuidSchema.safeParse(versionId).success) {
+    if (!UuidSchema.safeParse(scopeId).success || !UuidSchema.safeParse(artifactId).success) {
         return c.json({ error: 'Invalid artifact image key' }, 404);
     }
 

@@ -438,6 +438,7 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
             await extractionQueue.send({
                 type: 'extract_file_content',
                 fileId: artifactFile.id,
+                artifactId: version.artifact.id,
                 versionId,
                 storageKey: artifactFile.storage_key,
                 originalName: artifactFile.original_name,

@@ -3,6 +3,8 @@ import { embedTexts } from '@common/ai/embeddings';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type OpenAI from 'openai';
 import { z } from 'zod';
+import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
+import { extractArtifactImageRefs } from '@/lib/markdown/artifact-images';
 import type { Ctx } from '../context';
 
 /** Escape string for PostgreSQL - prevents SQL injection */
@@ -112,9 +114,17 @@ function formatSearchResults(results: SearchResult[]): string {
     return parts.join('\n\n---\n\n');
 }
 
+/** Toggle default for includeImages param — flip to false if image hydration complicates guidance. */
+export const SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT = true;
+
 const SearchKnowledgeParams = z.object({
     query: z.string().describe('Natural language query to search for in project documents'),
     limit: z.number().int().min(1).max(20).default(5).describe('Maximum number of results'),
+    includeImages: z
+        .boolean()
+        .optional()
+        .default(SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT)
+        .describe(`Include embedded images in results. Default: ${SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT}.`),
 });
 
 export const KnowledgeSearchToolGroup: AgentToolGroup = {
@@ -133,7 +143,10 @@ export const KnowledgeSearchToolGroup: AgentToolGroup = {
 1. First use \`search_knowledge\` with a relevant query to find it by content similarity.
 2. If no relevant results, use \`list_documents\` to browse all available documents and find the correct name.
 3. Then use \`read_document\` with the exact name to view the full content.
-Never guess document names — always discover them via search or listing first.`,
+Never guess document names — always discover them via search or listing first.
+${SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT
+        ? '\nsearch_knowledge includes embedded images by default. Set `includeImages: false` for text-only results.'
+        : '\nsearch_knowledge is text-only by default. Use `read_document` if embedded images matter.'}`,
     tools: ['search_knowledge', 'list_documents'],
 };
 
@@ -142,13 +155,13 @@ export function createKnowledgeTools() {
         {
             name: 'search_knowledge' as const,
             description:
-                'Search knowledge base using semantic similarity. Use this to find relevant information from previously created or uploaded documents and artifacts. MUST be called at the start of every new conversation/phase/stage to gather context.',
+                'Search knowledge base using semantic similarity. Use this to find relevant information from previously created or uploaded documents and artifacts. MUST be called at the start of every new conversation/phase/stage to gather context. Results may include images from documents. Set includeImages: false for text-only search.',
             parameters: SearchKnowledgeParams,
             executor: async (
-                input: { query: string; limit?: number },
+                input: { query: string; limit?: number; includeImages?: boolean },
                 ctx: KnowledgeSearchContext,
                 eCtx?: Ctx,
-            ): Promise<string> => {
+            ) => {
                 if (!eCtx?.openai) {
                     return 'Semantic search is not available - OpenAI client not configured.';
                 }
@@ -157,12 +170,36 @@ export function createKnowledgeTools() {
                     return 'No search scope available — neither project nor chat context set.';
                 }
 
-                const { query, limit = 5 } = input;
+                const { query, limit = 5, includeImages = SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT } = input;
                 const scope: SearchScope = { projectId: ctx.projectId, chatId: ctx.chatId };
 
                 const results = await searchKnowledge(query, scope, eCtx.openai, ctx.em, limit, 0.3);
+                const formatted = formatSearchResults(results);
 
-                return formatSearchResults(results);
+                // Image hydration path
+                if (includeImages && eCtx) {
+                    const hydrated = await hydrateArtifactImages(formatted, eCtx.env, {
+                        projectId: ctx.projectId,
+                        chatId: ctx.chatId,
+                    });
+                    if (hydrated) {
+                        return {
+                            result: formatted,
+                            imageRefs: hydrated.imageRefs,
+                            contentParts: hydrated.contentParts,
+                        };
+                    }
+                }
+
+                // Hint when images exist but hydration is off
+                if (!includeImages) {
+                    const refs = extractArtifactImageRefs(formatted);
+                    if (refs.length > 0) {
+                        return `${formatted}\n\n> Note: Some matches contain \`artifact-image://\` references to document images. \`read_document\` can load them if needed.`;
+                    }
+                }
+
+                return formatted;
             },
         },
     ] as const;

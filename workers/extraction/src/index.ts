@@ -274,7 +274,7 @@ async function processExtraction(
     ctx: ExtractionContext,
     logPrefix: string,
 ): Promise<{ success: boolean; error?: string }> {
-    const { fileId, versionId, storageKey, originalName, mimeType, projectId, chatId } = message;
+    const { fileId, artifactId, versionId, storageKey, originalName, mimeType, projectId, chatId } = message;
 
     console.log(`${logPrefix} Extracting ${originalName} (${mimeType}) from ${storageKey}`);
 
@@ -299,7 +299,9 @@ async function processExtraction(
 
     // 3. Extract via Rust worker (v2 with embedded images + text detection)
     const MIN_CONTENT_LENGTH = 50;
-    const imageStoragePrefix = `${storageKey.substring(0, storageKey.lastIndexOf('/'))}/images`;
+    // Image prefix is artifact-scoped (not version-scoped) — cleanup deletes the whole artifact prefix.
+    const scope = projectId ? `project/${projectId}` : chatId ? `chat/${chatId}` : 'staged';
+    const imageStoragePrefix = `uploads/${scope}/${artifactId}/images`;
     let markdown: string;
     try {
         const rustResult = await extractDocument(fileBytes, filetype, ctx.env);

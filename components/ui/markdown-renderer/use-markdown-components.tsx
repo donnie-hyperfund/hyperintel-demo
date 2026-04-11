@@ -1,6 +1,6 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@radix-ui/react-tooltip';
 import { ExternalLink, Info, Loader2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Components } from 'react-markdown';
 import { getWorkerUrl } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
@@ -15,6 +15,31 @@ function resolveArtifactImageSrc(src: string): string {
         return getWorkerUrl(WORKERS.Chat, `${CHAT_EP.ArtifactImageServe}/${key}`);
     }
     return `${WORKERS_LOCAL_ENDPOINTS.ArtifactImageServe}/${key}`;
+}
+
+function MarkdownImage({ src, alt, className, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+    const [broken, setBroken] = useState(false);
+    const resolvedSrc = typeof src === 'string' && src.startsWith(ARTIFACT_IMAGE_PROTOCOL)
+        ? resolveArtifactImageSrc(src)
+        : src;
+
+    useEffect(() => {
+        setBroken(false);
+    }, [resolvedSrc]);
+
+    if (broken) {
+        return <span className="text-muted-foreground italic text-sm">[Image could not be loaded]</span>;
+    }
+
+    return (
+        <img
+            src={resolvedSrc}
+            alt={alt ?? ''}
+            {...props}
+            className={cn('aspect-square object-cover max-w-[300px] rounded-lg w-full', className)}
+            onError={() => setBroken(true)}
+        />
+    );
 }
 
 type UseMarkdownComponentsParams = {
@@ -68,22 +93,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                 );
             },
             // TODO: Add separate styles for logo images and remove the square aspect ratio
-            img: ({ src, alt, className, ...props }) => {
-                const resolvedSrc = typeof src === 'string' && src.startsWith(ARTIFACT_IMAGE_PROTOCOL)
-                    ? resolveArtifactImageSrc(src)
-                    : src;
-                return (
-                    <img
-                        src={resolvedSrc}
-                        alt={alt ?? ''}
-                        {...props}
-                        className={cn('aspect-square object-cover max-w-[300px] rounded-lg w-full', className)}
-                        onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                        }}
-                    />
-                );
-            },
+            img: MarkdownImage,
             li: ({ children, id, ...props }) => {
                 if (id) {
                     id = `_${randId}__${id}`;

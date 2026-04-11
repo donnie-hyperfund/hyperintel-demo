@@ -12,7 +12,11 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { clearDatabase, closeTestOrm, getTestEm } from '@/tests/helpers/db';
 import type { EntityManager } from '@mikro-orm/postgresql';
-import { INTERLEAVE_ARTIFACT_IMAGE_CONTENT_PARTS } from '@/lib/markdown/artifact-images';
+import {
+	buildArtifactImageContentParts,
+	extractArtifactImageRefs,
+	INTERLEAVE_ARTIFACT_IMAGE_CONTENT_PARTS,
+} from '@/lib/markdown/artifact-images';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -26,14 +30,24 @@ import type { Ctx } from '../../context';
 // ============================================================================
 
 vi.mock('@/lib/artifacts/artifact-images', () => ({
-	signArtifactImageKeys: vi.fn(async (_env: unknown, keys: string[]) => {
-		const map = new Map<string, string>();
-		for (const key of keys) {
-			map.set(key, `https://r2-signed.test/${key}?token=fake`);
+	hydrateArtifactImages: vi.fn(async (text: string) => {
+		const refs = extractArtifactImageRefs(text);
+		if (refs.length === 0) return null;
+
+		const signedUrls = new Map<string, string>();
+		for (const ref of refs) {
+			signedUrls.set(ref.key, `https://r2-signed.test/${ref.key}?token=fake`);
 		}
-		return map;
+
+		return {
+			text,
+			imageRefs: refs.map((ref) => `artifact-image://${ref.key}`),
+			contentParts: buildArtifactImageContentParts(text, signedUrls),
+		};
 	}),
 }));
+
+import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 
 // ============================================================================
 // HELPERS
@@ -77,7 +91,13 @@ function getReadDocumentExecutor() {
 	const tools = createDocumentTools();
 	const readTool = tools.find((t) => t.name === 'read_document')!;
 	return readTool.executor as (
-		input: { name: string; version: 'approved' | 'proposed' | 'latest'; startLine?: number | null; endLine?: number | null },
+		input: {
+			name: string;
+			version: 'approved' | 'proposed' | 'latest';
+			startLine?: number | null;
+			endLine?: number | null;
+			skipImages?: boolean;
+		},
 		ctx: DocumentToolsContext,
 		rCtx?: Ctx,
 	) => Promise<any>;
@@ -108,6 +128,7 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 	});
 
 	beforeEach(async () => {
+		vi.clearAllMocks();
 		await clearDatabase();
 		draftManager = new DraftManager();
 
@@ -235,6 +256,22 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 			});
 			expect(result.contentParts[2].url).toContain('flow.jpg');
 		}
+	});
+
+	it('returns plain response when skipImages is true', async () => {
+		await seedDocument('skip-images-report.md', MD_WITH_IMAGES);
+
+		const executor = getReadDocumentExecutor();
+		const result = await executor(
+			{ name: 'skip-images-report.md', version: 'latest', skipImages: true },
+			makeDocCtx(),
+			fakeCtx,
+		);
+
+		expect(result.content).toContain('artifact-image://uploads/project/p1/ver-001/images/arch.png');
+		expect(result).not.toHaveProperty('imageRefs');
+		expect(result).not.toHaveProperty('contentParts');
+		expect(vi.mocked(hydrateArtifactImages)).not.toHaveBeenCalled();
 	});
 
 	// ------------------------------------------------------------------

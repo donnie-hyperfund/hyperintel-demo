@@ -19,9 +19,8 @@ import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { QueueAdapter } from '@common/common/queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
-import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
+import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
-import { buildArtifactImageContentParts, extractArtifactImageRefs } from '@/lib/markdown/artifact-images';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
@@ -242,6 +241,7 @@ const ReadDocumentParams = z.object({
         .describe('Which version to read: "approved" (live), "proposed" (pending approval), "latest" (most recent).'),
     startLine: z.number().int().positive().optional().nullable().describe('First line to return (1-indexed).'),
     endLine: z.number().int().positive().optional().nullable().describe('Last line to return (inclusive).'),
+    skipImages: z.boolean().optional().default(false).describe('Skip embedded images and return text only.'),
 });
 
 const ListDocumentsParams = z.object({
@@ -745,10 +745,12 @@ Otherwise returns the requested version from the database.
 Version options:
 - "approved": The live version (what users see)
 - "proposed": The pending version awaiting approval
-- "latest": The most recent version regardless of status (default)`,
+- "latest": The most recent version regardless of status (default)
+
+Embedded images are included by default. Pass skipImages: true for text-only output.`,
             parameters: ReadDocumentParams,
             executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
-                const { name, version: versionMode, startLine, endLine } = input;
+                const { name, version: versionMode, startLine, endLine, skipImages } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
 
@@ -862,20 +864,18 @@ Version options:
 
                 // Resolve artifact images — sign refs and return multimodal content.
                 // Refs stay in toolOutput text (stable for DB, needed by Chat Completions replacement).
-                // TODO: switch to interleaved contentParts via splitAtArtifactImages() for better positional context
-                const imageRefs = extractArtifactImageRefs(viewport.content);
-                if (imageRefs.length > 0 && rCtx) {
-                    const SCHEME = 'artifact-image://';
-                    const fullRefs = imageRefs.map((r) => `${SCHEME}${r.key}`);
-                    const keys = imageRefs.map((r) => r.key);
-
-                    const signedUrls = await signArtifactImageKeys(rCtx.env, keys);
-
-                    return {
-                        result: response,
-                        imageRefs: fullRefs,
-                        contentParts: buildArtifactImageContentParts(viewport.content, signedUrls),
-                    };
+                if (!skipImages && rCtx) {
+                    const hydrated = await hydrateArtifactImages(viewport.content, rCtx.env, {
+                        projectId: ctx.projectId,
+                        chatId: ctx.chatId,
+                    });
+                    if (hydrated) {
+                        return {
+                            result: response,
+                            imageRefs: hydrated.imageRefs,
+                            contentParts: hydrated.contentParts,
+                        };
+                    }
                 }
 
                 return response;

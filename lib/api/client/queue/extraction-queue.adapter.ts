@@ -6,6 +6,7 @@ import { getWorkerUrl } from '@/lib/api/requests/worker/common';
 export const ExtractionQueueMessageSchema = z.object({
     type: z.literal('extract_file_content'),
     fileId: z.string().uuid(),
+    artifactId: z.string().uuid(),
     versionId: z.string().uuid(),
     storageKey: z.string(),
     originalName: z.string(),

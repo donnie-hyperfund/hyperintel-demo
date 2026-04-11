@@ -5,8 +5,10 @@
  * - `signArtifactImageKeys` — batch-sign R2 keys for reading (chat worker)
  */
 
+import type { ContentPart } from '@/common/ai/inference/types';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { buildArtifactImageContentParts, extractArtifactImageRefs } from '@/lib/markdown/artifact-images';
 import { createWorkerS3Client } from '@/lib/vendor/r2';
 
 // ============================================================================
@@ -87,4 +89,70 @@ export async function signArtifactImageKeys(
     );
 
     return urlMap;
+}
+
+// ============================================================================
+// HYDRATION
+// ============================================================================
+
+type SigningEnv = Parameters<typeof signArtifactImageKeys>[0];
+
+export interface HydrationScope {
+	projectId?: string;
+	chatId?: string;
+}
+
+export interface HydratedArtifactImages {
+	/** Original text with artifact-image:// refs intact */
+	text: string;
+	/** Full ref strings (artifact-image://...) for toolImageRefs */
+	imageRefs: string[];
+	/** Multimodal content parts (interleaved text + signed images) */
+	contentParts: ContentPart[];
+}
+
+/**
+ * Check if an R2 key belongs to the given scope.
+ * Keys look like `uploads/project/{id}/{artifactId}/images/{filename}`
+ * or `uploads/chat/{id}/{artifactId}/images/{filename}`.
+ * Returns false for keys that don't match — they won't be signed.
+ */
+function keyMatchesScope(key: string, scope: HydrationScope): boolean {
+	const parts = key.split('/');
+	// Expected: uploads/{scopeType}/{scopeId}/{artifactId}/images/{filename}
+	if (parts.length < 6 || parts[0] !== 'uploads' || parts[4] !== 'images' || !parts[5]) return false;
+
+	const scopeType = parts[1];
+	const scopeId = parts[2];
+
+	if (scopeType === 'project' && scope.projectId) return scopeId === scope.projectId;
+	if (scopeType === 'chat' && scope.chatId) return scopeId === scope.chatId;
+
+	return false;
+}
+
+/**
+ * One-call image hydration: extract refs → scope-filter → sign → build content parts.
+ * Returns `null` when no signable `artifact-image://` refs are found (no signing overhead).
+ */
+export async function hydrateArtifactImages(
+	text: string,
+	env: SigningEnv,
+	scope: HydrationScope,
+): Promise<HydratedArtifactImages | null> {
+	const refs = extractArtifactImageRefs(text);
+	if (refs.length === 0) return null;
+
+	// Only sign keys that belong to the current scope
+	const allowedKeys = refs.map((r) => r.key).filter((k) => keyMatchesScope(k, scope));
+	if (allowedKeys.length === 0) return null;
+
+	const SCHEME = 'artifact-image://';
+	const signedUrls = await signArtifactImageKeys(env, allowedKeys);
+
+	return {
+		text,
+		imageRefs: allowedKeys.map((k) => `${SCHEME}${k}`),
+		contentParts: buildArtifactImageContentParts(text, signedUrls),
+	};
 }

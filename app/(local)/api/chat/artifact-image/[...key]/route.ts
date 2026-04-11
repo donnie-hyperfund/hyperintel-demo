@@ -17,7 +17,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
     const { key: keyParts } = await params;
     const key = keyParts.join('/');
 
-    // Key pattern: uploads/{project|chat}/{id}/{versionId}/images/{filename}
+    // Key pattern: uploads/{project|chat}/{id}/{artifactId}/images/{filename}
     if (
         !key.startsWith('uploads/') ||
         keyParts.length !== 6 ||
@@ -30,9 +30,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
 
     const scopeType = keyParts[1]; // 'project' or 'chat'
     const scopeId = keyParts[2];
-    const versionId = keyParts[3];
+    const artifactId = keyParts[3];
 
-    if (!UuidSchema.safeParse(scopeId).success || !UuidSchema.safeParse(versionId).success) {
+    if (!UuidSchema.safeParse(scopeId).success || !UuidSchema.safeParse(artifactId).success) {
         return NextResponse.json({ error: 'Invalid artifact image key' }, { status: 404 });
     }
 
