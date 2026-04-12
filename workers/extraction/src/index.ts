@@ -26,12 +26,16 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 // FILETYPE ROUTING
 // ============================================================================
 
-type Filetype = 'docx' | 'pptx' | 'pdf';
+type Filetype = 'docx' | 'pptx' | 'pdf' | 'image';
 
 const MIME_TO_FILETYPE: Record<string, Filetype> = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
     'application/pdf': 'pdf',
+    'image/png': 'image',
+    'image/jpeg': 'image',
+    'image/gif': 'image',
+    'image/webp': 'image',
 };
 
 function resolveFiletype(mimeType: string, originalName: string): Filetype | null {
@@ -42,6 +46,7 @@ function resolveFiletype(mimeType: string, originalName: string): Filetype | nul
     if (ext === '.docx') return 'docx';
     if (ext === '.pptx') return 'pptx';
     if (ext === '.pdf') return 'pdf';
+    if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) return 'image';
 
     return null;
 }
@@ -107,6 +112,7 @@ const FILETYPE_TO_MIME: Record<Filetype, string> = {
     docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     pdf: 'application/pdf',
+    image: 'image/png', // Fallback — callers should pass mimeTypeOverride for correct type
 };
 
 /** Max images to persist per document (prevent R2 bloat on huge PDFs) */
@@ -131,8 +137,9 @@ async function extractViaReducto(
     reducto: Reducto,
     r2Bucket: R2Bucket,
     storagePrefix: string,
+    mimeTypeOverride?: string,
 ): Promise<ReductoExtractionResult> {
-    const file = await toFile(new Blob([fileBytes], { type: FILETYPE_TO_MIME[filetype] }), originalName);
+    const file = await toFile(new Blob([fileBytes], { type: mimeTypeOverride ?? FILETYPE_TO_MIME[filetype] }), originalName);
     const upload = await reducto.upload({ file });
 
     const result = await reducto.parse.run({
@@ -297,58 +304,84 @@ async function processExtraction(
     const fileBytes = await r2Object.arrayBuffer();
     console.log(`${logPrefix} Read ${fileBytes.byteLength} bytes for ${filetype} extraction`);
 
-    // 3. Extract via Rust worker (v2 with embedded images + text detection)
-    const MIN_CONTENT_LENGTH = 50;
     // Image prefix is artifact-scoped (not version-scoped) — cleanup deletes the whole artifact prefix.
     const scope = projectId ? `project/${projectId}` : chatId ? `chat/${chatId}` : 'staged';
     const imageStoragePrefix = `uploads/${scope}/${artifactId}/images`;
     let markdown: string;
-    try {
-        const rustResult = await extractDocument(fileBytes, filetype, ctx.env);
-        markdown = rustResult.content;
 
-        const contentTooShort = !markdown.trim() || markdown.trim().length < MIN_CONTENT_LENGTH;
-        const needsReducto = rustResult.imageText || contentTooShort;
+    if (filetype === 'image') {
+        // 3a. Image files: skip Rust entirely, send straight to Reducto for OCR
+        const copyImageAsRef = async () => {
+            const key = await uploadArtifactImage(ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix, fileBytes, mimeType);
+            return `![${originalName}](artifact-image://${key})`;
+        };
 
-        if (contentTooShort) {
-            console.log(
-                `${logPrefix} Content too short (${markdown.trim().length} chars) for ${originalName}, treating as image-heavy document`,
-            );
-        }
-
-        if (needsReducto && ctx.reducto) {
-            console.log(
-                `${logPrefix} Re-processing ${originalName} via Reducto OCR (imageText=${rustResult.imageText}, contentTooShort=${contentTooShort})`,
-            );
-            try {
-                const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
-                markdown = reductoResult.content;
-                console.log(`${logPrefix} Reducto OCR produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
-            } catch (ocrError) {
-                console.error(`${logPrefix} Reducto OCR failed, falling back to Rust extraction:`, ocrError);
-            }
-        } else if (needsReducto) {
-            console.warn(`${logPrefix} Needs Reducto but not configured — using Rust extraction`);
-        }
-    } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`${logPrefix} Extraction failed:`, errorMsg);
-
-        // Rust extraction completely failed — try Reducto as last resort
         if (ctx.reducto) {
-            console.log(`${logPrefix} Attempting Reducto fallback after Rust failure`);
             try {
-                const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
+                const reductoResult = await extractViaReducto(
+                    fileBytes, filetype, originalName, ctx.reducto,
+                    ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix, mimeType,
+                );
                 markdown = reductoResult.content;
-                console.log(`${logPrefix} Reducto fallback produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
-            } catch (reductoError) {
-                console.error(`${logPrefix} Reducto fallback also failed:`, reductoError);
+                console.log(`${logPrefix} Reducto image extraction produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
+            } catch (error) {
+                console.error(`${logPrefix} Reducto failed for image, falling back to raw image ref:`, error);
+                markdown = await copyImageAsRef();
+            }
+        } else {
+            console.warn(`${logPrefix} No Reducto configured for image extraction — storing raw image ref`);
+            markdown = await copyImageAsRef();
+        }
+    } else {
+        // 3b. Document files: extract via Rust worker (v2 with embedded images + text detection)
+        const MIN_CONTENT_LENGTH = 50;
+        try {
+            const rustResult = await extractDocument(fileBytes, filetype, ctx.env);
+            markdown = rustResult.content;
+
+            const contentTooShort = !markdown.trim() || markdown.trim().length < MIN_CONTENT_LENGTH;
+            const needsReducto = rustResult.imageText || contentTooShort;
+
+            if (contentTooShort) {
+                console.log(
+                    `${logPrefix} Content too short (${markdown.trim().length} chars) for ${originalName}, treating as image-heavy document`,
+                );
+            }
+
+            if (needsReducto && ctx.reducto) {
+                console.log(
+                    `${logPrefix} Re-processing ${originalName} via Reducto OCR (imageText=${rustResult.imageText}, contentTooShort=${contentTooShort})`,
+                );
+                try {
+                    const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
+                    markdown = reductoResult.content;
+                    console.log(`${logPrefix} Reducto OCR produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
+                } catch (ocrError) {
+                    console.error(`${logPrefix} Reducto OCR failed, falling back to Rust extraction:`, ocrError);
+                }
+            } else if (needsReducto) {
+                console.warn(`${logPrefix} Needs Reducto but not configured — using Rust extraction`);
+            }
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`${logPrefix} Extraction failed:`, errorMsg);
+
+            // Rust extraction completely failed — try Reducto as last resort
+            if (ctx.reducto) {
+                console.log(`${logPrefix} Attempting Reducto fallback after Rust failure`);
+                try {
+                    const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
+                    markdown = reductoResult.content;
+                    console.log(`${logPrefix} Reducto fallback produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
+                } catch (reductoError) {
+                    console.error(`${logPrefix} Reducto fallback also failed:`, reductoError);
+                    await markFileFailed(ctx.em, fileId, errorMsg);
+                    return { success: false, error: errorMsg };
+                }
+            } else {
                 await markFileFailed(ctx.em, fileId, errorMsg);
                 return { success: false, error: errorMsg };
             }
-        } else {
-            await markFileFailed(ctx.em, fileId, errorMsg);
-            return { success: false, error: errorMsg };
         }
     }
 

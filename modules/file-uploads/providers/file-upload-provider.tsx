@@ -3,6 +3,16 @@
 import { useAuth } from '@clerk/nextjs';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useSWRConfig } from 'swr';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
 import type { PaginatedResponse } from '@/lib/api/client/types';
@@ -49,7 +59,13 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
     '.webp': 'image/webp',
 };
 
+export const PROMPT_IMAGE_UPLOAD_INTENT = false;
+
 type UploadBatch = { pendingIds: Set<string>; total: number; firstName: string };
+type ImageUploadIntent = 'artifact' | 'chat-image';
+type PendingImageIntent = { fileName: string } | null;
+
+const IMAGE_UPLOAD_INTENT_STORAGE_KEY = 'image-upload-intent';
 
 export type FileUploadContextValue = {
     files: FileEntry[];
@@ -93,6 +109,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
 
     const [files, setFiles] = useState<FileEntry[]>(() => initialPersistedState?.entries ?? []);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [pendingImageIntent, setPendingImageIntent] = useState<PendingImageIntent>(null);
+    const [rememberImageIntent, setRememberImageIntent] = useState(false);
     const filesRef = useRef(files);
     filesRef.current = files;
     const stagedArtifactIdsRef = useRef<string[]>([]);
@@ -104,12 +122,176 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
 
     const batchesRef = useRef<UploadBatch[]>([]);
     const pollingEntryIdsRef = useRef<Set<string>>(new Set());
+    const resolveImageIntentRef = useRef<((intent: ImageUploadIntent) => void) | null>(null);
 
     const invalidateResources = useCallback(() => {
         if (scope?.projectId) {
             globalMutate(serializeProjectResourceListKey(scope.projectId));
         }
     }, [globalMutate, scope?.projectId]);
+
+    const updateEntry = useCallback((entryId: string, update: Partial<FileEntry>) => {
+        setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
+    }, []);
+
+    const finalizeEntry = useCallback(
+        (entryId: string, extra?: Partial<FileEntry>) => {
+            pollingEntryIdsRef.current.delete(entryId);
+            updateEntry(entryId, { ...extra, status: 'ready' });
+            invalidateResources();
+
+            for (let i = batchesRef.current.length - 1; i >= 0; i--) {
+                const batch = batchesRef.current[i];
+                if (!batch.pendingIds.delete(entryId)) continue;
+                if (batch.pendingIds.size === 0) {
+                    toast({
+                        title: 'Upload complete',
+                        description: batch.total === 1 ? batch.firstName : `${batch.total} files`,
+                    });
+                    batchesRef.current.splice(i, 1);
+                }
+            }
+        },
+        [updateEntry, invalidateResources],
+    );
+
+    const uploadArtifactViaPresign = useCallback(
+        async (file: File, entryId: string, token: string, isStaged: boolean, ext: string) => {
+            const presignRes = await presignUpload(
+                {
+                    filename: file.name,
+                    fileSize: file.size,
+                    clientEntryId: entryId,
+                    source: trackAsPending ? 'chat-input' : 'project-resources',
+                    ...scope,
+                },
+                token,
+            );
+
+            if (!presignRes.ok) {
+                const err = await presignRes.json();
+                throw new Error(err.message || 'Presign failed');
+            }
+
+            const presignData: PresignUploadResponseDto = await presignRes.json();
+            updateEntry(entryId, {
+                artifactId: presignData.artifactId,
+                requiresAssociation: isStaged,
+                fileId: presignData.fileId,
+                presignData,
+            });
+
+            if (isStaged) {
+                stagedArtifactIdsRef.current = [...stagedArtifactIdsRef.current, presignData.artifactId];
+            }
+
+            invalidateResources();
+
+            const mimeType = (BINARY_MIME_TYPES[ext] ?? IMAGE_MIME_TYPES[ext]) || 'application/octet-stream';
+            const putRes = await fetch(presignData.uploadUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': mimeType },
+                body: file,
+            });
+
+            if (!putRes.ok) throw new Error('Upload to storage failed');
+
+            const confirmRes = await confirmUpload(
+                {
+                    fileId: presignData.fileId,
+                    versionId: presignData.versionId,
+                    clientEntryId: entryId,
+                    source: trackAsPending ? 'chat-input' : 'project-resources',
+                },
+                token,
+            );
+            if (!confirmRes.ok) {
+                const err = await confirmRes.json();
+                throw new Error(err.message || 'Confirm failed');
+            }
+
+            updateEntry(entryId, {
+                status: 'processing',
+                artifactId: presignData.artifactId,
+                requiresAssociation: isStaged,
+                fileId: presignData.fileId,
+                presignData,
+            });
+            addPendingArtifactId(presignData.artifactId);
+        },
+        [addPendingArtifactId, invalidateResources, scope, trackAsPending, updateEntry],
+    );
+
+    const uploadChatImage = useCallback(
+        async (file: File, entryId: string, token: string, ext: string) => {
+            const chatId = scope?.chatId ?? (ensureChatId ? await ensureChatId() : undefined);
+            if (!chatId) throw new Error('Chat ID required for image uploads');
+
+            // Resolve natural dimensions so the chat can reserve space before the image loads
+            resolveImageDimensions(file).then((dims) => {
+                if (dims) updateEntry(entryId, { imageWidth: dims.width, imageHeight: dims.height });
+            });
+
+            const presignRes = await presignImageUpload({ filename: file.name, fileSize: file.size, chatId }, token);
+            if (!presignRes.ok) {
+                const err = await presignRes.json();
+                throw new Error(err.message || 'Presign failed');
+            }
+
+            const presignData: { uploadUrl: string; fileId: string } = await presignRes.json();
+            updateEntry(entryId, { imageFileId: presignData.fileId });
+
+            const mimeType = IMAGE_MIME_TYPES[ext] ?? 'application/octet-stream';
+            const putRes = await fetch(presignData.uploadUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': mimeType },
+                body: file,
+            });
+            if (!putRes.ok) throw new Error('Upload to storage failed');
+
+            const confirmRes = await confirmImageUpload({ fileId: presignData.fileId }, token);
+            if (!confirmRes.ok) {
+                const err = await confirmRes.json();
+                throw new Error(err.message || 'Confirm failed');
+            }
+
+            stagedImageFileIdsRef.current = [...stagedImageFileIdsRef.current, presignData.fileId];
+            finalizeEntry(entryId, { imageFileId: presignData.fileId });
+        },
+        [ensureChatId, finalizeEntry, scope?.chatId, updateEntry],
+    );
+
+    const resolveImageUploadIntent = useCallback(
+        async (file: File): Promise<ImageUploadIntent> => {
+            if (!trackAsPending) return 'artifact';
+            if (!PROMPT_IMAGE_UPLOAD_INTENT) return 'artifact';
+
+            const rememberedIntent = sessionStorage.getItem(IMAGE_UPLOAD_INTENT_STORAGE_KEY);
+            if (rememberedIntent === 'artifact' || rememberedIntent === 'chat-image') {
+                return rememberedIntent;
+            }
+
+            return await new Promise<ImageUploadIntent>((resolve) => {
+                resolveImageIntentRef.current = resolve;
+                setRememberImageIntent(false);
+                setPendingImageIntent({ fileName: file.name });
+            });
+        },
+        [trackAsPending],
+    );
+
+    const handleImageIntentSelect = useCallback(
+        (intent: ImageUploadIntent) => {
+            if (rememberImageIntent) {
+                sessionStorage.setItem(IMAGE_UPLOAD_INTENT_STORAGE_KEY, intent);
+            }
+
+            setPendingImageIntent(null);
+            resolveImageIntentRef.current?.(intent);
+            resolveImageIntentRef.current = null;
+        },
+        [rememberImageIntent],
+    );
 
     const upsertFileEntry = useCallback((incoming: FileEntry) => {
         setFiles((prev) => {
@@ -280,10 +462,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
         }
     }, [initialPersistedState?.entries, trackAsPending]);
 
-    const updateEntry = useCallback((entryId: string, update: Partial<FileEntry>) => {
-        setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
-    }, []);
-
     const consumeStagedArtifactIds = useCallback(() => {
         const ids = stagedArtifactIdsRef.current;
         stagedArtifactIdsRef.current = [];
@@ -295,27 +473,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
         stagedImageFileIdsRef.current = [];
         return ids;
     }, []);
-
-    const finalizeEntry = useCallback(
-        (entryId: string, extra?: Partial<FileEntry>) => {
-            pollingEntryIdsRef.current.delete(entryId);
-            updateEntry(entryId, { ...extra, status: 'ready' });
-            invalidateResources();
-
-            for (let i = batchesRef.current.length - 1; i >= 0; i--) {
-                const batch = batchesRef.current[i];
-                if (!batch.pendingIds.delete(entryId)) continue;
-                if (batch.pendingIds.size === 0) {
-                    toast({
-                        title: 'Upload complete',
-                        description: batch.total === 1 ? batch.firstName : `${batch.total} files`,
-                    });
-                    batchesRef.current.splice(i, 1);
-                }
-            }
-        },
-        [updateEntry, invalidateResources],
-    );
 
     const failEntry = useCallback(
         (entryId: string, description?: string) => {
@@ -429,108 +586,15 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
                 if (!token) throw new Error('Not authenticated');
 
                 if (isImageExtension(ext)) {
-                    // Image upload — separate flow, no artifact/document pipeline
-                    const chatId = scope?.chatId ?? (ensureChatId ? await ensureChatId() : undefined);
-                    if (!chatId) throw new Error('Chat ID required for image uploads');
-
-                    // Resolve natural dimensions so the chat can reserve space before the image loads
-                    resolveImageDimensions(file).then((dims) => {
-                        if (dims) updateEntry(entryId, { imageWidth: dims.width, imageHeight: dims.height });
-                    });
-
-                    const presignRes = await presignImageUpload(
-                        { filename: file.name, fileSize: file.size, chatId },
-                        token,
-                    );
-                    if (!presignRes.ok) {
-                        const err = await presignRes.json();
-                        throw new Error(err.message || 'Presign failed');
+                    const imageIntent = await resolveImageUploadIntent(file);
+                    if (imageIntent === 'chat-image') {
+                        await uploadChatImage(file, entryId, token, ext);
+                        return;
                     }
-
-                    const presignData: { uploadUrl: string; fileId: string } = await presignRes.json();
-                    updateEntry(entryId, { imageFileId: presignData.fileId });
-
-                    const mimeType = IMAGE_MIME_TYPES[ext] ?? 'application/octet-stream';
-                    const putRes = await fetch(presignData.uploadUrl, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': mimeType },
-                        body: file,
-                    });
-                    if (!putRes.ok) throw new Error('Upload to storage failed');
-
-                    const confirmRes = await confirmImageUpload({ fileId: presignData.fileId }, token);
-                    if (!confirmRes.ok) {
-                        const err = await confirmRes.json();
-                        throw new Error(err.message || 'Confirm failed');
-                    }
-
-                    stagedImageFileIdsRef.current = [...stagedImageFileIdsRef.current, presignData.fileId];
-                    finalizeEntry(entryId, { imageFileId: presignData.fileId });
-                    return;
                 }
 
-                if (isBinaryArtifactExtension(ext)) {
-                    const presignRes = await presignUpload(
-                        {
-                            filename: file.name,
-                            fileSize: file.size,
-                            clientEntryId: entryId,
-                            source: trackAsPending ? 'chat-input' : 'project-resources',
-                            ...scope,
-                        },
-                        token,
-                    );
-
-                    if (!presignRes.ok) {
-                        const err = await presignRes.json();
-                        throw new Error(err.message || 'Presign failed');
-                    }
-
-                    const presignData: PresignUploadResponseDto = await presignRes.json();
-                    updateEntry(entryId, {
-                        artifactId: presignData.artifactId,
-                        requiresAssociation: isStaged,
-                        fileId: presignData.fileId,
-                        presignData,
-                    });
-
-                    if (isStaged) {
-                        stagedArtifactIdsRef.current = [...stagedArtifactIdsRef.current, presignData.artifactId];
-                    }
-
-                    invalidateResources();
-
-                    const mimeType = BINARY_MIME_TYPES[ext] ?? 'application/octet-stream';
-                    const putRes = await fetch(presignData.uploadUrl, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': mimeType },
-                        body: file,
-                    });
-
-                    if (!putRes.ok) throw new Error('Upload to storage failed');
-
-                    const confirmRes = await confirmUpload(
-                        {
-                            fileId: presignData.fileId,
-                            versionId: presignData.versionId,
-                            clientEntryId: entryId,
-                            source: trackAsPending ? 'chat-input' : 'project-resources',
-                        },
-                        token,
-                    );
-                    if (!confirmRes.ok) {
-                        const err = await confirmRes.json();
-                        throw new Error(err.message || 'Confirm failed');
-                    }
-
-                    updateEntry(entryId, {
-                        status: 'processing',
-                        artifactId: presignData.artifactId,
-                        requiresAssociation: isStaged,
-                        fileId: presignData.fileId,
-                        presignData,
-                    });
-                    addPendingArtifactId(presignData.artifactId);
+                if (isBinaryArtifactExtension(ext) || isImageExtension(ext)) {
+                    await uploadArtifactViaPresign(file, entryId, token, isStaged, ext);
                 } else {
                     const res = await uploadArtifact(
                         {
@@ -566,14 +630,13 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
         },
         [
             addPendingArtifactId,
-            ensureChatId,
             failEntry,
-            finalizeEntry,
             getToken,
-            invalidateResources,
+            resolveImageUploadIntent,
             scope,
-            updateEntry,
             trackAsPending,
+            uploadArtifactViaPresign,
+            uploadChatImage,
         ],
     );
 
@@ -717,20 +780,29 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
     }, [files, pollFileStatus]);
 
     return (
-        <FileUploadContext.Provider
-            value={{
-                files,
-                addFiles,
-                removeFile,
-                clearFiles,
-                submitFiles,
-                isSubmitting,
-                consumeStagedArtifactIds,
-                consumeStagedImageFileIds,
-            }}
-        >
-            {children}
-        </FileUploadContext.Provider>
+        <>
+            <FileUploadContext.Provider
+                value={{
+                    files,
+                    addFiles,
+                    removeFile,
+                    clearFiles,
+                    submitFiles,
+                    isSubmitting,
+                    consumeStagedArtifactIds,
+                    consumeStagedImageFileIds,
+                }}
+            >
+                {children}
+            </FileUploadContext.Provider>
+            <ImageUploadIntentDialog
+                open={PROMPT_IMAGE_UPLOAD_INTENT && pendingImageIntent !== null}
+                fileName={pendingImageIntent?.fileName ?? ''}
+                remember={rememberImageIntent}
+                onRememberChange={setRememberImageIntent}
+                onSelect={handleImageIntentSelect}
+            />
+        </>
     );
 }
 
@@ -740,4 +812,43 @@ export function useFileUploadContext(): FileUploadContextValue {
         throw new Error('useFileUploadContext must be used within a FileUploadProvider');
     }
     return context;
+}
+
+type ImageUploadIntentDialogProps = {
+    open: boolean;
+    fileName: string;
+    remember: boolean;
+    onRememberChange: (remember: boolean) => void;
+    onSelect: (intent: ImageUploadIntent) => void;
+};
+
+function ImageUploadIntentDialog({
+    open,
+    fileName,
+    remember,
+    onRememberChange,
+    onSelect,
+}: ImageUploadIntentDialogProps) {
+    return (
+        <Dialog open={open}>
+            <DialogContent showCloseButton={false} onInteractOutside={(e) => e.preventDefault()}>
+                <DialogHeader>
+                    <DialogTitle>Upload image</DialogTitle>
+                    <DialogDescription>
+                        Choose whether {fileName ? `"${fileName}"` : 'this image'} should be uploaded as a document or attached to the message.
+                    </DialogDescription>
+                </DialogHeader>
+                <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={remember} onCheckedChange={(checked) => onRememberChange(checked === true)} />
+                    Remember for this session
+                </label>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onSelect('chat-image')}>
+                        Attach to message
+                    </Button>
+                    <Button onClick={() => onSelect('artifact')}>Upload as document</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
 }

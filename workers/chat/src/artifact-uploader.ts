@@ -13,7 +13,9 @@ import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import {
     type AssociateArtifactsDto,
     type ConfirmUploadDto,
+    IMAGE_MIME_TYPES,
     isBinaryArtifactExtension,
+    isImageExtension,
     type PresignUploadDto,
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
@@ -44,6 +46,7 @@ const MIME_TYPES: Record<string, string> = {
     '.pdf': 'application/pdf',
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ...IMAGE_MIME_TYPES,
 };
 
 const PRESIGN_EXPIRY_SECONDS = 60 * 10;
@@ -318,9 +321,9 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     const { em, user } = ctx;
 
     const ext = getExtension(filename);
-    if (!isBinaryArtifactExtension(ext)) {
+    if (!isBinaryArtifactExtension(ext) && !isImageExtension(ext)) {
         throw new PublicError(400, {
-            message: 'Only binary files (.pdf, .docx, .pptx) use the presign flow. Text files use /artifacts/upload.',
+            message: 'Only binary files (.pdf, .docx, .pptx) and images (.png, .jpg, .gif, .webp) use the presign flow. Text files use /artifacts/upload.',
             code: 'TEXT_FILE_NOT_ALLOWED',
         });
     }
