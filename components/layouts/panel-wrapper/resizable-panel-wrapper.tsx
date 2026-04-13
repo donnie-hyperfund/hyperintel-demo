@@ -35,10 +35,10 @@ export const ResizablePanelWrapper = ({
 
     if (isMdViewportOrSmaller) {
         return (
-            <div className="fixed inset-0 flex flex-col">
+            <div className="fixed inset-0 top-(--processing-bar-height,0px) flex flex-col">
                 {LeftPaneComponent}
                 {isPanelOpen && (
-                    <div className="fixed inset-0 z-50 bg-neutral-975 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    <div className="fixed inset-0 top-(--processing-bar-height,0px) z-50 bg-neutral-975 animate-in fade-in slide-in-from-bottom-4 duration-200">
                         {RightPaneComponent}
                     </div>
                 )}
@@ -47,14 +47,14 @@ export const ResizablePanelWrapper = ({
     }
 
     return (
-        <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-dvh">
+        <ResizablePanelGroup id="chat-interface-panels" direction="horizontal" className="h-full">
             <ResizablePanel
                 id="chat-panel"
                 order={1}
                 defaultSize={60}
                 minSize={60}
                 maxSize={80}
-                className={cn(isPanelOpen && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]', 'h-dvh')}
+                className={cn(isPanelOpen && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]', 'h-full')}
             >
                 {LeftPaneComponent}
             </ResizablePanel>
@@ -68,7 +68,7 @@ export const ResizablePanelWrapper = ({
                         order={2}
                         defaultSize={rightPaneDefaultSize}
                         minSize={20}
-                        className="h-dvh flex flex-col"
+                        className="h-full flex flex-col"
                     >
                         {RightPaneComponent}
                     </ResizablePanel>

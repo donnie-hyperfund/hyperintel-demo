@@ -16,6 +16,7 @@ import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
 import { getDraftBaseKey } from '@/lib/storage/storage-keys';
+import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
@@ -129,6 +130,7 @@ type ArtifactVersionEventPayload = {
     previousStatus?: string;
     status?: string;
     nextStatus?: 'approved' | 'rejected';
+    chatId?: string;
 };
 
 export function ChatProvider({
@@ -140,6 +142,7 @@ export function ChatProvider({
     chatRouteBuilder,
 }: ChatProviderProps) {
     const artifactContext = useArtifactActions();
+    const { hasPendingNudge, clearPendingNudge } = useArtifactProcessing();
 
     const { openPanel, closePanel, panelState } = useActivePanelContext();
     const panelStateRef = useRef(panelState);
@@ -449,13 +452,14 @@ export function ChatProvider({
                 feedbackScore: (m as any).feedback_score ?? null,
                 feedbackComment: (m as any).feedback ?? null,
                 // Only forward display-safe fields — metadata can contain safetyAnalysis, errors, etc.
-                metadata: (meta.preset || meta.inference || meta.usage)
-                    ? {
-                          ...(meta.preset ? { preset: meta.preset as string } : {}),
-                          ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
-                          ...(meta.usage ? { usage: meta.usage } : {}),
-                      } as MessageMetadata
-                    : undefined,
+                metadata:
+                    meta.preset || meta.inference || meta.usage
+                        ? ({
+                              ...(meta.preset ? { preset: meta.preset as string } : {}),
+                              ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
+                              ...(meta.usage ? { usage: meta.usage } : {}),
+                          } as MessageMetadata)
+                        : undefined,
             };
         },
         [],
@@ -541,12 +545,16 @@ export function ChatProvider({
             }
 
             // Extract safe message metadata from done event (preset, inference, usage)
-            const doneMeta = isNormalDone ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined) : undefined;
-            const doneMessageMetadata = doneMeta ? {
-                ...(doneMeta.preset && { preset: doneMeta.preset as string }),
-                ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
-                ...(doneMeta.usage && { usage: doneMeta.usage }),
-            } : undefined;
+            const doneMeta = isNormalDone
+                ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
+                : undefined;
+            const doneMessageMetadata = doneMeta
+                ? {
+                      ...(doneMeta.preset && { preset: doneMeta.preset as string }),
+                      ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
+                      ...(doneMeta.usage && { usage: doneMeta.usage }),
+                  }
+                : undefined;
 
             setState((prev) => ({
                 ...prev,
@@ -566,7 +574,8 @@ export function ChatProvider({
                               status: undefined,
                               ...(status === 'error' && { isError: true }),
                               ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
-                              ...(doneMessageMetadata && Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
+                              ...(doneMessageMetadata &&
+                                  Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
                           }
                         : msg,
                 ),
@@ -1088,6 +1097,17 @@ export function ChatProvider({
             }));
         }
     }, [chatId, chatType, getToken, selectedModel, state.isGenerating]);
+
+    // Nudge recovery: when a locally-initiated approval/rejection completes,
+    // send the nudge from this tab. Reactive deps ensure the nudge fires when:
+    // - completion happens while this chat is open (state change → re-render)
+    // - user returns to this chat later (mount → effect runs)
+    // - isGenerating was true and flips to false (retry)
+    useEffect(() => {
+        if (!chatId || state.isGenerating || !hasPendingNudge(chatId)) return;
+        clearPendingNudge(chatId);
+        void sendNudge();
+    }, [chatId, state.isGenerating, hasPendingNudge, clearPendingNudge, sendNudge]);
 
     // ========================================================================
     // SUMMARIZE
