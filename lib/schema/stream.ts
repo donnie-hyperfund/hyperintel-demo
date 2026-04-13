@@ -162,4 +162,5 @@ export type StreamSnapshot = {
     blocks: StreamBlock[];
     activeDocuments: ActiveDocument[];
     status: StreamStatus;
+    displayStatus?: string | null;
 };

@@ -3,14 +3,13 @@
 import { ArrowRight } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { PhaseTransitionDialogContent } from './phase-transition-dialog-content';
+import { SummarizerOverlay } from './summarizer-overlay';
 
 export function NextPhaseButton() {
-    const { projectId, summarizeChat, navigateToNewPhase, clearPendingPhaseTransition, state } =
+    const { projectId, summarizeChat, cancelSummary, navigateToNewPhase, clearPendingPhaseTransition, state } =
         useChatContext<'phase'>();
 
     const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
@@ -40,6 +39,11 @@ export function NextPhaseButton() {
         setDialogOpen(false);
     }, []);
 
+    const handleCancel = useCallback(() => {
+        cancelSummary();
+        setDialogOpen(false);
+    }, [cancelSummary]);
+
     useEffect(() => {
         if (!pendingNavigation || dialogOpen) return;
         setPendingNavigation(false);
@@ -47,12 +51,15 @@ export function NextPhaseButton() {
         navigateToNewPhase();
     }, [pendingNavigation, dialogOpen, revalidateChats, navigateToNewPhase]);
 
-    // Cross-tab sync: open dialog when summary starts on another tab
+    // Cross-tab sync: open/close dialog based on summarizing state
     useEffect(() => {
         if (state.isSummarizing && !dialogOpen) {
             setDialogOpen(true);
+        } else if (!state.isSummarizing && dialogOpen && !state.summaryNewChatId) {
+            // Summary was cancelled/errored on another tab — close the overlay
+            setDialogOpen(false);
         }
-    }, [state.isSummarizing, dialogOpen]);
+    }, [state.isSummarizing, state.summaryNewChatId, dialogOpen]);
 
     // React to chat-triggered phase transition (AI called generate_summary)
     useEffect(() => {
@@ -102,33 +109,17 @@ export function NextPhaseButton() {
                 </Button>
             )}
 
-            <Dialog
+            <SummarizerOverlay
                 open={dialogOpen}
-                onOpenChange={(open) => {
-                    if (!open && isLocked) return;
-                    setDialogOpen(open);
-                }}
-            >
-                <DialogContent
-                    className="outline-none"
-                    showCloseButton={!isLocked}
-                    onPointerDownOutside={(e) => {
-                        if (isLocked) e.preventDefault();
-                    }}
-                    onEscapeKeyDown={(e) => {
-                        if (isLocked) e.preventDefault();
-                    }}
-                >
-                    <PhaseTransitionDialogContent
-                        isSummarizing={state.isSummarizing}
-                        summaryDocKey={state.summaryDocKey}
-                        summaryNewChatId={state.summaryNewChatId}
-                        error={state.error}
-                        onRetry={handleClick}
-                        onGoToNextPhase={handleGoToNextPhase}
-                    />
-                </DialogContent>
-            </Dialog>
+                isSummarizing={state.isSummarizing}
+                summaryDocKey={state.summaryDocKey}
+                summaryNewChatId={state.summaryNewChatId}
+                summaryStatus={state.summaryStatus}
+                error={state.error}
+                onRetry={handleClick}
+                onGoToNextPhase={handleGoToNextPhase}
+                onCancel={handleCancel}
+            />
         </>
     );
 }

@@ -2,6 +2,9 @@
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import type { EntityManager } from '@mikro-orm/core';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
@@ -24,6 +27,39 @@ import {
     handleCommonStreamEvent,
     wireAbort,
 } from './utils/stream-utils';
+
+/**
+ * Roll back artifact versions (and orphaned parent artifacts) created during
+ * a failed or aborted summarization. Uses em.fork() to avoid dirty state
+ * from in-flight doc tool calls on the request EntityManager.
+ */
+async function rollbackCreatedVersions(em: EntityManager, versionIds: string[]): Promise<void> {
+    if (versionIds.length === 0) return;
+
+    try {
+        const cleanEm = em.fork();
+        const versions = await cleanEm.find(
+            ArtifactVersionEntity,
+            { id: { $in: versionIds } },
+            { fields: ['artifact'] },
+        );
+        const artifactIds = [...new Set(versions.map((v) => v.artifact.id))];
+
+        await cleanEm.transactional(async (txEm) => {
+            await txEm.nativeDelete(ArtifactEmbeddingEntity, { artifact_version: { $in: versionIds } });
+            await txEm.nativeDelete(ArtifactVersionEntity, { id: { $in: versionIds } });
+            if (artifactIds.length > 0) {
+                const remaining = await txEm.count(ArtifactVersionEntity, { artifact: { $in: artifactIds } });
+                if (remaining === 0) {
+                    await txEm.nativeDelete(ArtifactEntity, { id: { $in: artifactIds } });
+                }
+            }
+        });
+        console.log(`[summarizer] rolled back ${versionIds.length} version(s) and orphaned artifacts`);
+    } catch (err) {
+        console.error('[summarizer] failed to rollback artifact versions:', err);
+    }
+}
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
@@ -197,6 +233,9 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
     // Fire-and-forget pusher — hoisted for catch block access
     const pusher = createPusher(streamDO, 'summarizer');
 
+    // Hoisted so the catch block can access it for rollback
+    const createdVersionIds: string[] = [];
+
     try {
         if (!anthropic) {
             throw new Error('Anthropic client required');
@@ -271,7 +310,6 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         });
 
         // Create document tools context
-        const createdVersionIds: string[] = [];
         const agentCtx: DocumentToolsContext = {
             em: em!,
             projectId: chat.project!.id,
@@ -327,8 +365,14 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const collector = createEventCollector();
         const state = { wasTool: false };
         let summaryContent = '';
+        let wasAborted = false;
 
         const fireAndForgetPush = pusher.push;
+
+        /** Push a status_update event to the stream DO */
+        const pushStatus = (status: string) => {
+            fireAndForgetPush([{ type: 'status_update', status } as StreamEvent]);
+        };
 
         // Document events queue — batched into the main push instead of separate RPCs
         const pendingDocEvents: StreamEvent[] = [];
@@ -336,8 +380,25 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             pendingDocEvents.push(docEvent as StreamEvent);
         });
 
+        // Emit initial status before the stream loop starts
+        pushStatus('generating-summary');
+
+        // Track document creation count for status messages
+        let beginDocumentCount = 0;
+
         // Stream loop  push standard StreamEvent[] to ChatStream DO
         for await (const event of stream) {
+            // Emit granular status updates based on tool events
+            if (event.type === 'tool_start') {
+                const toolName = (event as any).tool ?? (event as any).name;
+                if (toolName === 'begin_document') {
+                    beginDocumentCount++;
+                    pushStatus(beginDocumentCount === 1 ? 'creating-completion-brief' : 'creating-pecp');
+                } else if (toolName === 'finalize_document') {
+                    pushStatus('saving-document');
+                }
+            }
+
             // Force non-PECP summarizer documents to be internal Completion Briefs
             if (event.type === 'tool_result' && (event as any).tool === 'begin_document' && event.success) {
                 const draft = agentCtx.draftManager.getCurrent();
@@ -366,11 +427,28 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             // Summarizer-specific events
             if (event.type === 'done_ext') {
                 summaryContent = event.streamLog.fullContent ?? '';
+                wasAborted = event.aborted ?? false;
                 // done_ext is not pushed directly  terminal done event pushed after DB persist below
             }
         }
 
         await historyPromise;
+
+        // ── Abort check: roll back all side effects and exit early ──
+        // Check both the done_ext flag (runner detected abort) and the controller
+        // (abort arrived after runner finished but before post-stream work)
+        if (wasAborted || abortController.signal.aborted) {
+            await rollbackCreatedVersions(em!, createdVersionIds);
+
+            chat.active_agent_message_id = null;
+            await em!.flush();
+
+            await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, new Error('Summarization cancelled'));
+            return;
+        }
+
+        // Emit finalizing status before DB persistence
+        pushStatus('finalizing');
 
         // Auto-approve completion briefs (no user approval needed)
         for (const versionId of createdVersionIds) {
@@ -468,6 +546,8 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         }
     } catch (error: any) {
         console.error('[summarizer] generation error:', error?.message ?? error, error?.stack);
+
+        await rollbackCreatedVersions(em!, createdVersionIds);
 
         // Clear active_agent_message_id on error (summarizer has no agent message to persist)
         try {

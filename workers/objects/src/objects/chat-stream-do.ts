@@ -30,6 +30,7 @@ const SK_TEXT_BLOCK_ID = 'currentTextBlockId';
 const SK_REASONING_BLOCK_ID = 'currentReasoningBlockId';
 const SK_TOPIC_PREFIX = 'topicPrefix';
 const SK_PREVIEW_ALIAS = 'previewAlias';
+const SK_DISPLAY_STATUS = 'displayStatus';
 
 // ============================================================================
 // CHAT STREAM DO
@@ -60,6 +61,7 @@ export class ChatStreamDO extends DurableObject<Env> {
     private previewAlias: string | null = null;
     private currentTextBlockId: string | null = null;
     private currentReasoningBlockId: string | null = null;
+    private displayStatus: string | null = null;
 
     // --- In-memory state (lost on hibernation) ---
     private abortResolve: ((value: 'abort' | 'done') => void) | null = null;
@@ -96,6 +98,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             reasoningBlockId,
             topicPrefix,
             previewAlias,
+            displayStatus,
         ] = await Promise.all([
             this.ctx.storage.get<StreamBlock[]>(SK_BLOCKS),
             this.ctx.storage.get<[string, ActiveDocument][]>(SK_ACTIVE_DOCS),
@@ -108,6 +111,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             this.ctx.storage.get<string | null>(SK_REASONING_BLOCK_ID),
             this.ctx.storage.get<string>(SK_TOPIC_PREFIX),
             this.ctx.storage.get<string | null>(SK_PREVIEW_ALIAS),
+            this.ctx.storage.get<string | null>(SK_DISPLAY_STATUS),
         ]);
 
         if (blocks) this.blocks = blocks;
@@ -121,6 +125,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         if (reasoningBlockId) this.currentReasoningBlockId = reasoningBlockId;
         if (topicPrefix) this.topicPrefix = topicPrefix;
         if (previewAlias) this.previewAlias = previewAlias;
+        if (displayStatus) this.displayStatus = displayStatus;
     }
 
     /** Persist all mutable state to storage */
@@ -137,6 +142,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             [SK_REASONING_BLOCK_ID]: this.currentReasoningBlockId,
             [SK_TOPIC_PREFIX]: this.topicPrefix,
             [SK_PREVIEW_ALIAS]: this.previewAlias,
+            [SK_DISPLAY_STATUS]: this.displayStatus,
         });
     }
 
@@ -303,6 +309,8 @@ export class ChatStreamDO extends DurableObject<Env> {
 
             // --- Status & terminal ---
             case 'status_update':
+                this.displayStatus = event.status;
+                break;
             case 'done':
             case 'done_ext':
             case 'error':
@@ -600,6 +608,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             blocks: this.blocks,
             activeDocuments: [...this.activeDocuments.values()],
             status: this.status === 'idle' ? 'streaming' : this.status,
+            displayStatus: this.displayStatus,
         };
     }
 

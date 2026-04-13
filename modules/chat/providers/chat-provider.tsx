@@ -26,7 +26,15 @@ import { useChatStream } from '../hooks/use-chat-stream';
 import type { ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
-import type { ChatState, ChatType, Message, MessageMetadata, PaginationState, StreamBlock } from '../types';
+import type {
+    ChatState,
+    ChatType,
+    Message,
+    MessageMetadata,
+    PaginationState,
+    StreamBlock,
+    SummaryStatus,
+} from '../types';
 
 export type BaseChatContextValue = {
     state: ChatState;
@@ -52,6 +60,8 @@ export type BaseChatContextValue = {
     setChatId: (chatId: string | null) => void;
     /** Summarize the current chat and prepare the new phase */
     summarizeChat: () => void;
+    /** Cancel an in-progress summarization */
+    cancelSummary: () => void;
     /** Navigate to the new phase chat (after summarization completes) */
     navigateToNewPhase: () => void;
     /** Set hasPendingChanges to false (call after approve/reject) */
@@ -186,6 +196,7 @@ export function ChatProvider({
             pendingPhaseTransition: false,
             activeResponseId: null,
             summaryDocKey: null,
+            summaryStatus: null,
             isProcessingArtifactAction: false,
             showInvalidModelAlert: false,
         };
@@ -449,13 +460,14 @@ export function ChatProvider({
                 feedbackScore: (m as any).feedback_score ?? null,
                 feedbackComment: (m as any).feedback ?? null,
                 // Only forward display-safe fields — metadata can contain safetyAnalysis, errors, etc.
-                metadata: (meta.preset || meta.inference || meta.usage)
-                    ? {
-                          ...(meta.preset ? { preset: meta.preset as string } : {}),
-                          ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
-                          ...(meta.usage ? { usage: meta.usage } : {}),
-                      } as MessageMetadata
-                    : undefined,
+                metadata:
+                    meta.preset || meta.inference || meta.usage
+                        ? ({
+                              ...(meta.preset ? { preset: meta.preset as string } : {}),
+                              ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
+                              ...(meta.usage ? { usage: meta.usage } : {}),
+                          } as MessageMetadata)
+                        : undefined,
             };
         },
         [],
@@ -470,6 +482,7 @@ export function ChatProvider({
                     isSummarizing: true,
                     summaryNewChatId: null,
                     summaryDocKey: null,
+                    summaryStatus: null,
                 }));
             } else {
                 // Normal chat response — reconcile user message ID and set generating state
@@ -526,6 +539,13 @@ export function ChatProvider({
 
     const handleStreamDone = useCallback(
         (status: StreamStatus, terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' }) => {
+            // Summary was cancelled — ignore any terminal events from the backend
+            if (summaryCancelledRef.current) {
+                summaryCancelledRef.current = false;
+                summarizeInFlightRef.current = false;
+                return;
+            }
+
             const isNormalDone = terminalEvent?.type === 'done';
             const newChatId = isNormalDone ? terminalEvent.newChatId : undefined;
 
@@ -536,17 +556,41 @@ export function ChatProvider({
                     ...prev,
                     isSummarizing: false,
                     summaryNewChatId: newChatId,
+                    summaryStatus: null,
                 }));
                 return;
             }
 
+            // Summary stream aborted/errored without producing a new chat — reset summary state.
+            // This handles cross-tab sync: Tab A cancels, Tab B receives the terminal status.
+            // Note: handleStreamDone has [] deps, so we read isSummarizing via prev in setState.
+            let wasSummary = false;
+            setState((prev) => {
+                if (!prev.isSummarizing) return prev;
+                wasSummary = true;
+                summarizeInFlightRef.current = false;
+                return {
+                    ...prev,
+                    isSummarizing: false,
+                    summaryStatus: null,
+                    summaryNewChatId: null,
+                    summaryDocKey: null,
+                    error: null,
+                };
+            });
+            if (wasSummary) return;
+
             // Extract safe message metadata from done event (preset, inference, usage)
-            const doneMeta = isNormalDone ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined) : undefined;
-            const doneMessageMetadata = doneMeta ? {
-                ...(doneMeta.preset && { preset: doneMeta.preset as string }),
-                ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
-                ...(doneMeta.usage && { usage: doneMeta.usage }),
-            } : undefined;
+            const doneMeta = isNormalDone
+                ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
+                : undefined;
+            const doneMessageMetadata = doneMeta
+                ? {
+                      ...(doneMeta.preset && { preset: doneMeta.preset as string }),
+                      ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
+                      ...(doneMeta.usage && { usage: doneMeta.usage }),
+                  }
+                : undefined;
 
             setState((prev) => ({
                 ...prev,
@@ -566,7 +610,8 @@ export function ChatProvider({
                               status: undefined,
                               ...(status === 'error' && { isError: true }),
                               ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
-                              ...(doneMessageMetadata && Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
+                              ...(doneMessageMetadata &&
+                                  Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
                           }
                         : msg,
                 ),
@@ -846,6 +891,15 @@ export function ChatProvider({
         }
     }, [stream.streamType, stream.activeDocuments]);
 
+    // Sync summary stream displayStatus to state (never clears — handleStreamDone resets).
+    useEffect(() => {
+        if (stream.streamType !== 'summary') return;
+        const status = stream.displayStatus as SummaryStatus | null;
+        if (status) {
+            setState((prev) => (prev.summaryStatus === status ? prev : { ...prev, summaryStatus: status }));
+        }
+    }, [stream.streamType, stream.displayStatus]);
+
     // ========================================================================
     // MESSAGE LOADING
     // ========================================================================
@@ -1096,6 +1150,7 @@ export function ChatProvider({
     // Ref guard: prevents duplicate POST when multiple NextPhaseButton
     // instances (desktop + mobile) react to pendingPhaseTransition simultaneously.
     const summarizeInFlightRef = useRef(false);
+    const summaryCancelledRef = useRef(false);
 
     /** Trigger summarization — fires POST, then waits for stream_started(streamType:'summary') via WS */
     const summarizeChat = useCallback(async () => {
@@ -1103,6 +1158,7 @@ export function ChatProvider({
         if (chatType !== 'phase' || !chatId || state.isSummarizing) return;
         if (summarizeInFlightRef.current) return;
         summarizeInFlightRef.current = true;
+        summaryCancelledRef.current = false;
 
         // Do NOT set isSummarizing here — stream_started(streamType:'summary') drives that state.
         // This avoids showing the summarizing UI if the POST itself fails.
@@ -1124,10 +1180,43 @@ export function ChatProvider({
             setState((prev) => ({
                 ...prev,
                 isSummarizing: false,
+                summaryStatus: null,
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }
     }, [chatId, getToken, chatType, state.isSummarizing]);
+
+    /** Cancel an in-progress summarization — aborts the stream and rolls back created artifacts */
+    const cancelSummary = useCallback(async () => {
+        if (!state.isSummarizing || !chatId) return;
+
+        // Mark as cancelled so subsequent stream events (done/error) are ignored
+        summaryCancelledRef.current = true;
+        summarizeInFlightRef.current = false;
+
+        cleanupTransientArtifacts(stream.activeDocuments);
+
+        // Also abort via WebSocket for faster path
+        stream.abort();
+
+        // Reset state synchronously before any async work — prevents the
+        // cross-tab sync effect from reopening the overlay
+        setState((prev) => ({
+            ...prev,
+            isSummarizing: false,
+            summaryStatus: null,
+            summaryNewChatId: null,
+            summaryDocKey: null,
+            error: null,
+        }));
+
+        // Abort via HTTP (fire-and-forget, uses stream's agentMessageId)
+        const summaryAgentMessageId = stream.agentMessageId;
+        if (summaryAgentMessageId) {
+            const accessToken = (await getToken()) ?? '';
+            abort({ chatId, agentMessageId: summaryAgentMessageId }, accessToken).catch(() => {});
+        }
+    }, [chatId, state.isSummarizing, stream, cleanupTransientArtifacts, getToken]);
 
     /** Navigate to the new phase chat after summarization */
     const navigateToNewPhase = useCallback(() => {
@@ -1204,6 +1293,7 @@ export function ChatProvider({
                 stopGeneration,
                 setChatId,
                 summarizeChat,
+                cancelSummary,
                 navigateToNewPhase,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
