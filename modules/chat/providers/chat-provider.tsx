@@ -561,6 +561,25 @@ export function ChatProvider({
                 return;
             }
 
+            // Summary stream aborted/errored without producing a new chat — reset summary state.
+            // This handles cross-tab sync: Tab A cancels, Tab B receives the terminal status.
+            // Note: handleStreamDone has [] deps, so we read isSummarizing via prev in setState.
+            let wasSummary = false;
+            setState((prev) => {
+                if (!prev.isSummarizing) return prev;
+                wasSummary = true;
+                summarizeInFlightRef.current = false;
+                return {
+                    ...prev,
+                    isSummarizing: false,
+                    summaryStatus: null,
+                    summaryNewChatId: null,
+                    summaryDocKey: null,
+                    error: null,
+                };
+            });
+            if (wasSummary) return;
+
             // Extract safe message metadata from done event (preset, inference, usage)
             const doneMeta = isNormalDone
                 ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)

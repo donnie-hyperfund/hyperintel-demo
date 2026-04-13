@@ -2,6 +2,7 @@
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import type { EntityManager } from '@mikro-orm/core';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
@@ -26,6 +27,39 @@ import {
     handleCommonStreamEvent,
     wireAbort,
 } from './utils/stream-utils';
+
+/**
+ * Roll back artifact versions (and orphaned parent artifacts) created during
+ * a failed or aborted summarization. Uses em.fork() to avoid dirty state
+ * from in-flight doc tool calls on the request EntityManager.
+ */
+async function rollbackCreatedVersions(em: EntityManager, versionIds: string[]): Promise<void> {
+    if (versionIds.length === 0) return;
+
+    try {
+        const cleanEm = em.fork();
+        const versions = await cleanEm.find(
+            ArtifactVersionEntity,
+            { id: { $in: versionIds } },
+            { fields: ['artifact'] },
+        );
+        const artifactIds = [...new Set(versions.map((v) => v.artifact.id))];
+
+        await cleanEm.transactional(async (txEm) => {
+            await txEm.nativeDelete(ArtifactEmbeddingEntity, { artifact_version: { $in: versionIds } });
+            await txEm.nativeDelete(ArtifactVersionEntity, { id: { $in: versionIds } });
+            if (artifactIds.length > 0) {
+                const remaining = await txEm.count(ArtifactVersionEntity, { artifact: { $in: artifactIds } });
+                if (remaining === 0) {
+                    await txEm.nativeDelete(ArtifactEntity, { id: { $in: artifactIds } });
+                }
+            }
+        });
+        console.log(`[summarizer] rolled back ${versionIds.length} version(s) and orphaned artifacts`);
+    } catch (err) {
+        console.error('[summarizer] failed to rollback artifact versions:', err);
+    }
+}
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
@@ -404,30 +438,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Check both the done_ext flag (runner detected abort) and the controller
         // (abort arrived after runner finished but before post-stream work)
         if (wasAborted || abortController.signal.aborted) {
-            console.log(`[summarizer] aborted — rolling back ${createdVersionIds.length} version(s)`);
-
-            if (createdVersionIds.length > 0) {
-                // Collect parent artifact IDs before deleting versions
-                const versions = await em!.find(
-                    ArtifactVersionEntity,
-                    { id: { $in: createdVersionIds } },
-                    { fields: ['artifact'] },
-                );
-                const artifactIds = [...new Set(versions.map((v) => v.artifact.id))];
-
-                await em!.transactional(async (txEm) => {
-                    // Delete in FK order: embeddings → versions → orphaned artifacts
-                    await txEm.nativeDelete(ArtifactEmbeddingEntity, { artifact_version: { $in: createdVersionIds } });
-                    await txEm.nativeDelete(ArtifactVersionEntity, { id: { $in: createdVersionIds } });
-                    if (artifactIds.length > 0) {
-                        // Only delete artifacts that have no remaining versions
-                        const remaining = await txEm.count(ArtifactVersionEntity, { artifact: { $in: artifactIds } });
-                        if (remaining === 0) {
-                            await txEm.nativeDelete(ArtifactEntity, { id: { $in: artifactIds } });
-                        }
-                    }
-                });
-            }
+            await rollbackCreatedVersions(em!, createdVersionIds);
 
             chat.active_agent_message_id = null;
             await em!.flush();
@@ -536,31 +547,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
     } catch (error: any) {
         console.error('[summarizer] generation error:', error?.message ?? error, error?.stack);
 
-        // Roll back artifact versions and orphaned artifacts created during this attempt
-        if (createdVersionIds.length > 0) {
-            try {
-                const versions = await em!.find(
-                    ArtifactVersionEntity,
-                    { id: { $in: createdVersionIds } },
-                    { fields: ['artifact'] },
-                );
-                const artifactIds = [...new Set(versions.map((v) => v.artifact.id))];
-
-                await em!.transactional(async (txEm) => {
-                    await txEm.nativeDelete(ArtifactEmbeddingEntity, { artifact_version: { $in: createdVersionIds } });
-                    await txEm.nativeDelete(ArtifactVersionEntity, { id: { $in: createdVersionIds } });
-                    if (artifactIds.length > 0) {
-                        const remaining = await txEm.count(ArtifactVersionEntity, { artifact: { $in: artifactIds } });
-                        if (remaining === 0) {
-                            await txEm.nativeDelete(ArtifactEntity, { id: { $in: artifactIds } });
-                        }
-                    }
-                });
-                console.log(`[summarizer] rolled back ${createdVersionIds.length} version(s) and orphaned artifacts`);
-            } catch (deleteErr) {
-                console.error('[summarizer] failed to rollback artifact versions:', deleteErr);
-            }
-        }
+        await rollbackCreatedVersions(em!, createdVersionIds);
 
         // Clear active_agent_message_id on error (summarizer has no agent message to persist)
         try {

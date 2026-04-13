@@ -95,6 +95,9 @@ export function SummarizerOverlay({
     onCancel,
 }: SummarizerOverlayProps) {
     const [displayStatus, setDisplayStatus] = useState<SummaryStatus | null>(summaryStatus);
+    const displayStatusRef = useRef(displayStatus);
+    displayStatusRef.current = displayStatus;
+
     const summaryArtifact = useArtifact(summaryDocKey ?? '', 1);
     const rawProgress = summaryDocKey ? (summaryArtifact?.progress ?? 0) : 0;
     const displayProgress = useEasedProgress(rawProgress, summaryDocKey);
@@ -106,11 +109,11 @@ export function SummarizerOverlay({
     useEffect(() => {
         if (!summaryStatus && !summaryNewChatId) {
             setDisplayStatus(null);
-        } else if (summaryStatus && summaryStatus !== displayStatus) {
+        } else if (summaryStatus && summaryStatus !== displayStatusRef.current) {
             const timer = setTimeout(() => setDisplayStatus(summaryStatus), 600);
             return () => clearTimeout(timer);
         }
-    }, [summaryStatus, summaryNewChatId]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [summaryStatus, summaryNewChatId]);
 
     const title = getStatusTitle(displayStatus, isDone);
     const subtitleTexts = displayStatus ? STATUS_SUBTITLES[displayStatus] : ['Starting up...'];

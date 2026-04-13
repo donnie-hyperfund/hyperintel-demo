@@ -51,12 +51,15 @@ export function NextPhaseButton() {
         navigateToNewPhase();
     }, [pendingNavigation, dialogOpen, revalidateChats, navigateToNewPhase]);
 
-    // Cross-tab sync: open dialog when summary starts on another tab
+    // Cross-tab sync: open/close dialog based on summarizing state
     useEffect(() => {
         if (state.isSummarizing && !dialogOpen) {
             setDialogOpen(true);
+        } else if (!state.isSummarizing && dialogOpen && !state.summaryNewChatId) {
+            // Summary was cancelled/errored on another tab — close the overlay
+            setDialogOpen(false);
         }
-    }, [state.isSummarizing, dialogOpen]);
+    }, [state.isSummarizing, state.summaryNewChatId, dialogOpen]);
 
     // React to chat-triggered phase transition (AI called generate_summary)
     useEffect(() => {

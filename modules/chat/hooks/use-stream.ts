@@ -529,6 +529,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         setStatus(sr.snapshot.status);
                         setAgentMessageId(sr.agentMessageId);
                         setStreamType(sr.streamType ?? null);
+                        setDisplayStatus(sr.snapshot.displayStatus ?? null);
 
                         // Initialize artifact state from snapshot activeDocuments
                         if (o.artifactContext && sr.snapshot.activeDocuments.length > 0) {
