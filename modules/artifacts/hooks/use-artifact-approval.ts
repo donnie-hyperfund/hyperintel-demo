@@ -35,7 +35,7 @@ export function useArtifactApproval({
     const { clearPendingChanges, chatType, chatId, hasOtherPendingArtifacts, setProcessingArtifactAction, state } =
         chatContext;
     const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
-    const { startProcessing } = useArtifactProcessing();
+    const { startProcessing, failProcessing } = useArtifactProcessing();
     const isIntake = chatType !== 'phase';
     const projectId = chatContext.chatType === 'phase' ? chatContext.projectId : undefined;
     const { data: project } = useFetchProject(projectId);
@@ -90,6 +90,7 @@ export function useArtifactApproval({
             }
         } catch (err) {
             console.error('Failed to approve:', err);
+            failProcessing(artifactVersionId);
             toast({ title: `Failed to approve ${entityLabel}.`, variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);
@@ -112,6 +113,7 @@ export function useArtifactApproval({
             }
         } catch (err) {
             console.error('Failed to reject:', err);
+            failProcessing(artifactVersionId);
             toast({ title: `Failed to reject ${entityLabel}.`, variant: 'destructive' });
         } finally {
             onProcessingChange?.(false);

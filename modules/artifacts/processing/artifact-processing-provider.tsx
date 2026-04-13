@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
 import {
     safeGetJsonItem as sessionGetJson,
@@ -17,6 +17,7 @@ const STALE_THRESHOLD_MS = 60_000;
 
 type ArtifactProcessingContextValue = {
     startProcessing: (entry: Omit<ProcessingEntry, 'status' | 'startedAt' | 'initiatedLocally'>) => void;
+    failProcessing: (versionId: string) => void;
     isProcessing: (versionId: string) => boolean;
     hasEntry: (versionId: string) => boolean;
     activeEntries: ProcessingEntry[];
@@ -147,6 +148,13 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
         });
     }, []);
 
+    const failProcessing = useCallback(
+        (versionId: string) => {
+            updateEntryStatus(versionId, 'failed');
+        },
+        [updateEntryStatus],
+    );
+
     useUserEvents(
         useCallback(
             (eventType: string, payload: unknown) => {
@@ -271,27 +279,41 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
         return true;
     }, []);
 
-    const allEntries = Array.from(entries.values());
-    const activeEntries = allEntries.filter((entry) => entry.status === 'processing');
-    const visibleEntries = allEntries.filter((entry) => entry.versionId !== suppressedVersionId);
-
-    return (
-        <ArtifactProcessingContext.Provider
-            value={{
-                startProcessing,
-                isProcessing,
-                hasEntry,
-                activeEntries,
-                visibleEntries,
-                hasPendingNudge,
-                clearPendingNudge,
-                suppressVersion,
-                checkProjectEntry,
-            }}
-        >
-            {children}
-        </ArtifactProcessingContext.Provider>
+    const allEntries = useMemo(() => Array.from(entries.values()), [entries]);
+    const activeEntries = useMemo(() => allEntries.filter((entry) => entry.status === 'processing'), [allEntries]);
+    const visibleEntries = useMemo(
+        () => allEntries.filter((entry) => entry.versionId !== suppressedVersionId),
+        [allEntries, suppressedVersionId],
     );
+
+    const contextValue = useMemo(
+        () => ({
+            startProcessing,
+            failProcessing,
+            isProcessing,
+            hasEntry,
+            activeEntries,
+            visibleEntries,
+            hasPendingNudge,
+            clearPendingNudge,
+            suppressVersion,
+            checkProjectEntry,
+        }),
+        [
+            startProcessing,
+            failProcessing,
+            isProcessing,
+            hasEntry,
+            activeEntries,
+            visibleEntries,
+            hasPendingNudge,
+            clearPendingNudge,
+            suppressVersion,
+            checkProjectEntry,
+        ],
+    );
+
+    return <ArtifactProcessingContext.Provider value={contextValue}>{children}</ArtifactProcessingContext.Provider>;
 }
 
 export function useArtifactProcessing(): ArtifactProcessingContextValue {
