@@ -48,8 +48,12 @@ jobs:
             else
               continue
             fi
+            config_name=$(basename "$config")
             echo "::group::Deploying $name"
-            if ! npx wrangler deploy --env=dev --config "$config"; then
+            if ! (
+              cd "$dir"
+              npx wrangler deploy --env=dev --config "$config_name"
+            ); then
               echo "::error::Failed to deploy $name"
               failed=1
             fi

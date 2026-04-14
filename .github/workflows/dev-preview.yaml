@@ -67,10 +67,14 @@ jobs:
             else
               continue
             fi
+            config_name=$(basename "$config")
             echo "::group::Deploying $name"
-            if ! npx wrangler versions upload --env=dev \
-              --config "$config" \
-              --preview-alias "${{ steps.branch.outputs.cf_alias }}"; then
+            if ! (
+              cd "$dir"
+              npx wrangler versions upload --env=dev \
+                --config "$config_name" \
+                --preview-alias "${{ steps.branch.outputs.cf_alias }}"
+            ); then
               echo "::error::Failed to deploy $name"
               failed=1
             fi
