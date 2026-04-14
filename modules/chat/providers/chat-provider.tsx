@@ -489,7 +489,9 @@ export function ChatProvider({
                     const messages = prev.messages.map((m) =>
                         m.id === userMessageId || m.tempId === userMessageId
                             ? { ...m, id: userMessageId, tempId: m.tempId || m.id }
-                            : m,
+                            : m.isStreaming && m.id !== agentMessageId
+                              ? { ...m, isStreaming: false, status: undefined }
+                              : m,
                     );
                     return { ...prev, isGenerating: true, activeResponseId: agentMessageId, messages };
                 });
@@ -537,7 +539,11 @@ export function ChatProvider({
     );
 
     const handleStreamDone = useCallback(
-        (status: StreamStatus, terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' }) => {
+        (
+            status: StreamStatus,
+            terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' },
+            completedAgentMessageId?: string,
+        ) => {
             // Summary was cancelled — ignore any terminal events from the backend
             if (summaryCancelledRef.current) {
                 summaryCancelledRef.current = false;
@@ -582,38 +588,43 @@ export function ChatProvider({
             const doneMeta = isNormalDone
                 ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
                 : undefined;
-            const doneMessageMetadata = doneMeta
+            const doneMessageMetadata: MessageMetadata | undefined = doneMeta
                 ? {
-                      ...(doneMeta.preset && { preset: doneMeta.preset as string }),
-                      ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
-                      ...(doneMeta.usage && { usage: doneMeta.usage }),
+                      ...(doneMeta.preset ? { preset: doneMeta.preset as string } : {}),
+                      ...(doneMeta.inference ? { inference: doneMeta.inference as Record<string, unknown> } : {}),
+                      ...(doneMeta.usage ? { usage: doneMeta.usage as MessageMetadata['usage'] } : {}),
                   }
                 : undefined;
 
-            setState((prev) => ({
-                ...prev,
-                isGenerating: false,
-                activeResponseId: null,
-                tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
-                totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
-                hasPendingChanges: isNormalDone
-                    ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
-                    : prev.hasPendingChanges,
-                phaseIndex: isNormalDone ? (terminalEvent.phaseIndex ?? prev.phaseIndex) : prev.phaseIndex,
-                messages: prev.messages.map((msg) =>
-                    msg.isStreaming
-                        ? {
-                              ...msg,
-                              isStreaming: false,
-                              status: undefined,
-                              ...(status === 'error' && { isError: true }),
-                              ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
-                              ...(doneMessageMetadata &&
-                                  Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
-                          }
-                        : msg,
-                ),
-            }));
+            setState((prev) => {
+                const targetMessageId = completedAgentMessageId ?? prev.activeResponseId;
+                const isCurrentActiveStream = !!targetMessageId && prev.activeResponseId === targetMessageId;
+
+                return {
+                    ...prev,
+                    isGenerating: isCurrentActiveStream ? false : prev.isGenerating,
+                    activeResponseId: isCurrentActiveStream ? null : prev.activeResponseId,
+                    tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
+                    totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
+                    hasPendingChanges: isNormalDone
+                        ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
+                        : prev.hasPendingChanges,
+                    phaseIndex: isNormalDone ? (terminalEvent.phaseIndex ?? prev.phaseIndex) : prev.phaseIndex,
+                    messages: prev.messages.map((msg) =>
+                        msg.id === targetMessageId
+                            ? {
+                                  ...msg,
+                                  isStreaming: false,
+                                  status: undefined,
+                                  ...(status === 'error' && { isError: true }),
+                                  ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
+                                  ...(doneMessageMetadata &&
+                                      Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
+                              }
+                            : msg,
+                    ),
+                };
+            });
         },
         [],
     );
