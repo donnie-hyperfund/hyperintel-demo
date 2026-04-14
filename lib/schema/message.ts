@@ -172,6 +172,13 @@ export const ChatDtoSchema = z.object({
     first_message_content: z.string().nullable().optional(),
     /** Synthetic array of documents with version metadata */
     documents: z.array(ChatDocumentSummaryDtoSchema).optional(),
+    /** Completion Brief artifact ID for this phase */
+    completion_brief: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
+    /** Completion Brief approval status: 'proposed' | 'approved' | 'rejected' | null */
+    completion_brief_status: z.string().nullable().optional(),
     metadata: z.record(z.unknown()).nullable().optional(),
     token_usage: TokenUsageSchema.nullable().optional(),
     total_cost: z.number().nullable().optional(),

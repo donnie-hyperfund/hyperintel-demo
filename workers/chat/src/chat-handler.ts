@@ -19,6 +19,7 @@ import { createNoopSafetyMonitor, createSafetyMonitor } from './safety/analyzer'
 import { isOutputSafetyEnabled } from './safety/config';
 import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
+import { CompletionBriefToolGroup, createCompletionBriefTools } from './tools/completion-brief';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
@@ -108,6 +109,7 @@ const PMA_ALIASES: Record<string, string> = {
     // Short forms
     initiation_protocol: 'pma/initiation-protocol',
     completion_protocol: 'pma/completion-protocol',
+    completion_brief: 'pma/completion-brief',
 
     // Conceptual aliases
     discovery_protocol: 'pma/initiation-protocol',
@@ -126,6 +128,7 @@ const PMA_DISPLAY_NAMES: Record<string, string> = {
     'pma/initiation-protocol': 'Project Initiation Protocol',
     'pma/execution-standards': 'Execution Standards',
     'pma/completion-protocol': 'Project Completion Protocol',
+    'pma/completion-brief': 'Completion Brief Template',
 };
 
 /** Slugs that are always loaded and cannot be unloaded */
@@ -140,6 +143,9 @@ const pmaPromptTools = createPromptTools(PMA_ALIASES, PMA_DISPLAY_NAMES, ALWAYS_
 
 const WEB_SEARCH_GUIDANCE = `## Web Search
 You have access to web_search for real-time information. Use it when you need current data, recent events, or facts you're uncertain about.`;
+
+const COMPLETION_BRIEF_GUIDANCE = `## Completion Briefs
+Before generating a Completion Brief, always call the \`completion_brief\` tool first. It loads the template and provides current phase context and document statuses.`;
 
 // ============================================================================
 // SECURITY BOUNDARY
@@ -411,6 +417,18 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
                     .catch(console.error);
+
+                // Broadcast CB status change via chat-scoped UG topic
+                if (event.documentType === 'Completion Brief') {
+                    ugStub
+                        .systemAction(
+                            `chat:${chatId}`,
+                            'cbStatusChanged',
+                            { status: 'proposed' },
+                            ctx.previewAlias ?? undefined,
+                        )
+                        .catch(console.error);
+                }
             },
         };
 
@@ -427,7 +445,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             ctx,
             agentCtx.loadedPrompts,
             localPath,
-            WEB_SEARCH_GUIDANCE,
+            WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
         );
 
         // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
@@ -448,6 +466,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         // Define tools and tool groups
         const allTools = [
             ...pmaPromptTools,
+            ...createCompletionBriefTools(),
             ...createDocumentTools(),
             ...createKnowledgeTools(),
             ...createWebScrapeTools(),
@@ -455,6 +474,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         ];
         const toolGroups = [
             PromptManagementToolGroup,
+            CompletionBriefToolGroup,
             DocumentToolGroup,
             KnowledgeSearchToolGroup,
             WebScrapeToolGroup,
@@ -479,7 +499,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                 config: {
                     maxToolCalls: 100,
                     getSystemPrompt: async () =>
-                        buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath, WEB_SEARCH_GUIDANCE),
+                        buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath, WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE),
                     statusUpdates: { enabled: true },
                     preprocessContext,
                     abortSignal: abortController.signal,
