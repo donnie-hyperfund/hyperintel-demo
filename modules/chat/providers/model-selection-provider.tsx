@@ -29,29 +29,21 @@ type ModelSelectionProviderProps = {
 
 export function ModelSelectionProvider({ children, projectId }: ModelSelectionProviderProps) {
     const storageKey = projectId ? getModelStorageKey(projectId) : null;
-    const storageMarker = storageKey ?? '__no-project-model-storage__';
+    const stored = useMemo(() => (storageKey ? safeGetItem(storageKey) : null), [storageKey]);
 
-    const [selectedModel, setSelectedModel] = useState<string | null>(null);
-    const [hydratedStorageMarker, setHydratedStorageMarker] = useState<string | null>(null);
+    const [selectedModel, setSelectedModel] = useState<string | null>(stored);
     const [isChangingModel, setIsChangingModel] = useState(false);
     const { data, isLoading } = usePresets();
 
     const availablePresets = data?.presets ?? [];
     const defaultPresetId = data?.defaultPresetId ?? 'sonnet';
 
-    // Hydrate project-scoped selection from localStorage after mount to keep SSR stable.
-    useEffect(() => {
-        setSelectedModel(storageKey ? safeGetItem(storageKey) : null);
-        setHydratedStorageMarker(storageMarker);
-    }, [storageKey, storageMarker]);
-
     // Initialize selected model from API default once loaded
     useEffect(() => {
-        if (hydratedStorageMarker !== storageMarker) return;
         if (selectedModel === null && defaultPresetId) {
             setSelectedModel(defaultPresetId);
         }
-    }, [defaultPresetId, hydratedStorageMarker, selectedModel, storageMarker]);
+    }, [selectedModel, defaultPresetId]);
 
     // On prod (switcher hidden), auto-switch to default if selected preset is unavailable
     useEffect(() => {

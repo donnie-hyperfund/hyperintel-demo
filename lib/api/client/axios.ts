@@ -30,10 +30,7 @@ export function createAxiosInstance(getToken: TokenGetter): AxiosInstance {
         // Convert snake_case to camelCase
         (response) => {
             if (response.data && typeof response.data === 'object') {
-                // Normalize any prototype-bearing payloads from dev/HMR before camel-casing.
-                // The HTTP boundary is JSON anyway, so this preserves shape while avoiding `{}` entries.
-                const normalized = JSON.parse(JSON.stringify(response.data));
-                response.data = camelcaseKeys(normalized, { deep: true });
+                response.data = camelcaseKeys(response.data, { deep: true });
             }
             return response;
         },

@@ -3,7 +3,6 @@
 import { Building2, Layers } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { PhasePicker } from '@/components/layouts/dashboard-layout/phase-picker';
 import { NextPhaseButton } from '@/components/layouts/dashboard-layout/summarizer/next-phase-button';
 import {
@@ -23,7 +22,6 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export const PhaseHeader = () => {
     const { 'project-id': projectId } = useParams<PageParams<'/[project-id]'>>();
-    const [hasMounted, setHasMounted] = useState(false);
 
     const { chatId, state } = useChatContext();
     const { data: project } = useFetchProject(projectId);
@@ -32,12 +30,6 @@ export const PhaseHeader = () => {
     const { breakpoint } = useBreakpoint();
     const isMdViewportOrSmaller = !isAboveBreakpoint(breakpoint, 'md');
 
-    useEffect(() => {
-        setHasMounted(true);
-    }, []);
-
-    const projectName = hasMounted ? project?.name : undefined;
-
     return (
         <header className="border-b border-border max-sm:sticky max-sm:top-0 max-sm:left-0 max-sm:right-0 max-sm:z-10 bg-neutral-975">
             {/* Desktop */}
@@ -45,7 +37,7 @@ export const PhaseHeader = () => {
                 <div className="flex items-center gap-3 min-w-0">
                     <PhaseBreadcrumbs
                         projectId={projectId}
-                        projectName={projectName}
+                        projectName={project?.name}
                         chatId={chatId ?? undefined}
                         phaseIndex={state.phaseIndex}
                     />
@@ -72,7 +64,7 @@ export const PhaseHeader = () => {
                 <div className="px-4 pb-2 min-w-0">
                     <PhaseBreadcrumbs
                         projectId={projectId}
-                        projectName={projectName}
+                        projectName={project?.name}
                         chatId={chatId ?? undefined}
                         phaseIndex={state.phaseIndex}
                     />

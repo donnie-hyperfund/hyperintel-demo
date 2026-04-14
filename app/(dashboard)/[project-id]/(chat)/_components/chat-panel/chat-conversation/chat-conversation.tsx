@@ -91,7 +91,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
     }, [scrollTarget, scrollTargetFoundRef, pagination.hasMore, pagination.isLoadingMore, isLoading, loadMoreMessages]);
 
     return (
-        <div ref={containerRef} className="relative min-h-0 flex-1 overflow-y-auto px-4 py-6 lg:px-6">
+        <div ref={containerRef} className="relative flex-1 overflow-y-auto py-6 px-4 lg:px-6">
             <div className="w-full max-w-3xl mx-auto min-w-0 min-h-full flex flex-col">
                 {/* Loading indicator for older messages */}
                 {pagination?.isLoadingMore && (
@@ -119,7 +119,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
                         return (
                             <motion.div
                                 key={message.tempId ?? message.id ?? index}
-                                initial={false}
+                                initial={{ opacity: 0, y: 8, scale: 0.98 }}
                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                 exit={{ opacity: 0, y: -6, scale: 0.98 }}
                                 transition={{ duration: 0.3, ease: 'easeInOut' }}

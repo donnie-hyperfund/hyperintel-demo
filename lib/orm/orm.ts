@@ -74,38 +74,6 @@ if (process.env.NODE_ENV === 'development') {
 
 const reqStore = cache(() => ({ verified: false }));
 
-function isTransientDbInitError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return /\bENOTFOUND\b|\bEAI_AGAIN\b|getaddrinfo/i.test(message);
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function initOrmWithRetry(options: Options, attempts = 2): Promise<MikroORM> {
-    let lastError: unknown;
-
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-        try {
-            return await MikroORM.init(options);
-        } catch (error) {
-            lastError = error;
-
-            if (!isTransientDbInitError(error) || attempt === attempts) {
-                throw error;
-            }
-
-            console.warn(
-                `Retrying ORM init after transient database lookup failure (attempt ${attempt + 1}/${attempts})`,
-            );
-            await sleep(500 * attempt);
-        }
-    }
-
-    throw lastError;
-}
-
 /** Reuse the same EM fork within a single Next.js request (RSC / route handler / middleware). */
 const getRequestFork = cache(async (): Promise<ScopedEntityManager> => {
     const orm = await globalThis.__ormPromise!;
@@ -127,9 +95,8 @@ export async function getOrm(
     raw = false,
 ): Promise<MikroORM | { em: ScopedEntityManager }> {
     let injectConfig: Options;
-    let shouldReturnRaw = raw;
+    const shouldReturnRaw = _.isBoolean(injectConfigOrRaw) ? injectConfigOrRaw : raw;
     if (_.isBoolean(injectConfigOrRaw)) {
-        shouldReturnRaw = injectConfigOrRaw;
         if (shouldReturnRaw && !reqStore().verified) {
             throw new Error("You don't know what you're doing");
         }
@@ -156,26 +123,17 @@ export async function getOrm(
             };
         }
 
-        const ormInitPromise = initOrmWithRetry({
+        const myPromise = MikroORM.init({
             ...configToUse,
             ...injectConfig,
             // TODO env var, prevent on prod
             // debug: true,
+        }).then((orm) => {
+            // Serialization group support (deployment-level + toObject patch)
+            initSerializationGroups(orm, process.env.NEXT_PUBLIC_APP_ENV === 'development' ? ['dev'] : undefined);
+
+            return orm;
         });
-
-        const myPromise = ormInitPromise
-            .then((orm) => {
-                // Serialization group support (deployment-level + toObject patch)
-                initSerializationGroups(orm, process.env.NEXT_PUBLIC_APP_ENV === 'development' ? ['dev'] : undefined);
-
-                return orm;
-            })
-            .catch((error) => {
-                if (globalThis.__ormPromise === myPromise) {
-                    globalThis.__ormPromise = null;
-                }
-                throw error;
-            });
 
         // Capture metadata on first successful boot.
         // Strip live class/prototype refs so they don't overwrite fresh ones

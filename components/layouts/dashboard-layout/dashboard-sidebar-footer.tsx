@@ -19,14 +19,12 @@ type DashboardSidebarFooterProps = {
 
 export function DashboardSidebarFooter({ isExpanded }: DashboardSidebarFooterProps) {
     // TODO: Use useFetchUser API hook here
-    const { user, isLoaded } = useUser();
+    const { user } = useUser();
     const { signOut } = useSignOut();
     const buttonRef = useRef<HTMLButtonElement>(null);
 
-    const name = isLoaded ? user?.fullName || user?.firstName || user?.lastName || 'User' : 'User';
-    const email = isLoaded
-        ? user?.primaryEmailAddress?.emailAddress || user?.emailAddresses[0]?.emailAddress || ''
-        : '';
+    const name = user?.fullName || user?.firstName || user?.lastName || 'User';
+    const email = user?.primaryEmailAddress?.emailAddress || user?.emailAddresses[0]?.emailAddress || '';
     const initials = name
         .split(' ')
         .map((n) => n[0])

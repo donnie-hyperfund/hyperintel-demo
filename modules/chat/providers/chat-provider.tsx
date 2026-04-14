@@ -161,7 +161,6 @@ export function ChatProvider({
     const { mutate: globalMutate, cache, fallback } = useSWRConfig();
     const router = useRouter();
     const chatCreationPromiseRef = useRef<Promise<string> | null>(null);
-    const summaryRequestIdRef = useRef<string | null>(null);
 
     // Create API client with auth
     const api = useMemo(() => createApiClient(getToken), [getToken]);
@@ -493,7 +492,7 @@ export function ChatProvider({
             captureChatAnalytics('chat_stream_started', {
                 agent_message_id: agentMessageId,
                 user_message_id: userMessageId || null,
-                submission_id: tempId ?? userMessageId ?? summaryRequestIdRef.current,
+                submission_id: tempId ?? userMessageId ?? null,
                 stream_type: streamType ?? 'chat',
             });
 
@@ -662,11 +661,6 @@ export function ChatProvider({
         onTerminalTool,
         onMessageCreated: handleMessageCreated,
         onToolDocumentDecision: handleToolDocumentDecision,
-        analyticsContext: {
-            chatType,
-            projectId,
-            selectedModel,
-        },
         // Clear stale isGenerating/isSummarizing set from DB's active_agent_message_id
         // when the initial WS subscribe_response confirms no active stream.
         // Also sync selectedModel from the subscribe response.
@@ -676,20 +670,11 @@ export function ChatProvider({
             }
             if (status === 'idle') {
                 summarizeInFlightRef.current = false;
-                let resetScope: 'generation' | 'summary' | null = null;
                 setState((prev) =>
                     prev.isGenerating || prev.isSummarizing
-                        ? (() => {
-                              resetScope = prev.isSummarizing ? 'summary' : 'generation';
-                              return { ...prev, isGenerating: false, isSummarizing: false, activeResponseId: null };
-                          })()
+                        ? { ...prev, isGenerating: false, isSummarizing: false, activeResponseId: null }
                         : prev,
                 );
-                if (resetScope) {
-                    captureChatAnalytics('chat_stream_state_reset', {
-                        reset_scope: resetScope,
-                    });
-                }
             }
         },
         onModelChanged: (model: string) => {
@@ -1173,14 +1158,8 @@ export function ChatProvider({
         setState((prev) => ({ ...prev, isGenerating: true, error: null }));
 
         const accessToken = (await getToken()) ?? '';
-        const nudgeRequestId = uuidv4();
 
         try {
-            captureChatAnalytics('chat_turn_submitted', {
-                chat_id: chatId,
-                submission_id: nudgeRequestId,
-                is_nudge: true,
-            });
             const send = chatType === 'phase' ? sendAction : sendIntakeAction;
             const response = await send({ message: null, chatId, model: selectedModel }, accessToken);
 
@@ -1190,19 +1169,13 @@ export function ChatProvider({
             }
         } catch (error) {
             console.error('Error sending nudge:', error);
-            captureChatAnalytics('chat_turn_submission_failed', {
-                chat_id: chatId,
-                submission_id: nudgeRequestId,
-                is_nudge: true,
-                error_message: error instanceof Error ? error.message : 'Failed to send nudge',
-            });
             setState((prev) => ({
                 ...prev,
                 isGenerating: false,
                 error: error instanceof Error ? error : new Error('Failed to send nudge'),
             }));
         }
-    }, [captureChatAnalytics, chatId, chatType, getToken, selectedModel, state.isGenerating]);
+    }, [chatId, chatType, getToken, selectedModel, state.isGenerating]);
 
     // ========================================================================
     // SUMMARIZE
@@ -1220,17 +1193,12 @@ export function ChatProvider({
         if (summarizeInFlightRef.current) return;
         summarizeInFlightRef.current = true;
         summaryCancelledRef.current = false;
-        summaryRequestIdRef.current = uuidv4();
 
         // Do NOT set isSummarizing here — stream_started(streamType:'summary') drives that state.
         // This avoids showing the summarizing UI if the POST itself fails.
         setState((prev) => ({ ...prev, error: null }));
 
         try {
-            captureChatAnalytics('chat_summary_requested', {
-                chat_id: chatId,
-                summary_request_id: summaryRequestIdRef.current,
-            });
             const accessToken = (await getToken()) ?? '';
             const response = await summarize({ chatId }, accessToken);
 
@@ -1243,12 +1211,6 @@ export function ChatProvider({
             // stream_started(streamType:'summary') arrives via existing chat: WS subscription.
         } catch (err) {
             summarizeInFlightRef.current = false;
-            captureChatAnalytics('chat_turn_submission_failed', {
-                chat_id: chatId,
-                summary_request_id: summaryRequestIdRef.current,
-                stream_type: 'summary',
-                error_message: err instanceof Error ? err.message : 'Summarization failed',
-            });
             setState((prev) => ({
                 ...prev,
                 isSummarizing: false,
@@ -1256,17 +1218,11 @@ export function ChatProvider({
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }
-    }, [captureChatAnalytics, chatId, getToken, chatType, state.isSummarizing]);
+    }, [chatId, getToken, chatType, state.isSummarizing]);
 
     /** Cancel an in-progress summarization — aborts the stream and rolls back created artifacts */
     const cancelSummary = useCallback(async () => {
         if (!state.isSummarizing || !chatId) return;
-
-        captureChatAnalytics('chat_summary_cancelled', {
-            chat_id: chatId,
-            summary_request_id: summaryRequestIdRef.current,
-            agent_message_id: stream.agentMessageId,
-        });
 
         // Mark as cancelled so subsequent stream events (done/error) are ignored
         summaryCancelledRef.current = true;
@@ -1294,7 +1250,7 @@ export function ChatProvider({
             const accessToken = (await getToken()) ?? '';
             abort({ chatId, agentMessageId: summaryAgentMessageId }, accessToken).catch(() => {});
         }
-    }, [captureChatAnalytics, chatId, state.isSummarizing, stream, cleanupTransientArtifacts, getToken]);
+    }, [chatId, state.isSummarizing, stream, cleanupTransientArtifacts, getToken]);
 
     /** Navigate to the new phase chat after summarization */
     const navigateToNewPhase = useCallback(() => {
@@ -1308,11 +1264,6 @@ export function ChatProvider({
 
     /** Stop the current generation */
     const stopGeneration = useCallback(async () => {
-        captureChatAnalytics('chat_generation_stopped', {
-            chat_id: chatId,
-            agent_message_id: state.activeResponseId,
-        });
-
         cleanupTransientArtifacts(stream.activeDocuments);
 
         // Server-side abort via HTTP → ChatStreamDO.abort()
@@ -1332,7 +1283,7 @@ export function ChatProvider({
             ),
             isGenerating: false,
         }));
-    }, [captureChatAnalytics, chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
+    }, [chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
 
     /** Change the chat's selected model — persists via API when a chat exists, localStorage when not */
     const changeModel = useCallback(

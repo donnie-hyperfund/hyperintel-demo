@@ -21,7 +21,6 @@ import FirecrawlApp from '@mendable/firecrawl-js';
 import { waitUntil } from '@vercel/functions';
 import { Langfuse } from 'langfuse';
 import type postgres from 'postgres';
-import { backendEnv } from '@/app/api/env';
 import { assertClerkAuth } from '@/lib/api/auth-guard';
 import { ensureDevWsServer, envSecretMocks } from '@/lib/local/cf-env-secret-mock';
 import { getOrm } from '@/lib/orm';
@@ -50,9 +49,9 @@ const projectDeps = {
         publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!,
     }),
     langfuse: new Langfuse({
-        secretKey: backendEnv.LANGFUSE_SECRET_KEY!,
-        publicKey: backendEnv.LANGFUSE_PUBLIC_KEY!,
-        baseUrl: backendEnv.LANGFUSE_HOST,
+        secretKey: process.env.LANGFUSE_SECRET_KEY!,
+        publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
+        baseUrl: process.env.LANGFUSE_HOST,
     }),
     firecrawl: new FirecrawlApp({
         apiKey: process.env.FIRECRAWL_API_KEY!,

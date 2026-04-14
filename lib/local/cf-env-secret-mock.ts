@@ -31,8 +31,8 @@ export const envSecretMocks: Record<string, unknown> = {
     // Non-secrets (plain strings)
     CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? '',
     LANGFUSE_ENVIRONMENT: process.env.LANGFUSE_ENVIRONMENT ?? 'Development',
-    LANGFUSE_PUBLIC_KEY: backendEnv.LANGFUSE_PUBLIC_KEY ?? '',
-    LANGFUSE_HOST: backendEnv.LANGFUSE_HOST ?? '',
+    LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY ?? '',
+    LANGFUSE_HOST: process.env.LANGFUSE_HOST ?? '',
     POSTHOG_HOST: process.env.POSTHOG_HOST ?? '',
     CHAT_OUTPUT_SAFETY_ENABLED: process.env.CHAT_OUTPUT_SAFETY_ENABLED ?? 'true',
     // TODO IS_DEV?

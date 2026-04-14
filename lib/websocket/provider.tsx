@@ -7,7 +7,7 @@ import type { WebsocketClient } from './base';
 import { DirectWebsocketClient } from './direct';
 
 function getWsUrl(): string {
-    if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS || !frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+    if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS) {
         return 'ws://localhost:8788/ws';
     }
     const alias = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_ALIAS;
@@ -36,7 +36,7 @@ export function WebsocketProvider({ children }: { children: ReactNode }) {
 
         const connect = async () => {
             // In local dev, ensure the WS server is running before connecting
-            if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS || !frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+            if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS) {
                 await fetch('/api/ws-init').catch(() => {});
             }
             const token = await getToken();

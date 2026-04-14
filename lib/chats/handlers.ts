@@ -403,9 +403,7 @@ export async function handleGetMessages(
         perPage: queryData.limit ?? 20,
     });
 
-    const mappedNodes = nodes.map(
-        (message: ChatMessageEntity): ChatMessageDto => JSON.parse(JSON.stringify(wrap(message).toJSON())),
-    );
+    const mappedNodes = nodes.map((message: ChatMessageEntity): ChatMessageDto => wrap(message).toJSON());
 
     return NextResponse.json(
         createPaginatedResponse(mappedNodes, totalCount, queryData.page ?? 1, queryData.limit ?? 20),
@@ -462,7 +460,7 @@ export async function handleCreateMessage(
         });
         await em.persistAndFlush(message);
 
-        const dto: ChatMessageDto = JSON.parse(JSON.stringify(wrap(message).toJSON()));
+        const dto: ChatMessageDto = wrap(message).toJSON();
         return dto;
     });
 
@@ -493,7 +491,7 @@ export async function handleGetMessage(chatId: string, messageId: string, user: 
         return NextResponse.json({ error: 'Message not found', code: 'MESSAGE_NOT_FOUND' }, { status: 404 });
     }
 
-    const dto: ChatMessageDto = JSON.parse(JSON.stringify(wrap(message).toJSON()));
+    const dto: ChatMessageDto = wrap(message).toJSON();
     return NextResponse.json(dto);
 }
 

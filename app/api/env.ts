@@ -15,10 +15,7 @@ const envBackendSchema = z.object({
     LANGFUSE_SECRET_KEY: z.string().min(1).optional(),
     LANGFUSE_PUBLIC_KEY: z.string().min(1).optional(),
     LANGFUSE_HOST: z.string().min(1).optional(),
-    LANGFUSE_BASE_URL: z.string().min(1).optional(),
     LANGFUSE_ENVIRONMENT: z.enum(['development', 'production']).optional(),
-    POSTHOG_KEY: z.string().min(1).optional(),
-    POSTHOG_HOST: z.string().url().optional(),
 
     //LANGSMITH_API_KEY: z.string().min(1).optional(),
     //LANGSMITH_HOST: z.string().min(1).optional(),
@@ -35,7 +32,4 @@ if (!parsedBackendEnv.success) {
     throw new Error('Invalid environment variables');
 }
 
-export const backendEnv = {
-    ...parsedBackendEnv.data,
-    LANGFUSE_HOST: parsedBackendEnv.data.LANGFUSE_HOST ?? parsedBackendEnv.data.LANGFUSE_BASE_URL,
-};
+export const backendEnv = parsedBackendEnv.data;

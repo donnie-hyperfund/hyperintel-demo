@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
 import type { ActiveDocument, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import type {
@@ -72,12 +71,6 @@ export type UseStreamOptions = {
     onToolDocumentDecision?: (decision: ToolDocumentDecision) => Promise<void>;
     /** Called when the chat's selected model is changed (via WS broadcast) */
     onModelChanged?: (model: string) => void;
-    /** Static metadata used for analytics enrichment. */
-    analyticsContext?: {
-        chatType?: string;
-        projectId?: string;
-        selectedModel?: string | null;
-    };
 };
 
 export type UseStreamReturn = {
@@ -494,27 +487,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         if (!id) return;
 
         const topic = `${domain}:${id}`;
-        let currentStatus: StreamStatus | 'idle' = 'idle';
-        let currentAgentMessageId: string | null = null;
-        let currentStreamType: 'chat' | 'summary' | null = null;
-        let firstChunkCaptured = false;
-        let reconnectCount = 0;
-
-        const captureStreamAnalytics = (
-            event: string,
-            properties: Record<string, string | number | boolean | null | undefined> = {},
-        ) => {
-            capturePostHogEvent(event, {
-                domain,
-                chat_id: id,
-                chat_type: optsRef.current.analyticsContext?.chatType ?? domain,
-                project_id: optsRef.current.analyticsContext?.projectId ?? null,
-                model: optsRef.current.analyticsContext?.selectedModel ?? null,
-                agent_message_id: currentAgentMessageId,
-                stream_type: currentStreamType,
-                ...properties,
-            });
-        };
 
         // Reset all state for new topic
         stateRef.current = createStreamingState();
@@ -557,9 +529,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         setStatus(sr.snapshot.status);
                         setAgentMessageId(sr.agentMessageId);
                         setStreamType(sr.streamType ?? null);
-                        currentStatus = sr.snapshot.status;
-                        currentAgentMessageId = sr.agentMessageId;
-                        currentStreamType = sr.streamType ?? null;
                         setDisplayStatus(sr.snapshot.displayStatus ?? null);
 
                         // Initialize artifact state from snapshot activeDocuments
@@ -611,9 +580,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     } else {
                         // idle or stale — no active stream
                         setStatus('idle');
-                        currentStatus = 'idle';
-                        currentAgentMessageId = null;
-                        currentStreamType = null;
                         o.onSubscribeResponse?.('idle', resp.selectedModel ?? null);
                     }
                     break;
@@ -652,14 +618,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     setIsRetracted(false);
                     setAgentMessageId(started.agentMessageId);
                     setStreamType(started.streamType ?? null);
-                    currentStatus = 'streaming';
-                    currentAgentMessageId = started.agentMessageId;
-                    currentStreamType = started.streamType ?? null;
-                    firstChunkCaptured = false;
-                    captureStreamAnalytics('chat_stream_started', {
-                        submission_id: started.tempId ?? started.userMessageId ?? null,
-                        user_message_id: started.userMessageId ?? null,
-                    });
                     o.onStreamStarted?.(
                         started.agentMessageId,
                         started.userMessageId ?? '',
@@ -679,12 +637,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         // ----- Text -----
                         case 'delta': {
                             if (!event.text) break;
-                            if (!firstChunkCaptured) {
-                                firstChunkCaptured = true;
-                                captureStreamAnalytics('chat_stream_first_chunk', {
-                                    block_type: 'text',
-                                });
-                            }
                             const blockIdToUse = event.blockId || s.currentTextBlockId || `text-${Date.now()}`;
                             if (s.currentTextBlockId !== blockIdToUse) {
                                 s.currentTextBlockId = blockIdToUse;
@@ -706,12 +658,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         case 'reasoning_delta': {
                             const text = event.text || event.content;
                             if (!text) break;
-                            if (!firstChunkCaptured) {
-                                firstChunkCaptured = true;
-                                captureStreamAnalytics('chat_stream_first_chunk', {
-                                    block_type: 'reasoning',
-                                });
-                            }
                             const blockIdToUse =
                                 event.blockId || s.currentReasoningBlockId || `reasoning-${Date.now()}`;
                             if (s.currentReasoningBlockId !== blockIdToUse) {
@@ -837,12 +783,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                         // ----- Documents (queued for async processing) -----
                         case 'document_start':
-                            if (!firstChunkCaptured) {
-                                firstChunkCaptured = true;
-                                captureStreamAnalytics('chat_stream_first_chunk', {
-                                    block_type: 'document',
-                                });
-                            }
                             documentQueueRef.current?.push({ type: event.type, payload: event });
                             break;
                         case 'document_delta':
@@ -861,9 +801,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             if (!event.soft) {
                                 flushSync();
                                 setError(event.error);
-                                captureStreamAnalytics('chat_stream_error_event', {
-                                    error_message: event.error,
-                                });
                             }
                             break;
 
@@ -893,7 +830,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             docDripRef.current.dispose();
                             flushSync();
                             setIsRetracted(true);
-                            captureStreamAnalytics('chat_stream_safety_retract');
                             break;
 
                         case 'created':
@@ -916,15 +852,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                     setStatus(sm.status);
                     setAgentMessageId(sm.agentMessageId);
-                    currentStatus = sm.status;
-                    currentAgentMessageId = sm.agentMessageId;
 
                     if (isTerminal) {
                         setDisplayStatus(null);
-                        captureStreamAnalytics('chat_stream_terminal', {
-                            outcome: sm.status,
-                            first_chunk_received: firstChunkCaptured,
-                        });
                         o.onDone?.(sm.status);
                     }
                     break;
@@ -941,11 +871,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 isFirstConnect = false;
                 return;
             }
-            reconnectCount += 1;
-            captureStreamAnalytics('chat_ws_reconnected', {
-                reconnect_count: reconnectCount,
-                during_stream: currentStatus === 'streaming',
-            });
             optsRef.current.onReconnect?.();
         };
 
