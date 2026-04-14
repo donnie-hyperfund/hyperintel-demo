@@ -59,12 +59,9 @@ jobs:
             [[ "$name" == _common || "$name" == node_modules || "$name" == objects ]] && continue
             [[ ! -f "$dir/wrangler.jsonc" ]] && continue
             echo "::group::Deploying $name"
-            if ! (
-              cd "$dir"
-              npx wrangler versions upload --env=dev \
-                --config "wrangler.jsonc" \
-                --preview-alias "${{ steps.branch.outputs.cf_alias }}"
-            ); then
+            if ! npx wrangler versions upload --env=dev \
+              --config "$dir/wrangler.jsonc" \
+              --preview-alias "${{ steps.branch.outputs.cf_alias }}"; then
               echo "::error::Failed to deploy $name"
               failed=1
             fi

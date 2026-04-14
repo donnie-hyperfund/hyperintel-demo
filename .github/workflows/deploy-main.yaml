@@ -40,10 +40,7 @@ jobs:
             [[ "$name" == _common || "$name" == node_modules ]] && continue
             [[ ! -f "$dir/wrangler.jsonc" ]] && continue
             echo "::group::Deploying $name"
-            if ! (
-              cd "$dir"
-              npx wrangler deploy --env=dev --config "wrangler.jsonc"
-            ); then
+            if ! npx wrangler deploy --env=dev --config "$dir/wrangler.jsonc"; then
               echo "::error::Failed to deploy $name"
               failed=1
             fi
