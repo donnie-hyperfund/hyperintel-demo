@@ -200,8 +200,12 @@
     },
     "pnpm": {
         "overrides": {
+            "@cerebras/cerebras_cloud_sdk": "link:./workers/_common/vendor/stubs/cerebras",
+            "@sendgrid/mail": "link:./workers/_common/vendor/stubs/sendgrid-mail",
+            "@supabase/supabase-js": "link:./workers/_common/vendor/stubs/supabase-js",
             "esbuild": "0.27.2",
-            "sharp": "0.34.5"
+            "sharp": "0.34.5",
+            "stripe": "link:./workers/_common/vendor/stubs/stripe"
         },
         "patchedDependencies": {
             "@mikro-orm/knex@6.4.16": "patches/@mikro-orm+knex@6.4.16.patch",
