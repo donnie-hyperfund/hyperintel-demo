@@ -35,12 +35,21 @@ jobs:
       - name: Deploy dev workers
         run: |
           failed=0
-          for dir in workers/*/; do
-            name=$(basename "$dir")
+          # Deploy dependencies first so downstream workers can resolve external DO/service bindings.
+          for name in objects extract-rust chat embedding extraction services; do
+            dir="workers/$name/"
+            [[ ! -d "$dir" ]] && continue
             [[ "$name" == _common || "$name" == node_modules ]] && continue
-            [[ ! -f "$dir/wrangler.jsonc" ]] && continue
+            config=""
+            if [[ -f "$dir/wrangler.jsonc" ]]; then
+              config="$dir/wrangler.jsonc"
+            elif [[ -f "$dir/wrangler.toml" ]]; then
+              config="$dir/wrangler.toml"
+            else
+              continue
+            fi
             echo "::group::Deploying $name"
-            if ! npx wrangler deploy --env=dev --config "$dir/wrangler.jsonc"; then
+            if ! npx wrangler deploy --env=dev --config "$config"; then
               echo "::error::Failed to deploy $name"
               failed=1
             fi
