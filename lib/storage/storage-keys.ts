@@ -9,14 +9,6 @@ export function getDraftBaseKey(chatType: string, chatId: string | null, project
 }
 
 /**
- * localStorage key for pre-chat model selection, scoped per project.
- * Used as a bridge until the chat exists and the pick is persisted in the DB.
- */
-export function getModelStorageKey(projectId: string): string {
-    return `model:${projectId}`;
-}
-
-/**
  * Computes the localStorage key for persisting in-progress file upload entries.
  * Returns `null` when there isn't enough scope info to form a key.
  */
