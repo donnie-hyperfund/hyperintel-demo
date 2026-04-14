@@ -2,19 +2,32 @@
 
 import { ArrowRight } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { SummarizerOverlay } from './summarizer-overlay';
 
+type CbGateDialog = 'none' | 'generate' | 'pending';
+
 export function NextPhaseButton() {
-    const { projectId, summarizeChat, cancelSummary, navigateToNewPhase, clearPendingPhaseTransition, state } =
+    const { projectId, summarizeChat, cancelSummary, navigateToNewPhase, clearPendingPhaseTransition, sendMessage, state } =
         useChatContext<'phase'>();
 
     const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [pendingNavigation, setPendingNavigation] = useState(false);
+    const [cbGateDialog, setCbGateDialog] = useState<CbGateDialog>('none');
 
     const totalPhases = chatPages?.[0]?.data.length ?? 0;
 
@@ -29,10 +42,42 @@ export function NextPhaseButton() {
 
     const isLocked = dialogOpen && !state.error;
 
+    /**
+     * Attempt to transition — checks CB gate first.
+     * Returns true if summarization was started, false if gated.
+     */
+    const attemptTransition = useCallback((): boolean => {
+        const cbStatus = state.completionBriefStatus;
+
+        // State C: CB approved → proceed to summarizer
+        if (cbStatus === 'approved') {
+            setDialogOpen(true);
+            summarizeChat();
+            return true;
+        }
+
+        // State B: CB exists but not approved
+        if (cbStatus === 'proposed') {
+            setCbGateDialog('pending');
+            return false;
+        }
+
+        // State A: No CB exists
+        setCbGateDialog('generate');
+        return false;
+    }, [state.completionBriefStatus, summarizeChat]);
+
     const handleClick = useCallback(() => {
-        setDialogOpen(true);
-        summarizeChat();
-    }, [summarizeChat]);
+        attemptTransition();
+    }, [attemptTransition]);
+
+    const handleGenerateCb = useCallback(() => {
+        setCbGateDialog('none');
+        // Don't send if a stream is already in progress
+        if (!state.isGenerating) {
+            sendMessage('Please generate the Completion Brief for this phase.');
+        }
+    }, [sendMessage, state.isGenerating]);
 
     const handleGoToNextPhase = useCallback(() => {
         setPendingNavigation(true);
@@ -79,8 +124,8 @@ export function NextPhaseButton() {
             return;
         }
 
-        setDialogOpen(true);
-        summarizeChat();
+        // Apply the same CB gate for AI-triggered transitions
+        attemptTransition();
     }, [
         state.pendingPhaseTransition,
         canTransition,
@@ -88,7 +133,7 @@ export function NextPhaseButton() {
         hasAssistantMessage,
         state.isLoading,
         clearPendingPhaseTransition,
-        summarizeChat,
+        attemptTransition,
     ]);
 
     return (
@@ -112,7 +157,6 @@ export function NextPhaseButton() {
             <SummarizerOverlay
                 open={dialogOpen}
                 isSummarizing={state.isSummarizing}
-                summaryDocKey={state.summaryDocKey}
                 summaryNewChatId={state.summaryNewChatId}
                 summaryStatus={state.summaryStatus}
                 error={state.error}
@@ -120,6 +164,39 @@ export function NextPhaseButton() {
                 onGoToNextPhase={handleGoToNextPhase}
                 onCancel={handleCancel}
             />
+
+            {/* CB Gate: No Completion Brief exists */}
+            <AlertDialog open={cbGateDialog === 'generate'} onOpenChange={() => setCbGateDialog('none')}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Completion Brief Required</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            A Completion Brief must be generated and approved before moving to the next phase. Would you
+                            like to generate one now?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleGenerateCb}>Generate</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* CB Gate: Completion Brief pending approval */}
+            <AlertDialog open={cbGateDialog === 'pending'} onOpenChange={() => setCbGateDialog('none')}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Approval Required</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            A Completion Brief has been generated but needs your approval. Please review and approve it
+                            before proceeding to the next phase.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogAction>OK</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }
