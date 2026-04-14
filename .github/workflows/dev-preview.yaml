@@ -54,25 +54,15 @@ jobs:
             --namespace-id "${{ vars.CLOUDFLARE_DB_KV_NS_ID }}" --remote
 
           failed=0
-          # Deploy dependencies first so preview uploads can resolve external DO/service bindings.
-          for name in objects extract-rust chat embedding extraction services; do
-            dir="workers/$name/"
-            [[ ! -d "$dir" ]] && continue
-            [[ "$name" == _common || "$name" == node_modules ]] && continue
-            config=""
-            if [[ -f "$dir/wrangler.jsonc" ]]; then
-              config="$dir/wrangler.jsonc"
-            elif [[ -f "$dir/wrangler.toml" ]]; then
-              config="$dir/wrangler.toml"
-            else
-              continue
-            fi
-            config_name=$(basename "$config")
+          for dir in workers/*/; do
+            name=$(basename "$dir")
+            [[ "$name" == _common || "$name" == node_modules || "$name" == objects ]] && continue
+            [[ ! -f "$dir/wrangler.jsonc" ]] && continue
             echo "::group::Deploying $name"
             if ! (
               cd "$dir"
               npx wrangler versions upload --env=dev \
-                --config "$config_name" \
+                --config "wrangler.jsonc" \
                 --preview-alias "${{ steps.branch.outputs.cf_alias }}"
             ); then
               echo "::error::Failed to deploy $name"
