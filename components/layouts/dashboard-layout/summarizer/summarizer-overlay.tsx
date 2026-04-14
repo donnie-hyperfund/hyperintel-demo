@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { SummaryStatus } from '@/modules/chat/types';
 import { AnimatedHeadline } from './animated-headline';
+import { AnimatedStatusText } from './animated-status-text';
 import { CancelSummaryButton } from './cancel-summary-button';
-import { ShimmerText } from './shimmer-text';
 
 type SummarizerOverlayProps = {
     open: boolean;
@@ -110,7 +110,7 @@ export function SummarizerOverlay({
                     <div className="flex flex-col items-center gap-4 px-6">
                         <AnimatedHeadline text={title} />
 
-                        {subtitle && <ShimmerText text={subtitle} shimmer={!isDone} />}
+                        {subtitle && <AnimatedStatusText text={subtitle} shimmer={!isDone} />}
 
                         <AnimatePresence>
                             {isDone && (
