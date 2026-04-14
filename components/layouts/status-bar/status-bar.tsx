@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useRef } from 'react';
-import { useSyncBarHeight } from '@/hooks/use-sync-bar-height';
+import { useSyncBarHeight } from './use-sync-bar-height';
 
 export type StatusBarEntry = {
     id: string;
