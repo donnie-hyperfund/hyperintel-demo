@@ -512,3 +512,8 @@ html {
   10%, 80% { outline-color: var(--primary); }
   100% { outline-color: transparent; }
 }
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

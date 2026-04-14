@@ -112,6 +112,8 @@ export async function approveArtifactHandler(
     }
 
     const previousStatus = version.status;
+    const project = version.artifact.project;
+    const chat = version.chat;
 
     await broadcastUserEvent(ctx, 'artifact_version_update_started', {
         artifactId: version.artifact.id,
@@ -121,6 +123,10 @@ export async function approveArtifactHandler(
         action: 'approve',
         previousStatus,
         nextStatus: 'approved',
+        projectName: project?.name,
+        phaseName: chat.name ?? undefined,
+        phaseIndex: chat.phase_index,
+        chatId: chat.id,
     });
 
     // Classify document to determine if AI-readable YAML should be generated
@@ -155,7 +161,6 @@ export async function approveArtifactHandler(
         console.log('[approveArtifact] Skipping YAML generation for client deliverable:', version.artifact.key);
     }
 
-    const project = version.artifact.project;
     const projectUser = project?.user;
 
     version.status = 'approved';
@@ -208,6 +213,10 @@ export async function approveArtifactHandler(
         action: 'approve',
         previousStatus,
         status: 'approved',
+        projectName: project?.name,
+        phaseName: chat.name ?? undefined,
+        phaseIndex: chat.phase_index,
+        chatId: chat.id,
     });
 
     // Inject system event so the agent knows the user approved via UI
@@ -286,6 +295,8 @@ export async function rejectArtifactHandler(
     }
 
     const previousStatus = version.status;
+    const project = version.artifact.project;
+    const chat = version.chat;
 
     await broadcastUserEvent(ctx, 'artifact_version_update_started', {
         artifactId: version.artifact.id,
@@ -295,12 +306,16 @@ export async function rejectArtifactHandler(
         action: 'reject',
         previousStatus,
         nextStatus: 'rejected',
+        projectName: project?.name,
+        phaseName: chat.name ?? undefined,
+        phaseIndex: chat.phase_index,
+        chatId: chat.id,
     });
 
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
-    version.status_changed_by = version.artifact.project?.user?.id ?? version.artifact.user?.id;
+    version.status_changed_by = project?.user?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
 
     await em.flush();
@@ -313,11 +328,15 @@ export async function rejectArtifactHandler(
         action: 'reject',
         previousStatus,
         status: 'rejected',
+        projectName: project?.name,
+        phaseName: chat.name ?? undefined,
+        phaseIndex: chat.phase_index,
+        chatId: chat.id,
     });
 
     // Inject system event so the agent knows the user rejected via UI
-    const chatId = version.chat.id;
-    const chatType = version.chat.type ?? 'phase';
+    const chatId = chat.id;
+    const chatType = chat.type ?? 'phase';
     await injectSystemEvent(ctx, em, {
         chatId,
         chatType,

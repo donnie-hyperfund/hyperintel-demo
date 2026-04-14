@@ -16,6 +16,7 @@ import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
 import { getDraftBaseKey } from '@/lib/storage/storage-keys';
+import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
@@ -139,6 +140,7 @@ type ArtifactVersionEventPayload = {
     previousStatus?: string;
     status?: string;
     nextStatus?: 'approved' | 'rejected';
+    chatId?: string;
 };
 
 export function ChatProvider({
@@ -150,6 +152,7 @@ export function ChatProvider({
     chatRouteBuilder,
 }: ChatProviderProps) {
     const artifactContext = useArtifactActions();
+    const { hasPendingNudge, clearPendingNudge } = useArtifactProcessing();
 
     const { openPanel, closePanel, panelState } = useActivePanelContext();
     const panelStateRef = useRef(panelState);
@@ -1142,6 +1145,17 @@ export function ChatProvider({
             }));
         }
     }, [chatId, chatType, getToken, selectedModel, state.isGenerating]);
+
+    // Nudge recovery: when a locally-initiated approval/rejection completes,
+    // send the nudge from this tab. Reactive deps ensure the nudge fires when:
+    // - completion happens while this chat is open (state change → re-render)
+    // - user returns to this chat later (mount → effect runs)
+    // - isGenerating was true and flips to false (retry)
+    useEffect(() => {
+        if (!chatId || state.isGenerating || !hasPendingNudge(chatId)) return;
+        clearPendingNudge(chatId);
+        void sendNudge();
+    }, [chatId, state.isGenerating, hasPendingNudge, clearPendingNudge, sendNudge]);
 
     // ========================================================================
     // SUMMARIZE
