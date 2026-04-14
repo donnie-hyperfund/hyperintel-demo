@@ -14,10 +14,10 @@ overrides:
 
 patchedDependencies:
   '@mikro-orm/knex@6.4.16':
-    hash: 5oagdqczwb3zgybpaauxampfly
+    hash: 9a526496206f2f726663fb9408c69e002b40353afd56b0a69151f4334631d5b4
     path: patches/@mikro-orm+knex@6.4.16.patch
   knex@3.1.0:
-    hash: p3vfr36ibivj7x3ilhpfurzcgm
+    hash: b07ffacad8413cffecbbf070b6deb1497bf1b17f0a6bce8280700edeaba9a826
     path: patches/knex@3.1.0.patch
 
 importers:
@@ -212,7 +212,7 @@ importers:
         version: 3.13.1
       knex:
         specifier: 3.1.0
-        version: 3.1.0(patch_hash=p3vfr36ibivj7x3ilhpfurzcgm)(pg@8.16.0)
+        version: 3.1.0(patch_hash=b07ffacad8413cffecbbf070b6deb1497bf1b17f0a6bce8280700edeaba9a826)(pg@8.16.0)
       langfuse:
         specifier: ^3.38.6
         version: 3.38.6
@@ -8359,7 +8359,7 @@ snapshots:
     dependencies:
       '@jercle/yargonaut': 1.1.5
       '@mikro-orm/core': 6.4.16
-      '@mikro-orm/knex': 6.4.16(patch_hash=5oagdqczwb3zgybpaauxampfly)(@mikro-orm/core@6.4.16)(pg@8.16.0)
+      '@mikro-orm/knex': 6.4.16(patch_hash=9a526496206f2f726663fb9408c69e002b40353afd56b0a69151f4334631d5b4)(@mikro-orm/core@6.4.16)(pg@8.16.0)
       fs-extra: 11.3.0
       tsconfig-paths: 4.2.0
       yargs: 17.7.2
@@ -8388,7 +8388,7 @@ snapshots:
   '@mikro-orm/entity-generator@6.4.16(@mikro-orm/core@6.4.16)(pg@8.16.0)':
     dependencies:
       '@mikro-orm/core': 6.4.16
-      '@mikro-orm/knex': 6.4.16(patch_hash=5oagdqczwb3zgybpaauxampfly)(@mikro-orm/core@6.4.16)(pg@8.16.0)
+      '@mikro-orm/knex': 6.4.16(patch_hash=9a526496206f2f726663fb9408c69e002b40353afd56b0a69151f4334631d5b4)(@mikro-orm/core@6.4.16)(pg@8.16.0)
       fs-extra: 11.3.0
     transitivePeerDependencies:
       - better-sqlite3
@@ -8402,11 +8402,11 @@ snapshots:
       - supports-color
       - tedious
 
-  '@mikro-orm/knex@6.4.16(patch_hash=5oagdqczwb3zgybpaauxampfly)(@mikro-orm/core@6.4.16)(pg@8.16.0)':
+  '@mikro-orm/knex@6.4.16(patch_hash=9a526496206f2f726663fb9408c69e002b40353afd56b0a69151f4334631d5b4)(@mikro-orm/core@6.4.16)(pg@8.16.0)':
     dependencies:
       '@mikro-orm/core': 6.4.16
       fs-extra: 11.3.0
-      knex: 3.1.0(patch_hash=p3vfr36ibivj7x3ilhpfurzcgm)(pg@8.16.0)
+      knex: 3.1.0(patch_hash=b07ffacad8413cffecbbf070b6deb1497bf1b17f0a6bce8280700edeaba9a826)(pg@8.16.0)
       sqlstring: 2.3.3
     transitivePeerDependencies:
       - mysql
@@ -8420,7 +8420,7 @@ snapshots:
   '@mikro-orm/migrations@6.4.16(@mikro-orm/core@6.4.16)(@types/node@22.19.3)(pg@8.16.0)':
     dependencies:
       '@mikro-orm/core': 6.4.16
-      '@mikro-orm/knex': 6.4.16(patch_hash=5oagdqczwb3zgybpaauxampfly)(@mikro-orm/core@6.4.16)(pg@8.16.0)
+      '@mikro-orm/knex': 6.4.16(patch_hash=9a526496206f2f726663fb9408c69e002b40353afd56b0a69151f4334631d5b4)(@mikro-orm/core@6.4.16)(pg@8.16.0)
       fs-extra: 11.3.0
       umzug: 3.8.2(@types/node@22.19.3)
     transitivePeerDependencies:
@@ -8439,7 +8439,7 @@ snapshots:
   '@mikro-orm/postgresql@6.4.16(@mikro-orm/core@6.4.16)':
     dependencies:
       '@mikro-orm/core': 6.4.16
-      '@mikro-orm/knex': 6.4.16(patch_hash=5oagdqczwb3zgybpaauxampfly)(@mikro-orm/core@6.4.16)(pg@8.16.0)
+      '@mikro-orm/knex': 6.4.16(patch_hash=9a526496206f2f726663fb9408c69e002b40353afd56b0a69151f4334631d5b4)(@mikro-orm/core@6.4.16)(pg@8.16.0)
       pg: 8.16.0
       postgres-array: 3.0.4
       postgres-date: 2.1.0
@@ -11514,7 +11514,7 @@ snapshots:
 
   kleur@4.1.5: {}
 
-  knex@3.1.0(patch_hash=p3vfr36ibivj7x3ilhpfurzcgm)(pg@8.16.0):
+  knex@3.1.0(patch_hash=b07ffacad8413cffecbbf070b6deb1497bf1b17f0a6bce8280700edeaba9a826)(pg@8.16.0):
     dependencies:
       colorette: 2.0.19
       commander: 10.0.1
