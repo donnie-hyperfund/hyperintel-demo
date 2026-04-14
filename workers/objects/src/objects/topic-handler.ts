@@ -9,7 +9,14 @@
 /** Response shape returned by a handler's subscribe method */
 export type SubscribeResponse =
     | { status: 'idle'; selectedModel?: string | null; completionBriefStatus?: string | null }
-    | { status: 'streaming'; agentMessageId: string; snapshot: unknown; streamType?: 'chat' | 'summary'; selectedModel?: string | null; completionBriefStatus?: string | null }
+    | {
+          status: 'streaming';
+          agentMessageId: string;
+          snapshot: unknown;
+          streamType?: 'chat' | 'summary';
+          selectedModel?: string | null;
+          completionBriefStatus?: string | null;
+      }
     | { status: 'stale'; selectedModel?: string | null; completionBriefStatus?: string | null };
 
 /** Result returned by a handler's handleAction method */

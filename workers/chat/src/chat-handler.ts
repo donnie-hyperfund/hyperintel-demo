@@ -499,7 +499,12 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                 config: {
                     maxToolCalls: 100,
                     getSystemPrompt: async () =>
-                        buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath, WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE),
+                        buildSystemPrompt(
+                            ctx,
+                            agentCtx.loadedPrompts,
+                            localPath,
+                            WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
+                        ),
                     statusUpdates: { enabled: true },
                     preprocessContext,
                     abortSignal: abortController.signal,

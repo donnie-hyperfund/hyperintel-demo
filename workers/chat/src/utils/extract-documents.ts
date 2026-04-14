@@ -39,7 +39,10 @@ export function extractDocuments(messages: ChatMessageEntity[]): DocumentInfo[] 
                 break;
             }
             // Stop looking if we hit another begin_document or finalize
-            if (next.type === 'tool_call' && (next.toolName === 'begin_document' || next.toolName === 'finalize_document')) {
+            if (
+                next.type === 'tool_call' &&
+                (next.toolName === 'begin_document' || next.toolName === 'finalize_document')
+            ) {
                 break;
             }
         }

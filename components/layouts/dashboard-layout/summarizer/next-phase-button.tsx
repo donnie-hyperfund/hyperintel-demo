@@ -21,8 +21,15 @@ import { SummarizerOverlay } from './summarizer-overlay';
 type CbGateDialog = 'none' | 'generate' | 'pending';
 
 export function NextPhaseButton() {
-    const { projectId, summarizeChat, cancelSummary, navigateToNewPhase, clearPendingPhaseTransition, sendMessage, state } =
-        useChatContext<'phase'>();
+    const {
+        projectId,
+        summarizeChat,
+        cancelSummary,
+        navigateToNewPhase,
+        clearPendingPhaseTransition,
+        sendMessage,
+        state,
+    } = useChatContext<'phase'>();
 
     const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
     const [dialogOpen, setDialogOpen] = useState(false);
