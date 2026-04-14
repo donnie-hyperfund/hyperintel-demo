@@ -15,18 +15,10 @@ import { preprocessContext } from './chat-handler';
 import { Ctx } from './context';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { approveVersion, listDocuments } from './tools/documents/document-service';
-import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
-import { createDocumentEventHandler } from './utils/document-events';
+import type { UserGatewayStub } from './utils/do-stubs';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
-import {
-    cleanupStreamDO,
-    createEnqueue,
-    createEventCollector,
-    createPusher,
-    createSSEStream,
-    handleCommonStreamEvent,
-    wireAbort,
-} from './utils/stream-utils';
+import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
+import { cleanupStreamDO, createEnqueue, createSSEStream } from './utils/stream-utils';
 
 /**
  * Roll back artifact versions (and orphaned parent artifacts) created during
@@ -221,17 +213,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
     const { chatId } = data;
     const { em, anthropic } = ctx;
 
-    // Get ChatStream DO stub  already initialized by registerStream above
-    const alias = ctx.previewAlias;
-    const streamDO = ctx.env.CHAT_STREAM_DO.get(
-        ctx.env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, alias)),
-    ) as unknown as ChatStreamDOStub;
-
-    // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
-    const abortController = wireAbort(streamDO);
-
-    // Fire-and-forget pusher — hoisted for catch block access
-    const pusher = createPusher(streamDO, 'summarizer');
+    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'summarizer');
 
     // Hoisted so the catch block can access it for rollback
     const createdVersionIds: string[] = [];
@@ -347,38 +329,18 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 config: {
                     preprocessContext,
                     abortSignal: abortController.signal,
-                    onTurnComplete: () => {
-                        if (agentCtx.draftManager.hasActive()) {
-                            return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
-                        }
-                        if (agentCtx.pendingPECP) {
-                            const p = agentCtx.pendingPECP;
-                            return `You MUST generate a PECP for "${p.parentDocumentType}". Call begin_document with mode="create", name="${p.pecpKey}", document_type="PECP", parent_document="${p.parentDocument}", is_internal=false. Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
-                        }
-                        return null;
-                    },
+                    onTurnComplete: createOnTurnComplete(agentCtx, { pecp: true }),
                 },
             },
         );
 
-        // Event collector for DO push (replaces hand-rolled SSE enqueue)
-        const collector = createEventCollector();
-        const state = { wasTool: false };
         let summaryContent = '';
         let wasAborted = false;
 
-        const fireAndForgetPush = pusher.push;
-
         /** Push a status_update event to the stream DO */
         const pushStatus = (status: string) => {
-            fireAndForgetPush([{ type: 'status_update', status } as StreamEvent]);
+            pusher.push([{ type: 'status_update', status } as StreamEvent]);
         };
-
-        // Document events queue — batched into the main push instead of separate RPCs
-        const pendingDocEvents: StreamEvent[] = [];
-        const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) => {
-            pendingDocEvents.push(docEvent as StreamEvent);
-        });
 
         // Emit initial status before the stream loop starts
         pushStatus('generating-summary');
@@ -386,51 +348,38 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Track document creation count for status messages
         let beginDocumentCount = 0;
 
-        // Stream loop  push standard StreamEvent[] to ChatStream DO
-        for await (const event of stream) {
-            // Emit granular status updates based on tool events
-            if (event.type === 'tool_start') {
-                const toolName = (event as any).tool ?? (event as any).name;
-                if (toolName === 'begin_document') {
-                    beginDocumentCount++;
-                    pushStatus(beginDocumentCount === 1 ? 'creating-completion-brief' : 'creating-pecp');
-                } else if (toolName === 'finalize_document') {
-                    pushStatus('saving-document');
+        await runStreamLoop({
+            stream,
+            push: pusher.push,
+            docEventsCtx: { em: em!, projectId: agentCtx.projectId },
+            onAgentEvent: (event) => {
+                // Emit granular status updates based on tool events
+                if (event.type === 'tool_start') {
+                    const toolName = (event as any).tool ?? (event as any).name;
+                    if (toolName === 'begin_document') {
+                        beginDocumentCount++;
+                        pushStatus(beginDocumentCount === 1 ? 'creating-completion-brief' : 'creating-pecp');
+                    } else if (toolName === 'finalize_document') {
+                        pushStatus('saving-document');
+                    }
                 }
-            }
 
-            // Force non-PECP summarizer documents to be internal Completion Briefs
-            if (event.type === 'tool_result' && (event as any).tool === 'begin_document' && event.success) {
-                const draft = agentCtx.draftManager.getCurrent();
-                if (draft && draft.document_type !== 'PECP') {
-                    draft.is_internal = true;
-                    draft.document_type = 'Completion Brief';
+                // Force non-PECP summarizer documents to be internal Completion Briefs
+                if (event.type === 'tool_result' && (event as any).tool === 'begin_document' && event.success) {
+                    const draft = agentCtx.draftManager.getCurrent();
+                    if (draft && draft.document_type !== 'PECP') {
+                        draft.is_internal = true;
+                        draft.document_type = 'Completion Brief';
+                    }
                 }
-            }
-
-            // Let document handler process the event (queues doc events locally)
-            await docEvents.handle(event);
-
-            // Delegate common events to collector
-            if (handleCommonStreamEvent(collector.enqueue, event, state)) {
-                const events = collector.drain();
-                const combined = [...pendingDocEvents.splice(0), ...events];
-                if (combined.length > 0) fireAndForgetPush(combined);
-                continue;
-            }
-
-            // Flush any doc events that weren't paired with a main event
-            if (pendingDocEvents.length > 0) {
-                fireAndForgetPush(pendingDocEvents.splice(0));
-            }
-
-            // Summarizer-specific events
-            if (event.type === 'done_ext') {
-                summaryContent = event.streamLog.fullContent ?? '';
-                wasAborted = event.aborted ?? false;
-                // done_ext is not pushed directly  terminal done event pushed after DB persist below
-            }
-        }
+            },
+            onSpecificEvent: (event) => {
+                if (event.type === 'done_ext') {
+                    summaryContent = event.streamLog.fullContent ?? '';
+                    wasAborted = event.aborted ?? false;
+                }
+            },
+        });
 
         await historyPromise;
 
@@ -534,16 +483,10 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             .catch(console.error);
 
         // Push terminal done event with newChatId
-        // Ordering: push done  streamDO.done()  clear entity  finalize()  clearStream (Decision #20)
         await pusher.waitAll();
         await streamDO.push([{ type: 'done', newChatId: newChat.id }], pusher.seq);
 
-        try {
-            await streamDO.done();
-            await streamDO.finalize();
-        } finally {
-            await ugStub.systemAction(`chat:${chatId}`, 'clearStream', {}).catch(() => {});
-        }
+        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
         console.error('[summarizer] generation error:', error?.message ?? error, error?.stack);
 
