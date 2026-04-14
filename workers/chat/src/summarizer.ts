@@ -2,6 +2,7 @@ import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { PublicError } from '@common/common/error.helpers';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
@@ -198,6 +199,15 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             }
         }
 
+        // Fetch the approved Completion Brief content — extract the Next-Phase Initialization Blurb
+        if (chat.completion_brief) {
+            const cbArtifact = await em!.findOne(ArtifactEntity, { id: typeof chat.completion_brief === 'string' ? chat.completion_brief : chat.completion_brief.id }, { populate: ['current_version'] });
+            const cbContent = cbArtifact?.current_version?.content;
+            if (cbContent) {
+                instructions += `\n\n## Approved Completion Brief\n\nThe following is the approved Completion Brief for this phase. It contains a "Next-Phase Initialization Blurb" (Section 13) that MUST be included verbatim at the end of your summary. Copy it exactly as-is — do not modify it.\n\n${cbContent}`;
+            }
+        }
+
         const historyMessages = messages.map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
@@ -207,7 +217,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Anthropic requires conversation to end with user message for model to respond.
         historyMessages.push({
             role: 'user' as const,
-            content: 'Please provide a comprehensive summary of this conversation.',
+            content: 'Please provide a comprehensive summary of this conversation. Include the Next-Phase Initialization Blurb from the Completion Brief at the end.',
         });
 
         const inferenceParams = options.overrideInference ?? {
