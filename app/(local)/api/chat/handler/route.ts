@@ -1,12 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { BadRequestError } from '@/common/common/error.helpers';
-import { assertAuth } from '@/lib/api/auth-guard';
+import { assertClerkAuth } from '@/lib/api/auth-guard';
 import { initNextjsWorkerContext } from '@/lib/local/context';
 import { SendChatActionSchema } from '@/lib/schema/chat';
 import { chatActionHandler } from '@/workers/chat/src/chat-handler';
 
 export async function POST(req: NextRequest) {
-    const user = await assertAuth();
+    await assertClerkAuth();
     const json = await req.json();
     const parsed = SendChatActionSchema.safeParse(json);
     if (!parsed.success) {

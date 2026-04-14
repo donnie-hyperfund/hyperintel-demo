@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
+import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
@@ -160,6 +161,7 @@ export function ChatProvider({
     const { mutate: globalMutate, cache, fallback } = useSWRConfig();
     const router = useRouter();
     const chatCreationPromiseRef = useRef<Promise<string> | null>(null);
+    const summaryRequestIdRef = useRef<string | null>(null);
 
     // Create API client with auth
     const api = useMemo(() => createApiClient(getToken), [getToken]);
@@ -175,6 +177,19 @@ export function ChatProvider({
         setIsChangingModel,
     } = useModelSelection();
     const skipNextLoad = useRef(false);
+
+    const captureChatAnalytics = useCallback(
+        (event: string, properties: Record<string, string | number | boolean | null | undefined> = {}) => {
+            capturePostHogEvent(event, {
+                chat_type: chatType,
+                project_id: projectId ?? null,
+                chat_id: chatId ?? null,
+                model: selectedModel ?? null,
+                ...properties,
+            });
+        },
+        [chatId, chatType, projectId, selectedModel],
+    );
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
     const [state, setState] = useState<ChatState>(() => {
@@ -475,6 +490,13 @@ export function ChatProvider({
 
     const handleStreamStarted = useCallback(
         (agentMessageId: string, userMessageId: string, tempId?: string, streamType?: 'chat' | 'summary') => {
+            captureChatAnalytics('chat_stream_started', {
+                agent_message_id: agentMessageId,
+                user_message_id: userMessageId || null,
+                submission_id: tempId ?? userMessageId ?? summaryRequestIdRef.current,
+                stream_type: streamType ?? 'chat',
+            });
+
             if (streamType === 'summary') {
                 // Summary stream arrived on existing chat: subscription — enter summarize mode
                 setState((prev) => ({
@@ -496,7 +518,7 @@ export function ChatProvider({
                 });
             }
         },
-        [],
+        [captureChatAnalytics],
     );
 
     const handleMessageCreated = useCallback(
@@ -584,12 +606,14 @@ export function ChatProvider({
             const doneMeta = isNormalDone
                 ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
                 : undefined;
-            const doneMessageMetadata = doneMeta
-                ? {
-                      ...(doneMeta.preset && { preset: doneMeta.preset as string }),
-                      ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
-                      ...(doneMeta.usage && { usage: doneMeta.usage }),
-                  }
+            const doneMessageMetadata: MessageMetadata | undefined = doneMeta
+                ? ({
+                      ...(typeof doneMeta.preset === 'string' ? { preset: doneMeta.preset } : {}),
+                      ...(doneMeta.inference && typeof doneMeta.inference === 'object'
+                          ? { inference: doneMeta.inference as Record<string, unknown> }
+                          : {}),
+                      ...(doneMeta.usage && typeof doneMeta.usage === 'object' ? { usage: doneMeta.usage } : {}),
+                  } as MessageMetadata)
                 : undefined;
 
             setState((prev) => ({
@@ -638,6 +662,11 @@ export function ChatProvider({
         onTerminalTool,
         onMessageCreated: handleMessageCreated,
         onToolDocumentDecision: handleToolDocumentDecision,
+        analyticsContext: {
+            chatType,
+            projectId,
+            selectedModel,
+        },
         // Clear stale isGenerating/isSummarizing set from DB's active_agent_message_id
         // when the initial WS subscribe_response confirms no active stream.
         // Also sync selectedModel from the subscribe response.
@@ -647,11 +676,20 @@ export function ChatProvider({
             }
             if (status === 'idle') {
                 summarizeInFlightRef.current = false;
+                let resetScope: 'generation' | 'summary' | null = null;
                 setState((prev) =>
                     prev.isGenerating || prev.isSummarizing
-                        ? { ...prev, isGenerating: false, isSummarizing: false, activeResponseId: null }
+                        ? (() => {
+                              resetScope = prev.isSummarizing ? 'summary' : 'generation';
+                              return { ...prev, isGenerating: false, isSummarizing: false, activeResponseId: null };
+                          })()
                         : prev,
                 );
+                if (resetScope) {
+                    captureChatAnalytics('chat_stream_state_reset', {
+                        reset_scope: resetScope,
+                    });
+                }
             }
         },
         onModelChanged: (model: string) => {
@@ -923,7 +961,6 @@ export function ChatProvider({
                 api.messages.list(chatId, { page: 1 }),
                 api.chats.get(chatId),
             ]);
-
             // API returns DESC order (newest first), reverse for display (newest at bottom)
             const apiMessages: Message[] =
                 messagesData.data?.map((m) => mapApiMessage(m, chatData.activeAgentMessageId)) || [];
@@ -1041,6 +1078,14 @@ export function ChatProvider({
             try {
                 const chatIdToUse = await ensureChatId();
 
+                captureChatAnalytics('chat_turn_submitted', {
+                    chat_id: chatIdToUse,
+                    submission_id: userMessage.id,
+                    input_length: content.length,
+                    staged_artifact_count: opts?.stagedArtifactIds?.length ?? 0,
+                    image_count: opts?.imageFileIds?.length ?? 0,
+                });
+
                 // Persist pre-chat model pick to DB (clear localStorage only on success)
                 if (!chatId && selectedModel) {
                     api.chats.updateModel(chatIdToUse, selectedModel).then(
@@ -1092,6 +1137,10 @@ export function ChatProvider({
                     return;
                 }
                 console.error('Error sending message:', error);
+                captureChatAnalytics('chat_turn_submission_failed', {
+                    submission_id: userMessage.id,
+                    error_message: error instanceof Error ? error.message : 'Failed to send message',
+                });
                 setState((prev) => ({
                     ...prev,
                     isGenerating: false,
@@ -1124,8 +1173,14 @@ export function ChatProvider({
         setState((prev) => ({ ...prev, isGenerating: true, error: null }));
 
         const accessToken = (await getToken()) ?? '';
+        const nudgeRequestId = uuidv4();
 
         try {
+            captureChatAnalytics('chat_turn_submitted', {
+                chat_id: chatId,
+                submission_id: nudgeRequestId,
+                is_nudge: true,
+            });
             const send = chatType === 'phase' ? sendAction : sendIntakeAction;
             const response = await send({ message: null, chatId, model: selectedModel }, accessToken);
 
@@ -1135,13 +1190,19 @@ export function ChatProvider({
             }
         } catch (error) {
             console.error('Error sending nudge:', error);
+            captureChatAnalytics('chat_turn_submission_failed', {
+                chat_id: chatId,
+                submission_id: nudgeRequestId,
+                is_nudge: true,
+                error_message: error instanceof Error ? error.message : 'Failed to send nudge',
+            });
             setState((prev) => ({
                 ...prev,
                 isGenerating: false,
                 error: error instanceof Error ? error : new Error('Failed to send nudge'),
             }));
         }
-    }, [chatId, chatType, getToken, selectedModel, state.isGenerating]);
+    }, [captureChatAnalytics, chatId, chatType, getToken, selectedModel, state.isGenerating]);
 
     // ========================================================================
     // SUMMARIZE
@@ -1159,12 +1220,17 @@ export function ChatProvider({
         if (summarizeInFlightRef.current) return;
         summarizeInFlightRef.current = true;
         summaryCancelledRef.current = false;
+        summaryRequestIdRef.current = uuidv4();
 
         // Do NOT set isSummarizing here — stream_started(streamType:'summary') drives that state.
         // This avoids showing the summarizing UI if the POST itself fails.
         setState((prev) => ({ ...prev, error: null }));
 
         try {
+            captureChatAnalytics('chat_summary_requested', {
+                chat_id: chatId,
+                summary_request_id: summaryRequestIdRef.current,
+            });
             const accessToken = (await getToken()) ?? '';
             const response = await summarize({ chatId }, accessToken);
 
@@ -1177,6 +1243,12 @@ export function ChatProvider({
             // stream_started(streamType:'summary') arrives via existing chat: WS subscription.
         } catch (err) {
             summarizeInFlightRef.current = false;
+            captureChatAnalytics('chat_turn_submission_failed', {
+                chat_id: chatId,
+                summary_request_id: summaryRequestIdRef.current,
+                stream_type: 'summary',
+                error_message: err instanceof Error ? err.message : 'Summarization failed',
+            });
             setState((prev) => ({
                 ...prev,
                 isSummarizing: false,
@@ -1184,11 +1256,17 @@ export function ChatProvider({
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }
-    }, [chatId, getToken, chatType, state.isSummarizing]);
+    }, [captureChatAnalytics, chatId, getToken, chatType, state.isSummarizing]);
 
     /** Cancel an in-progress summarization — aborts the stream and rolls back created artifacts */
     const cancelSummary = useCallback(async () => {
         if (!state.isSummarizing || !chatId) return;
+
+        captureChatAnalytics('chat_summary_cancelled', {
+            chat_id: chatId,
+            summary_request_id: summaryRequestIdRef.current,
+            agent_message_id: stream.agentMessageId,
+        });
 
         // Mark as cancelled so subsequent stream events (done/error) are ignored
         summaryCancelledRef.current = true;
@@ -1216,7 +1294,7 @@ export function ChatProvider({
             const accessToken = (await getToken()) ?? '';
             abort({ chatId, agentMessageId: summaryAgentMessageId }, accessToken).catch(() => {});
         }
-    }, [chatId, state.isSummarizing, stream, cleanupTransientArtifacts, getToken]);
+    }, [captureChatAnalytics, chatId, state.isSummarizing, stream, cleanupTransientArtifacts, getToken]);
 
     /** Navigate to the new phase chat after summarization */
     const navigateToNewPhase = useCallback(() => {
@@ -1230,6 +1308,11 @@ export function ChatProvider({
 
     /** Stop the current generation */
     const stopGeneration = useCallback(async () => {
+        captureChatAnalytics('chat_generation_stopped', {
+            chat_id: chatId,
+            agent_message_id: state.activeResponseId,
+        });
+
         cleanupTransientArtifacts(stream.activeDocuments);
 
         // Server-side abort via HTTP → ChatStreamDO.abort()
@@ -1249,7 +1332,7 @@ export function ChatProvider({
             ),
             isGenerating: false,
         }));
-    }, [chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
+    }, [captureChatAnalytics, chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
 
     /** Change the chat's selected model — persists via API when a chat exists, localStorage when not */
     const changeModel = useCallback(

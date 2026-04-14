@@ -1,11 +1,21 @@
 import { Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 
 export function SwitchModelSelector({ disabled }: { disabled: boolean }) {
+    const [hasMounted, setHasMounted] = useState(false);
     const { selectedModel, isModelAvailable, availablePresets, isChangingModel } = useModelSelection();
     const { changeModel } = useChatContext();
+
+    useEffect(() => {
+        setHasMounted(true);
+    }, []);
+
+    if (!hasMounted) {
+        return <div className="h-4 w-24 shrink-0" aria-hidden="true" />;
+    }
 
     return (
         <Select value={selectedModel} onValueChange={changeModel} disabled={disabled || isChangingModel}>

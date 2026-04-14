@@ -3,7 +3,7 @@
 import { ChevronDown, Loader2, MessageSquare, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { RenamePhaseDialog } from '@/app/(dashboard)/_components/rename-phase-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -23,6 +23,7 @@ type PhasePickerProps = {
 };
 
 export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: PhasePickerProps) => {
+    const [hasMounted, setHasMounted] = useState(false);
     const [open, setOpen] = useState(false);
     const [editingChatId, setEditingChatId] = useState<string | null>(null);
     const [editingInitialName, setEditingInitialName] = useState('');
@@ -46,6 +47,10 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
     const currentChat = chats.find((c) => c.id === currentChatId);
     const phaseName =
         currentChat?.name ?? (typeof currentPhaseIndex === 'number' ? `Phase ${currentPhaseIndex + 1}` : null);
+
+    useEffect(() => {
+        setHasMounted(true);
+    }, []);
 
     const [sentryRef, { rootRef }] = useInfiniteScroll({
         loading: isLoading,
@@ -73,6 +78,21 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
         await mutate();
         setEditingChatId(null);
     };
+
+    if (!hasMounted) {
+        return (
+            <span
+                className={cn(
+                    'group flex items-center gap-1.5 text-sm rounded-md px-2 py-1 min-w-0',
+                    (isNewChat || !phaseName) && 'text-neutral-500',
+                    phaseName && 'text-foreground',
+                )}
+            >
+                <span className="truncate max-w-60">{phaseName ?? 'New phase'}</span>
+                <ChevronDown className="size-3.5 shrink-0 text-neutral-600" />
+            </span>
+        );
+    }
 
     return (
         <Popover open={open} onOpenChange={setOpen}>

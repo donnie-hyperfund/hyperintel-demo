@@ -124,6 +124,7 @@
         "openai": "^6.34.0",
         "partial-json": "^0.1.7",
         "postgres": "^3.4.8",
+        "posthog-js": "^1.368.0",
         "react": "19.2.3",
         "react-day-picker": "9.8.0",
         "react-dom": "19.2.3",

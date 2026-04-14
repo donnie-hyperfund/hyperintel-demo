@@ -1,4 +1,4 @@
-﻿import { runAgentStream } from '@common/ai/agent';
+import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
@@ -17,6 +17,7 @@ import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, Draf
 import { approveVersion, listDocuments } from './tools/documents/document-service';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
+import { captureWorkerPostHogEvent } from './utils/posthog';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import {
     cleanupStreamDO,
@@ -443,6 +444,15 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             chat.active_agent_message_id = null;
             await em!.flush();
 
+            ctx.eCtx?.waitUntil(
+                captureWorkerPostHogEvent(ctx, 'worker_summary_cancelled', ctx.user.userId, {
+                    project_id: chat.project?.id ?? null,
+                    source_chat_id: chatId,
+                    agent_message_id: agentMessageId,
+                    created_version_count: createdVersionIds.length,
+                }).catch((error) => console.error('[posthog] failed to capture summary cancellation:', error)),
+            );
+
             await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, new Error('Summarization cancelled'));
             return;
         }
@@ -479,6 +489,17 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Clear active_agent_message_id before flush (before finalize)
         chat.active_agent_message_id = null;
         await em!.flush();
+
+        ctx.eCtx?.waitUntil(
+            captureWorkerPostHogEvent(ctx, 'worker_summary_persisted', ctx.user.userId, {
+                project_id: chat.project?.id ?? null,
+                source_chat_id: chatId,
+                new_chat_id: newChat.id,
+                agent_message_id: agentMessageId,
+                created_version_count: createdVersionIds.length,
+                summary_content_length: summaryContent.length,
+            }).catch((error) => console.error('[posthog] failed to capture summary completion:', error)),
+        );
 
         // Link created document versions to the summary message (must be after flush so summaryMessage has an id)
         if (createdVersionIds.length > 0) {
@@ -556,6 +577,15 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         } catch (saveErr) {
             console.error('[summarizer] failed to clear active_agent_message_id:', saveErr);
         }
+
+        ctx.eCtx?.waitUntil(
+            captureWorkerPostHogEvent(ctx, 'worker_summary_failed', ctx.user.userId, {
+                project_id: chat.project?.id ?? null,
+                source_chat_id: chatId,
+                agent_message_id: agentMessageId,
+                error_message: error?.message ?? 'Unknown error',
+            }).catch((captureError) => console.error('[posthog] failed to capture summary failure:', captureError)),
+        );
 
         await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
     }

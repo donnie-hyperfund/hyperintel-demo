@@ -91,14 +91,14 @@ function ChatPanelContent({
         );
 
         if (allowUploadBeforeFirstMessage) {
-            return <FileDropOverlay className="flex flex-col relative h-full">{content}</FileDropOverlay>;
+            return <FileDropOverlay className="relative flex h-full min-h-0 flex-col">{content}</FileDropOverlay>;
         }
 
-        return <div className="flex flex-col relative h-full">{content}</div>;
+        return <div className="relative flex h-full min-h-0 flex-col">{content}</div>;
     }
 
     return (
-        <FileDropOverlay className="flex flex-col relative h-full">
+        <FileDropOverlay className="relative flex h-full min-h-0 flex-col">
             {HeaderComponent}
 
             <ChatConversation ref={conversationRef} />

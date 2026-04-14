@@ -197,9 +197,16 @@ export function isTextArtifactExtension(ext: string): boolean {
     return (TEXT_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
 }
 
+const UploadArtifactFileSchema =
+    typeof File !== 'undefined'
+        ? z4.instanceof(File)
+        : z4.custom<File>((value) => Boolean(value && typeof value === 'object' && 'size' in value), {
+              message: 'Expected file upload',
+          });
+
 export const UploadArtifactSchema = zfd.formData({
     file: zfd.file(
-        z4.instanceof(File).refine(
+        UploadArtifactFileSchema.refine(
             (f) => f.size <= MAX_ARTIFACT_UPLOAD_SIZE,
             // TODO proper formatting
             `File too large (max ${MAX_ARTIFACT_UPLOAD_SIZE / 1024 / 1024}MB)`,

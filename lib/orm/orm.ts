@@ -31,7 +31,7 @@ class HmrMetadataCacheAdapter implements CacheAdapter {
     private byPath = new Map<string, any>();
     private byName = new Map<string, any>();
 
-    constructor(private options: { data: Record<string, any> }) {
+    constructor(options: { data: Record<string, any> }) {
         for (const [key, meta] of Object.entries(options.data)) {
             this.byName.set(key, meta);
             // Index by source file path (stripping extension) for MikroORM's internal lookups
@@ -74,6 +74,38 @@ if (process.env.NODE_ENV === 'development') {
 
 const reqStore = cache(() => ({ verified: false }));
 
+function isTransientDbInitError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /\bENOTFOUND\b|\bEAI_AGAIN\b|getaddrinfo/i.test(message);
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function initOrmWithRetry(options: Options, attempts = 2): Promise<MikroORM> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+            return await MikroORM.init(options);
+        } catch (error) {
+            lastError = error;
+
+            if (!isTransientDbInitError(error) || attempt === attempts) {
+                throw error;
+            }
+
+            console.warn(
+                `Retrying ORM init after transient database lookup failure (attempt ${attempt + 1}/${attempts})`,
+            );
+            await sleep(500 * attempt);
+        }
+    }
+
+    throw lastError;
+}
+
 /** Reuse the same EM fork within a single Next.js request (RSC / route handler / middleware). */
 const getRequestFork = cache(async (): Promise<ScopedEntityManager> => {
     const orm = await globalThis.__ormPromise!;
@@ -95,9 +127,10 @@ export async function getOrm(
     raw = false,
 ): Promise<MikroORM | { em: ScopedEntityManager }> {
     let injectConfig: Options;
+    let shouldReturnRaw = raw;
     if (_.isBoolean(injectConfigOrRaw)) {
-        raw = injectConfigOrRaw;
-        if (raw && !reqStore().verified) {
+        shouldReturnRaw = injectConfigOrRaw;
+        if (shouldReturnRaw && !reqStore().verified) {
             throw new Error("You don't know what you're doing");
         }
         injectConfig = {};
@@ -123,20 +156,26 @@ export async function getOrm(
             };
         }
 
-        const myPromise = MikroORM.init({
+        const ormInitPromise = initOrmWithRetry({
             ...configToUse,
             ...injectConfig,
             // TODO env var, prevent on prod
             // debug: true,
-        }).then((orm) => {
-            // Serialization group support (deployment-level + toObject patch)
-            initSerializationGroups(
-                orm,
-                process.env.NEXT_PUBLIC_APP_ENV === 'development' ? ['dev'] : undefined,
-            );
-
-            return orm;
         });
+
+        const myPromise = ormInitPromise
+            .then((orm) => {
+                // Serialization group support (deployment-level + toObject patch)
+                initSerializationGroups(orm, process.env.NEXT_PUBLIC_APP_ENV === 'development' ? ['dev'] : undefined);
+
+                return orm;
+            })
+            .catch((error) => {
+                if (globalThis.__ormPromise === myPromise) {
+                    globalThis.__ormPromise = null;
+                }
+                throw error;
+            });
 
         // Capture metadata on first successful boot.
         // Strip live class/prototype refs so they don't overwrite fresh ones
@@ -149,10 +188,17 @@ export async function getOrm(
                         const live = orm.getMetadata().getAll();
                         const cleaned: Record<string, any> = {};
                         for (const [key, meta] of Object.entries(live)) {
-                            const { class: _cls, prototype: _proto, props: _props,
-                                referencingProperties: _refs, propertyOrder: _po,
-                                relations: _rels, concurrencyCheckKeys: _cck,
-                                checks: _chk, ...rest } = meta;
+                            const {
+                                class: _cls,
+                                prototype: _proto,
+                                props: _props,
+                                referencingProperties: _refs,
+                                propertyOrder: _po,
+                                relations: _rels,
+                                concurrencyCheckKeys: _cck,
+                                checks: _chk,
+                                ...rest
+                            } = meta;
                             cleaned[key] = rest;
                         }
                         globalThis.__ormMetadataCache = cleaned;
@@ -185,7 +231,7 @@ export async function getOrm(
             });
         }
     }
-    if (raw) {
+    if (shouldReturnRaw) {
         return globalThis.__ormPromise;
     } else {
         return { em: await getRequestFork() };

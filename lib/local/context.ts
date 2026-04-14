@@ -21,6 +21,7 @@ import FirecrawlApp from '@mendable/firecrawl-js';
 import { waitUntil } from '@vercel/functions';
 import { Langfuse } from 'langfuse';
 import type postgres from 'postgres';
+import { backendEnv } from '@/app/api/env';
 import { assertClerkAuth } from '@/lib/api/auth-guard';
 import { ensureDevWsServer, envSecretMocks } from '@/lib/local/cf-env-secret-mock';
 import { getOrm } from '@/lib/orm';
@@ -49,9 +50,9 @@ const projectDeps = {
         publishableKey: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY!,
     }),
     langfuse: new Langfuse({
-        secretKey: process.env.LANGFUSE_SECRET_KEY!,
-        publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
-        baseUrl: process.env.LANGFUSE_HOST,
+        secretKey: backendEnv.LANGFUSE_SECRET_KEY!,
+        publicKey: backendEnv.LANGFUSE_PUBLIC_KEY!,
+        baseUrl: backendEnv.LANGFUSE_HOST,
     }),
     firecrawl: new FirecrawlApp({
         apiKey: process.env.FIRECRAWL_API_KEY!,
@@ -65,7 +66,7 @@ const projectDeps = {
  * Wraps the base factory to lazily start the dev WS server on first call.
  */
 const _baseFactory = createContextFactory(projectDeps);
-export const initNextjsWorkerContext: typeof _baseFactory = (async (...args: any[]) => {
+export const initNextjsWorkerContext: typeof _baseFactory = ((...args: any[]) => {
     ensureDevWsServer();
     return (_baseFactory as any)(...args);
 }) as any;

@@ -1,8 +1,7 @@
 import { runAgentStream } from '@common/ai/agent';
-import type { AgentStreamEvent } from '@common/ai/agent/types';
+import type { MessageUsage } from '@common/ai/agent/usage-types';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
-import { ensurePricingCache, getModelPricing, calculateCost } from '@common/ai/inference/openrouter-pricing';
-import { COMMON_MODELS } from '@common/ai/types';
+import { calculateCost, ensurePricingCache, getModelPricing } from '@common/ai/inference/openrouter-pricing';
 import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
@@ -12,8 +11,7 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { getAvailablePresets, getDefaultPresetId, resolvePreset } from '@/lib/presets';
-import type { MessageUsage } from '@common/ai/agent/usage-types';
-import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
+import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from './context';
@@ -25,9 +23,10 @@ import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, Draf
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
-import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
+import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
+import { captureWorkerPostHogEvent } from './utils/posthog';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import {
     cleanupStreamDO,
@@ -368,7 +367,7 @@ interface GenerationParams {
 }
 
 async function runGeneration(params: GenerationParams): Promise<void> {
-    const { data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub } = params;
+    const { data, ctx, options, chat, agentMessageId, ugStub } = params;
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
 
@@ -386,7 +385,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
     try {
         if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
-            throw new Error('Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)');
+            throw new Error(
+                'Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)',
+            );
         }
 
         // Load history + safety check in parallel (doesn't slow happy path)
@@ -620,12 +621,14 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                 });
                             } else {
                                 // Fallback to preset-defined pricing
-                                const preset = getAvailablePresets(ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS)
-                                    .find(p => p.id === presetId);
+                                const preset = getAvailablePresets(
+                                    ctx.env.ALLOWED_PRESETS,
+                                    ctx.env.BLOCKED_PRESETS,
+                                ).find((p) => p.id === presetId);
                                 if (preset?.pricing) {
                                     totalCost =
-                                        (apiUsage.totalInputTokens * preset.pricing.inputPer1M / 1_000_000) +
-                                        (apiUsage.totalOutputTokens * preset.pricing.outputPer1M / 1_000_000);
+                                        (apiUsage.totalInputTokens * preset.pricing.inputPer1M) / 1_000_000 +
+                                        (apiUsage.totalOutputTokens * preset.pricing.outputPer1M) / 1_000_000;
                                 }
                             }
                         }
@@ -728,6 +731,27 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                     // Flush assistant message before linking versions (FK requires row to exist)
                     await em!.flush();
 
+                    ctx.eCtx?.waitUntil(
+                        captureWorkerPostHogEvent(ctx, 'worker_chat_turn_persisted', ctx.user.userId, {
+                            project_id: chat.project?.id ?? null,
+                            chat_id: chatId,
+                            agent_message_id: agentMessageId,
+                            outcome: isError ? 'error' : isAborted ? 'aborted' : 'done',
+                            model: msgMetadata.inference?.model as string | undefined,
+                            provider: msgMetadata.inference?.paramsType as string | undefined,
+                            used_tokens: usedTokens,
+                            context_tokens: tokenBreakdown.context,
+                            prompt_tokens: tokenBreakdown.prompt,
+                            tooldef_tokens: tokenBreakdown.toolDef,
+                            input_tokens: messageUsage?.inputTokens,
+                            output_tokens: messageUsage?.outputTokens,
+                            cost: messageUsage?.cost,
+                            created_version_count: createdVersionIds.length,
+                            assistant_content_length: assistantContent.length,
+                            has_pending_done_tool: pendingDoneEvent?.outputType === 'tool',
+                        }).catch((error) => console.error('[posthog] failed to capture chat turn:', error)),
+                    );
+
                     // Link created document versions to the assistant message
                     if (assistantMsg && createdVersionIds.length > 0) {
                         await em!
@@ -756,17 +780,20 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
                     // Build safe message metadata for WS delivery (no error, safetyAnalysis, etc.)
                     // Only include dev-only fields (preset, inference, usage) in dev mode
-                    const safeMessageMetadata: Record<string, unknown> | undefined = isDev ? {
-                        ...(msgMetadata.preset && { preset: msgMetadata.preset }),
-                        ...(msgMetadata.inference && { inference: msgMetadata.inference }),
-                        ...(msgMetadata.usage && { usage: msgMetadata.usage }),
-                    } : undefined;
+                    const safeMessageMetadata: Record<string, unknown> | undefined = isDev
+                        ? {
+                              ...(msgMetadata.preset && { preset: msgMetadata.preset }),
+                              ...(msgMetadata.inference && { inference: msgMetadata.inference }),
+                              ...(msgMetadata.usage && { usage: msgMetadata.usage }),
+                          }
+                        : undefined;
 
                     const doneEvent: StreamEvent = {
                         type: 'done',
                         tokenUsage: { tokenBreakdown, usedTokens },
                         ...(isDev && chat.total_cost != null && { totalCost: chat.total_cost }),
-                        ...(safeMessageMetadata && Object.keys(safeMessageMetadata).length > 0 && { messageMetadata: safeMessageMetadata }),
+                        ...(safeMessageMetadata &&
+                            Object.keys(safeMessageMetadata).length > 0 && { messageMetadata: safeMessageMetadata }),
                         hasPendingChanges,
                         phaseIndex,
                         ...(isError && { error: event.error!.message }),
@@ -802,6 +829,15 @@ async function runGeneration(params: GenerationParams): Promise<void> {
     } catch (error: any) {
         console.error('[chat-handler] generation error:', error?.message ?? error, error?.stack);
         await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'chat-handler');
+        ctx.eCtx?.waitUntil(
+            captureWorkerPostHogEvent(ctx, 'worker_chat_turn_failed', ctx.user.userId, {
+                project_id: chat.project?.id ?? null,
+                chat_id: chatId,
+                agent_message_id: agentMessageId,
+                outcome: 'error',
+                error_message: error?.message ?? 'Unknown error',
+            }).catch((captureError) => console.error('[posthog] failed to capture chat failure:', captureError)),
+        );
         await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
     }
 }

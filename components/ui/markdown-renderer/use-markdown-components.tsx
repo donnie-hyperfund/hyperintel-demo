@@ -1,6 +1,6 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@radix-ui/react-tooltip';
 import { ExternalLink, Info, Loader2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Components } from 'react-markdown';
 import { cn } from '@/lib/utils';
 
@@ -9,9 +9,9 @@ type UseMarkdownComponentsParams = {
 };
 
 export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
-    // TODO stupid.. make it stable fallback to full reta... I mean random
     const [hoveredCitation, setHoveredCitation] = useState<string | null>(null);
-    const [randId, setRandomId] = useState<string>(id ?? `${Math.round(Math.random() * 10000)}`);
+    const reactId = useId();
+    const rendererId = useMemo(() => id ?? reactId.replace(/:/g, '_'), [id, reactId]);
 
     const components = useMemo(() => {
         return {
@@ -23,9 +23,9 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
             // ),
             a: ({ children, id, ...props }) => {
                 if (id) {
-                    id = `_${randId}__${id}`;
+                    id = `_${rendererId}__${id}`;
                 }
-                if (props.href && props.href.startsWith('#')) {
+                if (props.href?.startsWith('#')) {
                     //if(scrollToId){
 
                     //    return (
@@ -41,7 +41,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                     //    );
                     //} else {
                     return (
-                        <a id={id} href={`#_${randId}__${props.href!.slice(1)}`}>
+                        <a id={id} href={`#_${rendererId}__${props.href!.slice(1)}`}>
                             {children}
                         </a>
                     );
@@ -67,7 +67,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
             },
             li: ({ children, id, ...props }) => {
                 if (id) {
-                    id = `_${randId}__${id}`;
+                    id = `_${rendererId}__${id}`;
                 }
                 return (
                     <li id={id} {...props}>
@@ -171,7 +171,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                 );
             },
         } satisfies Components;
-    }, [id]);
+    }, [rendererId, hoveredCitation]);
 
     return components;
 };

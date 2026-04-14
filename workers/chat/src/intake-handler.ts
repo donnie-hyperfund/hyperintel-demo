@@ -26,6 +26,7 @@ import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, Draf
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
 import { createDocumentEventHandler } from './utils/document-events';
+import { captureWorkerPostHogEvent } from './utils/posthog';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import {
     cleanupStreamDO,
@@ -271,7 +272,7 @@ interface IntakeGenerationParams {
 }
 
 async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void> {
-    const { data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub } = params;
+    const { data, ctx, options, chat, agentMessageId, ugStub } = params;
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
 
@@ -289,7 +290,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
     try {
         if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
-            throw new Error('Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)');
+            throw new Error(
+                'Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)',
+            );
         }
 
         const framework = chat.metadata?.framework as 'cpf' | 'hpf';
@@ -480,6 +483,20 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                     chat.active_agent_message_id = null;
                     await em!.flush();
 
+                    const inferenceMeta = extractInferenceMetadata(inferenceParams);
+                    ctx.eCtx?.waitUntil(
+                        captureWorkerPostHogEvent(ctx, 'worker_intake_turn_persisted', ctx.user.userId, {
+                            chat_id: chatId,
+                            agent_message_id: agentMessageId,
+                            outcome: isError ? 'error' : isAborted ? 'aborted' : 'done',
+                            model: inferenceMeta.model as string | undefined,
+                            provider: inferenceMeta.paramsType as string | undefined,
+                            created_version_count: createdVersionIds.length,
+                            assistant_content_length: assistantContent.length,
+                            has_pending_done_tool: pendingDoneEvent?.outputType === 'tool',
+                        }).catch((error) => console.error('[posthog] failed to capture intake turn:', error)),
+                    );
+
                     // Link created document versions to the assistant message
                     if (assistantMsg && createdVersionIds.length > 0) {
                         await em!
@@ -525,6 +542,14 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     } catch (error: any) {
         console.error('[intake-handler] generation error:', error?.message ?? error, error?.stack);
         await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'intake-handler');
+        ctx.eCtx?.waitUntil(
+            captureWorkerPostHogEvent(ctx, 'worker_intake_turn_failed', ctx.user.userId, {
+                chat_id: chatId,
+                agent_message_id: agentMessageId,
+                outcome: 'error',
+                error_message: error?.message ?? 'Unknown error',
+            }).catch((captureError) => console.error('[posthog] failed to capture intake failure:', captureError)),
+        );
         await cleanupStreamDO(pusher, streamDO, ugStub, `intake:${chatId}`, error);
     }
 }
