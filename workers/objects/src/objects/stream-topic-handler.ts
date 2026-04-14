@@ -105,12 +105,17 @@ export abstract class StreamTopicHandler implements TopicHandler {
         try {
             const allowed = await this.checkPermission(userId, identifier, env);
             if (!allowed) {
-                console.warn(`[${this.constructor.name}] canSubscribe DENIED: userId=${userId}, identifier=${identifier}, previewAlias=${this.previewAlias}`);
+                console.warn(
+                    `[${this.constructor.name}] canSubscribe DENIED: userId=${userId}, identifier=${identifier}, previewAlias=${this.previewAlias}`,
+                );
             }
             // this.permissionCache.set(cacheKey, allowed);
             return allowed;
         } catch (err) {
-            console.error(`[${this.constructor.name}] canSubscribe ERROR: userId=${userId}, identifier=${identifier}, previewAlias=${this.previewAlias}`, err);
+            console.error(
+                `[${this.constructor.name}] canSubscribe ERROR: userId=${userId}, identifier=${identifier}, previewAlias=${this.previewAlias}`,
+                err,
+            );
             return false;
         }
     }
@@ -131,6 +136,11 @@ export abstract class StreamTopicHandler implements TopicHandler {
             const stub = this.getStreamStub(env, agentMessageId);
             // UG DO name = userId (or userId@alias on dev preview branches)
             const snapshot = await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
+            if (snapshot.status === 'done' || snapshot.status === 'aborted' || snapshot.status === 'error') {
+                await this.cleanupStreamKeys(identifier);
+                await this.clearActiveAgentMessageId(identifier, agentMessageId, env);
+                return { status: 'idle' };
+            }
             return { status: 'streaming', agentMessageId, snapshot };
         } catch (err) {
             // ChatStream DO is gone (already finalized) — stale registry entry

@@ -1,11 +1,7 @@
-﻿import { runAgentStream } from '@common/ai/agent';
+import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
-import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import type { EntityManager } from '@mikro-orm/core';
-import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
-import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
-import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { PublicError } from '@common/common/error.helpers';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
@@ -13,53 +9,12 @@ import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { preprocessContext } from './chat-handler';
 import { Ctx } from './context';
-import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
-import { approveVersion, listDocuments } from './tools/documents/document-service';
-import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
-import { createDocumentEventHandler } from './utils/document-events';
+import { listDocuments } from './tools/documents/document-service';
+import type { UserGatewayStub } from './utils/do-stubs';
+import { extractDocuments } from './utils/extract-documents';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
-import {
-    cleanupStreamDO,
-    createEnqueue,
-    createEventCollector,
-    createPusher,
-    createSSEStream,
-    handleCommonStreamEvent,
-    wireAbort,
-} from './utils/stream-utils';
-
-/**
- * Roll back artifact versions (and orphaned parent artifacts) created during
- * a failed or aborted summarization. Uses em.fork() to avoid dirty state
- * from in-flight doc tool calls on the request EntityManager.
- */
-async function rollbackCreatedVersions(em: EntityManager, versionIds: string[]): Promise<void> {
-    if (versionIds.length === 0) return;
-
-    try {
-        const cleanEm = em.fork();
-        const versions = await cleanEm.find(
-            ArtifactVersionEntity,
-            { id: { $in: versionIds } },
-            { fields: ['artifact'] },
-        );
-        const artifactIds = [...new Set(versions.map((v) => v.artifact.id))];
-
-        await cleanEm.transactional(async (txEm) => {
-            await txEm.nativeDelete(ArtifactEmbeddingEntity, { artifact_version: { $in: versionIds } });
-            await txEm.nativeDelete(ArtifactVersionEntity, { id: { $in: versionIds } });
-            if (artifactIds.length > 0) {
-                const remaining = await txEm.count(ArtifactVersionEntity, { artifact: { $in: artifactIds } });
-                if (remaining === 0) {
-                    await txEm.nativeDelete(ArtifactEntity, { id: { $in: artifactIds } });
-                }
-            }
-        });
-        console.log(`[summarizer] rolled back ${versionIds.length} version(s) and orphaned artifacts`);
-    } catch (err) {
-        console.error('[summarizer] failed to rollback artifact versions:', err);
-    }
-}
+import { finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
+import { cleanupStreamDO, createEnqueue, createSSEStream } from './utils/stream-utils';
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
@@ -69,50 +24,19 @@ export interface SummarizerOptions {
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
 
-interface DocumentInfo {
-    name: string;
-    contentPreview?: string;
-}
-
-function extractDocuments(messages: ChatMessageEntity[]): DocumentInfo[] {
-    const docs: DocumentInfo[] = [];
-    for (const msg of messages) {
-        if (!msg.blocks) continue;
-        for (const block of msg.blocks as any[]) {
-            if (block.type === 'tool_call' && block.toolName === 'begin_document') {
-                const input = block.toolInput;
-                if (input?.name) {
-                    docs.push({
-                        name: input.name,
-                        contentPreview: input.content?.slice(0, 500),
-                    });
-                }
-            }
-        }
-    }
-    return docs;
-}
-
 /**
- * Load summarizer prompt: pma/summarizer + pma/completion-brief, concatenated.
+ * Load summarizer prompt (pma/summarizer only).
  * Uses the same local-file / Langfuse mechanism as the chat handler.
  */
 async function getSummarizerPrompt(ctx: Ctx): Promise<string> {
     const localPath = resolveLocalPromptPath();
-
-    const [summarizerPrompt, completionBriefPrompt] = await Promise.all([
-        getPromptContent(ctx, 'pma/summarizer', localPath),
-        getPromptContent(ctx, 'pma/completion-brief', localPath),
-    ]);
+    const summarizerPrompt = await getPromptContent(ctx, 'pma/summarizer', localPath);
 
     if (!summarizerPrompt) {
         throw new Error('Failed to load summarizer prompt (pma/summarizer)');
     }
-    if (!completionBriefPrompt) {
-        throw new Error('Failed to load completion brief prompt (pma/completion-brief)');
-    }
 
-    return `${summarizerPrompt}\n\n---\n\n${completionBriefPrompt}`;
+    return summarizerPrompt;
 }
 
 // ============================================================================
@@ -134,7 +58,7 @@ export async function summarizeActionHandler(
     data: SummarizeActionDto,
     ctx: Ctx,
     options: SummarizerOptions = {},
-): Promise<SummarizeActionResult | ReadableStream> {
+): Promise<SummarizeActionResult | ReadableStream | PublicError> {
     const { chatId } = data;
     const { em } = ctx;
 
@@ -145,6 +69,15 @@ export async function summarizeActionHandler(
         id: chatId,
         project: { user: { clerkId: ctx.user.userId } },
     });
+
+    // Gate: require an approved Completion Brief before phase transition
+    if (chat.completion_brief_status !== 'approved') {
+        return new PublicError(400, {
+            code: 'completion_brief_not_approved',
+            message: 'Cannot transition phase without an approved Completion Brief',
+            details: { currentStatus: chat.completion_brief_status ?? 'none' },
+        });
+    }
 
     // Set active_agent_message_id on the source chat (same column as normal chat responses)
     chat.active_agent_message_id = agentMessageId;
@@ -221,20 +154,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
     const { chatId } = data;
     const { em, anthropic } = ctx;
 
-    // Get ChatStream DO stub  already initialized by registerStream above
-    const alias = ctx.previewAlias;
-    const streamDO = ctx.env.CHAT_STREAM_DO.get(
-        ctx.env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, alias)),
-    ) as unknown as ChatStreamDOStub;
-
-    // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
-    const abortController = wireAbort(streamDO);
-
-    // Fire-and-forget pusher — hoisted for catch block access
-    const pusher = createPusher(streamDO, 'summarizer');
-
-    // Hoisted so the catch block can access it for rollback
-    const createdVersionIds: string[] = [];
+    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'summarizer');
 
     try {
         if (!anthropic) {
@@ -246,17 +166,13 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             throw new Error('Cannot summarize empty chat');
         }
 
-        // Phase number is 1-based from the 0-based phase_index
         const phaseNumber = chat.phase_index + 1;
-        const briefName = `completion-brief-phase-${phaseNumber}.md`;
         const today = new Date().toISOString().split('T')[0];
 
         const documents = extractDocuments(messages);
         const basePrompt = await getSummarizerPrompt(ctx);
 
-        // Append concrete values as context  don't replace {N} in the prompt since
-        // the completion-brief structure uses {N} as AI-fill-in placeholders
-        let instructions = `${basePrompt}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Brief Name:** \`${briefName}\`\n- **Date:** ${today}`;
+        let instructions = `${basePrompt}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
 
         if (documents.length > 0) {
             instructions += `\n\n## Documents Created During This Conversation\n\n`;
@@ -274,15 +190,13 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             const allDocuments = await listDocuments(em!, { projectId: chat.project!.id });
             const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
             if (phaseDocuments.length > 0) {
-                instructions += `\n\n## Current Document Statuses (this phase)\n\nThese statuses are queried from the database at the time of summarization. Users may approve or reject documents via the UI  this does NOT appear in the conversation history. Use these statuses as the source of truth.\n\n`;
+                instructions += `\n\n## Current Document Statuses (this phase)\n\nThese statuses are queried from the database at the time of summarization. Users may approve or reject documents via the UI — this does NOT appear in the conversation history. Use these statuses as the source of truth.\n\n`;
                 for (const doc of phaseDocuments) {
                     const status = doc.hasProposed ? 'proposed' : (doc.currentStatus ?? doc.latestStatus);
                     instructions += `- \`${doc.name}\` (${doc.title}): v${doc.latestVersion}, **${status}**\n`;
                 }
             }
         }
-
-        instructions += `\n\n## Completion Brief\n\nThe Completion Brief you create is automatically approved by the system immediately after you finish. Report its status as "approved", NOT "proposed". Do not mention that it needs or awaits user approval.\n`;
 
         const historyMessages = messages.map((m) => ({
             role: m.role as 'user' | 'assistant',
@@ -293,8 +207,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Anthropic requires conversation to end with user message for model to respond.
         historyMessages.push({
             role: 'user' as const,
-            content:
-                'Please provide a comprehensive summary of this conversation and create the Completion Brief internal artifact.',
+            content: 'Please provide a comprehensive summary of this conversation.',
         });
 
         const inferenceParams = options.overrideInference ?? {
@@ -302,37 +215,8 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             params: { model: ANTHROPIC_MODELS.SONNET },
         };
 
-        // Create embedding queue adapter
-        const embeddingQueue = createEmbeddingQueueAdapter({
-            queue: ctx.env.EMBEDDING_QUEUE,
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
-            authSecret: process.env.AUTH_SECRET,
-        });
-
-        // Create document tools context
-        const agentCtx: DocumentToolsContext = {
-            em: em!,
-            projectId: chat.project!.id,
-            chatId: chat.id,
-            draftManager: new DraftManager(),
-            embeddingQueue,
-            previewAlias: ctx.previewAlias,
-            createdVersionIds,
-            onVersionCreated: (event) => {
-                ugStub
-                    .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
-                    .catch(console.error);
-            },
-        };
-
-        // Only include the tools needed for creating the Completion Brief
-        const documentTools = createDocumentTools();
-        const tools = documentTools.filter((t) =>
-            ['begin_document', 'write_document', 'finalize_document'].includes(t.name),
-        );
-
         const { stream, historyPromise } = runAgentStream(
-            agentCtx,
+            {},
             ctx,
             {
                 ...inferenceParams,
@@ -341,105 +225,42 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 countReasoningAsContent: true,
                 contentThreshold: 5,
             },
-            tools,
+            [] as const,
             {
-                toolGroups: [DocumentToolGroup],
                 config: {
                     preprocessContext,
                     abortSignal: abortController.signal,
-                    onTurnComplete: () => {
-                        if (agentCtx.draftManager.hasActive()) {
-                            return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
-                        }
-                        if (agentCtx.pendingPECP) {
-                            const p = agentCtx.pendingPECP;
-                            return `You MUST generate a PECP for "${p.parentDocumentType}". Call begin_document with mode="create", name="${p.pecpKey}", document_type="PECP", parent_document="${p.parentDocument}", is_internal=false. Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
-                        }
-                        return null;
-                    },
                 },
             },
         );
 
-        // Event collector for DO push (replaces hand-rolled SSE enqueue)
-        const collector = createEventCollector();
-        const state = { wasTool: false };
         let summaryContent = '';
         let wasAborted = false;
 
-        const fireAndForgetPush = pusher.push;
-
         /** Push a status_update event to the stream DO */
         const pushStatus = (status: string) => {
-            fireAndForgetPush([{ type: 'status_update', status } as StreamEvent]);
+            pusher.push([{ type: 'status_update', status } as StreamEvent]);
         };
-
-        // Document events queue — batched into the main push instead of separate RPCs
-        const pendingDocEvents: StreamEvent[] = [];
-        const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) => {
-            pendingDocEvents.push(docEvent as StreamEvent);
-        });
 
         // Emit initial status before the stream loop starts
         pushStatus('generating-summary');
 
-        // Track document creation count for status messages
-        let beginDocumentCount = 0;
-
-        // Stream loop  push standard StreamEvent[] to ChatStream DO
-        for await (const event of stream) {
-            // Emit granular status updates based on tool events
-            if (event.type === 'tool_start') {
-                const toolName = (event as any).tool ?? (event as any).name;
-                if (toolName === 'begin_document') {
-                    beginDocumentCount++;
-                    pushStatus(beginDocumentCount === 1 ? 'creating-completion-brief' : 'creating-pecp');
-                } else if (toolName === 'finalize_document') {
-                    pushStatus('saving-document');
+        await runStreamLoop({
+            stream,
+            push: pusher.push,
+            docEventsCtx: { em: em!, projectId: chat.project!.id },
+            onSpecificEvent: (event) => {
+                if (event.type === 'done_ext') {
+                    summaryContent = event.streamLog.fullContent ?? '';
+                    wasAborted = event.aborted ?? false;
                 }
-            }
-
-            // Force non-PECP summarizer documents to be internal Completion Briefs
-            if (event.type === 'tool_result' && (event as any).tool === 'begin_document' && event.success) {
-                const draft = agentCtx.draftManager.getCurrent();
-                if (draft && draft.document_type !== 'PECP') {
-                    draft.is_internal = true;
-                    draft.document_type = 'Completion Brief';
-                }
-            }
-
-            // Let document handler process the event (queues doc events locally)
-            await docEvents.handle(event);
-
-            // Delegate common events to collector
-            if (handleCommonStreamEvent(collector.enqueue, event, state)) {
-                const events = collector.drain();
-                const combined = [...pendingDocEvents.splice(0), ...events];
-                if (combined.length > 0) fireAndForgetPush(combined);
-                continue;
-            }
-
-            // Flush any doc events that weren't paired with a main event
-            if (pendingDocEvents.length > 0) {
-                fireAndForgetPush(pendingDocEvents.splice(0));
-            }
-
-            // Summarizer-specific events
-            if (event.type === 'done_ext') {
-                summaryContent = event.streamLog.fullContent ?? '';
-                wasAborted = event.aborted ?? false;
-                // done_ext is not pushed directly  terminal done event pushed after DB persist below
-            }
-        }
+            },
+        });
 
         await historyPromise;
 
-        // ── Abort check: roll back all side effects and exit early ──
-        // Check both the done_ext flag (runner detected abort) and the controller
-        // (abort arrived after runner finished but before post-stream work)
+        // ── Abort check: clean up and exit early ──
         if (wasAborted || abortController.signal.aborted) {
-            await rollbackCreatedVersions(em!, createdVersionIds);
-
             chat.active_agent_message_id = null;
             await em!.flush();
 
@@ -449,11 +270,6 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
 
         // Emit finalizing status before DB persistence
         pushStatus('finalizing');
-
-        // Auto-approve completion briefs (no user approval needed)
-        for (const versionId of createdVersionIds) {
-            await approveVersion(em!, versionId);
-        }
 
         // TODO: Can't use chat.phase_index + 1 because historical chats can trigger summarization too.
         // Once we block message sending on non-latest chats, switch to phase_index-based calculation.
@@ -479,15 +295,6 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Clear active_agent_message_id before flush (before finalize)
         chat.active_agent_message_id = null;
         await em!.flush();
-
-        // Link created document versions to the summary message (must be after flush so summaryMessage has an id)
-        if (createdVersionIds.length > 0) {
-            await em!
-                .createQueryBuilder(ArtifactVersionEntity)
-                .update({ chat: newChat.id, chat_message: summaryMessage.id })
-                .where({ id: { $in: createdVersionIds } })
-                .execute();
-        }
 
         // Auto-generate a short name for the source chat if it doesn't have one
         if (!chat.name && summaryContent) {
@@ -534,20 +341,12 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             .catch(console.error);
 
         // Push terminal done event with newChatId
-        // Ordering: push done  streamDO.done()  clear entity  finalize()  clearStream (Decision #20)
         await pusher.waitAll();
         await streamDO.push([{ type: 'done', newChatId: newChat.id }], pusher.seq);
 
-        try {
-            await streamDO.done();
-            await streamDO.finalize();
-        } finally {
-            await ugStub.systemAction(`chat:${chatId}`, 'clearStream', {}).catch(() => {});
-        }
+        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
         console.error('[summarizer] generation error:', error?.message ?? error, error?.stack);
-
-        await rollbackCreatedVersions(em!, createdVersionIds);
 
         // Clear active_agent_message_id on error (summarizer has no agent message to persist)
         try {

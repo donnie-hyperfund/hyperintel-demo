@@ -21,6 +21,7 @@ import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
@@ -69,6 +70,7 @@ export interface DocumentToolsContext {
         versionId: string;
         version: number;
         action: 'created' | 'proposed';
+        documentType?: string | null;
     }) => void;
 }
 
@@ -614,6 +616,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         versionId: result.versionId,
                         version: result.version,
                         action: result.action,
+                        documentType: draft.document_type,
                     });
 
                     draftManager.discard();
@@ -650,6 +653,16 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             appendedOutput: '',
                             message: `PECP saved and auto-approved as v${result.version}.`,
                         };
+                    }
+
+                    // ── Completion Brief tracking ────────────────────────────
+                    if (draft.document_type === 'Completion Brief') {
+                        const chatEntity = await em.findOne(ChatEntity, { id: chatId });
+                        if (chatEntity) {
+                            chatEntity.completion_brief = em.getReference('ArtifactEntity', result.artifactId) as any;
+                            chatEntity.completion_brief_status = 'proposed';
+                            await em.flush();
+                        }
                     }
 
                     // ── Regular document path ────────────────────────────────

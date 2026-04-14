@@ -198,10 +198,10 @@ export function ChatProvider({
             summaryNewChatId: null,
             pendingPhaseTransition: false,
             activeResponseId: null,
-            summaryDocKey: null,
             summaryStatus: null,
             isProcessingArtifactAction: false,
             showInvalidModelAlert: false,
+            completionBriefStatus: cached?.completionBriefStatus ?? null,
         };
     });
 
@@ -484,7 +484,6 @@ export function ChatProvider({
                     ...prev,
                     isSummarizing: true,
                     summaryNewChatId: null,
-                    summaryDocKey: null,
                     summaryStatus: null,
                 }));
             } else {
@@ -493,7 +492,9 @@ export function ChatProvider({
                     const messages = prev.messages.map((m) =>
                         m.id === userMessageId || m.tempId === userMessageId
                             ? { ...m, id: userMessageId, tempId: m.tempId || m.id }
-                            : m,
+                            : m.isStreaming && m.id !== agentMessageId
+                              ? { ...m, isStreaming: false, status: undefined }
+                              : m,
                     );
                     return { ...prev, isGenerating: true, activeResponseId: agentMessageId, messages };
                 });
@@ -541,7 +542,11 @@ export function ChatProvider({
     );
 
     const handleStreamDone = useCallback(
-        (status: StreamStatus, terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' }) => {
+        (
+            status: StreamStatus,
+            terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' },
+            completedAgentMessageId?: string,
+        ) => {
             // Summary was cancelled — ignore any terminal events from the backend
             if (summaryCancelledRef.current) {
                 summaryCancelledRef.current = false;
@@ -577,7 +582,6 @@ export function ChatProvider({
                     isSummarizing: false,
                     summaryStatus: null,
                     summaryNewChatId: null,
-                    summaryDocKey: null,
                     error: null,
                 };
             });
@@ -587,38 +591,43 @@ export function ChatProvider({
             const doneMeta = isNormalDone
                 ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
                 : undefined;
-            const doneMessageMetadata = doneMeta
+            const doneMessageMetadata: MessageMetadata | undefined = doneMeta
                 ? {
-                      ...(doneMeta.preset && { preset: doneMeta.preset as string }),
-                      ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
-                      ...(doneMeta.usage && { usage: doneMeta.usage }),
+                      ...(doneMeta.preset ? { preset: doneMeta.preset as string } : {}),
+                      ...(doneMeta.inference ? { inference: doneMeta.inference as Record<string, unknown> } : {}),
+                      ...(doneMeta.usage ? { usage: doneMeta.usage as MessageMetadata['usage'] } : {}),
                   }
                 : undefined;
 
-            setState((prev) => ({
-                ...prev,
-                isGenerating: false,
-                activeResponseId: null,
-                tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
-                totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
-                hasPendingChanges: isNormalDone
-                    ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
-                    : prev.hasPendingChanges,
-                phaseIndex: isNormalDone ? (terminalEvent.phaseIndex ?? prev.phaseIndex) : prev.phaseIndex,
-                messages: prev.messages.map((msg) =>
-                    msg.isStreaming
-                        ? {
-                              ...msg,
-                              isStreaming: false,
-                              status: undefined,
-                              ...(status === 'error' && { isError: true }),
-                              ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
-                              ...(doneMessageMetadata &&
-                                  Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
-                          }
-                        : msg,
-                ),
-            }));
+            setState((prev) => {
+                const targetMessageId = completedAgentMessageId ?? prev.activeResponseId;
+                const isCurrentActiveStream = !!targetMessageId && prev.activeResponseId === targetMessageId;
+
+                return {
+                    ...prev,
+                    isGenerating: isCurrentActiveStream ? false : prev.isGenerating,
+                    activeResponseId: isCurrentActiveStream ? null : prev.activeResponseId,
+                    tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
+                    totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
+                    hasPendingChanges: isNormalDone
+                        ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
+                        : prev.hasPendingChanges,
+                    phaseIndex: isNormalDone ? (terminalEvent.phaseIndex ?? prev.phaseIndex) : prev.phaseIndex,
+                    messages: prev.messages.map((msg) =>
+                        msg.id === targetMessageId
+                            ? {
+                                  ...msg,
+                                  isStreaming: false,
+                                  status: undefined,
+                                  ...(status === 'error' && { isError: true }),
+                                  ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
+                                  ...(doneMessageMetadata &&
+                                      Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
+                              }
+                            : msg,
+                    ),
+                };
+            });
         },
         [],
     );
@@ -644,21 +653,30 @@ export function ChatProvider({
         // Clear stale isGenerating/isSummarizing set from DB's active_agent_message_id
         // when the initial WS subscribe_response confirms no active stream.
         // Also sync selectedModel from the subscribe response.
-        onSubscribeResponse: (status: 'idle' | 'streaming' | 'stale', selectedModel: string | null) => {
+        onSubscribeResponse: (
+            status: 'idle' | 'streaming' | 'stale',
+            selectedModel: string | null,
+            completionBriefStatus: string | null,
+        ) => {
             if (selectedModel) {
                 setSelectedModel(selectedModel);
             }
-            if (status === 'idle') {
-                summarizeInFlightRef.current = false;
-                setState((prev) =>
-                    prev.isGenerating || prev.isSummarizing
-                        ? { ...prev, isGenerating: false, isSummarizing: false, activeResponseId: null }
-                        : prev,
-                );
-            }
+            setState((prev) => {
+                const next = { ...prev, completionBriefStatus };
+                if (status === 'idle' && (prev.isGenerating || prev.isSummarizing)) {
+                    summarizeInFlightRef.current = false;
+                    next.isGenerating = false;
+                    next.isSummarizing = false;
+                    next.activeResponseId = null;
+                }
+                return next;
+            });
         },
         onModelChanged: (model: string) => {
             setSelectedModel(model);
+        },
+        onCbStatusChanged: (cbStatus: string) => {
+            setState((prev) => ({ ...prev, completionBriefStatus: cbStatus }));
         },
     };
 
@@ -885,15 +903,6 @@ export function ChatProvider({
         }
     }, [stream.streamType]);
 
-    // Track active summary document key (never clears — handleStreamDone resets).
-    useEffect(() => {
-        if (stream.streamType !== 'summary') return;
-        const docKey = stream.activeDocuments[0]?.name;
-        if (docKey) {
-            setState((prev) => (prev.summaryDocKey === docKey ? prev : { ...prev, summaryDocKey: docKey }));
-        }
-    }, [stream.streamType, stream.activeDocuments]);
-
     // Sync summary stream displayStatus to state (never clears — handleStreamDone resets).
     useEffect(() => {
         if (stream.streamType !== 'summary') return;
@@ -960,6 +969,7 @@ export function ChatProvider({
                     totalCost: chatData.totalCost != null ? Number(chatData.totalCost) : null,
                     hasPendingChanges: chatData.hasPendingChanges ?? false,
                     phaseIndex: chatData.phaseIndex,
+                    completionBriefStatus: chatData.completionBriefStatus ?? null,
                 };
             });
             setPagination({
@@ -1220,7 +1230,6 @@ export function ChatProvider({
             isSummarizing: false,
             summaryStatus: null,
             summaryNewChatId: null,
-            summaryDocKey: null,
             error: null,
         }));
 

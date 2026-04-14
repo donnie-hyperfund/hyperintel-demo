@@ -4,12 +4,13 @@ import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
-import { broadcastUserEvent } from './utils/broadcast';
+import { broadcastUserEvent, getUserGatewayStub } from './utils/broadcast';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { injectSystemEvent } from './utils/system-events';
 
@@ -168,6 +169,14 @@ export async function approveArtifactHandler(
     version.status_changed_by = projectUser?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
 
+    // Update ChatEntity CB status if this is a Completion Brief
+    if (version.document_type === 'Completion Brief') {
+        const cbChat = await em.findOne(ChatEntity, { completion_brief: version.artifact.id });
+        if (cbChat) {
+            cbChat.completion_brief_status = 'approved';
+        }
+    }
+
     await em.flush();
 
     // Publish publishable document types to user scope for cross-project availability
@@ -218,6 +227,15 @@ export async function approveArtifactHandler(
         phaseIndex: chat.phase_index,
         chatId: chat.id,
     });
+
+    // Broadcast CB status change via chat-scoped UG topic
+    if (version.document_type === 'Completion Brief') {
+        const chatId = version.chat.id;
+        const ugStub = getUserGatewayStub(ctx);
+        ugStub
+            .systemAction(`chat:${chatId}`, 'cbStatusChanged', { status: 'approved' }, ctx.previewAlias ?? undefined)
+            .catch((err) => console.error('[approveArtifact] CB status broadcast failed:', err));
+    }
 
     // Inject system event so the agent knows the user approved via UI
     const chatId = version.chat.id;
@@ -318,6 +336,14 @@ export async function rejectArtifactHandler(
     version.status_changed_by = project?.user?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
 
+    // Update ChatEntity CB status if this is a Completion Brief
+    if (version.document_type === 'Completion Brief') {
+        const cbChat = await em.findOne(ChatEntity, { completion_brief: version.artifact.id });
+        if (cbChat) {
+            cbChat.completion_brief_status = 'rejected';
+        }
+    }
+
     await em.flush();
 
     await broadcastUserEvent(ctx, 'artifact_version_updated', {
@@ -333,6 +359,15 @@ export async function rejectArtifactHandler(
         phaseIndex: chat.phase_index,
         chatId: chat.id,
     });
+
+    // Broadcast CB status change via chat-scoped UG topic
+    if (version.document_type === 'Completion Brief') {
+        const chatId = version.chat.id;
+        const ugStub = getUserGatewayStub(ctx);
+        ugStub
+            .systemAction(`chat:${chatId}`, 'cbStatusChanged', { status: 'rejected' }, ctx.previewAlias ?? undefined)
+            .catch((err) => console.error('[rejectArtifact] CB status broadcast failed:', err));
+    }
 
     // Inject system event so the agent knows the user rejected via UI
     const chatId = chat.id;

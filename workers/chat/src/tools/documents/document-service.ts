@@ -420,6 +420,7 @@ export async function upsertDocument(
     document_type = 'Other',
 ): Promise<{
     action: 'created' | 'proposed';
+    artifactId: string;
     name: string;
     version: number;
     versionId: string;
@@ -473,6 +474,7 @@ export async function upsertDocument(
 
         return {
             action: 'proposed',
+            artifactId: existing.id,
             name: normalizedName,
             version: newVersionNum,
             versionId: newVersion.id,
@@ -483,6 +485,7 @@ export async function upsertDocument(
         // Create new - two-phase insert wrapped in transaction to handle circular FK
         // Transaction ensures atomicity: if phase 2 fails, phase 1 is rolled back
         let createdVersionId = '';
+        let createdArtifactId = '';
 
         await em.transactional(async (txEm) => {
             // Phase 1: Create artifact (current_version will be NULL - nothing approved yet)
@@ -495,6 +498,7 @@ export async function upsertDocument(
 
             txEm.persist(artifact);
             await txEm.flush();
+            createdArtifactId = artifact.id;
 
             // Phase 2: Create proposed version
             const version = new ArtifactVersionEntity();
@@ -515,6 +519,7 @@ export async function upsertDocument(
 
         return {
             action: 'created',
+            artifactId: createdArtifactId,
             name: normalizedName,
             version: 1,
             versionId: createdVersionId,
