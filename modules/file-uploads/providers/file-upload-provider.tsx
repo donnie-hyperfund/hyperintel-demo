@@ -87,11 +87,9 @@ type FileUploadProviderProps = {
     scope?: { projectId?: string; chatId?: string };
     /** When true, uploaded artifact IDs are tracked as "pending" so the resource list hides them until the message is sent. */
     trackAsPending?: boolean;
-    /** Lazily create the chat if it doesn't exist yet, returns the chatId. Required for image uploads before first message. */
-    ensureChatId?: () => Promise<string>;
 };
 
-export function FileUploadProvider({ children, scope, trackAsPending = false, ensureChatId }: FileUploadProviderProps) {
+export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
     const {
         pendingArtifactIds,
         addPendingArtifactId: _addPending,
@@ -224,15 +222,20 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
 
     const uploadChatImage = useCallback(
         async (file: File, entryId: string, token: string, ext: string) => {
-            const chatId = scope?.chatId ?? (ensureChatId ? await ensureChatId() : undefined);
-            if (!chatId) throw new Error('Chat ID required for image uploads');
+            // chatId is optional — when absent, the server stages the image under the user and
+            // it gets associated with a chat later via associateArtifacts(). This lets users
+            // attach images on the "new chat" page before a chat row exists.
+            const chatId = scope?.chatId;
 
             // Resolve natural dimensions so the chat can reserve space before the image loads
             resolveImageDimensions(file).then((dims) => {
                 if (dims) updateEntry(entryId, { imageWidth: dims.width, imageHeight: dims.height });
             });
 
-            const presignRes = await presignImageUpload({ filename: file.name, fileSize: file.size, chatId }, token);
+            const presignRes = await presignImageUpload(
+                { filename: file.name, fileSize: file.size, ...(chatId ? { chatId } : {}) },
+                token,
+            );
             if (!presignRes.ok) {
                 const err = await presignRes.json();
                 throw new Error(err.message || 'Presign failed');
@@ -258,7 +261,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false, en
             stagedImageFileIdsRef.current = [...stagedImageFileIdsRef.current, presignData.fileId];
             finalizeEntry(entryId, { imageFileId: presignData.fileId });
         },
-        [ensureChatId, finalizeEntry, scope?.chatId, updateEntry],
+        [finalizeEntry, scope?.chatId, updateEntry],
     );
 
     const resolveImageUploadIntent = useCallback(

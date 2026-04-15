@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { BadRequestError, PublicError } from '@/common/common/error.helpers';
 import { assertAuth } from '@/lib/api/auth-guard';
 import { initNextjsWorkerContext } from '@/lib/local/context';
-import { PresignImageUploadSchema, presignImageUploadHandler } from '@/workers/chat/src/image-uploader';
+import { PresignImageUploadSchema, presignImageUploadHandler } from '@/workers/chat/src/uploads/image-uploader';
 
 export async function POST(req: NextRequest) {
     await assertAuth();

@@ -20,6 +20,7 @@
         "env:prd": "env-cmd -f .env.prd pnpm run ",
         "db:migration:create": "mikro-orm migration:create --config=mikro-orm.cli.config.ts",
         "db:migration:up": "mikro-orm migration:up --config=mikro-orm.cli.config.ts",
+        "db:migration:up:test": "cross-env DOTENV_CONFIG_PATH=.env.test DOTENV_CONFIG_OVERRIDE=true mikro-orm migration:up --config=mikro-orm.cli.config.ts",
         "db:compile-metadata": "mikro-orm cache:generate --combined --config=mikro-orm.cli.config.ts",
         "tsc:check": "tsc --noEmit",
         "tsc:workers": "tsc --noEmit -p workers/tsconfig.json",

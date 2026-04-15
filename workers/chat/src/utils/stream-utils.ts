@@ -15,7 +15,7 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
-import { generateSignedImageUrls } from '../image-uploader';
+import { generateSignedImageUrls } from '../uploads/image-uploader';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
 
 // ============================================================================

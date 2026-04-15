@@ -7,11 +7,7 @@ import { normalizeUploadedFileKey, UPLOAD_ERROR_CODES, validateArtifactFile } fr
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
-import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import {
-    type AssociateArtifactsDto,
     type ConfirmUploadDto,
     IMAGE_MIME_TYPES,
     isBinaryArtifactExtension,
@@ -21,8 +17,9 @@ import {
 } from '@/lib/schema/artifact';
 import { type ProjectResourceUploadUpdatedPayload, UserEventType } from '@/lib/schema/user-events';
 import { createWorkerS3Client } from '@/lib/vendor/r2';
-import type { Ctx } from './context';
-import { broadcastUserEvent } from './utils/broadcast';
+import type { Ctx } from '../context';
+import { broadcastUserEvent } from '../utils/broadcast';
+import { resolveScope } from './scope';
 
 function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
@@ -99,53 +96,6 @@ interface UpsertResult {
     versionId: string;
     version: number;
     supersededVersion?: number;
-}
-
-interface ResolvedScope {
-    project?: InstanceType<typeof ProjectEntity> | null;
-    dbUserId: string;
-}
-
-async function resolveScope(
-    em: Ctx['em'],
-    user: Ctx['user'],
-    projectId?: string,
-    chatId?: string,
-): Promise<ResolvedScope> {
-    let project: InstanceType<typeof ProjectEntity> | null = null;
-
-    if (projectId) {
-        project = await em.findOneOrFail(
-            ProjectEntity,
-            {
-                id: projectId,
-                user: { clerkId: user.userId },
-                archived_at: null,
-            },
-            { populate: ['user'] },
-        );
-        if (chatId) {
-            await em.findOneOrFail(ChatEntity, { id: chatId, project: projectId });
-        }
-        return { project, dbUserId: project.user.id };
-    }
-
-    if (chatId) {
-        const chat = await em.findOneOrFail(
-            ChatEntity,
-            {
-                id: chatId,
-                type: 'intake',
-                user: { clerkId: user.userId },
-            },
-            { populate: ['user'] },
-        );
-        return { dbUserId: chat.user!.id };
-    }
-
-    // Staged upload — no project or chat, resolve user directly
-    const dbUser = await em.findOneOrFail(UserEntity, { clerkId: user.userId });
-    return { dbUserId: dbUser.id };
 }
 
 async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise<UpsertResult> {
@@ -464,16 +414,20 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
     };
 }
 
-export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx: Ctx) {
-    const { artifactIds, chatId, projectId } = data;
-    const { em, user } = ctx;
-
-    if (!chatId && !projectId) {
-        throw new PublicError(400, { message: 'Either chatId or projectId is required', code: 'MISSING_SCOPE' });
-    }
-
-    // Validate ownership of the target scope + resolve internal user ID
-    const { dbUserId } = await resolveScope(em, user, projectId, chatId);
+/**
+ * Associate staged artifacts (uploaded without a scope) with a chat and/or project.
+ * Caller is responsible for having already verified the scope belongs to `dbUserId`.
+ * Returns the number of artifacts that were successfully associated.
+ */
+export async function associateArtifactsInternal(
+    ctx: Ctx,
+    dbUserId: string,
+    scope: { chatId?: string; projectId?: string },
+    artifactIds: string[],
+): Promise<number> {
+    const { em } = ctx;
+    const { chatId, projectId } = scope;
+    if (artifactIds.length === 0) return 0;
 
     // Load staged artifacts owned by this user (identified via metadata.stagedBy)
     const artifacts = await em.find(
@@ -488,9 +442,7 @@ export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx
         { populate: ['current_version', 'versions'] },
     );
 
-    if (artifacts.length === 0) {
-        return { success: true, associated: 0 };
-    }
+    if (artifacts.length === 0) return 0;
 
     // Associate each artifact with the target scope and clear staged metadata
     for (const artifact of artifacts) {
@@ -511,7 +463,7 @@ export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx
         }
     }
 
-    return { success: true, associated: artifacts.length };
+    return artifacts.length;
 }
 
 async function queueEmbedding(

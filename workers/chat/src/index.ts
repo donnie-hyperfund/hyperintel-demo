@@ -10,7 +10,7 @@ import { ChatEntity, ChatMessageFileEntity, ProjectEntity } from '@/lib/orm/enti
 import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import {
     ApproveArtifactActionSchema,
-    AssociateArtifactsSchema,
+    AssociateUploadsSchema,
     ConfirmUploadSchema,
     DeleteArtifactSchema,
     ExportArtifactQuerySchema,
@@ -31,23 +31,23 @@ import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approv
 import { deleteArtifactHandler } from './artifact-deleter';
 import { exportArtifactHandler } from './artifact-exporter';
 import { importArtifactsHandler } from './artifact-importer';
+import { chatActionHandler } from './chat-handler';
+import type { Ctx } from './context';
+import { intakeActionHandler } from './intake-handler';
+import { summarizeActionHandler } from './summarizer';
 import {
-    associateArtifactsHandler,
     confirmUploadHandler,
     presignUploadHandler,
     uploadArtifactHandler,
-} from './artifact-uploader';
-import { chatActionHandler } from './chat-handler';
-import { cleanupStaleUploads } from './cleanup';
-import type { Ctx } from './context';
+} from './uploads/artifact-uploader';
+import { associateUploadsHandler } from './uploads/associate-handler';
+import { cleanupStaleUploads } from './uploads/cleanup';
 import {
     ConfirmImageUploadSchema,
     confirmImageUploadHandler,
     PresignImageUploadSchema,
     presignImageUploadHandler,
-} from './image-uploader';
-import { intakeActionHandler } from './intake-handler';
-import { summarizeActionHandler } from './summarizer';
+} from './uploads/image-uploader';
 import type { UserGatewayStub } from './utils/do-stubs';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
@@ -225,9 +225,9 @@ app.post('/artifacts/import', zValidator('json', ImportArtifactsActionSchema), a
     });
 });
 
-app.post('/artifacts/associate', zValidator('json', AssociateArtifactsSchema), async (c) => {
+app.post('/uploads/associate', zValidator('json', AssociateUploadsSchema), async (c) => {
     return wrapWorker(async () => {
-        return await associateArtifactsHandler(c.req.valid('json'), ctxWithAlias(c));
+        return await associateUploadsHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 

@@ -3,7 +3,7 @@ import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/route
 import { frontendEnv } from '@/lib/env';
 import {
     ApproveArtifactActionDto,
-    type AssociateArtifactsDto,
+    type AssociateUploadsDto,
     type ConfirmUploadDto,
     type DeleteArtifactDto,
     type ExportFormat,
@@ -222,7 +222,7 @@ export function getImageUrl(fileId: string): string {
 
 // ── Image upload (chat message attachments) ──
 
-export type PresignImageUploadDto = { filename: string; fileSize: number; chatId: string };
+export type PresignImageUploadDto = { filename: string; fileSize: number; chatId?: string };
 export type ConfirmImageUploadDto = { fileId: string };
 
 export const presignImageUpload = (data: PresignImageUploadDto, accessToken: string) => {
@@ -263,7 +263,7 @@ export const confirmImageUpload = (data: ConfirmImageUploadDto, accessToken: str
     });
 };
 
-export const associateArtifacts = (data: AssociateArtifactsDto, accessToken: string) => {
+export const associateUploads = (data: AssociateUploadsDto, accessToken: string) => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.AssociateAction);
         return fetch(workerUrl, {

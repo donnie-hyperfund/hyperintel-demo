@@ -11,7 +11,7 @@ vi.mock('@/lib/artifacts/artifact-images', () => ({
 	}),
 }));
 
-vi.mock('../image-uploader', () => ({
+vi.mock('../uploads/image-uploader', () => ({
 	generateSignedImageUrls: vi.fn(async () => new Map()),
 }));
 
