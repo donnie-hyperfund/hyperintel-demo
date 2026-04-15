@@ -67,7 +67,11 @@ const STAGE_BASE_COLORS = {
 // Component
 // =============================================================================
 
-export function ContextWarningPill() {
+type ContextWarningPillProps = {
+    className?: string;
+};
+
+export function ContextWarningPill({ className }: ContextWarningPillProps) {
     const { getToken } = useAuth();
     const {
         summarizeChat,
@@ -171,7 +175,7 @@ export function ContextWarningPill() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
                 transition={{ duration: 0.3, ease: 'easeOut' }}
-                className="flex justify-center mb-3"
+                className={cn('flex justify-center', className)}
             >
                 <button
                     type="button"
