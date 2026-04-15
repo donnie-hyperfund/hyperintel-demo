@@ -33,9 +33,9 @@ queues:
 vars:
   - CHAT_OUTPUT_SAFETY_ENABLED
   - ALLOWED_PRESETS:
-      production: "opus"
+      production: "sonnet"
   - DEFAULT_PRESET:
-      production: "opus"
+      production: "sonnet"
 
 # ai: true
 # browser: true
