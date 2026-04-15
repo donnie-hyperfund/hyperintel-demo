@@ -147,9 +147,7 @@ function ChatConversation({ emptyState }: ChatConversationProps) {
                 )}
 
                 {/* Preserve a safe scroll tail above the overlapping composer after removing the old JS bottom-padding hack. */}
-                {(messages.length > 0 || isGenerating) && (
-                    <div aria-hidden className={IS_DEV ? 'h-12 shrink-0' : 'h-8 shrink-0'} />
-                )}
+                {(messages.length > 0 || isGenerating) && <div aria-hidden className="h-12 shrink-0" />}
             </div>
         </div>
     );
