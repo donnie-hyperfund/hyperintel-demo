@@ -33,20 +33,22 @@ export type MessageMetadata = {
         reasoningTokens?: number;
         cacheReadTokens?: number;
         cacheWriteTokens?: number;
-        cost?: number;
-        segments: Array<{
-            inputTokens: number;
-            outputTokens: number;
-            reasoningTokens?: number;
             cost?: number;
-            toolCalls?: Array<{
-                toolName: string;
-                inputTokens?: number;
-                outputTokens?: number;
-                usageLabel?: string;
+            segments: Array<{
+                inputTokens: number;
+                outputTokens: number;
+                reasoningTokens?: number;
+                cost?: number;
+                toolCalls?: Array<{
+                    toolName: string;
+                    argumentTokens?: number;
+                    resultTokens?: number;
+                    inputTokens?: number;
+                    outputTokens?: number;
+                    usageLabel?: string;
+                }>;
             }>;
-        }>;
-        providerIds: string[];
+            providerIds: string[];
     };
     [key: string]: unknown;
 };

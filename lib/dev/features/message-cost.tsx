@@ -34,9 +34,13 @@ function MessageCost({ role, metadata }: Props) {
 			lines.push(`  ${segLabel} #${i + 1}: ${(seg.inputTokens + seg.outputTokens).toLocaleString()} tok${segCost}`);
 			if (seg.toolCalls) {
 				for (const tc of seg.toolCalls) {
-					const tcTok = (tc.inputTokens ?? 0) + (tc.outputTokens ?? 0);
+					const argumentTokens = tc.argumentTokens ?? tc.inputTokens ?? 0;
+					const resultTokens = tc.resultTokens ?? tc.outputTokens ?? 0;
+					const tcTok = argumentTokens + resultTokens;
 					const label = tc.usageLabel ? `${tc.toolName} (${tc.usageLabel})` : tc.toolName;
-					lines.push(`    ${label}: ~${tcTok.toLocaleString()} tok`);
+					lines.push(
+						`    ${label}: ~${tcTok.toLocaleString()} tok (args ${argumentTokens.toLocaleString()}, result ${resultTokens.toLocaleString()})`,
+					);
 				}
 			}
 		}
