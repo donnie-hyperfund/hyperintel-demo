@@ -20,6 +20,7 @@ export const UpdateProjectBodySchema = z.object({
     name: z.string().trim().min(1, 'Name cannot be empty').optional(),
     description: z.string().trim().nullable().optional(),
     archived: z.boolean().optional(),
+    preferred_model: z.string().trim().nullable().optional(),
 });
 export type UpdateProjectBodyDto = z.infer<typeof UpdateProjectBodySchema>;
 
@@ -28,6 +29,7 @@ export const ProjectDtoSchema = z.object({
     name: z.string(),
     description: z.string().nullable().optional(),
     current_phase: z.string().nullable().optional(),
+    preferred_model: z.string().nullable().optional(),
     user: z.union([z.string().uuid(), z.object({}).passthrough()]),
     metadata: z.record(z.unknown()).nullable().optional(),
     archived_at: z.union([z.string(), z.date()]).nullable().optional(),

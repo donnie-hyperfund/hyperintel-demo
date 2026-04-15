@@ -24,19 +24,15 @@ import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
-import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
-import { createDocumentEventHandler } from './utils/document-events';
+import type { UserGatewayStub } from './utils/do-stubs';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
+import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
     cleanupStreamDO,
     createEnqueue,
-    createEventCollector,
-    createPusher,
     createSSEStream,
-    handleCommonStreamEvent,
     loadChatHistory,
     persistErrorMessage,
-    wireAbort,
 } from './utils/stream-utils';
 
 // ============================================================================
@@ -96,7 +92,6 @@ When you have gathered sufficient information, create the document using the doc
    - \`name\`: \`${docInfo.namePattern}\` (lowercase, hyphens)
    - \`title\`: \`${docInfo.titlePattern}\`
    - \`mode\`: \`create\`
-   - \`is_internal\`: \`true\`
    - \`document_type\`: \`${docInfo.documentType}\`
 
 2. Call \`write_document\` with the full content.
@@ -275,17 +270,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
 
-    // Get ChatStream DO stub — already initialized by registerStream above
-    const alias = ctx.previewAlias;
-    const streamDO = ctx.env.CHAT_STREAM_DO.get(
-        ctx.env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, alias)),
-    ) as unknown as ChatStreamDOStub;
-
-    // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
-    const abortController = wireAbort(streamDO);
-
-    // Fire-and-forget pusher — hoisted for catch block access
-    const pusher = createPusher(streamDO, 'intake-handler');
+    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'intake-handler');
 
     try {
         if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
@@ -366,34 +351,23 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                     maxToolCalls: 100,
                     statusUpdates: { enabled: true },
                     abortSignal: abortController.signal,
-                    onTurnComplete: () => {
-                        if (agentCtx.draftManager.hasActive()) {
-                            return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
-                        }
-                        return null;
-                    },
+                    onTurnComplete: createOnTurnComplete(agentCtx),
                 },
             },
         );
 
-        // Event collector for DO push
-        const collector = createEventCollector();
-        const state = { wasTool: false };
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string } | null = null;
-
-        const fireAndForgetPush = pusher.push;
 
         const outputSafetyEnabled = isOutputSafetyEnabled(ctx.env);
 
         // Inline safety monitor — checks content every few seconds, aborts on leak.
-        // When disabled, keep the same call sites but swap in a no-op monitor.
         const safetyMonitor = outputSafetyEnabled
             ? createSafetyMonitor({
                   ctx,
                   userMessage: message ?? '',
                   onLeak: (result) => {
                       abortController.abort();
-                      fireAndForgetPush([
+                      pusher.push([
                           {
                               type: 'safety_retract',
                               reason: result.category,
@@ -405,125 +379,98 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
               })
             : createNoopSafetyMonitor();
 
-        // Document events queue — batched into the main push instead of separate RPCs
-        const pendingDocEvents: StreamEvent[] = [];
-        const docEvents = createDocumentEventHandler({ em: em! }, (docEvent) => {
-            const se = docEvent as StreamEvent;
-            pendingDocEvents.push(se);
-            options.onEvent?.(se);
-        });
-
-        // Stream loop — push events to ChatStream DO instead of SSE
-        for await (const event of stream) {
-            // Feed content deltas to safety monitor
-            if (event.type === 'delta') {
-                safetyMonitor.appendContent(event.content);
-            }
-
-            await docEvents.handle(event);
-
-            if (handleCommonStreamEvent(collector.enqueue, event, state)) {
-                const events = collector.drain();
-                const combined = [...pendingDocEvents.splice(0), ...events];
-                if (combined.length > 0) {
-                    fireAndForgetPush(combined);
-                    if (options.onEvent) events.forEach((e) => options.onEvent!(e));
+        await runStreamLoop({
+            stream,
+            push: pusher.push,
+            docEventsCtx: { em: em! },
+            onAgentEvent: (event) => {
+                if (event.type === 'delta') {
+                    safetyMonitor.appendContent(event.content);
                 }
-                continue;
-            }
+            },
+            onSpecificEvent: async (event) => {
+                switch (event.type) {
+                    case 'done':
+                        pendingDoneEvent = { outputType: event.outputType, outputTool: event.outputTool };
+                        break;
 
-            // Flush any doc events that weren't paired with a main event
-            if (pendingDocEvents.length > 0) {
-                fireAndForgetPush(pendingDocEvents.splice(0));
-            }
+                    case 'done_ext': {
+                        const isError = !!event.error;
+                        const isAborted = !!event.aborted;
+                        const streamLog = event.streamLog;
+                        const assistantContent = streamLog.fullContent ?? '';
 
-            // Intake-specific events
-            switch (event.type) {
-                case 'done':
-                    pendingDoneEvent = { outputType: event.outputType, outputTool: event.outputTool };
-                    break;
+                        // --- Persist agent message to DB (using pre-generated ID) ---
+                        let assistantMsg: ChatMessageEntity | null = null;
+                        if (isError || isAborted || assistantContent || streamLog.blocks.length > 0) {
+                            const debugData: Record<string, unknown> = {};
+                            if (event.inferenceLog) debugData.inferenceLog = event.inferenceLog;
+                            if (isError) {
+                                debugData.error = serializeException(event.error!.raw);
+                                debugData.rawResponse = event.error!.rawResponse ?? null;
+                            }
 
-                case 'done_ext': {
-                    const isError = !!event.error;
-                    const isAborted = !!event.aborted;
-                    const streamLog = event.streamLog;
-                    const assistantContent = streamLog.fullContent ?? '';
-
-                    // --- Persist agent message to DB (using pre-generated ID) ---
-                    let assistantMsg: ChatMessageEntity | null = null;
-                    if (isError || isAborted || assistantContent || streamLog.blocks.length > 0) {
-                        const debugData: Record<string, unknown> = {};
-                        if (event.inferenceLog) debugData.inferenceLog = event.inferenceLog;
-                        if (isError) {
-                            debugData.error = serializeException(event.error!.raw);
-                            debugData.rawResponse = event.error!.rawResponse ?? null;
+                            assistantMsg = em!.create(ChatMessageEntity, {
+                                id: agentMessageId,
+                                chat: chatId,
+                                role: 'assistant',
+                                content: assistantContent,
+                                reasoning: streamLog.fullReasoning || null,
+                                blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
+                                metadata: {
+                                    preset: presetId,
+                                    inference: extractInferenceMetadata(inferenceParams),
+                                    ...(isError && { error: event.error!.message }),
+                                },
+                                ...(isError && { is_error: true }),
+                                ...(isAborted && { is_aborted: true }),
+                                ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
+                            });
+                            em!.persist(assistantMsg);
                         }
 
-                        assistantMsg = em!.create(ChatMessageEntity, {
-                            id: agentMessageId,
-                            chat: chatId,
-                            role: 'assistant',
-                            content: assistantContent,
-                            reasoning: streamLog.fullReasoning || null,
-                            blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
-                            metadata: {
-                                preset: presetId,
-                                inference: extractInferenceMetadata(inferenceParams),
-                                ...(isError && { error: event.error!.message }),
-                            },
-                            ...(isError && { is_error: true }),
-                            ...(isAborted && { is_aborted: true }),
-                            ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
-                        });
-                        em!.persist(assistantMsg);
+                        // Flush assistant message before linking versions (FK requires row to exist)
+                        chat.active_agent_message_id = null;
+                        await em!.flush();
+
+                        // Link created document versions to the assistant message
+                        if (assistantMsg && createdVersionIds.length > 0) {
+                            await em!
+                                .createQueryBuilder(ArtifactVersionEntity)
+                                .update({ chat_message: assistantMsg.id })
+                                .where({ id: { $in: createdVersionIds } })
+                                .execute();
+                        }
+
+                        // Push terminal done event
+                        const doneEvent: StreamEvent = {
+                            type: 'done',
+                            ...(isError && { error: event.error!.message }),
+                            ...(pendingDoneEvent?.outputType === 'tool' &&
+                                pendingDoneEvent.outputTool && {
+                                    outputType: 'tool' as const,
+                                    outputTool: pendingDoneEvent.outputTool,
+                                }),
+                        };
+                        // Drain all in-flight pushes before terminal event
+                        await pusher.waitAll();
+                        await streamDO.push([doneEvent], pusher.seq);
+                        options.onEvent?.(doneEvent);
+                        break;
                     }
 
-                    // Flush assistant message before linking versions (FK requires row to exist)
-                    chat.active_agent_message_id = null;
-                    await em!.flush();
-
-                    // Link created document versions to the assistant message
-                    if (assistantMsg && createdVersionIds.length > 0) {
-                        await em!
-                            .createQueryBuilder(ArtifactVersionEntity)
-                            .update({ chat_message: assistantMsg.id })
-                            .where({ id: { $in: createdVersionIds } })
-                            .execute();
-                    }
-
-                    // Push terminal done event
-                    const doneEvent: StreamEvent = {
-                        type: 'done',
-                        ...(isError && { error: event.error!.message }),
-                        ...(pendingDoneEvent?.outputType === 'tool' &&
-                            pendingDoneEvent.outputTool && {
-                                outputType: 'tool' as const,
-                                outputTool: pendingDoneEvent.outputTool,
-                            }),
-                    };
-                    // Drain all in-flight pushes before terminal event
-                    await pusher.waitAll();
-                    await streamDO.push([doneEvent], pusher.seq);
-                    options.onEvent?.(doneEvent);
-                    break;
+                    default:
+                        break;
                 }
-
-                default:
-                    break;
-            }
-        }
+            },
+            onEvent: options.onEvent,
+        });
 
         await historyPromise;
 
         await finalizeSafetyMonitor(safetyMonitor, em!, agentMessageId);
 
-        // done() → persist (above) → finalize() → clearStream (Decision #20)
-        try {
-            await streamDO.done();
-            await streamDO.finalize();
-        } finally {
-            await ugStub.systemAction(`intake:${chatId}`, 'clearStream', {}).catch(() => {});
-        }
+        await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
     } catch (error: any) {
         console.error('[intake-handler] generation error:', error?.message ?? error, error?.stack);
         await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'intake-handler');

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { getLatestArtifactContent, getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import type { Artifact } from '@/modules/chat/types';
@@ -51,6 +52,11 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         projectId,
     } = useChatContext();
     const { isLinking: isLinkingToProject } = useOptionalProjectOrigin();
+    const {
+        isProcessing: isProcessingGlobally,
+        hasEntry: hasProcessingEntry,
+        suppressVersion,
+    } = useArtifactProcessing();
 
     const { title, id: artifactId, key: artifactKey, progress } = artifact;
     const isStreaming = !!artifact.isStreaming;
@@ -78,7 +84,16 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const canDelete =
         !!artifactKey && !!activeVersion?.isUploaded && !isStreaming && activeVersion?.status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
-    const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
+    const isProcessingGlobalApproval = !!(activeVersion?.id && isProcessingGlobally(activeVersion.id));
+    const hasEntryForVersion = !!(activeVersion?.id && hasProcessingEntry(activeVersion.id));
+    const isBusy = isUpdating || isProcessingApproval || isProcessingDelete || isProcessingGlobalApproval;
+
+    // Suppress this artifact's entry from the status bar while the preview panel is open
+    useEffect(() => {
+        if (!hasEntryForVersion || !activeVersion?.id) return;
+        suppressVersion(activeVersion.id);
+        return () => suppressVersion(null);
+    }, [hasEntryForVersion, activeVersion?.id, suppressVersion]);
 
     const diffData = useMemo(() => {
         if (!canShowDiff || !previousContent) return null;

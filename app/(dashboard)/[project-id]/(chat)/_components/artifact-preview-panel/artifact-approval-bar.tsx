@@ -3,6 +3,7 @@
 import { Check, Loader2, X as XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useArtifactApproval } from '@/modules/artifacts/hooks/use-artifact-approval';
+import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 
@@ -25,12 +26,15 @@ export function ArtifactApprovalBar({
     const artifactKey = artifact?.key ?? '';
     const artifactVersionId = activeVersion?.id ?? '';
 
+    const { isProcessing: isProcessingGlobally } = useArtifactProcessing();
+    const alreadyProcessing = isProcessingGlobally(artifactVersionId);
+
     const { approve, reject, isApproving, isRejecting, isProcessing } = useArtifactApproval({
         artifactId,
         artifactKey,
         version,
         artifactVersionId,
-        disabled,
+        disabled: disabled || alreadyProcessing,
         onProcessingChange,
     });
 
