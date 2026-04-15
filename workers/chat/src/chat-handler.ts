@@ -26,6 +26,7 @@ import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/ph
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
 import type { UserGatewayStub } from './utils/do-stubs';
+import { captureWorkerPostHogEvent } from './utils/posthog';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
@@ -701,6 +702,27 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         // Flush assistant message before linking versions (FK requires row to exist)
                         await em!.flush();
 
+                        ctx.eCtx?.waitUntil(
+                            captureWorkerPostHogEvent(ctx, 'worker_chat_turn_persisted', ctx.user.userId, {
+                                project_id: chat.project?.id ?? null,
+                                chat_id: chatId,
+                                agent_message_id: agentMessageId,
+                                outcome: isError ? 'error' : isAborted ? 'aborted' : 'done',
+                                model: msgMetadata.inference?.model as string | undefined,
+                                provider: msgMetadata.inference?.paramsType as string | undefined,
+                                used_tokens: usedTokens,
+                                context_tokens: tokenBreakdown.context,
+                                prompt_tokens: tokenBreakdown.prompt,
+                                tooldef_tokens: tokenBreakdown.toolDef,
+                                input_tokens: messageUsage?.inputTokens,
+                                output_tokens: messageUsage?.outputTokens,
+                                cost: messageUsage?.cost,
+                                created_version_count: createdVersionIds.length,
+                                assistant_content_length: assistantContent.length,
+                                has_pending_done_tool: pendingDoneEvent?.outputType === 'tool',
+                            }).catch((error) => console.error('[posthog] failed to capture chat turn:', error)),
+                        );
+
                         // Link created document versions to the assistant message
                         if (assistantMsg && createdVersionIds.length > 0) {
                             await em!
@@ -775,6 +797,15 @@ async function runGeneration(params: GenerationParams): Promise<void> {
     } catch (error: any) {
         console.error('[chat-handler] generation error:', error?.message ?? error, error?.stack);
         await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'chat-handler');
+        ctx.eCtx?.waitUntil(
+            captureWorkerPostHogEvent(ctx, 'worker_chat_turn_failed', ctx.user.userId, {
+                project_id: chat.project?.id ?? null,
+                chat_id: chatId,
+                agent_message_id: agentMessageId,
+                outcome: 'error',
+                error_message: error?.message ?? 'Unknown error',
+            }).catch((captureError) => console.error('[posthog] failed to capture chat failure:', captureError)),
+        );
         await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
     }
 }

@@ -269,12 +269,10 @@ export async function handleUpdateChatModel(req: NextRequest, chatId: string, us
     const { em } = await getOrm();
 
     const body = await req.json();
-    // biome-ignore lint/correctness/noUndeclaredVariables: existing model schema utility is referenced elsewhere in this module family.
     const parsed = validatePayload(UpdateChatModelSchema.omit({ chatId: true }), body);
     if (parsed instanceof NextResponse) return parsed;
 
     // Validate preset exists and is allowed by env filtering
-    // biome-ignore lint/correctness/noUndeclaredVariables: existing preset utility is referenced elsewhere in this module family.
     const available = getAvailablePresets(process.env.ALLOWED_PRESETS, process.env.BLOCKED_PRESETS);
     if (!available.some((p) => p.id === parsed.model)) {
         return NextResponse.json(
@@ -297,7 +295,6 @@ export async function handleUpdateChatModel(req: NextRequest, chatId: string, us
 
     await em.flush();
 
-    // biome-ignore lint/correctness/noUndeclaredVariables: worker action helper is referenced elsewhere in this module family.
     workerSystemAction(user.clerkId!, `chat:${chatId}`, 'modelChanged', {
         identifier: chatId,
         model: parsed.model,

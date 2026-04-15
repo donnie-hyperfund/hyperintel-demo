@@ -6,7 +6,7 @@ import { SendChatActionSchema } from '@/lib/schema/chat';
 import { chatActionHandler } from '@/workers/chat/src/chat-handler';
 
 export async function POST(req: NextRequest) {
-    const user = await assertAuth();
+    const _user = await assertAuth();
     const json = await req.json();
     const parsed = SendChatActionSchema.safeParse(json);
     if (!parsed.success) {

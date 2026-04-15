@@ -65,7 +65,7 @@ const projectDeps = {
  * Wraps the base factory to lazily start the dev WS server on first call.
  */
 const _baseFactory = createContextFactory(projectDeps);
-export const initNextjsWorkerContext: typeof _baseFactory = (async (...args: any[]) => {
+export const initNextjsWorkerContext: typeof _baseFactory = ((...args: any[]) => {
     ensureDevWsServer();
     return (_baseFactory as any)(...args);
 }) as any;
