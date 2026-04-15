@@ -51,10 +51,8 @@ function ChatPanelContent({
             <>
                 {HeaderComponent}
 
-                <div className="flex min-h-0 flex-1 flex-col gap-4">
-                    <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
-                        <ChatEmptyTitle title={emptyTitle} subtitle={emptySubtitle} className="mb-12 px-4" />
-                    </div>
+                <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+                    <ChatEmptyTitle title={emptyTitle} subtitle={emptySubtitle} className="mb-12 px-4" />
                     <ChatMessageForm className="w-full shrink-0" showGradientFade={false} />
                 </div>
             </>
