@@ -9,6 +9,7 @@
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
+import { getCompletionBriefKey } from '@/lib/artifacts/utils';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { extractDocuments } from '../utils/extract-documents';
@@ -60,7 +61,7 @@ export function createCompletionBriefTools() {
                 // Load chat for phase info
                 const chat = await ctx.em.findOneOrFail(ChatEntity, ctx.chatId);
                 const phaseNumber = chat.phase_index + 1;
-                const briefName = `completion-brief-phase-${phaseNumber}.md`;
+                const briefName = getCompletionBriefKey(phaseNumber);
                 const today = new Date().toISOString().split('T')[0];
 
                 // Extract documents from conversation history

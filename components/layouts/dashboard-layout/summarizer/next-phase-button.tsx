@@ -15,39 +15,28 @@ import {
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
+import { usePhaseGate } from '@/modules/chat/hooks/use-phase-gate';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { getContextLevel, getContextPercent } from '@/modules/chat/utils';
 import { SummarizerOverlay } from './summarizer-overlay';
 
 type CbGateDialog = 'none' | 'generate' | 'pending';
 
 export function NextPhaseButton() {
-    const {
-        projectId,
-        summarizeChat,
-        cancelSummary,
-        navigateToNewPhase,
-        clearPendingPhaseTransition,
-        sendMessage,
-        state,
-    } = useChatContext<'phase'>();
+    const { projectId, summarizeChat, cancelSummary, navigateToNewPhase, clearPendingPhaseTransition, state } =
+        useChatContext<'phase'>();
 
-    const { data: chatPages, mutate: revalidateChats } = useFetchChatsInfinite(projectId);
+    const { mutate: revalidateChats } = useFetchChatsInfinite(projectId);
+    const { isLatestPhase, hasAssistantMessage, canTransition, requestCbGeneration } = usePhaseGate();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [pendingNavigation, setPendingNavigation] = useState(false);
     const [cbGateDialog, setCbGateDialog] = useState<CbGateDialog>('none');
 
-    const totalPhases = chatPages?.[0]?.data.length ?? 0;
+    const pillHandlesReady =
+        getContextLevel(getContextPercent(state.tokenUsage)) !== 'normal' &&
+        (state.completionBriefStatus === 'approved' || state.completionBriefStatus === 'proposed');
 
-    const isLatestPhase =
-        typeof state.phaseIndex === 'number' && totalPhases > 0 && state.phaseIndex === totalPhases - 1;
-
-    const hasAssistantMessage = state.messages.some((m) => m.role === 'assistant');
-
-    const canTransition = isLatestPhase && hasAssistantMessage && !state.isLoading;
-
-    const isButtonVisible = canTransition && !state.isGenerating;
-
-    const isLocked = dialogOpen && !state.error;
+    const isButtonVisible = canTransition && !state.isGenerating && !pillHandlesReady;
 
     /**
      * Attempt to transition — checks CB gate first.
@@ -80,11 +69,8 @@ export function NextPhaseButton() {
 
     const handleGenerateCb = useCallback(() => {
         setCbGateDialog('none');
-        // Don't send if a stream is already in progress
-        if (!state.isGenerating) {
-            sendMessage('Please generate the Completion Brief for this phase.');
-        }
-    }, [sendMessage, state.isGenerating]);
+        requestCbGeneration();
+    }, [requestCbGeneration]);
 
     const handleGoToNextPhase = useCallback(() => {
         setPendingNavigation(true);

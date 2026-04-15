@@ -17,13 +17,14 @@ import {
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { IS_DEV } from '@/lib/config';
+import { DevSlot } from '@/lib/dev-slots';
 import { cn } from '@/lib/utils';
 import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
-import { DevSlot } from '@/lib/dev-slots';
 import { ContextUsageIndicator } from '../context-usage-indicator';
+import { ContextWarningPill } from '../context-warning-pill';
 import { AttachFileButton } from './attach-file-button';
 import { FilePreviewItem } from './file-preview-item/file-preview-item';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
@@ -182,6 +183,8 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
 
     return (
         <div ref={ref} className={className}>
+            <ContextWarningPill />
+
             <AnimatePresence>
                 <form onSubmit={handleSubmit(onFormSubmit)} className="relative flex items-end justify-center px-4">
                     {showGradientFade && (

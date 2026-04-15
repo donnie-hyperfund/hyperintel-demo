@@ -3,9 +3,9 @@
 import { motion } from 'motion/react';
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import { MAX_CONTEXT_TOKENS } from '@/modules/chat/constants';
 import type { TokenUsage } from '@/modules/chat/types';
-
-const MAX_CONTEXT_TOKENS = 200_000;
+import { getContextLevel, getContextPercent } from '@/modules/chat/utils';
 
 type ContextUsageIndicatorProps = {
     tokenUsage: TokenUsage | null;
@@ -22,8 +22,9 @@ export function ContextUsageIndicator({ tokenUsage, className }: ContextUsageInd
     const { percentage, color } = useMemo(() => {
         if (!tokenUsage) return { percentage: 0, color: 'bg-green-500' };
 
-        const pct = Math.min((tokenUsage.usedTokens / MAX_CONTEXT_TOKENS) * 100, 100);
-        const c = pct > 80 ? 'bg-red-500' : pct > 60 ? 'bg-yellow-500' : 'bg-green-500';
+        const pct = getContextPercent(tokenUsage);
+        const level = getContextLevel(pct);
+        const c = level === 'critical' ? 'bg-red-500' : level === 'caution' ? 'bg-yellow-500' : 'bg-green-500';
 
         return { percentage: pct, color: c };
     }, [tokenUsage]);

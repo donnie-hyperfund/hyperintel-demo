@@ -1,3 +1,4 @@
+import type { CamelCaseDto } from '@/lib/api/client/types';
 import {
     ALLOWED_ARTIFACT_EXTENSIONS,
     type ArtifactDto,
@@ -5,7 +6,6 @@ import {
     isTextArtifactExtension,
     MAX_ARTIFACT_UPLOAD_SIZE,
 } from '@/lib/schema/artifact';
-import type { CamelCaseDto } from '@/lib/api/client/types';
 
 // ── Artifact DTO helpers ────────────────────────────────────────────────────
 
@@ -53,6 +53,12 @@ export class UploadValidationError extends Error {
         this.name = 'UploadValidationError';
         this.code = code;
     }
+}
+
+// ── Completion Brief ───────────────────────────────────────────────────────
+
+export function getCompletionBriefKey(phaseNumber: number): string {
+    return `completion-brief-phase-${phaseNumber}.md`;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
