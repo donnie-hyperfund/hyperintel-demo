@@ -8,13 +8,5 @@
     "dependencies": {},
     "devDependencies": {
         "yaml": "^2.8.2"
-    },
-    "pnpm": {
-        "overrides": {
-            "@supabase/supabase-js": "link:./_common/vendor/stubs/supabase-js",
-            "stripe": "link:./_common/vendor/stubs/stripe",
-            "@sendgrid/mail": "link:./_common/vendor/stubs/sendgrid-mail",
-            "@cerebras/cerebras_cloud_sdk": "link:./_common/vendor/stubs/cerebras"
-        }
     }
 }

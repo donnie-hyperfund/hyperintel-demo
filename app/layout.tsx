@@ -6,6 +6,7 @@ import 'katex/dist/katex.min.css';
 import './globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
 import NextTopLoader from 'nextjs-toploader';
+import { PostHogBootstrap } from '@/components/analytics/posthog-bootstrap';
 import { Toaster } from '@/components/ui/toaster';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -29,6 +30,7 @@ export default function RootLayout({
             <html lang="en" className="dark">
                 <body className={`${inter.className} antialiased`}>
                     <NextTopLoader color="oklch(0.69 0.19 145)" showSpinner={false} shadow={false} zIndex={100} />
+                    <PostHogBootstrap />
                     {children}
                     <Analytics />
                     <Toaster />

@@ -843,6 +843,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                         // ----- Documents (queued for async processing) -----
                         case 'document_start':
+                            documentQueueRef.current?.push({ type: event.type, payload: event });
+                            break;
                         case 'document_delta':
                         case 'document_edit':
                         case 'document_progress':

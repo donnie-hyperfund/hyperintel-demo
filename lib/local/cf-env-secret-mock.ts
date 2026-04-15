@@ -22,6 +22,7 @@ export const envSecretMocks: Record<string, unknown> = {
     AUTH_SECRET: makeSecretMock(process.env.AUTH_SECRET || 'hyperintel-local-dev-secret'),
     OPENAI_KEY: makeSecretMock(process.env.OPENAI_API_KEY ?? ''),
     FIRECRAWL_API_KEY: makeSecretMock(process.env.FIRECRAWL_API_KEY ?? ''),
+    POSTHOG_KEY: makeSecretMock(process.env.POSTHOG_KEY ?? ''),
     R2_ACCESS_KEY_ID: makeSecretMock(process.env.R2_ACCESS_KEY_ID ?? ''),
     R2_SECRET_ACCESS_KEY: makeSecretMock(process.env.R2_SECRET_ACCESS_KEY ?? ''),
     CF_ACCOUNT_ID: makeSecretMock(process.env.CF_ACCOUNT_ID ?? ''),
@@ -32,6 +33,7 @@ export const envSecretMocks: Record<string, unknown> = {
     LANGFUSE_ENVIRONMENT: process.env.LANGFUSE_ENVIRONMENT ?? 'Development',
     LANGFUSE_PUBLIC_KEY: process.env.LANGFUSE_PUBLIC_KEY ?? '',
     LANGFUSE_HOST: process.env.LANGFUSE_HOST ?? '',
+    POSTHOG_HOST: process.env.POSTHOG_HOST ?? '',
     CHAT_OUTPUT_SAFETY_ENABLED: process.env.CHAT_OUTPUT_SAFETY_ENABLED ?? 'true',
     // TODO IS_DEV?
     ENV: process.env.NODE_ENV === 'production' ? 'production' : 'dev',
