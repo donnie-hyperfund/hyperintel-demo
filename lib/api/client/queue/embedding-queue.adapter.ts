@@ -7,7 +7,6 @@
 
 import { HttpQueueAdapter, NoopQueueAdapter, QueueAdapter } from '@common/common/queue.adapter';
 import { z } from 'zod';
-import { getWorkerUrl } from '@/lib/api/requests/worker/common';
 
 // ============================================================================
 // MESSAGE SCHEMAS
@@ -63,16 +62,21 @@ export type EmbeddingQueueMessage = z.infer<typeof EmbeddingQueueMessageSchema>;
  * Helper to create the appropriate embedding queue adapter.
  * Local dev: returns MockQueue from workerEnv (in-process).
  * Deployed: HttpAdapter with inferred worker URL.
+ *
+ * NOTE: the `@/lib/local/cf-env-secret-mock` path is deleted on Vercel; webpack resolution is
+ * handled by a `resolve.alias` entry in next.config.mjs that stubs it to `false` when
+ * NEXT_PUBLIC_LOCAL_WORKERS is not 'true'. That's why a plain synchronous require() works
+ * here — the import never survives into prod bundles.
  */
 export function createEmbeddingQueueAdapter(): QueueAdapter<EmbeddingQueueMessage> {
     if (process.env.NEXT_PUBLIC_LOCAL_WORKERS === 'true') {
-        // Dynamic import to avoid pulling local mock deps into production bundle
         const { workerEnv } = require('@/lib/local/cf-env-secret-mock');
         return workerEnv.EMBEDDING_QUEUE as QueueAdapter<EmbeddingQueueMessage>;
     }
 
     const authSecret = process.env.AUTH_SECRET;
     if (authSecret) {
+        const { getWorkerUrl } = require('@/lib/api/requests/worker/common');
         const endpoint = getWorkerUrl('embedding', '/enqueue');
         return new HttpQueueAdapter<EmbeddingQueueMessage>(endpoint, authSecret, 'embedding');
     }

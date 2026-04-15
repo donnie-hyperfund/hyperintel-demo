@@ -1,7 +1,6 @@
 import type { Queue } from '@cloudflare/workers-types';
 import { HttpQueueAdapter, NoopQueueAdapter, QueueAdapter } from '@common/common/queue.adapter';
 import { z } from 'zod';
-import { getWorkerUrl } from '@/lib/api/requests/worker/common';
 
 export const ExtractionQueueMessageSchema = z.object({
     type: z.literal('extract_file_content'),
@@ -31,16 +30,19 @@ export class ExtractionQueueAdapter {
  * Helper to create the appropriate extraction queue adapter.
  * Local dev: returns MockQueue from workerEnv (in-process).
  * Deployed: HttpAdapter with inferred worker URL.
+ *
+ * See createEmbeddingQueueAdapter: the local mock path is webpack-aliased to `false` on Vercel
+ * via next.config.mjs, which is what lets the static require() below survive the prod build.
  */
 export function createExtractionQueueAdapter(): QueueAdapter<ExtractionQueueMessage> {
     if (process.env.NEXT_PUBLIC_LOCAL_WORKERS === 'true') {
-        // Dynamic import to avoid pulling local mock deps into production bundle
         const { workerEnv } = require('@/lib/local/cf-env-secret-mock');
         return workerEnv.EXTRACTION_QUEUE as QueueAdapter<ExtractionQueueMessage>;
     }
 
     const authSecret = process.env.AUTH_SECRET;
     if (authSecret) {
+        const { getWorkerUrl } = require('@/lib/api/requests/worker/common');
         const endpoint = getWorkerUrl('extraction', '/enqueue');
         return new HttpQueueAdapter<ExtractionQueueMessage>(endpoint, authSecret, 'extraction');
     }
