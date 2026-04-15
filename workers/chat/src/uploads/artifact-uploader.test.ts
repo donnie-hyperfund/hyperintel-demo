@@ -21,7 +21,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
     getSignedUrl: vi.fn(async () => 'https://signed.example/upload'),
 }));
 
-vi.mock('./utils/broadcast', () => ({
+vi.mock('../utils/broadcast', () => ({
     broadcastUserEvent: vi.fn(),
 }));
 

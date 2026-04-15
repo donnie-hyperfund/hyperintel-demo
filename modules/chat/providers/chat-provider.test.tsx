@@ -11,9 +11,12 @@ const unstableSerializeMock = vi.fn((value: unknown) => JSON.stringify(value));
 const insertChatToCacheMock = vi.fn();
 const sendActionMock = vi.fn();
 const sendIntakeActionMock = vi.fn();
+const associateUploadsMock = vi.fn();
 const summarizeMock = vi.fn();
 const openPanelMock = vi.fn();
 const createApiClientMock = vi.fn();
+const hasPendingNudgeMock = vi.fn();
+const clearPendingNudgeMock = vi.fn();
 
 let selectedModelMock = 'sonnet';
 let streamReaderOptions: {
@@ -38,6 +41,7 @@ const apiMock = {
         create: vi.fn(),
         createIntake: vi.fn(),
         get: vi.fn(),
+        updateModel: vi.fn(),
     },
     messages: {
         list: vi.fn(),
@@ -78,11 +82,19 @@ vi.mock('@/lib/api/client/cache/chats', () => ({
 vi.mock('@/lib/api/requests/worker/chat', () => ({
     sendAction: (...args: Parameters<typeof sendActionMock>) => sendActionMock(...args),
     sendIntakeAction: (...args: Parameters<typeof sendIntakeActionMock>) => sendIntakeActionMock(...args),
+    associateUploads: (...args: Parameters<typeof associateUploadsMock>) => associateUploadsMock(...args),
     summarize: (...args: Parameters<typeof summarizeMock>) => summarizeMock(...args),
 }));
 
 vi.mock('@/modules/artifacts/providers/artifact-provider', () => ({
     useArtifactActions: () => artifactContextMock,
+}));
+
+vi.mock('@/modules/artifacts/processing/artifact-processing-provider', () => ({
+    useArtifactProcessing: () => ({
+        hasPendingNudge: (...args: Parameters<typeof hasPendingNudgeMock>) => hasPendingNudgeMock(...args),
+        clearPendingNudge: (...args: Parameters<typeof clearPendingNudgeMock>) => clearPendingNudgeMock(...args),
+    }),
 }));
 
 const wsMock = { send: vi.fn(), subscribe: vi.fn(() => vi.fn()), on: vi.fn(), off: vi.fn() };
@@ -172,12 +184,16 @@ describe('ChatProvider', () => {
         insertChatToCacheMock.mockReset();
         sendActionMock.mockReset();
         sendIntakeActionMock.mockReset();
+        associateUploadsMock.mockReset();
         summarizeMock.mockReset();
         openPanelMock.mockReset();
         closePanelMock.mockReset();
         setSelectedModelMock.mockReset();
         setIsChangingModelMock.mockReset();
         createApiClientMock.mockReset();
+        hasPendingNudgeMock.mockReset();
+        hasPendingNudgeMock.mockReturnValue(false);
+        clearPendingNudgeMock.mockReset();
 
         cacheMock.clear();
         artifactContextMock.addArtifact.mockReset();
@@ -189,6 +205,8 @@ describe('ChatProvider', () => {
         apiMock.chats.create.mockReset();
         apiMock.chats.createIntake.mockReset();
         apiMock.chats.get.mockReset();
+        apiMock.chats.updateModel.mockReset();
+        apiMock.chats.updateModel.mockResolvedValue(undefined);
         apiMock.messages.list.mockReset();
         apiMock.artifacts.getByKey.mockReset();
         apiMock.projectArtifacts.getByKey.mockReset();
@@ -349,6 +367,26 @@ describe('ChatProvider', () => {
             expect(result.current.state.error?.message).toBe('Project ID is required for phase chats');
         });
         expect(sendActionMock).not.toHaveBeenCalled();
+        consoleSpy.mockRestore();
+    });
+
+    it('surfaces an error and skips sending when upload association fails', async () => {
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        associateUploadsMock.mockResolvedValue(mockResponse('association failed', { ok: false, status: 500 }));
+
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        await act(async () => {
+            await result.current.sendMessage('hello', { imageFileIds: ['file-1'] });
+        });
+
+        expect(associateUploadsMock).toHaveBeenCalledWith({ imageFileIds: ['file-1'], chatId: 'chat-initial' }, 'token-abc');
+        expect(sendActionMock).not.toHaveBeenCalled();
+        await waitFor(() => {
+            expect(result.current.state.error?.message).toContain('Associate uploads failed: 500');
+        });
         consoleSpy.mockRestore();
     });
 

@@ -1059,7 +1059,7 @@ export function ChatProvider({
                 // Images uploaded before the chat existed are staged under the user and need chat_id set
                 // before the generation handler can link them to the message.
                 if (opts?.stagedArtifactIds?.length || opts?.imageFileIds?.length) {
-                    await associateUploads(
+                    const associationResponse = await associateUploads(
                         {
                             ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
                             ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
@@ -1067,6 +1067,11 @@ export function ChatProvider({
                         },
                         accessToken,
                     );
+
+                    if (!associationResponse.ok) {
+                        const errorText = await associationResponse.text().catch(() => 'Unknown error');
+                        throw new Error(`Associate uploads failed: ${associationResponse.status} — ${errorText}`);
+                    }
                 }
 
                 // POST triggers server-side generation — stream arrives via WS subscription

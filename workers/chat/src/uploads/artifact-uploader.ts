@@ -385,24 +385,21 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
         });
     }
 
-    if (ctx.env.EXTRACTION_QUEUE) {
-        try {
-            const extractionQueue = new ExtractionQueueAdapter(ctx.env.EXTRACTION_QUEUE);
-            await extractionQueue.send({
-                type: 'extract_file_content',
-                fileId: artifactFile.id,
-                artifactId: version.artifact.id,
-                versionId,
-                storageKey: artifactFile.storage_key,
-                originalName: artifactFile.original_name,
-                mimeType: artifactFile.mime_type,
-                projectId: version.artifact.project?.id ?? null,
-                chatId: version.artifact.chat?.id ?? null,
-                previewAlias: ctx.previewAlias,
-            });
-        } catch (error) {
-            console.error('[artifact-uploader] Failed to queue extraction:', error);
-        }
+    // Defer extraction for staged uploads — embedded images from extraction are stored under
+    // `uploads/{project|chat}/{scopeId}/{artifactId}/images/`, which requires a real scope.
+    // associateArtifactsInternal queues extraction once the artifact has a project/chat.
+    const isScoped = !!(version.artifact.project?.id || version.artifact.chat?.id);
+    if (isScoped) {
+        await queueExtraction(ctx, {
+            fileId: artifactFile.id,
+            artifactId: version.artifact.id,
+            versionId,
+            storageKey: artifactFile.storage_key,
+            originalName: artifactFile.original_name,
+            mimeType: artifactFile.mime_type,
+            projectId: version.artifact.project?.id ?? null,
+            chatId: version.artifact.chat?.id ?? null,
+        });
     }
 
     return {
@@ -454,16 +451,78 @@ export async function associateArtifactsInternal(
 
     await em.flush();
 
-    // Queue embeddings for versions that have content (extraction already completed)
+    // Resume deferred pipelines now that scope is known:
+    //   - Files still awaiting extraction (binary presign path): queue extraction. The extraction
+    //     worker writes embedded images under `uploads/{scope}/{artifactId}/images/` and queues
+    //     embedding itself once content is written.
+    //   - Versions that already have content (text upload path — no extraction step): queue
+    //     embedding directly.
+    const versionIds = artifacts.flatMap((a) => a.versions.getItems().map((v) => v.id));
+    const pendingFiles = versionIds.length
+        ? await em.find(
+              ArtifactFileEntity,
+              {
+                  artifact_version: { $in: versionIds },
+                  status: 'uploaded',
+                  extracted_content: null,
+              },
+              { populate: ['artifact_version.artifact'] },
+          )
+        : [];
+    const versionIdsWithPendingExtraction = new Set(pendingFiles.map((f) => f.artifact_version.id));
+
+    for (const file of pendingFiles) {
+        await queueExtraction(ctx, {
+            fileId: file.id,
+            artifactId: file.artifact_version.artifact.id,
+            versionId: file.artifact_version.id,
+            storageKey: file.storage_key,
+            originalName: file.original_name,
+            mimeType: file.mime_type,
+            projectId: projectId ?? null,
+            chatId: chatId ?? null,
+        });
+    }
+
     for (const artifact of artifacts) {
         for (const version of artifact.versions.getItems()) {
-            if (version.content && version.status === 'approved') {
+            if (
+                version.content &&
+                version.status === 'approved' &&
+                !versionIdsWithPendingExtraction.has(version.id)
+            ) {
                 await queueEmbedding(ctx, version.id, version.content, artifact.key, projectId, chatId);
             }
         }
     }
 
     return artifacts.length;
+}
+
+async function queueExtraction(
+    ctx: Ctx,
+    msg: {
+        fileId: string;
+        artifactId: string;
+        versionId: string;
+        storageKey: string;
+        originalName: string;
+        mimeType: string;
+        projectId: string | null;
+        chatId: string | null;
+    },
+) {
+    if (!ctx.env.EXTRACTION_QUEUE) return;
+    try {
+        const extractionQueue = new ExtractionQueueAdapter(ctx.env.EXTRACTION_QUEUE);
+        await extractionQueue.send({
+            type: 'extract_file_content',
+            ...msg,
+            previewAlias: ctx.previewAlias,
+        });
+    } catch (error) {
+        console.error('[artifact-uploader] Failed to queue extraction:', error);
+    }
 }
 
 async function queueEmbedding(

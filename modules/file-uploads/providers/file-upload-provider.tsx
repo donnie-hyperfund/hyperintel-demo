@@ -223,7 +223,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const uploadChatImage = useCallback(
         async (file: File, entryId: string, token: string, ext: string) => {
             // chatId is optional — when absent, the server stages the image under the user and
-            // it gets associated with a chat later via associateArtifacts(). This lets users
+            // it gets associated with a chat later via associateUploads(). This lets users
             // attach images on the "new chat" page before a chat row exists.
             const chatId = scope?.chatId;
 
@@ -428,7 +428,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     // Re-populate staged refs from restored draft entries so that consume*()
     // returns correct IDs on send after a page refresh. Only entries that were
-    // originally uploaded without scope are restored for associateArtifacts();
+    // originally uploaded without scope are restored for associateUploads();
     // images are only persisted once they already have an uploaded file ID.
     // TODO: cross-tab send needs to be supported too, rebuild these refs in
     // syncFilesFromStorage as well instead of only on mount.
