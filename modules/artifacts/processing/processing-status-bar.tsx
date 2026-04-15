@@ -59,5 +59,9 @@ function toStatusBarEntry(entry: ProcessingEntry): StatusBarEntry {
 
 export function ProcessingStatusBar() {
     const { visibleEntries } = useArtifactProcessing();
-    return <StatusBar entries={visibleEntries.map(toStatusBarEntry)} />;
+    return (
+        <div className="sticky top-0 z-50">
+            <StatusBar entries={visibleEntries.map(toStatusBarEntry)} />
+        </div>
+    );
 }
