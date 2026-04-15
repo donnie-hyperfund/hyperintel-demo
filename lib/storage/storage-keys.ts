@@ -9,14 +9,6 @@ export function getDraftBaseKey(chatType: string, chatId: string | null, project
 }
 
 /**
- * localStorage key for pre-chat model selection, scoped per project.
- * Used as a bridge until the chat exists and the pick is persisted in the DB.
- */
-export function getModelStorageKey(projectId: string): string {
-    return `model:${projectId}`;
-}
-
-/**
  * Computes the localStorage key for persisting in-progress file upload entries.
  * Returns `null` when there isn't enough scope info to form a key.
  */
@@ -29,3 +21,9 @@ export function getUploadStorageKey(scope?: { projectId?: string; chatId?: strin
     if (scope?.projectId) return `resource-uploads:${scope.projectId}`;
     return null;
 }
+
+/** sessionStorage key for tracking in-flight artifact approval/rejection operations. */
+export const ARTIFACT_PROCESSING_KEY = 'artifact-processing';
+
+/** sessionStorage key for chat IDs that need a nudge after a locally-initiated approval/rejection. */
+export const NUDGE_PENDING_KEY = 'nudge-pending';

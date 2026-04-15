@@ -4,12 +4,13 @@ import { PublicError } from '@common/common/error.helpers';
 import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
-import { broadcastUserEvent } from './utils/broadcast';
+import { broadcastUserEvent, getUserGatewayStub } from './utils/broadcast';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { injectSystemEvent } from './utils/system-events';
 
@@ -112,6 +113,8 @@ export async function approveArtifactHandler(
     }
 
     const previousStatus = version.status;
+    const project = version.artifact.project;
+    const chat = version.chat;
 
     await broadcastUserEvent(ctx, 'artifact_version_update_started', {
         artifactId: version.artifact.id,
@@ -121,6 +124,10 @@ export async function approveArtifactHandler(
         action: 'approve',
         previousStatus,
         nextStatus: 'approved',
+        projectName: project?.name,
+        phaseName: chat.name ?? undefined,
+        phaseIndex: chat.phase_index,
+        chatId: chat.id,
     });
 
     // Classify document to determine if AI-readable YAML should be generated
@@ -155,13 +162,20 @@ export async function approveArtifactHandler(
         console.log('[approveArtifact] Skipping YAML generation for client deliverable:', version.artifact.key);
     }
 
-    const project = version.artifact.project;
     const projectUser = project?.user;
 
     version.status = 'approved';
     version.status_changed_at = new Date();
     version.status_changed_by = projectUser?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
+
+    // Update ChatEntity CB status if this is a Completion Brief
+    if (version.document_type === 'Completion Brief') {
+        const cbChat = await em.findOne(ChatEntity, { completion_brief: version.artifact.id });
+        if (cbChat) {
+            cbChat.completion_brief_status = 'approved';
+        }
+    }
 
     await em.flush();
 
@@ -208,7 +222,20 @@ export async function approveArtifactHandler(
         action: 'approve',
         previousStatus,
         status: 'approved',
+        projectName: project?.name,
+        phaseName: chat.name ?? undefined,
+        phaseIndex: chat.phase_index,
+        chatId: chat.id,
     });
+
+    // Broadcast CB status change via chat-scoped UG topic
+    if (version.document_type === 'Completion Brief') {
+        const chatId = version.chat.id;
+        const ugStub = getUserGatewayStub(ctx);
+        ugStub
+            .systemAction(`chat:${chatId}`, 'cbStatusChanged', { status: 'approved' }, ctx.previewAlias ?? undefined)
+            .catch((err) => console.error('[approveArtifact] CB status broadcast failed:', err));
+    }
 
     // Inject system event so the agent knows the user approved via UI
     const chatId = version.chat.id;
@@ -286,6 +313,8 @@ export async function rejectArtifactHandler(
     }
 
     const previousStatus = version.status;
+    const project = version.artifact.project;
+    const chat = version.chat;
 
     await broadcastUserEvent(ctx, 'artifact_version_update_started', {
         artifactId: version.artifact.id,
@@ -295,13 +324,25 @@ export async function rejectArtifactHandler(
         action: 'reject',
         previousStatus,
         nextStatus: 'rejected',
+        projectName: project?.name,
+        phaseName: chat.name ?? undefined,
+        phaseIndex: chat.phase_index,
+        chatId: chat.id,
     });
 
     version.status = 'rejected';
     version.rejection_reason = reason;
     version.status_changed_at = new Date();
-    version.status_changed_by = version.artifact.project?.user?.id ?? version.artifact.user?.id;
+    version.status_changed_by = project?.user?.id ?? version.artifact.user?.id;
     version.artifact.current_version = version;
+
+    // Update ChatEntity CB status if this is a Completion Brief
+    if (version.document_type === 'Completion Brief') {
+        const cbChat = await em.findOne(ChatEntity, { completion_brief: version.artifact.id });
+        if (cbChat) {
+            cbChat.completion_brief_status = 'rejected';
+        }
+    }
 
     await em.flush();
 
@@ -313,11 +354,24 @@ export async function rejectArtifactHandler(
         action: 'reject',
         previousStatus,
         status: 'rejected',
+        projectName: project?.name,
+        phaseName: chat.name ?? undefined,
+        phaseIndex: chat.phase_index,
+        chatId: chat.id,
     });
 
+    // Broadcast CB status change via chat-scoped UG topic
+    if (version.document_type === 'Completion Brief') {
+        const chatId = version.chat.id;
+        const ugStub = getUserGatewayStub(ctx);
+        ugStub
+            .systemAction(`chat:${chatId}`, 'cbStatusChanged', { status: 'rejected' }, ctx.previewAlias ?? undefined)
+            .catch((err) => console.error('[rejectArtifact] CB status broadcast failed:', err));
+    }
+
     // Inject system event so the agent knows the user rejected via UI
-    const chatId = version.chat.id;
-    const chatType = version.chat.type ?? 'phase';
+    const chatId = chat.id;
+    const chatType = chat.type ?? 'phase';
     await injectSystemEvent(ctx, em, {
         chatId,
         chatType,

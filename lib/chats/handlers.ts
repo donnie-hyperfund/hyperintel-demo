@@ -115,6 +115,7 @@ export async function handleCreateChat(req: NextRequest, user: UserEntity): Prom
             phase: 'active',
             phase_index: phaseIndex,
             ...(title && { summary: title }),
+            ...(project.preferred_model && { selected_model: project.preferred_model }),
         });
         await em.persistAndFlush(chat);
 
@@ -286,6 +287,14 @@ export async function handleUpdateChatModel(req: NextRequest, chatId: string, us
     if (!chat) return chatNotFound();
 
     chat.selected_model = parsed.model;
+
+    // Propagate model preference to project for new-chat defaults
+    const projectRef = chat.project;
+    if (projectRef) {
+        const project = await em.findOne(ProjectEntity, projectRef.id);
+        if (project) project.preferred_model = parsed.model;
+    }
+
     await em.flush();
 
     // biome-ignore lint/correctness/noUndeclaredVariables: worker action helper is referenced elsewhere in this module family.

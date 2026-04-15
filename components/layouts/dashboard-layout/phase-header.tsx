@@ -3,8 +3,8 @@
 import { Building2, Layers } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { NextPhaseButton } from '@/components/layouts/dashboard-layout/next-phase-button';
 import { PhasePicker } from '@/components/layouts/dashboard-layout/phase-picker';
+import { NextPhaseButton } from '@/components/layouts/dashboard-layout/summarizer/next-phase-button';
 import {
     Breadcrumb,
     BreadcrumbItem,
@@ -15,6 +15,7 @@ import {
 import { IconButton } from '@/components/ui/icon-button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
 import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -26,8 +27,11 @@ export const PhaseHeader = () => {
     const { data: project } = useFetchProject(projectId);
     const { panelState, togglePanel } = useActivePanelContext();
 
+    const { breakpoint } = useBreakpoint();
+    const isMdViewportOrSmaller = !isAboveBreakpoint(breakpoint, 'md');
+
     return (
-        <header className="border-b border-border max-sm:sticky max-sm:top-0 max-sm:left-0 max-sm:right-0 max-sm:z-10 bg-neutral-975">
+        <header className="border-b border-border max-sm:sticky max-sm:top-(--processing-bar-height,0px) max-sm:left-0 max-sm:right-0 max-sm:z-10 bg-neutral-975">
             {/* Desktop */}
             <div className="hidden md:flex h-14 items-center px-6 gap-4">
                 <div className="flex items-center gap-3 min-w-0">
@@ -37,7 +41,7 @@ export const PhaseHeader = () => {
                         chatId={chatId ?? undefined}
                         phaseIndex={state.phaseIndex}
                     />
-                    <NextPhaseButton />
+                    {!isMdViewportOrSmaller && <NextPhaseButton />}
                 </div>
                 <div className="ml-auto">
                     <PanelButtons panelState={panelState} togglePanel={togglePanel} />
@@ -53,7 +57,7 @@ export const PhaseHeader = () => {
                         <TooltipContent>Toggle sidebar</TooltipContent>
                     </Tooltip>
                     <div className="ml-auto flex items-center gap-2">
-                        <NextPhaseButton />
+                        {isMdViewportOrSmaller && <NextPhaseButton />}
                         <PanelButtons panelState={panelState} togglePanel={togglePanel} />
                     </div>
                 </div>

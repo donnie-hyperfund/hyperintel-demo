@@ -17,6 +17,7 @@ import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provi
 import { getArtifactChatId } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
 import { PhaseSwitchDialog } from '../phase-switch-dialog';
 import type { ProjectArtifactFilters } from './project-artifact-filter-dropdown';
 import { getActiveFilterCount } from './project-artifact-filter-dropdown';
@@ -58,6 +59,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
 
     const { addArtifact, updateArtifact } = useArtifactActions();
     const { openPanel } = useActivePanelContext();
+    const { scrollTo } = useScrollTargetContext();
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [dialogData, setDialogData] = useState<PhaseDialogData | null>(null);
@@ -106,15 +108,6 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         [projectId, router],
     );
 
-    const scrollToArtifact = useCallback(
-        (artifact: CamelCaseDto<ArtifactDto>) => {
-            const artifactChatId = getArtifactChatId(artifact);
-            if (!artifactChatId) return;
-            navigateToArtifact(artifactChatId, artifact.key, artifact.version);
-        },
-        [navigateToArtifact],
-    );
-
     const handleArtifactClick = useCallback(
         (artifact: CamelCaseDto<ArtifactDto>) => {
             if (!projectId) return;
@@ -135,9 +128,9 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
             }
 
             openArtifactPreview(artifact);
-            scrollToArtifact(artifact);
+            scrollTo({ key: artifact.key, version: artifact.version });
         },
-        [projectId, chatId, chatsData?.data, openArtifactPreview],
+        [projectId, chatId, chatsData?.data, openArtifactPreview, scrollTo],
     );
 
     const handlePhaseSwitch = useCallback(() => {

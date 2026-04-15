@@ -17,6 +17,7 @@ import {
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { IS_DEV } from '@/lib/config';
+import { DevSlot } from '@/lib/dev-slots';
 import { cn } from '@/lib/utils';
 import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -24,17 +25,16 @@ import { useModelSelection } from '@/modules/chat/providers/model-selection-prov
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
-import { FilePreviewItem } from './file-preview-item';
+import { FilePreviewItem } from './file-preview-item/file-preview-item';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 import { SwitchModelSelector } from './switch-model-selector';
 
 type ChatMessageFormProps = {
     className?: string;
-    ref?: React.RefObject<HTMLDivElement | null>;
     showGradientFade?: boolean;
 };
 
-const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessageFormProps) => {
+const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageFormProps) => {
     const {
         sendMessage,
         chatType,
@@ -90,7 +90,13 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         if (!data.message.trim() && files.length === 0) return;
 
         // Capture file names before submitFiles clears them
-        const uploadedFiles = files.map((entry) => ({ name: entry.name, size: entry.size }));
+        const uploadedFiles = files.map((entry) => ({
+            name: entry.name,
+            size: entry.size,
+            imageFileId: entry.imageFileId,
+            imageWidth: entry.imageWidth,
+            imageHeight: entry.imageHeight,
+        }));
 
         // Consume staged IDs before submitFiles clears state
         const stagedArtifactIds = consumeStagedArtifactIds();
@@ -101,7 +107,18 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         }
 
         const fileDirective =
-            uploadedFiles.length > 0 ? uploadedFiles.map((f) => `::upload[${f.name}]{size=${f.size}}`).join('\n') : '';
+            uploadedFiles.length > 0
+                ? uploadedFiles
+                      .map((f) => {
+                          const attrs = [`size=${f.size}`];
+                          if (f.imageFileId) {
+                              attrs.push(`fileid=${f.imageFileId}`, 'type=image');
+                              if (f.imageWidth && f.imageHeight) attrs.push(`w=${f.imageWidth}`, `h=${f.imageHeight}`);
+                          }
+                          return `::upload[${f.name}]{${attrs.join(' ')}}`;
+                      })
+                      .join('\n')
+                : '';
 
         const message = [fileDirective, data.message.trim()].filter(Boolean).join('\n\n');
 
@@ -163,7 +180,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
     );
 
     return (
-        <div ref={ref} className={className}>
+        <div className={className}>
             <AnimatePresence>
                 <form onSubmit={handleSubmit(onFormSubmit)} className="relative flex items-end justify-center px-4">
                     {showGradientFade && (
@@ -200,6 +217,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                                 name={entry.name}
                                                 size={entry.size}
                                                 status={entry.status}
+                                                file={entry.file}
                                                 onRemove={() => removeFile(i)}
                                             />
                                         ))}
@@ -272,6 +290,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                 </motion.p>
                             )}
 
+                            <DevSlot name="chat-footer" />
                             <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
                         </div>
                     </div>

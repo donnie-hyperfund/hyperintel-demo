@@ -106,6 +106,7 @@ export const approveArtifact = (data: ApproveArtifactActionDto, accessToken: str
                 Authorization: `Bearer ${accessToken}`,
             },
             body: JSON.stringify(data),
+            keepalive: true,
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.ApproveAction, {
@@ -114,6 +115,7 @@ export const approveArtifact = (data: ApproveArtifactActionDto, accessToken: str
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
+        keepalive: true,
     });
 };
 
@@ -127,6 +129,7 @@ export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: strin
                 Authorization: `Bearer ${accessToken}`,
             },
             body: JSON.stringify(data),
+            keepalive: true,
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.RejectAction, {
@@ -135,6 +138,7 @@ export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: strin
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
+        keepalive: true,
     });
 };
 

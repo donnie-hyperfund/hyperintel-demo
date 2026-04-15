@@ -10,12 +10,14 @@ import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
+import { projectKeys } from '@/lib/api/client/fetchers/projects';
 import type { CamelCaseDto } from '@/lib/api/client/types';
 import { abort, associateArtifacts, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
 import { getDraftBaseKey } from '@/lib/storage/storage-keys';
+import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
@@ -26,7 +28,15 @@ import { useChatStream } from '../hooks/use-chat-stream';
 import type { ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
-import type { ChatState, ChatType, Message, PaginationState, StreamBlock } from '../types';
+import type {
+    ChatState,
+    ChatType,
+    Message,
+    MessageMetadata,
+    PaginationState,
+    StreamBlock,
+    SummaryStatus,
+} from '../types';
 
 export type BaseChatContextValue = {
     state: ChatState;
@@ -52,6 +62,8 @@ export type BaseChatContextValue = {
     setChatId: (chatId: string | null) => void;
     /** Summarize the current chat and prepare the new phase */
     summarizeChat: () => void;
+    /** Cancel an in-progress summarization */
+    cancelSummary: () => void;
     /** Navigate to the new phase chat (after summarization completes) */
     navigateToNewPhase: () => void;
     /** Set hasPendingChanges to false (call after approve/reject) */
@@ -129,6 +141,7 @@ type ArtifactVersionEventPayload = {
     previousStatus?: string;
     status?: string;
     nextStatus?: 'approved' | 'rejected';
+    chatId?: string;
 };
 
 export function ChatProvider({
@@ -140,6 +153,7 @@ export function ChatProvider({
     chatRouteBuilder,
 }: ChatProviderProps) {
     const artifactContext = useArtifactActions();
+    const { hasPendingNudge, clearPendingNudge } = useArtifactProcessing();
 
     const { openPanel, closePanel, panelState } = useActivePanelContext();
     const panelStateRef = useRef(panelState);
@@ -156,14 +170,8 @@ export function ChatProvider({
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
-    const {
-        selectedModel,
-        setSelectedModel,
-        persistSelection,
-        clearPersistedSelection,
-        isModelAvailable,
-        setIsChangingModel,
-    } = useModelSelection();
+    const { selectedModel, setSelectedModel, persistSelection, isModelAvailable, setIsChangingModel } =
+        useModelSelection();
     const skipNextLoad = useRef(false);
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
@@ -178,15 +186,17 @@ export function ChatProvider({
             error: null,
             streamingMessageId: null,
             tokenUsage: cached?.tokenUsage ?? null,
+            totalCost: cached?.totalCost ?? null,
             hasPendingChanges: cached?.hasPendingChanges ?? false,
             phaseIndex: cached?.phaseIndex ?? null,
             phaseName: cached?.name ?? null,
             summaryNewChatId: null,
             pendingPhaseTransition: false,
             activeResponseId: null,
-            summaryDocKey: null,
+            summaryStatus: null,
             isProcessingArtifactAction: false,
             showInvalidModelAlert: false,
+            completionBriefStatus: cached?.completionBriefStatus ?? null,
         };
     });
 
@@ -447,6 +457,15 @@ export function ChatProvider({
                 }),
                 feedbackScore: (m as any).feedback_score ?? null,
                 feedbackComment: (m as any).feedback ?? null,
+                // Only forward display-safe fields — metadata can contain safetyAnalysis, errors, etc.
+                metadata:
+                    meta.preset || meta.inference || meta.usage
+                        ? ({
+                              ...(meta.preset ? { preset: meta.preset as string } : {}),
+                              ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
+                              ...(meta.usage ? { usage: meta.usage } : {}),
+                          } as MessageMetadata)
+                        : undefined,
             };
         },
         [],
@@ -460,7 +479,7 @@ export function ChatProvider({
                     ...prev,
                     isSummarizing: true,
                     summaryNewChatId: null,
-                    summaryDocKey: null,
+                    summaryStatus: null,
                 }));
             } else {
                 // Normal chat response — reconcile user message ID and set generating state
@@ -468,7 +487,9 @@ export function ChatProvider({
                     const messages = prev.messages.map((m) =>
                         m.id === userMessageId || m.tempId === userMessageId
                             ? { ...m, id: userMessageId, tempId: m.tempId || m.id }
-                            : m,
+                            : m.isStreaming && m.id !== agentMessageId
+                              ? { ...m, isStreaming: false, status: undefined }
+                              : m,
                     );
                     return { ...prev, isGenerating: true, activeResponseId: agentMessageId, messages };
                 });
@@ -516,7 +537,18 @@ export function ChatProvider({
     );
 
     const handleStreamDone = useCallback(
-        (status: StreamStatus, terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' }) => {
+        (
+            status: StreamStatus,
+            terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' },
+            completedAgentMessageId?: string,
+        ) => {
+            // Summary was cancelled — ignore any terminal events from the backend
+            if (summaryCancelledRef.current) {
+                summaryCancelledRef.current = false;
+                summarizeInFlightRef.current = false;
+                return;
+            }
+
             const isNormalDone = terminalEvent?.type === 'done';
             const newChatId = isNormalDone ? terminalEvent.newChatId : undefined;
 
@@ -527,31 +559,70 @@ export function ChatProvider({
                     ...prev,
                     isSummarizing: false,
                     summaryNewChatId: newChatId,
+                    summaryStatus: null,
                 }));
                 return;
             }
 
-            setState((prev) => ({
-                ...prev,
-                isGenerating: false,
-                activeResponseId: null,
-                tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
-                hasPendingChanges: isNormalDone
-                    ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
-                    : prev.hasPendingChanges,
-                phaseIndex: isNormalDone ? (terminalEvent.phaseIndex ?? prev.phaseIndex) : prev.phaseIndex,
-                messages: prev.messages.map((msg) =>
-                    msg.isStreaming
-                        ? {
-                              ...msg,
-                              isStreaming: false,
-                              status: undefined,
-                              ...(status === 'error' && { isError: true }),
-                              ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
-                          }
-                        : msg,
-                ),
-            }));
+            // Summary stream aborted/errored without producing a new chat — reset summary state.
+            // This handles cross-tab sync: Tab A cancels, Tab B receives the terminal status.
+            // Note: handleStreamDone has [] deps, so we read isSummarizing via prev in setState.
+            let wasSummary = false;
+            setState((prev) => {
+                if (!prev.isSummarizing) return prev;
+                wasSummary = true;
+                summarizeInFlightRef.current = false;
+                return {
+                    ...prev,
+                    isSummarizing: false,
+                    summaryStatus: null,
+                    summaryNewChatId: null,
+                    error: null,
+                };
+            });
+            if (wasSummary) return;
+
+            // Extract safe message metadata from done event (preset, inference, usage)
+            const doneMeta = isNormalDone
+                ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
+                : undefined;
+            const doneMessageMetadata: MessageMetadata | undefined = doneMeta
+                ? {
+                      ...(doneMeta.preset ? { preset: doneMeta.preset as string } : {}),
+                      ...(doneMeta.inference ? { inference: doneMeta.inference as Record<string, unknown> } : {}),
+                      ...(doneMeta.usage ? { usage: doneMeta.usage as MessageMetadata['usage'] } : {}),
+                  }
+                : undefined;
+
+            setState((prev) => {
+                const targetMessageId = completedAgentMessageId ?? prev.activeResponseId;
+                const isCurrentActiveStream = !!targetMessageId && prev.activeResponseId === targetMessageId;
+
+                return {
+                    ...prev,
+                    isGenerating: isCurrentActiveStream ? false : prev.isGenerating,
+                    activeResponseId: isCurrentActiveStream ? null : prev.activeResponseId,
+                    tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
+                    totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
+                    hasPendingChanges: isNormalDone
+                        ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
+                        : prev.hasPendingChanges,
+                    phaseIndex: isNormalDone ? (terminalEvent.phaseIndex ?? prev.phaseIndex) : prev.phaseIndex,
+                    messages: prev.messages.map((msg) =>
+                        msg.id === targetMessageId
+                            ? {
+                                  ...msg,
+                                  isStreaming: false,
+                                  status: undefined,
+                                  ...(status === 'error' && { isError: true }),
+                                  ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
+                                  ...(doneMessageMetadata &&
+                                      Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
+                              }
+                            : msg,
+                    ),
+                };
+            });
         },
         [],
     );
@@ -577,21 +648,30 @@ export function ChatProvider({
         // Clear stale isGenerating/isSummarizing set from DB's active_agent_message_id
         // when the initial WS subscribe_response confirms no active stream.
         // Also sync selectedModel from the subscribe response.
-        onSubscribeResponse: (status: 'idle' | 'streaming' | 'stale', selectedModel: string | null) => {
+        onSubscribeResponse: (
+            status: 'idle' | 'streaming' | 'stale',
+            selectedModel: string | null,
+            completionBriefStatus: string | null,
+        ) => {
             if (selectedModel) {
                 setSelectedModel(selectedModel);
             }
-            if (status === 'idle') {
-                summarizeInFlightRef.current = false;
-                setState((prev) =>
-                    prev.isGenerating || prev.isSummarizing
-                        ? { ...prev, isGenerating: false, isSummarizing: false, activeResponseId: null }
-                        : prev,
-                );
-            }
+            setState((prev) => {
+                const next = { ...prev, completionBriefStatus };
+                if (status === 'idle' && (prev.isGenerating || prev.isSummarizing)) {
+                    summarizeInFlightRef.current = false;
+                    next.isGenerating = false;
+                    next.isSummarizing = false;
+                    next.activeResponseId = null;
+                }
+                return next;
+            });
         },
         onModelChanged: (model: string) => {
             setSelectedModel(model);
+        },
+        onCbStatusChanged: (cbStatus: string) => {
+            setState((prev) => ({ ...prev, completionBriefStatus: cbStatus }));
         },
     };
 
@@ -745,6 +825,7 @@ export function ChatProvider({
             const active = s.status === 'streaming';
             setState((prev) => {
                 const msgId = s.agentMessageId!;
+                const existing = prev.messages.find((m) => m.id === msgId);
                 const streamMsg: Message = {
                     id: msgId,
                     role: 'assistant',
@@ -754,13 +835,14 @@ export function ChatProvider({
                     ...(s.status === 'error' && { isError: true }),
                     ...(s.status === 'aborted' && !s.isRetracted && { isAborted: true }),
                     ...(s.isRetracted && { isRetracted: true }),
+                    // Preserve metadata set by handleStreamDone (model badge, cost, etc.)
+                    ...(existing?.metadata && { metadata: existing.metadata }),
                 };
 
-                const exists = prev.messages.some((m) => m.id === msgId);
                 return {
                     ...prev,
                     isGenerating: active,
-                    messages: exists
+                    messages: existing
                         ? prev.messages.map((m) => (m.id === msgId ? streamMsg : m))
                         : [...prev.messages, streamMsg],
                 };
@@ -816,14 +898,14 @@ export function ChatProvider({
         }
     }, [stream.streamType]);
 
-    // Track active summary document key (never clears — handleStreamDone resets).
+    // Sync summary stream displayStatus to state (never clears — handleStreamDone resets).
     useEffect(() => {
         if (stream.streamType !== 'summary') return;
-        const docKey = stream.activeDocuments[0]?.name;
-        if (docKey) {
-            setState((prev) => (prev.summaryDocKey === docKey ? prev : { ...prev, summaryDocKey: docKey }));
+        const status = stream.displayStatus as SummaryStatus | null;
+        if (status) {
+            setState((prev) => (prev.summaryStatus === status ? prev : { ...prev, summaryStatus: status }));
         }
-    }, [stream.streamType, stream.activeDocuments]);
+    }, [stream.streamType, stream.displayStatus]);
 
     // ========================================================================
     // MESSAGE LOADING
@@ -853,10 +935,9 @@ export function ChatProvider({
             const apiMessages: Message[] =
                 messagesData.data?.map((m) => mapApiMessage(m, chatData.activeAgentMessageId)) || [];
 
-            // Sync persisted model selection — DB is source of truth, clear localStorage bridge
+            // Sync model selection — DB is source of truth for existing chats
             if (chatData.selectedModel) {
                 setSelectedModel(chatData.selectedModel);
-                clearPersistedSelection();
             }
 
             setState((prev) => {
@@ -879,8 +960,10 @@ export function ChatProvider({
                     isGenerating: prev.isSummarizing ? false : hasActiveStream,
                     activeResponseId: prev.isSummarizing ? null : (chatData.activeAgentMessageId ?? null),
                     tokenUsage: chatData.tokenUsage ?? null,
+                    totalCost: chatData.totalCost != null ? Number(chatData.totalCost) : null,
                     hasPendingChanges: chatData.hasPendingChanges ?? false,
                     phaseIndex: chatData.phaseIndex,
+                    completionBriefStatus: chatData.completionBriefStatus ?? null,
                 };
             });
             setPagination({
@@ -893,7 +976,7 @@ export function ChatProvider({
             console.error('Error loading messages:', error);
             setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
         }
-    }, [api, chatId, mapApiMessage, setSelectedModel, clearPersistedSelection]);
+    }, [api, chatId, mapApiMessage, setSelectedModel]);
 
     // Keep reconnect ref in sync with loadMessages
     loadMessagesRef.current = loadMessages;
@@ -965,12 +1048,11 @@ export function ChatProvider({
             try {
                 const chatIdToUse = await ensureChatId();
 
-                // Persist pre-chat model pick to DB (clear localStorage only on success)
+                // Ensure newly created chat has the correct model in DB
                 if (!chatId && selectedModel) {
-                    api.chats.updateModel(chatIdToUse, selectedModel).then(
-                        () => clearPersistedSelection(),
-                        (err) => console.error('Failed to persist initial model selection:', err),
-                    );
+                    api.chats
+                        .updateModel(chatIdToUse, selectedModel)
+                        .catch((err) => console.error('Failed to persist initial model selection:', err));
                 }
 
                 // Associate staged uploads with the newly created (or existing) chat
@@ -1028,7 +1110,6 @@ export function ChatProvider({
             cache,
             chatId,
             chatType,
-            clearPersistedSelection,
             ensureChatId,
             getToken,
             globalMutate,
@@ -1067,6 +1148,17 @@ export function ChatProvider({
         }
     }, [chatId, chatType, getToken, selectedModel, state.isGenerating]);
 
+    // Nudge recovery: when a locally-initiated approval/rejection completes,
+    // send the nudge from this tab. Reactive deps ensure the nudge fires when:
+    // - completion happens while this chat is open (state change → re-render)
+    // - user returns to this chat later (mount → effect runs)
+    // - isGenerating was true and flips to false (retry)
+    useEffect(() => {
+        if (!chatId || state.isGenerating || !hasPendingNudge(chatId)) return;
+        clearPendingNudge(chatId);
+        void sendNudge();
+    }, [chatId, state.isGenerating, hasPendingNudge, clearPendingNudge, sendNudge]);
+
     // ========================================================================
     // SUMMARIZE
     // ========================================================================
@@ -1074,6 +1166,7 @@ export function ChatProvider({
     // Ref guard: prevents duplicate POST when multiple NextPhaseButton
     // instances (desktop + mobile) react to pendingPhaseTransition simultaneously.
     const summarizeInFlightRef = useRef(false);
+    const summaryCancelledRef = useRef(false);
 
     /** Trigger summarization — fires POST, then waits for stream_started(streamType:'summary') via WS */
     const summarizeChat = useCallback(async () => {
@@ -1081,6 +1174,7 @@ export function ChatProvider({
         if (chatType !== 'phase' || !chatId || state.isSummarizing) return;
         if (summarizeInFlightRef.current) return;
         summarizeInFlightRef.current = true;
+        summaryCancelledRef.current = false;
 
         // Do NOT set isSummarizing here — stream_started(streamType:'summary') drives that state.
         // This avoids showing the summarizing UI if the POST itself fails.
@@ -1102,10 +1196,42 @@ export function ChatProvider({
             setState((prev) => ({
                 ...prev,
                 isSummarizing: false,
+                summaryStatus: null,
                 error: err instanceof Error ? err : new Error('Summarization failed'),
             }));
         }
     }, [chatId, getToken, chatType, state.isSummarizing]);
+
+    /** Cancel an in-progress summarization — aborts the stream and rolls back created artifacts */
+    const cancelSummary = useCallback(async () => {
+        if (!state.isSummarizing || !chatId) return;
+
+        // Mark as cancelled so subsequent stream events (done/error) are ignored
+        summaryCancelledRef.current = true;
+        summarizeInFlightRef.current = false;
+
+        cleanupTransientArtifacts(stream.activeDocuments);
+
+        // Also abort via WebSocket for faster path
+        stream.abort();
+
+        // Reset state synchronously before any async work — prevents the
+        // cross-tab sync effect from reopening the overlay
+        setState((prev) => ({
+            ...prev,
+            isSummarizing: false,
+            summaryStatus: null,
+            summaryNewChatId: null,
+            error: null,
+        }));
+
+        // Abort via HTTP (fire-and-forget, uses stream's agentMessageId)
+        const summaryAgentMessageId = stream.agentMessageId;
+        if (summaryAgentMessageId) {
+            const accessToken = (await getToken()) ?? '';
+            abort({ chatId, agentMessageId: summaryAgentMessageId }, accessToken).catch(() => {});
+        }
+    }, [chatId, state.isSummarizing, stream, cleanupTransientArtifacts, getToken]);
 
     /** Navigate to the new phase chat after summarization */
     const navigateToNewPhase = useCallback(() => {
@@ -1140,9 +1266,12 @@ export function ChatProvider({
         }));
     }, [chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
 
-    /** Change the chat's selected model — persists via API when a chat exists, localStorage when not */
+    /** Change the chat's selected model — persists via API when a chat exists, project preference when not */
     const changeModel = useCallback(
         async (presetId: string) => {
+            // Radix Select's BubbleSelect dispatches onValueChange('') on mount — ignore it
+            if (!presetId) return;
+
             if (!chatId) {
                 persistSelection(presetId);
                 return;
@@ -1154,6 +1283,15 @@ export function ChatProvider({
 
             try {
                 await api.chats.updateModel(chatId, presetId);
+                // Backend propagated to project — keep SWR cache in sync for next new-chat init
+                if (projectId) {
+                    globalMutate(
+                        projectKeys.detail(projectId),
+                        (prev: Record<string, unknown> | undefined) =>
+                            prev ? { ...prev, preferredModel: presetId } : prev,
+                        { revalidate: false },
+                    );
+                }
             } catch (err) {
                 console.error('Failed to update model:', err);
                 setSelectedModel(previousModel); // revert
@@ -1161,7 +1299,7 @@ export function ChatProvider({
                 setIsChangingModel(false);
             }
         },
-        [chatId, api, persistSelection, setSelectedModel, selectedModel, setIsChangingModel],
+        [chatId, api, persistSelection, setSelectedModel, selectedModel, setIsChangingModel, projectId, globalMutate],
     );
 
     const dismissInvalidModelAlert = useCallback(() => {
@@ -1182,6 +1320,7 @@ export function ChatProvider({
                 stopGeneration,
                 setChatId,
                 summarizeChat,
+                cancelSummary,
                 navigateToNewPhase,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
