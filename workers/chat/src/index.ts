@@ -239,13 +239,13 @@ app.post('/artifacts/upload', zValidator('form', UploadArtifactSchema), async (c
 
 app.post('/artifacts/upload/presign', zValidator('json', PresignUploadSchema), async (c) => {
     return wrapWorker(async () => {
-        return await presignUploadHandler(c.req.valid('json'), c.var);
+        return await presignUploadHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
 app.post('/artifacts/upload/confirm', zValidator('json', ConfirmUploadSchema), async (c) => {
     return wrapWorker(async () => {
-        return await confirmUploadHandler(c.req.valid('json'), c.var);
+        return await confirmUploadHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
