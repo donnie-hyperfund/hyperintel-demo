@@ -1,7 +1,7 @@
 /**
  * Server-side helper for calling worker system actions via the UserGateway DO.
  *
- * In local dev: uses the mock DO namespace from envSecretMocks (in-process).
+ * In local dev: uses the mock DO namespace from workerEnv (in-process).
  * In production: calls the worker's /internal/system-action HTTP endpoint.
  * Fire-and-forget — never blocks the caller.
  */
@@ -29,8 +29,8 @@ export async function workerSystemAction(
 ): Promise<void> {
 	try {
 		if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS) {
-			const { envSecretMocks } = await import('@/lib/local/cf-env-secret-mock');
-			const ugNamespace = envSecretMocks.USER_GATEWAY as any;
+			const { workerEnv } = await import('@/lib/local/cf-env-secret-mock');
+			const ugNamespace = workerEnv.USER_GATEWAY as any;
 			if (!ugNamespace) return;
 			const ugId = ugNamespace.idFromName(userId);
 			const ugStub = ugNamespace.get(ugId);

@@ -32,10 +32,11 @@
 		"LANGFUSE_ENVIRONMENT": "production",
 		"CORS_ALLOWED_ORIGIN": "https://app.hprntl.ai",
 		"CHAT_OUTPUT_SAFETY_ENABLED": "false",
+		"POSTHOG_HOST": "https://us.i.posthog.com",
+		"ALLOWED_PRESETS": "sonnet",
+		"DEFAULT_PRESET": "sonnet",
 		"WORKER_NAME": "hi-chat",
-		"WORKER_NAME_FULL": "hi-chat",
-		"ALLOWED_PRESETS": "opus",
-		"DEFAULT_PRESET": "opus"
+		"WORKER_NAME_FULL": "hi-chat"
 	},
 	"secrets_store_secrets": [
 		{
@@ -67,6 +68,11 @@
 			"binding": "LANGFUSE_SECRET_KEY",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "HI_LANGFUSE_SECRET_KEY"
+		},
+		{
+			"binding": "POSTHOG_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "POSTHOG_KEY"
 		},
 		{
 			"binding": "AUTH_SECRET",
@@ -134,6 +140,10 @@
 		{
 			"binding": "ARTIFACTS_BUCKET",
 			"bucket_name": "hi-artifacts"
+		},
+		{
+			"binding": "USER_IMAGES_BUCKET",
+			"bucket_name": "hi-user-images"
 		}
 	],
 	"env": {
@@ -146,6 +156,7 @@
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
 				"CHAT_OUTPUT_SAFETY_ENABLED": "false",
+				"POSTHOG_HOST": "https://us.i.posthog.com",
 				"WORKER_NAME": "hi-chat",
 				"WORKER_NAME_FULL": "hi-chat-dev"
 			},
@@ -179,6 +190,11 @@
 					"binding": "LANGFUSE_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "HI_LANGFUSE_SECRET_KEY"
+				},
+				{
+					"binding": "POSTHOG_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "POSTHOG_KEY"
 				},
 				{
 					"binding": "AUTH_SECRET",
@@ -247,6 +263,10 @@
 				{
 					"binding": "ARTIFACTS_BUCKET",
 					"bucket_name": "hi-artifacts-dev"
+				},
+				{
+					"binding": "USER_IMAGES_BUCKET",
+					"bucket_name": "hi-user-images-dev"
 				}
 			]
 		},
@@ -259,6 +279,7 @@
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
 				"CHAT_OUTPUT_SAFETY_ENABLED": "false",
+				"POSTHOG_HOST": "https://us.i.posthog.com",
 				"WORKER_NAME": "hi-chat",
 				"WORKER_NAME_FULL": "hi-chat-experimental"
 			},
@@ -292,6 +313,11 @@
 					"binding": "LANGFUSE_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "HI_LANGFUSE_SECRET_KEY"
+				},
+				{
+					"binding": "POSTHOG_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "POSTHOG_KEY"
 				},
 				{
 					"binding": "AUTH_SECRET",
@@ -360,6 +386,10 @@
 				{
 					"binding": "ARTIFACTS_BUCKET",
 					"bucket_name": "hi-artifacts-dev"
+				},
+				{
+					"binding": "USER_IMAGES_BUCKET",
+					"bucket_name": "hi-user-images-dev"
 				}
 			]
 		}

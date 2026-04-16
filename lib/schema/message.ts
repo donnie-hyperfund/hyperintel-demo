@@ -156,6 +156,7 @@ export type CreateMessageBodyDto = z.infer<typeof CreateMessageBodySchema>;
 export const ChatDtoSchema = z.object({
     id: z.string().uuid(),
     type: z.string().optional(),
+    name: z.string().nullable().optional(),
     phase: z.string(),
     phase_index: z.number().int(),
     summary: z.string().nullable().optional(),
@@ -171,8 +172,16 @@ export const ChatDtoSchema = z.object({
     first_message_content: z.string().nullable().optional(),
     /** Synthetic array of documents with version metadata */
     documents: z.array(ChatDocumentSummaryDtoSchema).optional(),
+    /** Completion Brief artifact ID for this phase */
+    completion_brief: z
+        .union([z.string().uuid(), z.object({}).passthrough()])
+        .nullable()
+        .optional(),
+    /** Completion Brief approval status: 'proposed' | 'approved' | 'rejected' | null */
+    completion_brief_status: z.string().nullable().optional(),
     metadata: z.record(z.unknown()).nullable().optional(),
     token_usage: TokenUsageSchema.nullable().optional(),
+    total_cost: z.number().nullable().optional(),
     /** Whether the chat has any pending document changes awaiting approval */
     has_pending_changes: z.boolean().optional(),
     selected_model: z.string().nullable().optional(),

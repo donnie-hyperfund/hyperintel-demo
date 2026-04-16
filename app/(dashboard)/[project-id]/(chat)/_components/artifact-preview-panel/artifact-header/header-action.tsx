@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 export type ActionType = 'button' | 'menu-item';
@@ -40,9 +40,9 @@ export function HeaderAction({
     return (
         <Tooltip>
             <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" onClick={onClick} disabled={disabled}>
+                <IconButton size="sm" onClick={onClick} disabled={disabled}>
                     <Icon className={iconClassName} />
-                </Button>
+                </IconButton>
             </TooltipTrigger>
             <TooltipContent>{label}</TooltipContent>
         </Tooltip>

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { IS_DEV } from '@/lib/config';
+import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { getLatestArtifactVersion, getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import type { Artifact } from '@/modules/chat/types';
@@ -53,6 +54,11 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         projectId,
     } = useChatContext();
     const { isLinking: isLinkingToProject } = useOptionalProjectOrigin();
+    const {
+        isProcessing: isProcessingGlobally,
+        hasEntry: hasProcessingEntry,
+        suppressVersion,
+    } = useArtifactProcessing();
 
     const { title, id: artifactId, key: artifactKey, progress } = artifact;
     const isStreaming = !!artifact.isStreaming;
@@ -60,6 +66,9 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
 
     const activeVersion = getLatestArtifactVersion(artifact);
     const content = getLatestArtifactVersionContent(artifact);
+
+    const pecpContent = artifact.pecpContent ?? artifact.pecp?.content ?? '';
+    const hasPecp = artifact.pecpContent !== undefined || !!artifact.pecp;
 
     const updatedAt = artifact.proposedVersion?.updatedAt ? new Date(artifact.proposedVersion.updatedAt) : undefined;
     const previousContent =
@@ -72,20 +81,28 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         !!artifactId &&
         !!artifactKey &&
         !isLastMessageStreaming;
-    const showApprovalBar = canApprove && !activeVersion?.isInternal;
-    const showInternalActions = canApprove && !!activeVersion?.isInternal;
+    const showApprovalBar = canApprove && (!activeVersion?.isInternal || hasPecp);
+    const showInternalActions = canApprove && !!activeVersion?.isInternal && !hasPecp;
     const canDelete =
         !!artifactKey && !!activeVersion?.isUploaded && !isStreaming && activeVersion?.status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
-    const isBusy = isUpdating || isProcessingApproval || isProcessingDelete;
+    const isProcessingGlobalApproval = !!(activeVersion?.id && isProcessingGlobally(activeVersion.id));
+    const hasEntryForVersion = !!(activeVersion?.id && hasProcessingEntry(activeVersion.id));
+    const isBusy = isUpdating || isProcessingApproval || isProcessingDelete || isProcessingGlobalApproval;
+
+    // Suppress this artifact's entry from the status bar while the preview panel is open
+    useEffect(() => {
+        if (!hasEntryForVersion || !activeVersion?.id) return;
+        suppressVersion(activeVersion.id);
+        return () => suppressVersion(null);
+    }, [hasEntryForVersion, activeVersion?.id, suppressVersion]);
 
     const diffData = useMemo(() => {
         if (!canShowDiff || !previousContent) return null;
         return computeDiffWithDirectives(previousContent, content);
     }, [canShowDiff, previousContent, content]);
 
-    // Auto-scroll is disabled when not streaming
-    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content], {
+    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content, pecpContent], {
         threshold: 100,
         disabled: !isStreaming,
     });
@@ -122,6 +139,42 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         </>
     );
 
+    const renderContent = () => {
+        if (activeVersion?.isInternal && !hasPecp) {
+            return (
+                <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming}>
+                    {showInternalActions && (
+                        <InternalDocumentActions
+                            artifactId={artifactId}
+                            version={version}
+                            disabled={isUpdating}
+                            onProcessingChange={setIsProcessingApproval}
+                        />
+                    )}
+                </InternalDocumentContent>
+            );
+        }
+
+        const displayContent = pecpContent || markdownContent;
+        if (displayContent) {
+            return (
+                <div className="p-6">
+                    <MarkdownRenderer
+                        markdown={displayContent}
+                        directives={pecpContent ? undefined : diffDirectives}
+                        scrollContainerRef={containerRef}
+                    />
+                </div>
+            );
+        }
+
+        return (
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+                <p>No content available</p>
+            </div>
+        );
+    };
+
     return (
         <div className="flex flex-col h-full bg-neutral-975">
             <ArtifactHeader
@@ -143,30 +196,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
             {/* Preview */}
             <div className="relative flex-1 min-h-0">
                 <div ref={containerRef} className="h-full overflow-y-auto">
-                    {activeVersion?.isInternal ? (
-                        <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming}>
-                            {showInternalActions && (
-                                <InternalDocumentActions
-                                    artifactId={artifactId}
-                                    version={version}
-                                    disabled={isUpdating}
-                                    onProcessingChange={setIsProcessingApproval}
-                                />
-                            )}
-                        </InternalDocumentContent>
-                    ) : markdownContent ? (
-                        <div className="p-6">
-                            <MarkdownRenderer
-                                markdown={markdownContent}
-                                directives={diffDirectives}
-                                scrollContainerRef={containerRef}
-                            />
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground">
-                            <p>No content available</p>
-                        </div>
-                    )}
+                    {renderContent()}
                 </div>
 
                 {/* Busy overlay */}

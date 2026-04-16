@@ -1,5 +1,6 @@
 import { Collection, Entity, ManyToOne, OneToMany, Opt, Property } from '@mikro-orm/core';
 import type { Nullable } from '@/common/orm/utils';
+import type { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { IdCreatedUpdatedColumns } from '@/lib/orm/entities/columns.entity';
 import type { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
@@ -10,6 +11,9 @@ import type { ChatMessageEntity } from './chat-message.entity';
 export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text', default: 'phase' })
     type!: string & Opt;
+
+    @Property({ type: 'text', nullable: true })
+    name?: Nullable<string>;
 
     @Property({ type: 'text' })
     phase!: string;
@@ -35,11 +39,22 @@ export class ChatEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text', nullable: true })
     active_agent_message_id?: Nullable<string>;
 
+    /** Completion Brief artifact for this phase (set when CB is generated) */
+    @ManyToOne('ArtifactEntity', { fieldName: 'completion_brief_id', nullable: true, serializer: (a) => a?.id })
+    completion_brief?: Nullable<ArtifactEntity>;
+
+    /** Completion Brief approval status — null = no CB, 'proposed' | 'approved' | 'rejected' */
+    @Property({ type: 'text', nullable: true })
+    completion_brief_status?: Nullable<string>;
+
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
 
     @Property({ type: 'json', nullable: true })
     token_usage?: Nullable<TokenUsage>;
+
+    @Property({ type: 'number', nullable: true, columnType: 'numeric(12,6)', groups: ['dev'] })
+    total_cost?: Nullable<number>;
 
     @Property({ type: 'number', persist: false })
     message_count?: number;

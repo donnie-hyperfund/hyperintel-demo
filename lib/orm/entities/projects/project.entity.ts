@@ -21,6 +21,9 @@ export class ProjectEntity extends IdCreatedUpdatedColumns {
     @OneToMany('ChatEntity', (chat: ChatEntity) => chat.project)
     chats = new Collection<ChatEntity>(this);
 
+    @Property({ type: 'text', nullable: true })
+    preferred_model?: Nullable<string>;
+
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
 

@@ -24,6 +24,7 @@ export const ServerMsg = {
     MessageCreated: 'message_created',
     UserEvent: 'user_event',
     ModelChanged: 'model_changed',
+    CbStatusChanged: 'cb_status_changed',
 } as const;
 
 // ============================================================================
@@ -80,6 +81,7 @@ export type SubscribeResponseIdle = {
     type: typeof ServerMsg.SubscribeResponse;
     status: 'idle';
     selectedModel?: string | null;
+    completionBriefStatus?: string | null;
 };
 
 export type SubscribeResponseStreaming = {
@@ -91,6 +93,7 @@ export type SubscribeResponseStreaming = {
     /** Present when streaming a summary (not a normal chat response) */
     streamType?: 'chat' | 'summary';
     selectedModel?: string | null;
+    completionBriefStatus?: string | null;
 };
 
 export type SubscribeResponseStale = {
@@ -98,6 +101,7 @@ export type SubscribeResponseStale = {
     type: typeof ServerMsg.SubscribeResponse;
     status: 'stale';
     selectedModel?: string | null;
+    completionBriefStatus?: string | null;
 };
 
 export type SubscribeResponse = SubscribeResponseIdle | SubscribeResponseStreaming | SubscribeResponseStale;
@@ -141,6 +145,12 @@ export type ModelChangedMessage = {
     model: string;
 };
 
+export type CbStatusChangedMessage = {
+    topic: string;
+    type: typeof ServerMsg.CbStatusChanged;
+    status: string;
+};
+
 // --- Connection management ---
 
 export type HelloMessage = {
@@ -173,7 +183,8 @@ export type TopicMessage =
     | StreamStatusMessage
     | StreamStartedMessage
     | ChatMessageCreatedMessage
-    | ModelChangedMessage;
+    | ModelChangedMessage
+    | CbStatusChangedMessage;
 
 /** All possible server → client messages */
 export type ServerMessage = TopicMessage | HelloMessage | ErrorMessage | UserEventMessage;

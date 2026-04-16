@@ -1,7 +1,7 @@
-import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { wrap } from '@mikro-orm/core';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
+import { createEmbeddingQueueAdapter } from '@/lib/api/client/queue/embedding-queue.adapter';
 import { validatePayload } from '@/lib/api/validation';
 import { importPublicArtifactsToProject } from '@/lib/artifacts/import';
 import { broadcastUserEvent } from '@/lib/broadcast/user-event';
@@ -41,10 +41,7 @@ async function handleCreateProject(req: NextRequest, user: UserEntity): Promise<
 
     // Queue embeddings for imported public artifacts
     if (importResult && importResult.imported > 0) {
-        const embeddingQueue = createEmbeddingQueueAdapter({
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
-            authSecret: process.env.AUTH_SECRET,
-        });
+        const embeddingQueue = createEmbeddingQueueAdapter();
 
         const embedPromises = importResult.details
             .filter((d) => d.status === 'imported' && d.newVersionId && d.content)

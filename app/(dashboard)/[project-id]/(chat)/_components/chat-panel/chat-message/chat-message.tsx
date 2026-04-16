@@ -4,9 +4,10 @@ import { memo } from 'react';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
 import { DevSlot } from '@/lib/dev-slots';
-import type { Message } from '@/modules/chat/types';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import type { Message } from '@/modules/chat/types';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
+import { ActiveInternalDocs } from './active-internal-docs';
 import { DocumentDirective } from './document-directive';
 import { UploadDirective } from './file-directive';
 import { MessageThinkingBlock } from './message-thinking-block';
@@ -42,7 +43,17 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                     </div>
                 </div>
                 <div className="flex justify-end">
-                    <DevSlot name="message-actions" chatId={chatId} messageId={message.id} content={text} role="user" blocks={blocks} feedbackScore={message.feedbackScore} feedbackComment={message.feedbackComment} />
+                    <DevSlot
+                        name="message-actions"
+                        chatId={chatId}
+                        messageId={message.id}
+                        content={text}
+                        role="user"
+                        blocks={blocks}
+                        feedbackScore={message.feedbackScore}
+                        feedbackComment={message.feedbackComment}
+                        metadata={message.metadata}
+                    />
                 </div>
             </div>
         );
@@ -87,6 +98,8 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
 
                 {isStreaming && !textContent && thinkingBlocks.length === 0 && <TypingIndicator />}
 
+                {isStreaming && <ActiveInternalDocs />}
+
                 {message.isError && (
                     <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
                         Sorry, there was an error processing your request. Please try again.
@@ -99,7 +112,17 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                     </div>
                 )}
             </div>
-            <DevSlot name="message-actions" chatId={chatId} messageId={message.id} content={textContent} role="assistant" blocks={blocks} feedbackScore={message.feedbackScore} feedbackComment={message.feedbackComment} />
+            <DevSlot
+                name="message-actions"
+                chatId={chatId}
+                messageId={message.id}
+                content={textContent}
+                role="assistant"
+                blocks={blocks}
+                feedbackScore={message.feedbackScore}
+                feedbackComment={message.feedbackComment}
+                metadata={message.metadata}
+            />
         </div>
     );
 });

@@ -55,10 +55,13 @@ export function createPhaseTransitionTools() {
     return [
         {
             name: 'generate_summary' as const,
-            description: `End the current phase and generate a Completion Brief.
+            description: `End the current phase and transition to the next one.
 
 This is a TERMINAL tool — calling it immediately ends the conversation turn.
-The system will automatically create a Completion Brief document summarizing this phase's work and transition to the next phase.
+The system will generate a summary of this phase's work and create the next phase chat.
+
+IMPORTANT: A Completion Brief must be generated and approved BEFORE calling this tool.
+If no approved Completion Brief exists, do NOT call this tool — instead, ask the user if they want to generate one first (using the completion_brief tool).
 
 ONLY call this when the user explicitly wants to move to the next phase.
 Do NOT call this for general summaries or recaps — those should be written as regular text responses.`,

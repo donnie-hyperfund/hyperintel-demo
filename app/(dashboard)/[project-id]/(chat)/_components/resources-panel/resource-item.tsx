@@ -1,7 +1,7 @@
 import { Info, Loader2, Trash2 } from 'lucide-react';
 import { type Ref, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { CamelCaseDto } from '@/lib/api/client/types';
 import { getArtifactDocumentType } from '@/lib/artifacts/utils';
@@ -90,14 +90,13 @@ function AlwaysAttachedInfo() {
 
 function RemoveButton({ onClick, disabled }: { onClick: (e: React.MouseEvent) => void; disabled: boolean }) {
     return (
-        <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-2 top-1/2 -translate-y-1/2 size-7 opacity-0 max-md:opacity-100 group-hover:opacity-100 transition-opacity text-neutral-500 hover:text-red-400"
+        <IconButton
+            size="sm"
+            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 max-md:opacity-100 group-hover:opacity-100 transition-opacity hover:text-red-400"
             onClick={onClick}
             disabled={disabled}
         >
-            {disabled ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-        </Button>
+            {disabled ? <Loader2 className="animate-spin" /> : <Trash2 />}
+        </IconButton>
     );
 }

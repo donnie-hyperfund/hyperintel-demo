@@ -16,10 +16,13 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
-import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import type { QueueAdapter } from '@common/common/queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
+import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
@@ -37,6 +40,7 @@ import {
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
+import { pecpKeyForDocument, shouldGeneratePECP } from './pecp-service';
 
 // ============================================================================
 // TYPES
@@ -54,17 +58,20 @@ export interface DocumentToolsContext {
     /** Draft manager instance */
     draftManager: DraftManager;
     /** Embedding queue adapter for async indexing (optional) */
-    embeddingQueue?: EmbeddingQueueAdapter;
+    embeddingQueue?: QueueAdapter;
     /** Preview branch alias for queue messages (so downstream workers connect to the correct DB branch) */
     previewAlias?: string | null;
     /** Version IDs created during this turn - will be linked to assistant message after persist */
     createdVersionIds: string[];
+    /** Set by finalize_document when an internal doc needs a PECP generated next */
+    pendingPECP?: { parentDocument: string; parentDocumentType: string; pecpKey: string } | null;
     /** Optional callback fired when a new artifact version is created (for user-scoped broadcasts) */
     onVersionCreated?: (event: {
         artifactName: string;
         versionId: string;
         version: number;
         action: 'created' | 'proposed';
+        documentType?: string | null;
     }) => void;
 }
 
@@ -89,7 +96,9 @@ export const DocumentToolGroup: AgentToolGroup = {
 3. \`finalize_document\` - Save (MUST call or content is lost)
 
 ## Editing Strategy
+- When editing an existing document you did NOT just create in this turn, ALWAYS \`read_document\` first to see the current content and line numbers before patching.
 - \`patch_document\` edits are **atomic and verified** — the tool confirms success. Do NOT re-read a document after patching to check your work.
+- when using \`patch_document\` make sure the fields in your JSON output are properly escaped. JSON does not allow plain newlines for example - the tool call will fail to parse.
 - Batch ALL pending edits into a single \`patch_document\` call. Multiple small patches waste tool calls.
 - If you need to rewrite most of a document (>50% changing), use \`write_document\` to replace the entire content instead of many patches.
 - The pattern \`read → patch → read → patch\` is a wasteful anti-pattern. Read once, patch once (with all edits), finalize.
@@ -143,8 +152,17 @@ When the user asks about a specific file or document (e.g., "what's in the UX do
 3. Then use \`read_document\` with the exact document name to view its full content.
 Never skip straight to \`read_document\` with a guessed name — always discover the correct name first via search or listing.
 
+## PECP — PE Communication Protocol (MANDATORY)
+After finalizing any internal document, finalize_document will instruct you to generate a PECP.
+The PECP is the PE-facing communication for the deliverable — use the PECP stage templates from your loaded prompts (Identity Framework Part 10).
+**This is the ONE exception to the "no proactive documents" rule.** When finalize_document returns \`pecpRequired\`, you MUST immediately:
+1. Call \`begin_document\` with the exact name, document_type="PECP", and parent_document as specified
+2. Write the PECP using the appropriate stage template from your system prompt
+3. Call \`finalize_document\` — the PECP will be auto-approved
+After the PECP is finalized, STOP and wait for the user.
+
 ## Proactive Actions (FORBIDDEN)
-**NEVER create documents the user did not explicitly request.** After an approval, rejection, or restore (whether via chat or \`<system>\` event), STOP and wait for the user's next message. Do NOT:
+**NEVER create documents the user did not explicitly request** (except PECPs as described above). After an approval, rejection, or restore (whether via chat or \`<system>\` event), STOP and wait for the user's next message. Do NOT:
 - Automatically start creating "the next logical document"
 - Generate follow-up content without being asked
 - Chain approvals into new document creation
@@ -153,7 +171,7 @@ Never skip straight to \`read_document\` with a guessed name — always discover
 - Mention "Phase 2", "next step", or suggest what comes next — let the user drive the workflow
 Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
     behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: When you receive a <system> event indicating an artifact was RESTORED, the action is ALREADY DONE — use read_document to read the restored version (it is now the current approved version), include a ::document[name]{version=N lines=L} directive in your response (using name, version, and totalLines from read_document), briefly acknowledge the restore and ask how the user wants to proceed. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request. After approving or restoring a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the action. Only create documents when the user explicitly asks for them.',
+        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: When you receive a <system> event indicating an artifact was RESTORED, the action is ALREADY DONE — use read_document to read the restored version (it is now the current approved version), include a ::document[name]{version=N lines=L} directive in your response (using name, version, and totalLines from read_document), briefly acknowledge the restore and ask how the user wants to proceed. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving, rejecting, or restoring a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the action. Only create documents when the user explicitly asks for them.',
     tools: [
         'begin_document',
         'write_document',
@@ -179,15 +197,16 @@ const BeginDocumentParams = z.object({
         ),
     name: z.string().min(1).describe('Document name (e.g., "analysis.md"). Extension auto-appended if missing.'),
     title: z.string().optional().nullable().describe('Display title for the document (required for create).'),
-    is_internal: z
-        .boolean()
-        .default(true)
-        .describe(
-            'Whether this is an internal document (content hidden from user). Set to false for client deliverables that the user should see. In edit mode, you should generally keep the same value as the existing version.',
-        ),
     document_type: DocumentTypeSchema.describe(
-        'Classification of the document type. Must be one of the allowed types. In edit mode, you should generally keep the same value as the existing version.',
+        'Classification of the document type. Must be one of the allowed types. The type determines whether the document is internal (hidden from the user) or a client deliverable (visible) — no separate flag is needed. In edit mode, you should generally keep the same value as the existing version.',
     ),
+    parent_document: z
+        .string()
+        .optional()
+        .nullable()
+        .describe(
+            "Required for PECP document_type: the name of the parent internal document this PECP summarizes. The PECP will be linked to the parent's latest proposed version.",
+        ),
 });
 
 const WriteDocumentParams = z.object({
@@ -218,10 +237,18 @@ const ReadDocumentParams = z.object({
         .describe('Which version to read: "approved" (live), "proposed" (pending approval), "latest" (most recent).'),
     startLine: z.number().int().positive().optional().nullable().describe('First line to return (1-indexed).'),
     endLine: z.number().int().positive().optional().nullable().describe('Last line to return (inclusive).'),
+    skipImages: z.boolean().optional().default(false).describe('Skip embedded images and return text only.'),
 });
 
 const ListDocumentsParams = z.object({
     search: z.string().optional().nullable().describe('Optional filter by name/title substring.'),
+    silent: z
+        .boolean()
+        .optional()
+        .nullable()
+        .describe(
+            'If true, suppresses document cards in the UI. Use when checking documents internally (e.g. before editing). Default: false.',
+        ),
 });
 
 const ApproveDocumentParams = z.object({
@@ -253,30 +280,56 @@ Modes:
   • If rejected version exists → loads it with rejection reason (revise it)
   • Otherwise → loads approved version (start new changes)
 
-Internal vs Client Deliverable:
-- is_internal=true (default): Internal working document. Content is NOT visible to the user.
-- is_internal=false: Client deliverable. Content IS visible to the user in the UI.
-- In edit mode, you should generally keep the same is_internal value as the existing version.
-
-Document Type:
+Document Type (also controls visibility):
 - Classify the document with the appropriate document_type.
+- Internal working documents (Genesis DNA, Legacy DNA, Team Specification, MID, PSEB, Action Plan, Completion Brief, Company Profile, Human Persona) are hidden from the user.
+- All other types (Research Report, Executive Summary, PECP, Other) are client-visible deliverables.
 - In edit mode, you should generally keep the same document_type as the existing version.
 
 After calling this, use write_document to add content or patch_document for precise edits.
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
-                const { mode, name, title, document_type } = input;
-                let { is_internal } = input;
+                const { mode, name, title, document_type, parent_document } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
                 const scopeId = ctx.projectId ?? ctx.userId!;
 
-                // Enforce is_internal for internal document types
-                const isInternalType = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
-                const internalEnforced = isInternalType && !is_internal;
-                if (isInternalType) {
-                    is_internal = true;
+                // Internal/deliverable visibility is derived solely from document_type.
+                const is_internal = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
+
+                const isPECP = document_type === 'PECP';
+
+                // PECP validation: must have parent_document, must be create mode
+                if (isPECP) {
+                    if (!parent_document) {
+                        return {
+                            error: 'PECP documents require parent_document — the name of the internal document to summarize.',
+                        };
+                    }
+                    if (mode !== 'create') {
+                        return { error: 'PECP documents can only be created (mode="create"), not edited.' };
+                    }
+                }
+
+                // Resolve parent version for PECP
+                let parentVersionId: string | undefined;
+                if (isPECP && parent_document) {
+                    const parentNormalized = normalizeArtifactKey(parent_document);
+                    const parentDoc = await findDocumentByName(em, scope, parentNormalized);
+                    if (!parentDoc) {
+                        return { error: `Parent document "${parentNormalized}" not found.` };
+                    }
+                    // Find the latest proposed or approved version (covers both chat and summarizer flows)
+                    const parentVersion = await em.findOne(
+                        ArtifactVersionEntity,
+                        { artifact: parentDoc.id, status: { $in: ['proposed', 'approved'] } },
+                        { orderBy: { version: 'DESC' } },
+                    );
+                    if (!parentVersion) {
+                        return { error: `Parent document "${parentNormalized}" has no version to summarize.` };
+                    }
+                    parentVersionId = parentVersion.id;
                 }
 
                 const normalizedName = normalizeArtifactKey(name);
@@ -291,10 +344,18 @@ You MUST call finalize_document when done or content will be lost.`,
                     };
                 }
 
+                // Block direct editing of PECP artifacts — they are auto-generated from parent docs
+                if (existing?.isPECP && !isPECP) {
+                    return {
+                        error: `Document "${normalizedName}" is a PECP (auto-generated PE Communication). It cannot be edited directly — edit the parent internal document instead, and a new PECP will be generated automatically.`,
+                    };
+                }
+
                 // Validate based on mode
                 // Allow create on deleted artifacts (overwrites / restores them)
+                // Allow create on PECP artifacts (they get replaced with each new parent version)
                 const isDeleted = existing?.currentStatus === 'deleted';
-                if (mode === 'create' && existing && !isDeleted) {
+                if (mode === 'create' && existing && !isDeleted && !isPECP) {
                     return {
                         error: `Document "${normalizedName}" already exists. Use mode="edit" to modify it.`,
                     };
@@ -313,11 +374,12 @@ You MUST call finalize_document when done or content will be lost.`,
                             scopeId,
                             normalizedName,
                             docTitle,
-                            mode,
+                            isPECP && existing ? 'replace' : mode,
                             '',
                             undefined,
                             is_internal,
                             document_type,
+                            parentVersionId,
                         );
                         return {
                             status: 'editing',
@@ -327,13 +389,15 @@ You MUST call finalize_document when done or content will be lost.`,
                             is_internal: draft.is_internal,
                             document_type: draft.document_type,
                             lines: 0,
+                            ...(isPECP &&
+                                parent_document && {
+                                    isPECP: true,
+                                    parentDocument: normalizeArtifactKey(parent_document),
+                                }),
                             ...(isDeleted && { previouslyDeleted: true }),
-                            ...(internalEnforced && { internalEnforced: true }),
                             message: isDeleted
                                 ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
-                                : internalEnforced
-                                  ? `Draft started. Use write_document to add content, then finalize_document. Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
-                                  : 'Draft started. Use write_document to add content, then finalize_document.',
+                                : 'Draft started. Use write_document to add content, then finalize_document.',
                         };
                     } catch (err: any) {
                         return { error: err.message };
@@ -387,12 +451,7 @@ You MUST call finalize_document when done or content will be lost.`,
                         deleted: `Document was deleted (v${loadedVersion}). Loaded deleted content. Finalizing will restore it as a new proposed version.`,
                     };
 
-                    const message = internalEnforced
-                        ? `${messages[loadedFrom]} Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
-                        : messages[loadedFrom];
-
                     const nextVersion = existing!.latestVersion + 1;
-
                     return {
                         status: 'editing',
                         mode: 'edit',
@@ -406,9 +465,8 @@ You MUST call finalize_document when done or content will be lost.`,
                         loadedVersion,
                         nextVersion,
                         lines: countLines(draft.content),
-                        message,
+                        message: messages[loadedFrom],
                         ...(isDeleted && { previouslyDeleted: true }),
-                        ...(internalEnforced && { internalEnforced: true }),
                         ...(rejectionReason && { rejectionReason }),
                     };
                 } catch (err: any) {
@@ -460,8 +518,12 @@ Each edit: line range + exact oldContent to find + newContent replacement.
 Edits are atomic - all succeed or none apply. No need to read_document between patches.`,
             parameters: PatchDocumentParams,
             executor: (input: z.infer<typeof PatchDocumentParams>, ctx: DocumentToolsContext) => {
-                const { edits } = input;
+                const { edits } = input ?? {};
                 const { draftManager } = ctx;
+
+                if (!edits?.length) {
+                    return { error: 'patch_document requires at least one edit in the edits array.' };
+                }
 
                 try {
                     const draft = draftManager.requireCurrent();
@@ -528,31 +590,70 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
 
-                    // Notify listener (user-scoped broadcast) — fire-and-forget
+                    // Notify listener (user-scoped broadcast)
                     ctx.onVersionCreated?.({
                         artifactName: draft.name,
                         versionId: result.versionId,
                         version: result.version,
                         action: result.action,
+                        documentType: draft.document_type,
                     });
 
-                    // Only clear draft after successful persist
                     draftManager.discard();
 
-                    // Queue embedding job for the new version (fire-and-forget)
+                    // ── PECP path ────────────────────────────────────────────
+                    // Auto-approve, link parent, mark artifact, no embedding,
+                    // no AI content, no chat directive.
+                    if (draft.document_type === 'PECP') {
+                        if (draft.parentVersionId) {
+                            const pecpVersion = await em.findOneOrFail(
+                                ArtifactVersionEntity,
+                                { id: result.versionId },
+                                { populate: ['artifact'] },
+                            );
+                            pecpVersion.status = 'approved';
+                            pecpVersion.status_changed_at = new Date();
+                            pecpVersion.parent_version = em.getReference(ArtifactVersionEntity, draft.parentVersionId);
+                            pecpVersion.artifact.is_pecp = true;
+                            pecpVersion.artifact.current_version = pecpVersion;
+                            await em.flush();
+                        }
+
+                        ctx.pendingPECP = null;
+
+                        return {
+                            result: {
+                                action: result.action,
+                                name: draft.name,
+                                version: result.version,
+                                status: 'approved',
+                                lines: result.lines,
+                                isPECP: true,
+                            },
+                            appendedOutput: '',
+                            message: `PECP saved and auto-approved as v${result.version}.`,
+                        };
+                    }
+
+                    // ── Completion Brief tracking ────────────────────────────
+                    if (draft.document_type === 'Completion Brief') {
+                        const chatEntity = await em.findOne(ChatEntity, { id: chatId });
+                        if (chatEntity) {
+                            chatEntity.completion_brief = em.getReference('ArtifactEntity', result.artifactId) as any;
+                            chatEntity.completion_brief_status = 'proposed';
+                            await em.flush();
+                        }
+                    }
+
+                    // ── Regular document path ────────────────────────────────
+                    // Embedding + AI content classification (fire-and-forget, non-blocking)
                     if (embeddingQueue && (ctx.projectId || ctx.chatId)) {
-                        // Classify document to determine if AI-readable content should be generated
-                        const generateAiContent = rCtx
-                            ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
-                            : true; // Default to true if no context
+                        const classifyAndEmbed = async () => {
+                            const generateAiContent = rCtx
+                                ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
+                                : true;
 
-                        console.log('[finalize_document] AI content classification:', {
-                            documentName: draft.name,
-                            generateAiContent,
-                        });
-
-                        const embedPromise = embeddingQueue
-                            .send({
+                            await embeddingQueue.send({
                                 type: 'index_artifact_version',
                                 projectId: ctx.projectId ?? null,
                                 chatId: ctx.chatId ?? null,
@@ -561,8 +662,12 @@ If a proposed version already exists, it will be marked as "superseded".`,
                                 documentName: draft.name,
                                 is_ai_content: generateAiContent,
                                 previewAlias: ctx.previewAlias,
-                            })
-                            .catch((err) => console.error('[finalize_document] Embedding queue error:', err));
+                            });
+                        };
+
+                        const embedPromise = classifyAndEmbed().catch((err) =>
+                            console.error('[finalize_document] Classify/embed error:', err),
+                        );
 
                         rCtx?.eCtx?.waitUntil(embedPromise);
                     }
@@ -582,6 +687,20 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     if (result.supersededVersion) {
                         response.supersededVersion = result.supersededVersion;
                         response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded. STOP HERE — do not create any more documents until the user asks.`;
+                    }
+
+                    // Internal documents → instruct agent to generate PECP
+                    if (shouldGeneratePECP(draft.document_type)) {
+                        const pecpKey = pecpKeyForDocument(draft.name);
+                        const pecpInfo = {
+                            parentDocument: draft.name,
+                            parentDocumentType: draft.document_type,
+                            pecpKey,
+                        };
+                        response.pecpRequired = pecpInfo;
+                        // Store on context so onTurnComplete can nudge the agent
+                        ctx.pendingPECP = pecpInfo;
+                        response.message = `Saved as proposed v${result.version}. Awaiting user approval. Now you MUST generate a PECP for this "${draft.document_type}". Call begin_document with mode="create", name="${pecpKey}", document_type="PECP", parent_document="${draft.name}". Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
                     }
 
                     return response;
@@ -604,16 +723,18 @@ Otherwise returns the requested version from the database.
 Version options:
 - "approved": The live version (what users see)
 - "proposed": The pending version awaiting approval
-- "latest": The most recent version regardless of status (default)`,
+- "latest": The most recent version regardless of status (default)
+
+Embedded images are included by default. Pass skipImages: true for text-only output.`,
             parameters: ReadDocumentParams,
-            executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext) => {
-                const { name, version: versionMode, startLine, endLine } = input;
+            executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
+                const { name, version: versionMode, startLine, endLine, skipImages } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
 
                 const normalizedName = normalizeArtifactKey(name);
 
-                // Check for active editing draft first
+                // Check for active editing draft first — no image resolution for drafts
                 const draft = draftManager.getCurrent();
                 if (draft && draft.name === normalizedName) {
                     const viewport = extractViewport(draft.content, startLine ?? undefined, endLine ?? undefined);
@@ -690,11 +811,20 @@ Version options:
 
                 const viewport = extractViewport(content, startLine ?? undefined, endLine ?? undefined);
 
+                // Resolve documentType from the version source
+                const documentType =
+                    source === 'proposed'
+                        ? doc.proposedDocumentType
+                        : source === 'rejected'
+                          ? doc.rejectedDocumentType
+                          : (doc.currentDocumentType ?? 'Other');
+
                 const response: Record<string, unknown> = {
                     source,
                     name: normalizedName,
                     version,
                     status: source,
+                    documentType,
                     totalLines: viewport.totalLines,
                     viewport: { startLine: viewport.startLine, endLine: viewport.endLine },
                     content: viewport.content,
@@ -708,6 +838,22 @@ Version options:
                 if (source === 'proposed' && doc.approvedVersion !== null) {
                     response.hasApproved = true;
                     response.approvedVersion = doc.approvedVersion;
+                }
+
+                // Resolve artifact images — sign refs and return multimodal content.
+                // Refs stay in toolOutput text (stable for DB, needed by Chat Completions replacement).
+                if (!skipImages && rCtx) {
+                    const hydrated = await hydrateArtifactImages(viewport.content, rCtx.env, {
+                        projectId: ctx.projectId,
+                        chatId: ctx.chatId,
+                    });
+                    if (hydrated) {
+                        return {
+                            result: response,
+                            imageRefs: hydrated.imageRefs,
+                            contentParts: hydrated.contentParts,
+                        };
+                    }
                 }
 
                 return response;
@@ -725,26 +871,45 @@ Shows for each document:
 - currentVersion: The approved (live) version number, or null if none approved yet
 - latestVersion: The most recent version number (any status)
 - latestStatus: Status of the latest version (proposed/approved/rejected/superseded)
-- hasProposed: Whether there's a proposed version awaiting approval`,
+- hasProposed: Whether there's a proposed version awaiting approval
+
+IMPORTANT: Document cards are automatically rendered in the UI from this tool's output. Do NOT repeat, list, or summarize individual documents in your text response (no tables, no bullet lists of documents). Just provide a brief commentary or answer the user's question.
+
+Use \`silent: true\` when you need to check documents internally (e.g. before editing, verifying status) without showing cards to the user.`,
             parameters: ListDocumentsParams,
             executor: async (input: z.infer<typeof ListDocumentsParams>, ctx: DocumentToolsContext) => {
-                const { search } = input;
+                const { search, silent } = input;
                 const { em } = ctx;
                 const scope = getScope(ctx);
 
                 const documents = await listDocumentsDb(em, scope, search ? { search } : undefined);
 
+                const mapped = documents.map((d: DocumentListItem) => ({
+                    name: d.name,
+                    title: d.title,
+                    lines: d.lines,
+                    documentType: d.documentType,
+                    currentVersion: d.currentVersion,
+                    latestVersion: d.latestVersion,
+                    latestStatus: d.latestStatus,
+                    hasProposed: d.hasProposed,
+                    ...(d.isReadOnly && { isReadOnly: true }),
+                }));
+
+                if (silent) {
+                    return { documents: mapped };
+                }
+
+                const directives = documents
+                    .map(
+                        (d: DocumentListItem) =>
+                            `::document[${d.name}]{version=${d.latestVersion} lines=${d.lines} documentType="${d.documentType}" ref}`,
+                    )
+                    .join('\n');
+
                 return {
-                    documents: documents.map((d: DocumentListItem) => ({
-                        name: d.name,
-                        title: d.title,
-                        lines: d.lines,
-                        currentVersion: d.currentVersion,
-                        latestVersion: d.latestVersion,
-                        latestStatus: d.latestStatus,
-                        hasProposed: d.hasProposed,
-                        ...(d.isReadOnly && { isReadOnly: true }),
-                    })),
+                    result: { documents: mapped },
+                    appendedOutput: directives,
                 };
             },
         },

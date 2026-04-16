@@ -1,7 +1,7 @@
 import type { ScopedMutator } from 'swr';
-import { unstable_serialize } from 'swr/infinite';
 import type { CreateProjectBodyDto, ProjectDto, ProjectListStatus, UpdateProjectBodyDto } from '@/lib/schema/project';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
+import { revalidateProjectInfiniteLists } from '../cache/project-lists';
 import type { CamelCaseDto, PaginatedResponse, PaginationParams } from '../types';
 
 const ENDPOINTS = {
@@ -28,13 +28,8 @@ export function getProjectListInfiniteKey(status?: ProjectListStatus, limit = 20
     };
 }
 
-export function serializeProjectListKey(status?: ProjectListStatus, limit = 20) {
-    return unstable_serialize(getProjectListInfiniteKey(status, limit));
-}
-
-export function invalidateProjectLists(globalMutate: ScopedMutator) {
-    globalMutate(serializeProjectListKey('active'));
-    globalMutate(serializeProjectListKey('archived'));
+export function invalidateProjectLists(globalMutate: ScopedMutator, affectedProjectId?: string) {
+    revalidateProjectInfiniteLists(affectedProjectId);
     globalMutate((key: unknown) => Array.isArray(key) && key[0] === projectKeys.all[0] && key[1] === 'list');
 }
 

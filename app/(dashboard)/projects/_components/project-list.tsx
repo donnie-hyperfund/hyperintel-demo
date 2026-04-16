@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { registerProjectListMutator } from '@/lib/api/client/cache/project-lists';
 import { useFetchProjectsInfinite } from '@/lib/api/client/hooks/use-projects';
 import type { CamelCaseDto } from '@/lib/api/client/types';
 import { setCurrentProjectCookie } from '@/lib/cookies/project';
@@ -23,7 +24,7 @@ type ProjectListProps = {
 
 export const ProjectList = ({ status, onEmptyChange }: ProjectListProps) => {
     const { user } = useUser();
-    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchProjectsInfinite({
+    const { data, error, isLoading, size, setSize, hasNextPage, mutate } = useFetchProjectsInfinite({
         limit: PAGE_SIZE,
         status,
     });
@@ -32,6 +33,25 @@ export const ProjectList = ({ status, onEmptyChange }: ProjectListProps) => {
         if (!data) return [];
         return data.flatMap((page) => page.data);
     }, [data]);
+
+    useEffect(
+        () =>
+            registerProjectListMutator((affectedProjectId) => {
+                if (affectedProjectId) {
+                    mutate(
+                        (pages) =>
+                            pages?.map((page) => ({
+                                ...page,
+                                data: page.data.filter((p) => p.id !== affectedProjectId),
+                            })),
+                        { revalidate: true },
+                    );
+                } else {
+                    mutate();
+                }
+            }),
+        [mutate],
+    );
 
     useEffect(() => {
         if (!isLoading) {

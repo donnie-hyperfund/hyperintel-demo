@@ -25,6 +25,8 @@ const FALLBACK_MODELS = [
     COMMON_MODELS.MIMO_V2,
     COMMON_MODELS.CLAUDE_HAIKU,
 ];
+/** Max time for the entire safety check (prompt load + all model attempts). Fail-open on timeout. */
+const SAFETY_CHECK_TIMEOUT_MS = 15_000;
 
 const GUARD_PROMPT_SLUG = 'safety/guard-prompt';
 
@@ -104,6 +106,20 @@ export async function safetyCheck(ctx: Ctx, message: string): Promise<SafetyVerd
     // Quick check: if no OpenRouter SDK, fail open
     if (!ctx.orouterSdk) return null;
 
+    // Wrap entire check in a timeout — a hanging API call must never block generation
+    let timer: ReturnType<typeof setTimeout>;
+    return Promise.race([
+        safetyCheckInner(ctx, message).finally(() => clearTimeout(timer)),
+        new Promise<null>((resolve) => {
+            timer = setTimeout(() => {
+                console.warn('[safetyCheck] timed out after', SAFETY_CHECK_TIMEOUT_MS, 'ms — failing open');
+                resolve(null);
+            }, SAFETY_CHECK_TIMEOUT_MS);
+        }),
+    ]);
+}
+
+async function safetyCheckInner(ctx: Ctx, message: string): Promise<SafetyVerdict | null> {
     const prompt = await getGuardPrompt(ctx);
     if (!prompt) return null;
 

@@ -7,10 +7,15 @@
  */
 
 import type { AgentStreamEvent } from '@common/ai/agent';
+import type { ContentPart, ImageContentPart } from '@common/ai/inference/types';
 import { serializeException, stringifyError } from '@/common/ai/utils';
+import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
+import { buildArtifactImageContentParts } from '@/lib/markdown/artifact-images';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
+import { generateSignedImageUrls } from '../uploads/image-uploader';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
 
 // ============================================================================
@@ -175,8 +180,8 @@ export function handleCommonStreamEvent(
 // ============================================================================
 
 export interface Pusher {
-    /** Fire-and-forget push to ChatStreamDO with auto-incrementing seq. Applies backpressure when too many in-flight. */
-    push: (events: StreamEvent[]) => void | Promise<void>;
+    /** Fire-and-forget push to ChatStreamDO with auto-incrementing seq. */
+    push: (events: StreamEvent[]) => void;
     /** Await all in-flight pushes (call before terminal events). */
     waitAll: () => Promise<void>;
     /** Current sequence number (for the final awaited push of the terminal event). */
@@ -190,24 +195,8 @@ export interface Pusher {
 export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher {
     let pushSeq = 0;
     const inflightPushes: Promise<void>[] = [];
-
-    const cleanup = () => {
-        // Remove settled promises to prevent unbounded growth
-        for (let i = inflightPushes.length - 1; i >= 0; i--) {
-            const settled = Promise.race([inflightPushes[i].then(() => true), Promise.resolve(false)]);
-            settled.then((done) => {
-                if (done) inflightPushes.splice(i, 1);
-            });
-        }
-    };
-
     return {
-        push: async (events: StreamEvent[]) => {
-            // Backpressure: wait for at least one to settle if too many in-flight
-            if (inflightPushes.length >= 10) {
-                await Promise.race(inflightPushes);
-                cleanup();
-            }
+        push: (events: StreamEvent[]) => {
             const p = streamDO.push(events, pushSeq++).catch((err) => console.error(`[${label}] push failed:`, err));
             inflightPushes.push(p);
         },
@@ -310,14 +299,77 @@ export function createEventCollector(): { enqueue: (data: object | string) => bo
 
 /**
  * Load chat messages from DB and map to inference-ready format.
+ * For user messages with attached images, generates signed URLs and
+ * builds multimodal ContentPart[] content.
  */
-export async function loadChatHistory(em: any, chatId: string) {
-    const dbMessages = await em
-        .createQueryBuilder(ChatMessageEntity, 'm')
-        .select('m.*')
-        .where({ chat: chatId })
-        .orderBy({ 'm.created_at': 'ASC' })
-        .getResult();
+export async function loadChatHistory(em: any, chatId: string, env?: Env) {
+    // Load messages and image files in parallel
+    const [dbMessages, imageFiles] = await Promise.all([
+        em
+            .createQueryBuilder(ChatMessageEntity, 'm')
+            .select('m.*')
+            .where({ chat: chatId })
+            .orderBy({ 'm.created_at': 'ASC' })
+            .getResult(),
+        env
+            ? em.find(ChatMessageFileEntity, {
+                  chat_id: chatId,
+                  chat_message: { $ne: null },
+                  status: 'uploaded',
+              })
+            : Promise.resolve([]),
+    ]);
+
+    // Group image files by message ID
+    const filesByMessage = new Map<string, ChatMessageFileEntity[]>();
+    for (const file of imageFiles as ChatMessageFileEntity[]) {
+        const msgId = typeof file.chat_message === 'object' ? (file.chat_message as any)?.id : file.chat_message;
+        if (!msgId) continue;
+        const existing = filesByMessage.get(msgId);
+        if (existing) existing.push(file);
+        else filesByMessage.set(msgId, [file]);
+    }
+
+    // Generate signed URLs for all image files (single batch)
+    const signedUrls =
+        env && imageFiles.length > 0
+            ? await generateSignedImageUrls(env, imageFiles as ChatMessageFileEntity[])
+            : new Map<string, string>();
+
+    // Reconstruct toolContentParts for tool blocks with toolImageRefs.
+    // toolContentParts is ephemeral (stripped before DB save), so we rebuild
+    // it from the stable toolImageRefs + freshly signed URLs.
+    if (env) {
+        // Collect all unique R2 keys across all tool blocks in history
+        const artifactImageKeys = new Set<string>();
+        const SCHEME = 'artifact-image://';
+        for (const m of dbMessages as ChatMessageEntity[]) {
+            if (!m.blocks) continue;
+            for (const b of m.blocks as any[]) {
+                if (b.type === 'tool_call' && b.toolImageRefs?.length) {
+                    for (const ref of b.toolImageRefs as string[]) {
+                        if (ref.startsWith(SCHEME)) {
+                            artifactImageKeys.add(ref.slice(SCHEME.length));
+                        }
+                    }
+                }
+            }
+        }
+
+        if (artifactImageKeys.size > 0) {
+            const artifactSignedUrls = await signArtifactImageKeys(env, [...artifactImageKeys]);
+
+            for (const m of dbMessages as ChatMessageEntity[]) {
+                if (!m.blocks) continue;
+                for (const b of m.blocks as any[]) {
+                    if (b.type !== 'tool_call' || !b.toolImageRefs?.length) continue;
+
+                    b.toolContentParts = buildArtifactImageContentParts(b.toolOutput ?? '', artifactSignedUrls);
+                }
+            }
+        }
+    }
+
     return dbMessages.map((m: ChatMessageEntity) => {
         if (m.is_error || m.is_aborted) {
             let safeContent = m.content || '';
@@ -332,6 +384,33 @@ export async function loadChatHistory(em: any, chatId: string) {
             }
             return { role: m.role as 'user' | 'assistant', content: safeContent };
         }
+
+        // Check for attached images on user messages
+        const msgFiles = filesByMessage.get(m.id);
+        if (m.role === 'user' && msgFiles?.length) {
+            const parts: ContentPart[] = [];
+            // Text content first
+            if (m.content) {
+                parts.push({ type: 'text', text: m.content });
+            }
+            // Image parts with signed URLs
+            for (const file of msgFiles) {
+                const url = signedUrls.get(file.id);
+                if (url) {
+                    parts.push({
+                        type: 'image',
+                        source: 'url',
+                        url,
+                        mediaType: file.mime_type as ImageContentPart['mediaType'],
+                    });
+                }
+            }
+            return {
+                role: 'user' as const,
+                content: parts.length > 0 ? parts : m.content,
+            };
+        }
+
         return {
             role: m.role as 'user' | 'assistant',
             content: m.content,

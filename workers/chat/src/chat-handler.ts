@@ -1,15 +1,16 @@
 import { runAgentStream } from '@common/ai/agent';
-import type { AgentStreamEvent } from '@common/ai/agent/types';
+import type { MessageUsage } from '@common/ai/agent/usage-types';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
-import { COMMON_MODELS } from '@common/ai/types';
-import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import { calculateCost, ensurePricingCache, getModelPricing } from '@common/ai/inference/openrouter-pricing';
 import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
+import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
-import type { SendChatActionDto, TokenBreakdown, TokenUsage } from '@/lib/schema/chat';
+import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
+import { getAvailablePresets, getDefaultPresetId, resolvePreset } from '@/lib/presets';
+import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from './context';
@@ -17,24 +18,22 @@ import { createNoopSafetyMonitor, createSafetyMonitor } from './safety/analyzer'
 import { isOutputSafetyEnabled } from './safety/config';
 import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
+import { CompletionBriefToolGroup, createCompletionBriefTools } from './tools/completion-brief';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
-import { createWebScrapeTools, type WebScrapeContext, WebScrapeToolGroup } from './tools/web-scrape';
-import type { ChatStreamDOStub, UserGatewayStub } from './utils/do-stubs';
-import { createDocumentEventHandler } from './utils/document-events';
+import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
+import type { UserGatewayStub } from './utils/do-stubs';
+import { captureWorkerPostHogEvent } from './utils/posthog';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
+import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
     cleanupStreamDO,
     createEnqueue,
-    createEventCollector,
-    createPusher,
     createSSEStream,
-    handleCommonStreamEvent,
     loadChatHistory,
     persistErrorMessage,
-    wireAbort,
 } from './utils/stream-utils';
 
 // ============================================================================
@@ -110,6 +109,7 @@ const PMA_ALIASES: Record<string, string> = {
     // Short forms
     initiation_protocol: 'pma/initiation-protocol',
     completion_protocol: 'pma/completion-protocol',
+    completion_brief: 'pma/completion-brief',
 
     // Conceptual aliases
     discovery_protocol: 'pma/initiation-protocol',
@@ -128,6 +128,7 @@ const PMA_DISPLAY_NAMES: Record<string, string> = {
     'pma/initiation-protocol': 'Project Initiation Protocol',
     'pma/execution-standards': 'Execution Standards',
     'pma/completion-protocol': 'Project Completion Protocol',
+    'pma/completion-brief': 'Completion Brief Template',
 };
 
 /** Slugs that are always loaded and cannot be unloaded */
@@ -142,6 +143,9 @@ const pmaPromptTools = createPromptTools(PMA_ALIASES, PMA_DISPLAY_NAMES, ALWAYS_
 
 const WEB_SEARCH_GUIDANCE = `## Web Search
 You have access to web_search for real-time information. Use it when you need current data, recent events, or facts you're uncertain about.`;
+
+const COMPLETION_BRIEF_GUIDANCE = `## Completion Briefs
+Before generating a Completion Brief, always call the \`completion_brief\` tool first. It loads the template and provides current phase context and document statuses.`;
 
 // ============================================================================
 // SECURITY BOUNDARY
@@ -224,7 +228,7 @@ export async function chatActionHandler(
     ctx: Ctx,
     options: ChatHandlerOptions = {},
 ): Promise<ChatActionResult | ReadableStream | Response> {
-    const { chatId, message, tempId } = data;
+    const { chatId, message, tempId, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
 
@@ -265,6 +269,19 @@ export async function chatActionHandler(
             created_at: requestStartedAt,
         });
         em!.persist(userMsg);
+
+        // Link uploaded image files to this message
+        if (imageFileIds?.length) {
+            const imageFiles = await em!.find(ChatMessageFileEntity, {
+                id: { $in: imageFileIds },
+                chat_id: chatId,
+                status: 'uploaded',
+                chat_message: null,
+            });
+            for (const file of imageFiles) {
+                file.chat_message = userMsg;
+            }
+        }
     }
 
     // Set activeAgentMessageId on chat entity
@@ -317,8 +334,16 @@ export async function chatActionHandler(
         // First event: IDs (read by GenerationProxyDO, returned to frontend)
         enqueue({ type: 'ids', userMessageId, agentMessageId });
 
+        // SSE keepalive — prevents Cloudflare from killing the idle connection
+        // while runGeneration pushes content to ChatStreamDO (not to this SSE stream).
+        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+
         // Run generation inline — Worker stays alive because the DO reads this stream
-        await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        try {
+            await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+        } finally {
+            clearInterval(heartbeat);
+        }
 
         try {
             controller.close();
@@ -343,31 +368,23 @@ interface GenerationParams {
 }
 
 async function runGeneration(params: GenerationParams): Promise<void> {
-    const { data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub } = params;
+    const { data, ctx, options, chat, agentMessageId, ugStub } = params;
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
 
-    // Get ChatStream DO stub — already initialized by registerStream above
-    const alias = ctx.previewAlias;
-    const streamDO = ctx.env.CHAT_STREAM_DO.get(
-        ctx.env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, alias)),
-    ) as unknown as ChatStreamDOStub;
-
-    // Wire abort: ChatStreamDO abort → AbortController → runner's abortSignal
-    const abortController = wireAbort(streamDO);
-
-    // Fire-and-forget pusher — hoisted for catch block access
-    const pusher = createPusher(streamDO, 'chat-handler');
+    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'chat-handler');
 
     try {
-        if (!anthropic || !langfuse) {
-            throw new Error('Anthropic and Langfuse clients are required');
+        if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
+            throw new Error(
+                'Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)',
+            );
         }
 
         // Load history + safety check in parallel (doesn't slow happy path)
         // For nudge (message=null), skip safety check — the system event was injected server-side
         const [historyMessages, safetyVerdict] = await Promise.all([
-            loadChatHistory(em!, chatId),
+            loadChatHistory(em!, chatId, ctx.env),
             message ? safetyCheck(ctx, message) : Promise.resolve(null),
         ]);
 
@@ -375,13 +392,6 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
         // Load previously loaded prompts from chat metadata
         const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
-
-        // Create embedding queue adapter
-        const embeddingQueue = createEmbeddingQueueAdapter({
-            queue: ctx.env.EMBEDDING_QUEUE,
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
-            authSecret: process.env.AUTH_SECRET,
-        });
 
         // Track version IDs created during this turn
         const createdVersionIds: string[] = [];
@@ -393,13 +403,25 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             projectId: chat.project!.id,
             chatId: chat.id,
             draftManager: new DraftManager(),
-            embeddingQueue,
+            embeddingQueue: ctx.env.EMBEDDING_QUEUE,
             previewAlias: ctx.previewAlias,
             createdVersionIds,
             onVersionCreated: (event) => {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
                     .catch(console.error);
+
+                // Broadcast CB status change via chat-scoped UG topic
+                if (event.documentType === 'Completion Brief') {
+                    ugStub
+                        .systemAction(
+                            `chat:${chatId}`,
+                            'cbStatusChanged',
+                            { status: 'proposed' },
+                            ctx.previewAlias ?? undefined,
+                        )
+                        .catch(console.error);
+                }
             },
         };
 
@@ -416,8 +438,11 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             ctx,
             agentCtx.loadedPrompts,
             localPath,
-            WEB_SEARCH_GUIDANCE,
+            WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
         );
+
+        // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
+        if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
 
         // Determine inference params via preset resolution
         const presetId = data.model ?? getDefaultPresetId(ctx.env);
@@ -434,6 +459,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         // Define tools and tool groups
         const allTools = [
             ...pmaPromptTools,
+            ...createCompletionBriefTools(),
             ...createDocumentTools(),
             ...createKnowledgeTools(),
             ...createWebScrapeTools(),
@@ -441,6 +467,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         ];
         const toolGroups = [
             PromptManagementToolGroup,
+            CompletionBriefToolGroup,
             DocumentToolGroup,
             KnowledgeSearchToolGroup,
             WebScrapeToolGroup,
@@ -465,39 +492,32 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                 config: {
                     maxToolCalls: 100,
                     getSystemPrompt: async () =>
-                        buildSystemPrompt(ctx, agentCtx.loadedPrompts, localPath, WEB_SEARCH_GUIDANCE),
+                        buildSystemPrompt(
+                            ctx,
+                            agentCtx.loadedPrompts,
+                            localPath,
+                            WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
+                        ),
                     statusUpdates: { enabled: true },
                     preprocessContext,
                     abortSignal: abortController.signal,
-                    onTurnComplete: () => {
-                        if (agentCtx.draftManager.hasActive()) {
-                            return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
-                        }
-                        return null;
-                    },
+                    onTurnComplete: createOnTurnComplete(agentCtx, { pecp: true }),
                 },
             },
         );
 
-        // Event collector for DO push (replaces SSE enqueue)
-        const collector = createEventCollector();
-        const state = { wasTool: false };
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
-
-        const fireAndForgetPush = pusher.push;
 
         const outputSafetyEnabled = isOutputSafetyEnabled(ctx.env);
 
         // Inline safety monitor — checks content every few seconds, aborts on leak.
-        // When disabled, keep the same call sites but swap in a no-op monitor.
         const safetyMonitor = outputSafetyEnabled
             ? createSafetyMonitor({
                   ctx,
                   userMessage: message ?? '',
                   onLeak: (result) => {
                       abortController.abort();
-                      // Push retract event to frontend
-                      fireAndForgetPush([
+                      pusher.push([
                           {
                               type: 'safety_retract',
                               reason: result.category,
@@ -509,196 +529,286 @@ async function runGeneration(params: GenerationParams): Promise<void> {
               })
             : createNoopSafetyMonitor();
 
-        // Document events queue — batched into the main push instead of separate RPCs
-        const pendingDocEvents: StreamEvent[] = [];
-        const docEvents = createDocumentEventHandler({ em: em!, projectId: agentCtx.projectId }, (docEvent) => {
-            const se = docEvent as StreamEvent;
-            pendingDocEvents.push(se);
-            options.onEvent?.(se);
-        });
-
-        // Stream loop — push events to ChatStream DO instead of SSE
-        for await (const event of stream) {
-            // Feed content deltas to safety monitor
-            if (event.type === 'delta') {
-                safetyMonitor.appendContent(event.content);
-            }
-
-            // Let document handler process the event (queues doc events locally)
-            await docEvents.handle(event);
-
-            // Delegate common events to collector
-            if (handleCommonStreamEvent(collector.enqueue, event, state)) {
-                const events = collector.drain();
-                // Combine queued doc events + main events into a single push
-                const combined = [...pendingDocEvents.splice(0), ...events];
-                if (combined.length > 0) {
-                    fireAndForgetPush(combined);
-                    if (options.onEvent) events.forEach((e) => options.onEvent!(e));
+        await runStreamLoop({
+            stream,
+            push: pusher.push,
+            docEventsCtx: { em: em!, projectId: agentCtx.projectId },
+            onAgentEvent: (event) => {
+                if (event.type === 'delta') {
+                    safetyMonitor.appendContent(event.content);
                 }
-                continue;
-            }
+                if (event.type === 'tool_call_complete' && options.onEvent) {
+                    options.onEvent({ type: 'tool_call_complete', tool: event.tool, id: event.id, input: event.input });
+                }
+            },
+            onSpecificEvent: async (event) => {
+                switch (event.type) {
+                    case 'done':
+                        pendingDoneEvent = {
+                            outputType: event.outputType,
+                            outputTool: event.outputTool,
+                            finalOutput: event.finalOutput,
+                        };
+                        break;
 
-            // Flush any doc events that weren't paired with a main event
-            if (pendingDocEvents.length > 0) {
-                fireAndForgetPush(pendingDocEvents.splice(0));
-            }
+                    case 'done_ext': {
+                        const isError = !!event.error;
+                        const isAborted = !!event.aborted;
+                        const streamLog = event.streamLog;
+                        const assistantContent = streamLog.fullContent ?? '';
 
-            // Chat-specific events
-            switch (event.type) {
-                case 'done':
-                    pendingDoneEvent = {
-                        outputType: event.outputType,
-                        outputTool: event.outputTool,
-                        finalOutput: event.finalOutput,
-                    };
-                    break;
+                        // --- Cost calculation from apiUsage ---
+                        const apiUsage = event.apiUsage;
+                        let messageUsage: MessageUsage | null = null;
 
-                case 'done_ext': {
-                    const isError = !!event.error;
-                    const isAborted = !!event.aborted;
-                    const streamLog = event.streamLog;
-                    const assistantContent = streamLog.fullContent ?? '';
+                        if (apiUsage && (apiUsage.totalInputTokens > 0 || apiUsage.totalOutputTokens > 0)) {
+                            let totalCost: number | undefined;
 
-                    // --- Persist agent message to DB (using pre-generated ID) ---
-                    let assistantMsg: ChatMessageEntity | null = null;
-                    if (isError || isAborted || assistantContent || streamLog.blocks.length > 0) {
-                        const debugData: Record<string, unknown> = {};
-                        if (event.inferenceLog) debugData.inferenceLog = event.inferenceLog;
-                        if (isError) {
-                            debugData.error = serializeException(event.error!.raw);
-                            debugData.rawResponse = event.error!.rawResponse ?? null;
-                        }
+                            if (apiUsage.providerCost != null) {
+                                totalCost = apiUsage.providerCost;
+                            } else {
+                                // Try OpenRouter cached pricing (accurate, per-model from API)
+                                const modelId = inferenceParams.params?.model as string | undefined;
+                                const orPricing = modelId ? await getModelPricing(modelId) : undefined;
+                                if (orPricing) {
+                                    totalCost = calculateCost(orPricing, {
+                                        inputTokens: apiUsage.totalInputTokens,
+                                        outputTokens: apiUsage.totalOutputTokens,
+                                        reasoningTokens: apiUsage.totalReasoningTokens,
+                                        cacheReadTokens: apiUsage.cacheReadTokens,
+                                        cacheWriteTokens: apiUsage.cacheWriteTokens,
+                                    });
+                                } else {
+                                    // Fallback to preset-defined pricing
+                                    const preset = getAvailablePresets(
+                                        ctx.env.ALLOWED_PRESETS,
+                                        ctx.env.BLOCKED_PRESETS,
+                                    ).find((p) => p.id === presetId);
+                                    if (preset?.pricing) {
+                                        totalCost =
+                                            (apiUsage.totalInputTokens * preset.pricing.inputPer1M) / 1_000_000 +
+                                            (apiUsage.totalOutputTokens * preset.pricing.outputPer1M) / 1_000_000;
+                                    }
+                                }
+                            }
 
-                        assistantMsg = em!.create(ChatMessageEntity, {
-                            id: agentMessageId,
-                            chat: chatId,
-                            role: 'assistant',
-                            content: assistantContent,
-                            reasoning: streamLog.fullReasoning || null,
-                            blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
-                            metadata: {
-                                preset: presetId,
-                                inference: extractInferenceMetadata(inferenceParams),
-                                ...(isError && { error: event.error!.message }),
-                            },
-                            ...(isError && { is_error: true }),
-                            ...(isAborted && { is_aborted: true }),
-                            ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
-                        });
-                        em!.persist(assistantMsg);
-                    }
-
-                    // Calculate token usage estimates
-                    let usedContextTokens = estimateContextTokens(allMessages);
-                    if (assistantContent) usedContextTokens += estimateTextTokens(assistantContent);
-                    if (streamLog.fullReasoning) usedContextTokens += estimateTextTokens(streamLog.fullReasoning);
-                    for (const block of streamLog.blocks) {
-                        if (block.type === 'tool_call') {
-                            usedContextTokens += estimateTextTokens(block.toolName);
-                            usedContextTokens += estimateTextTokens(
-                                typeof block.toolInput === 'string' ? block.toolInput : JSON.stringify(block.toolInput),
-                            );
-                            if (block.toolOutput) usedContextTokens += estimateTextTokens(block.toolOutput);
-                        }
-                    }
-
-                    const usedPromptTokens = estimateTextTokens(initialSystemPrompt);
-                    const toolTokens = estimateToolTokens(allTools, toolGroups);
-                    const usedTokens = usedContextTokens + usedPromptTokens + toolTokens.toolDefTokens;
-                    const tokenBreakdown: TokenBreakdown = {
-                        context: usedContextTokens,
-                        prompt: usedPromptTokens,
-                        promptTool: toolTokens.promptToolTokens,
-                        toolDef: toolTokens.toolDefTokens,
-                    };
-
-                    // Update chat metadata + clear activeAgentMessageId
-                    chat.metadata = {
-                        ...chat.metadata,
-                        loadedPrompts: Array.from(agentCtx.loadedPrompts),
-                    };
-                    chat.token_usage = { tokenBreakdown, usedTokens };
-                    chat.active_agent_message_id = null;
-
-                    // Save safety verdict to user message debug_data
-                    if (safetyVerdict && safetyVerdict.score > 0) {
-                        // Find the user message we just persisted (last user msg in chat)
-                        const userMsgs = await em!.find(
-                            ChatMessageEntity,
-                            { chat: chatId, role: 'user' },
-                            { orderBy: { created_at: 'DESC' }, limit: 1 },
-                        );
-                        if (userMsgs[0]) {
-                            userMsgs[0].debug_data = {
-                                ...((userMsgs[0].debug_data as Record<string, unknown>) ?? {}),
-                                safetyVerdict,
+                            messageUsage = {
+                                inputTokens: apiUsage.totalInputTokens,
+                                outputTokens: apiUsage.totalOutputTokens,
+                                ...(apiUsage.totalReasoningTokens && {
+                                    reasoningTokens: apiUsage.totalReasoningTokens,
+                                }),
+                                ...(apiUsage.cacheReadTokens && { cacheReadTokens: apiUsage.cacheReadTokens }),
+                                ...(apiUsage.cacheWriteTokens && { cacheWriteTokens: apiUsage.cacheWriteTokens }),
+                                ...(totalCost != null && { cost: totalCost }),
+                                segments: apiUsage.segments,
+                                providerIds: apiUsage.providerIds,
                             };
                         }
+
+                        // --- Persist agent message to DB (using pre-generated ID) ---
+                        let assistantMsg: ChatMessageEntity | null = null;
+                        const msgMetadata = {
+                            preset: presetId,
+                            inference: extractInferenceMetadata(inferenceParams),
+                            ...(isError && { error: event.error!.message }),
+                            ...(messageUsage && { usage: messageUsage }),
+                        };
+
+                        if (isError || isAborted || assistantContent || streamLog.blocks.length > 0) {
+                            const debugData: Record<string, unknown> = {};
+                            if (event.inferenceLog) debugData.inferenceLog = event.inferenceLog;
+                            if (isError) {
+                                debugData.error = serializeException(event.error!.raw);
+                                debugData.rawResponse = event.error!.rawResponse ?? null;
+                            }
+
+                            // Strip ephemeral toolContentParts (signed URLs) before DB persistence.
+                            // toolImageRefs (stable refs) are kept for history reconstruction.
+                            const blocksForDb =
+                                streamLog.blocks.length > 0
+                                    ? streamLog.blocks.map((b) =>
+                                          b.type === 'tool_call' && 'toolContentParts' in b
+                                              ? (({ toolContentParts, ...rest }) => rest)(b)
+                                              : b,
+                                      )
+                                    : null;
+
+                            assistantMsg = em!.create(ChatMessageEntity, {
+                                id: agentMessageId,
+                                chat: chatId,
+                                role: 'assistant',
+                                content: assistantContent,
+                                reasoning: streamLog.fullReasoning || null,
+                                blocks: blocksForDb,
+                                metadata: msgMetadata,
+                                ...(isError && { is_error: true }),
+                                ...(isAborted && { is_aborted: true }),
+                                ...(Object.keys(debugData).length > 0 && { debug_data: debugData }),
+                            });
+                            em!.persist(assistantMsg);
+                        }
+
+                        // Calculate token usage estimates
+                        let usedContextTokens = estimateContextTokens(allMessages);
+                        if (assistantContent) usedContextTokens += estimateTextTokens(assistantContent);
+                        if (streamLog.fullReasoning) usedContextTokens += estimateTextTokens(streamLog.fullReasoning);
+                        for (const block of streamLog.blocks) {
+                            if (block.type === 'tool_call') {
+                                usedContextTokens += estimateTextTokens(block.toolName);
+                                usedContextTokens += estimateTextTokens(
+                                    typeof block.toolInput === 'string'
+                                        ? block.toolInput
+                                        : JSON.stringify(block.toolInput),
+                                );
+                                if (block.toolOutput) usedContextTokens += estimateTextTokens(block.toolOutput);
+                            }
+                        }
+
+                        const usedPromptTokens = estimateTextTokens(initialSystemPrompt);
+                        const toolTokens = estimateToolTokens(allTools, toolGroups);
+                        const usedTokens = usedContextTokens + usedPromptTokens + toolTokens.toolDefTokens;
+                        const tokenBreakdown: TokenBreakdown = {
+                            context: usedContextTokens,
+                            prompt: usedPromptTokens,
+                            promptTool: toolTokens.promptToolTokens,
+                            toolDef: toolTokens.toolDefTokens,
+                        };
+
+                        // Update chat metadata + clear activeAgentMessageId
+                        chat.metadata = {
+                            ...chat.metadata,
+                            loadedPrompts: Array.from(agentCtx.loadedPrompts),
+                        };
+                        chat.token_usage = { tokenBreakdown, usedTokens };
+                        if (messageUsage?.cost != null) {
+                            chat.total_cost = Number(chat.total_cost ?? 0) + messageUsage.cost;
+                        }
+                        chat.active_agent_message_id = null;
+
+                        // Save safety verdict to user message debug_data
+                        if (safetyVerdict && safetyVerdict.score > 0) {
+                            // Find the user message we just persisted (last user msg in chat)
+                            const userMsgs = await em!.find(
+                                ChatMessageEntity,
+                                { chat: chatId, role: 'user' },
+                                { orderBy: { created_at: 'DESC' }, limit: 1 },
+                            );
+                            if (userMsgs[0]) {
+                                userMsgs[0].debug_data = {
+                                    ...((userMsgs[0].debug_data as Record<string, unknown>) ?? {}),
+                                    safetyVerdict,
+                                };
+                            }
+                        }
+
+                        // Flush assistant message before linking versions (FK requires row to exist)
+                        await em!.flush();
+
+                        ctx.eCtx?.waitUntil(
+                            captureWorkerPostHogEvent(ctx, 'worker_chat_turn_persisted', ctx.user.userId, {
+                                project_id: chat.project?.id ?? null,
+                                chat_id: chatId,
+                                agent_message_id: agentMessageId,
+                                outcome: isError ? 'error' : isAborted ? 'aborted' : 'done',
+                                model: msgMetadata.inference?.model as string | undefined,
+                                provider: msgMetadata.inference?.paramsType as string | undefined,
+                                used_tokens: usedTokens,
+                                context_tokens: tokenBreakdown.context,
+                                prompt_tokens: tokenBreakdown.prompt,
+                                tooldef_tokens: tokenBreakdown.toolDef,
+                                input_tokens: messageUsage?.inputTokens,
+                                output_tokens: messageUsage?.outputTokens,
+                                cost: messageUsage?.cost,
+                                created_version_count: createdVersionIds.length,
+                                assistant_content_length: assistantContent.length,
+                                has_pending_done_tool: pendingDoneEvent?.outputType === 'tool',
+                            }).catch((error) => console.error('[posthog] failed to capture chat turn:', error)),
+                        );
+
+                        // Link created document versions to the assistant message
+                        if (assistantMsg && createdVersionIds.length > 0) {
+                            await em!
+                                .createQueryBuilder(ArtifactVersionEntity)
+                                .update({ chat_message: assistantMsg.id })
+                                .where({ id: { $in: createdVersionIds } })
+                                .execute();
+                        }
+
+                        let hasPendingChanges = false;
+                        const phaseIndex = chat.phase_index;
+
+                        if (chat.project) {
+                            const artifacts = await em!.find(
+                                ArtifactEntity,
+                                { versions: { chat: chatId } },
+                                { populate: ['versions'] },
+                            );
+                            hasPendingChanges = artifacts.some((artifact) =>
+                                artifact.versions.getItems().some((v) => v.status === 'proposed'),
+                            );
+                        }
+
+                        // Push terminal done event to DO (subscriber gets it via broadcast)
+                        const isDev = ctx.env.ENV === 'dev';
+
+                        // Build safe message metadata for WS delivery (no error, safetyAnalysis, etc.)
+                        // Only include dev-only fields (preset, inference, usage) in dev mode
+                        const safeMessageMetadata: Record<string, unknown> | undefined = isDev
+                            ? {
+                                  ...(msgMetadata.preset && { preset: msgMetadata.preset }),
+                                  ...(msgMetadata.inference && { inference: msgMetadata.inference }),
+                                  ...(msgMetadata.usage && { usage: msgMetadata.usage }),
+                              }
+                            : undefined;
+
+                        const doneEvent: StreamEvent = {
+                            type: 'done',
+                            tokenUsage: { tokenBreakdown, usedTokens },
+                            ...(isDev && chat.total_cost != null && { totalCost: chat.total_cost }),
+                            ...(safeMessageMetadata &&
+                                Object.keys(safeMessageMetadata).length > 0 && {
+                                    messageMetadata: safeMessageMetadata,
+                                }),
+                            hasPendingChanges,
+                            phaseIndex,
+                            ...(isError && { error: event.error!.message }),
+                            ...(pendingDoneEvent?.outputType === 'tool' &&
+                                pendingDoneEvent.outputTool && {
+                                    outputType: 'tool' as const,
+                                    outputTool: pendingDoneEvent.outputTool,
+                                }),
+                        };
+                        // Drain all in-flight pushes before terminal event
+                        await pusher.waitAll();
+                        await streamDO.push([doneEvent], pusher.seq);
+                        options.onEvent?.(doneEvent);
+                        break;
                     }
-
-                    // Flush assistant message before linking versions (FK requires row to exist)
-                    await em!.flush();
-
-                    // Link created document versions to the assistant message
-                    if (assistantMsg && createdVersionIds.length > 0) {
-                        await em!
-                            .createQueryBuilder(ArtifactVersionEntity)
-                            .update({ chat_message: assistantMsg.id })
-                            .where({ id: { $in: createdVersionIds } })
-                            .execute();
-                    }
-
-                    let hasPendingChanges = false;
-                    const phaseIndex = chat.phase_index;
-
-                    if (chat.project) {
-                        const pendingCount = await em!.count(ArtifactVersionEntity, {
-                            chat: chatId,
-                            status: 'proposed',
-                        });
-                        hasPendingChanges = pendingCount > 0;
-                    }
-
-                    // Push terminal done event to DO (subscriber gets it via broadcast)
-                    const doneEvent: StreamEvent = {
-                        type: 'done',
-                        tokenUsage: { tokenBreakdown, usedTokens },
-                        hasPendingChanges,
-                        phaseIndex,
-                        ...(isError && { error: event.error!.message }),
-                        ...(pendingDoneEvent?.outputType === 'tool' &&
-                            pendingDoneEvent.outputTool && {
-                                outputType: 'tool' as const,
-                                outputTool: pendingDoneEvent.outputTool,
-                            }),
-                    };
-                    // Drain all in-flight pushes before terminal event
-                    await pusher.waitAll();
-                    await streamDO.push([doneEvent], pusher.seq);
-                    options.onEvent?.(doneEvent);
-                    break;
+                    default:
+                        break;
                 }
-                default:
-                    // TODO
-                    break;
-            }
-        }
+            },
+            onEvent: options.onEvent,
+        });
 
         await historyPromise;
 
         await finalizeSafetyMonitor(safetyMonitor, em!, agentMessageId);
 
-        // done() → persist (above) → finalize() → clearStream (Decision #20)
-        try {
-            await streamDO.done();
-            await streamDO.finalize();
-        } finally {
-            await ugStub.systemAction(`chat:${chatId}`, 'clearStream', {}).catch(() => {});
-        }
+        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
         console.error('[chat-handler] generation error:', error?.message ?? error, error?.stack);
         await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'chat-handler');
+        ctx.eCtx?.waitUntil(
+            captureWorkerPostHogEvent(ctx, 'worker_chat_turn_failed', ctx.user.userId, {
+                project_id: chat.project?.id ?? null,
+                chat_id: chatId,
+                agent_message_id: agentMessageId,
+                outcome: 'error',
+                error_message: error?.message ?? 'Unknown error',
+            }).catch((captureError) => console.error('[posthog] failed to capture chat failure:', captureError)),
+        );
         await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
     }
 }

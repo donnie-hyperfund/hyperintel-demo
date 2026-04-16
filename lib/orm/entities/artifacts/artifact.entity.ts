@@ -40,6 +40,10 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'boolean', default: false })
     is_public!: boolean & Opt;
 
+    /** PECP artifacts are public summaries of internal documents, excluded from list endpoints */
+    @Property({ type: 'boolean', default: false })
+    is_pecp!: boolean & Opt;
+
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
 }

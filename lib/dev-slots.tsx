@@ -13,11 +13,13 @@ export type DevSlotProps = {
 		blocks?: StreamBlock[];
 		feedbackScore?: boolean | null;
 		feedbackComment?: string | null;
+		metadata?: Record<string, unknown> | null;
 	};
 	'dev-panel': Record<string, never>;
 	'chat-header': {
 		chatId: string;
 	};
+	'chat-footer': Record<string, never>;
 };
 
 export type DevSlotName = keyof DevSlotProps;

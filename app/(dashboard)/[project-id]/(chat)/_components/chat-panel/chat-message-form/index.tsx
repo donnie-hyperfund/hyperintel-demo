@@ -17,24 +17,24 @@ import {
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { IS_DEV } from '@/lib/config';
+import { DevSlot } from '@/lib/dev-slots';
 import { cn } from '@/lib/utils';
 import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
+import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
-import { FilePreviewItem } from './file-preview-item';
+import { FilePreviewItem } from './file-preview-item/file-preview-item';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 import { SwitchModelSelector } from './switch-model-selector';
 
 type ChatMessageFormProps = {
     className?: string;
-    ref?: React.RefObject<HTMLDivElement | null>;
     showGradientFade?: boolean;
 };
 
-const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessageFormProps) => {
+const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageFormProps) => {
     const {
         sendMessage,
         chatType,
@@ -42,11 +42,27 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         projectId,
         stopGeneration,
         dismissInvalidModelAlert,
-        state: { isGenerating, isSummarizing, isLoading, isProcessingArtifactAction, tokenUsage, activeResponseId, showInvalidModelAlert },
+        state: {
+            isGenerating,
+            isSummarizing,
+            isLoading,
+            isProcessingArtifactAction,
+            tokenUsage,
+            activeResponseId,
+            showInvalidModelAlert,
+        },
     } = useChatContext();
     const { selectedModel } = useModelSelection();
 
-    const { files, removeFile, submitFiles, isSubmitting, consumeStagedArtifactIds } = useFileUploadContext();
+    const {
+        files,
+        addFiles,
+        removeFile,
+        submitFiles,
+        isSubmitting,
+        consumeStagedArtifactIds,
+        consumeStagedImageFileIds,
+    } = useFileUploadContext();
     const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
@@ -74,17 +90,35 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         if (!data.message.trim() && files.length === 0) return;
 
         // Capture file names before submitFiles clears them
-        const uploadedFiles = files.map((entry) => ({ name: entry.name, size: entry.size }));
+        const uploadedFiles = files.map((entry) => ({
+            name: entry.name,
+            size: entry.size,
+            imageFileId: entry.imageFileId,
+            imageWidth: entry.imageWidth,
+            imageHeight: entry.imageHeight,
+        }));
 
-        // Consume staged artifact IDs before submitFiles clears state
+        // Consume staged IDs before submitFiles clears state
         const stagedArtifactIds = consumeStagedArtifactIds();
+        const imageFileIds = consumeStagedImageFileIds();
 
         if (uploadedFiles.length > 0) {
             await submitFiles();
         }
 
         const fileDirective =
-            uploadedFiles.length > 0 ? uploadedFiles.map((f) => `::upload[${f.name}]{size=${f.size}}`).join('\n') : '';
+            uploadedFiles.length > 0
+                ? uploadedFiles
+                      .map((f) => {
+                          const attrs = [`size=${f.size}`];
+                          if (f.imageFileId) {
+                              attrs.push(`fileid=${f.imageFileId}`, 'type=image');
+                              if (f.imageWidth && f.imageHeight) attrs.push(`w=${f.imageWidth}`, `h=${f.imageHeight}`);
+                          }
+                          return `::upload[${f.name}]{${attrs.join(' ')}}`;
+                      })
+                      .join('\n')
+                : '';
 
         const message = [fileDirective, data.message.trim()].filter(Boolean).join('\n\n');
 
@@ -93,7 +127,10 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
         textareaRef.current?.updateTextareaHeight();
 
         if (message) {
-            await sendMessage(message, stagedArtifactIds.length > 0 ? { stagedArtifactIds } : undefined);
+            const opts: { stagedArtifactIds?: string[]; imageFileIds?: string[] } = {};
+            if (stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
+            if (imageFileIds.length > 0) opts.imageFileIds = imageFileIds;
+            await sendMessage(message, Object.keys(opts).length > 0 ? opts : undefined);
         }
     };
 
@@ -105,6 +142,26 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
             }
         }
     };
+
+    const handlePaste = useCallback(
+        (e: React.ClipboardEvent) => {
+            const imageFiles = Array.from(e.clipboardData.items)
+                .filter((item) => item.type.startsWith('image/'))
+                .map((item) => item.getAsFile())
+                .filter((f): f is File => f !== null);
+
+            if (imageFiles.length > 0) {
+                // Give pasted screenshots a sensible name
+                const named = imageFiles.map((f, i) => {
+                    const ext = f.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png';
+                    const name = `screenshot-${Date.now()}${imageFiles.length > 1 ? `-${i + 1}` : ''}.${ext}`;
+                    return new File([f], name, { type: f.type });
+                });
+                addFiles(named, { source: 'paste' });
+            }
+        },
+        [addFiles],
+    );
 
     const handleContainerClick = useCallback(() => {
         textareaRef.current?.focus();
@@ -123,7 +180,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
     );
 
     return (
-        <div ref={ref} className={className}>
+        <div className={className}>
             <AnimatePresence>
                 <form onSubmit={handleSubmit(onFormSubmit)} className="relative flex items-end justify-center px-4">
                     {showGradientFade && (
@@ -160,6 +217,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                                 name={entry.name}
                                                 size={entry.size}
                                                 status={entry.status}
+                                                file={entry.file}
                                                 onRemove={() => removeFile(i)}
                                             />
                                         ))}
@@ -185,6 +243,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                 }}
                                 onBlur={onBlur}
                                 onKeyDown={handleKeyDown}
+                                onPaste={handlePaste}
                                 placeholder="Type your message..."
                                 className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground"
                                 maxHeight={384}
@@ -202,24 +261,17 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                             type="button"
                                             onClick={stopGeneration}
                                             variant="unstyled"
-                                            className="bg-transparent hover:bg-accent text-white border border-neutral-500/35"
-                                            size="icon"
+                                            className="size-9 bg-transparent hover:bg-accent text-white border border-neutral-500/35"
                                         >
                                             <Square className="size-3.5 fill-current" />
                                         </Button>
                                     ) : (
-                                        <Button
-                                            type="button"
-                                            disabled
-                                            className="shrink-0"
-                                            size="icon"
-                                            variant="secondary"
-                                        >
+                                        <Button type="button" disabled className="size-9 shrink-0" variant="secondary">
                                             <Loader2 className="size-4 animate-spin" />
                                         </Button>
                                     )
                                 ) : (
-                                    <Button type="submit" disabled={isDisabled} className="shrink-0" size="icon">
+                                    <Button type="submit" disabled={isDisabled} className="size-9 shrink-0">
                                         <ArrowUp className="size-5" />
                                     </Button>
                                 )}
@@ -238,6 +290,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                                 </motion.p>
                             )}
 
+                            <DevSlot name="chat-footer" />
                             <ContextUsageIndicator tokenUsage={tokenUsage} className="justify-self-right ml-auto" />
                         </div>
                     </div>

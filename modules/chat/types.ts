@@ -12,10 +12,43 @@ import type { TokenUsage } from '@/lib/schema/stream';
 
 export type ChatType = 'phase' | 'company' | 'stakeholder';
 
+export type SummaryStatus = 'generating-summary' | 'finalizing';
+
 export type MessageArtifactRef = {
     id: string;
     identifier: string;
     title: string;
+};
+
+export type MessageMetadata = {
+    preset?: string;
+    inference?: {
+        paramsType?: string;
+        model?: string;
+        [key: string]: unknown;
+    };
+    usage?: {
+        inputTokens: number;
+        outputTokens: number;
+        reasoningTokens?: number;
+        cacheReadTokens?: number;
+        cacheWriteTokens?: number;
+        cost?: number;
+        segments: Array<{
+            inputTokens: number;
+            outputTokens: number;
+            reasoningTokens?: number;
+            cost?: number;
+            toolCalls?: Array<{
+                toolName: string;
+                inputTokens?: number;
+                outputTokens?: number;
+                usageLabel?: string;
+            }>;
+        }>;
+        providerIds: string[];
+    };
+    [key: string]: unknown;
 };
 
 /** Message using blocks-based structure for rich content */
@@ -40,6 +73,7 @@ export type Message = {
     createdAt?: Date;
     feedbackScore?: boolean | null;
     feedbackComment?: string | null;
+    metadata?: MessageMetadata | null;
 };
 
 export type Conversation = {
@@ -57,6 +91,7 @@ export type ChatState = {
     error: Error | null;
     streamingMessageId: string | null;
     tokenUsage: TokenUsage | null;
+    totalCost: number | null;
     hasPendingChanges: boolean;
     phaseIndex: number | null;
     /** Chat ID of the new phase after summarization completes */
@@ -65,12 +100,14 @@ export type ChatState = {
     pendingPhaseTransition: boolean;
     /** Active agent message ID for WS-based abort */
     activeResponseId: string | null;
-    /** Artifact key of the completion brief being generated during summary, null when inactive */
-    summaryDocKey: string | null;
+    /** Current summarizer status (e.g. "generating-summary", "finalizing") */
+    summaryStatus: SummaryStatus | null;
     /** True while an artifact approval/rejection API call is in flight */
     isProcessingArtifactAction: boolean;
     /** True when the user tried to send with an unavailable model — shows an alert dialog */
     showInvalidModelAlert: boolean;
+    /** Completion Brief approval status for the current phase chat */
+    completionBriefStatus: string | null;
 };
 
 export type PaginationState = {
@@ -92,6 +129,7 @@ export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     isStreaming?: boolean;
     isUpdating?: boolean;
     progress?: number;
+    pecpContent?: string;
 };
 
 // =============================================================================

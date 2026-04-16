@@ -27,6 +27,7 @@ export const DOCUMENT_TYPES = [
     // 'Analysis',
     'Research Report',
     'Executive Summary',
+    'PECP',
     'Other',
 ] as const;
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
@@ -49,6 +50,7 @@ export const DOCUMENT_CHAR_ESTIMATES: Record<DocumentType, number> = {
     'Human Persona': 8000,
     'Research Report': 14000,
     'Executive Summary': 10000,
+    PECP: 4000,
     Other: 14000,
 };
 
@@ -146,6 +148,16 @@ export const ArtifactDtoSchema = z.object({
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),
     metadata: z.record(z.unknown()).nullable().optional(),
+    /** PECP (public summary) for internal documents */
+    pecp: z
+        .object({
+            id: z.string().uuid(),
+            content: z.string(),
+            version: z.number().int(),
+            created_at: z.union([z.string(), z.date()]),
+        })
+        .nullable()
+        .optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),
 });
@@ -199,7 +211,33 @@ export const MAX_ARTIFACT_UPLOAD_SIZE = 50 * 1024 * 1024;
 
 export const TEXT_ARTIFACT_EXTENSIONS = ['.md', '.txt', '.rtf'] as const;
 export const BINARY_ARTIFACT_EXTENSIONS = ['.pdf', '.docx', '.pptx'] as const;
-export const ALLOWED_ARTIFACT_EXTENSIONS = [...TEXT_ARTIFACT_EXTENSIONS, ...BINARY_ARTIFACT_EXTENSIONS] as string[];
+export const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'] as const;
+export const ALLOWED_ARTIFACT_EXTENSIONS = [
+    ...TEXT_ARTIFACT_EXTENSIONS,
+    ...BINARY_ARTIFACT_EXTENSIONS,
+    ...IMAGE_EXTENSIONS,
+] as string[];
+
+export const IMAGE_MIME_TYPES: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+};
+
+export function isImageExtension(ext: string): boolean {
+    return (IMAGE_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
+}
+
+export type ImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+
+/** Infer MIME type from a filename or R2 key. Defaults to `image/png`. */
+export function inferImageMimeType(key: string): ImageMimeType {
+    const dot = key.lastIndexOf('.');
+    if (dot === -1) return 'image/png';
+    return (IMAGE_MIME_TYPES[key.slice(dot).toLowerCase()] as ImageMimeType) ?? 'image/png';
+}
 
 export function isBinaryArtifactExtension(ext: string): boolean {
     return (BINARY_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
@@ -276,12 +314,17 @@ export const ConfirmUploadResponseSchema = z.object({
 });
 export type ConfirmUploadResponseDto = z.infer<typeof ConfirmUploadResponseSchema>;
 
-export const AssociateArtifactsSchema = z.object({
-    artifactIds: z.array(z.string().uuid()).min(1).max(50),
-    chatId: z.string().uuid().optional(),
-    projectId: z.string().uuid().optional(),
-});
-export type AssociateArtifactsDto = z.infer<typeof AssociateArtifactsSchema>;
+export const AssociateUploadsSchema = z
+    .object({
+        artifactIds: z.array(z.string().uuid()).max(50).optional(),
+        imageFileIds: z.array(z.string().uuid()).max(50).optional(),
+        chatId: z.string().uuid().optional(),
+        projectId: z.string().uuid().optional(),
+    })
+    .refine((d) => (d.artifactIds?.length ?? 0) > 0 || (d.imageFileIds?.length ?? 0) > 0, {
+        message: 'At least one of artifactIds or imageFileIds is required',
+    });
+export type AssociateUploadsDto = z.infer<typeof AssociateUploadsSchema>;
 
 export const EXPORT_FORMATS = ['docx'] as const;
 export const ExportFormatSchema = z.enum(EXPORT_FORMATS);

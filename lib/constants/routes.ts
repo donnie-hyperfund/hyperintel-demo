@@ -12,7 +12,11 @@ export enum WORKERS_LOCAL_ENDPOINTS {
     ConfirmAction = '/api/chat/artifacts/upload/confirm',
     DeleteAction = '/api/chat/artifacts/delete',
     ExportAction = '/api/chat/artifacts/export',
-    AssociateAction = '/api/chat/artifacts/associate',
+    AssociateAction = '/api/chat/uploads/associate',
+    ImagePresignAction = '/api/chat/images/upload/presign',
+    ImageConfirmAction = '/api/chat/images/upload/confirm',
+    ImageServe = '/api/chat/images',
+    ArtifactImageServe = '/api/chat/artifact-image',
     Presets = '/api/chat/presets',
 }
 
@@ -35,6 +39,10 @@ export enum CHAT_EP {
     ConfirmAction = '/artifacts/upload/confirm',
     DeleteAction = '/artifacts/delete',
     ExportAction = '/artifacts/export',
-    AssociateAction = '/artifacts/associate',
+    AssociateAction = '/uploads/associate',
+    ImagePresignAction = '/images/upload/presign',
+    ImageConfirmAction = '/images/upload/confirm',
+    ImageServe = '/images',
+    ArtifactImageServe = '/artifact-image',
     Presets = '/presets',
 }

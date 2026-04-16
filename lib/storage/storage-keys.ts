@@ -21,3 +21,9 @@ export function getUploadStorageKey(scope?: { projectId?: string; chatId?: strin
     if (scope?.projectId) return `resource-uploads:${scope.projectId}`;
     return null;
 }
+
+/** sessionStorage key for tracking in-flight artifact approval/rejection operations. */
+export const ARTIFACT_PROCESSING_KEY = 'artifact-processing';
+
+/** sessionStorage key for chat IDs that need a nudge after a locally-initiated approval/rejection. */
+export const NUDGE_PENDING_KEY = 'nudge-pending';

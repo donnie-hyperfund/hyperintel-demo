@@ -78,7 +78,7 @@ export function useUpdateProject(projectId: string) {
         [...projectKeys.detail(projectId)],
         async (_, { arg }) => {
             const project = await createProjectApi(getToken).update(projectId, arg);
-            invalidateProjectLists(globalMutate);
+            invalidateProjectLists(globalMutate, arg.archived !== undefined ? projectId : undefined);
             return project;
         },
     );
@@ -92,7 +92,7 @@ export function useDeleteProject(projectId: string) {
         [...projectKeys.detail(projectId)],
         async () => {
             const result = await createProjectApi(getToken).delete(projectId);
-            invalidateProjectLists(globalMutate);
+            invalidateProjectLists(globalMutate, projectId);
             return result;
         },
     );

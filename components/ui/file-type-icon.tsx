@@ -9,6 +9,11 @@ const EXTENSION_ICONS: Record<string, string> = {
     xlsx: '/icons/extensions/xlsx.svg',
     pptx: '/icons/extensions/pptx.svg',
     rtf: '/icons/extensions/rtf.svg',
+    jpg: '/icons/extensions/image.svg',
+    jpeg: '/icons/extensions/image.svg',
+    png: '/icons/extensions/image.svg',
+    gif: '/icons/extensions/image.svg',
+    webp: '/icons/extensions/image.svg',
 };
 
 type FileTypeIconProps = {

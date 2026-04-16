@@ -34,10 +34,17 @@ type ArtifactIndicatorProps = {
     documentName: string;
     documentVersion: number;
     documentType: string;
+    isReference?: boolean;
     className?: string;
 };
 
-export function ArtifactIndicator({ documentName, documentVersion, documentType, className }: ArtifactIndicatorProps) {
+export function ArtifactIndicator({
+    documentName,
+    documentVersion,
+    documentType,
+    isReference,
+    className,
+}: ArtifactIndicatorProps) {
     const { getToken } = useAuth();
 
     const { panelState, openPanel, closePanel } = useActivePanelContext();
@@ -51,7 +58,8 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
     const artifact = useArtifact(documentName, documentVersion);
     const isLoading = artifact?.isLoading ?? false;
 
-    const isScrollTarget = scrollTarget?.key === documentName && scrollTarget.version === documentVersion;
+    const isScrollTarget =
+        !isReference && scrollTarget?.key === documentName && scrollTarget.version === documentVersion;
 
     const isSelected =
         panelState?.panel === 'artifact-preview' &&
@@ -80,6 +88,7 @@ export function ArtifactIndicator({ documentName, documentVersion, documentType,
                         title: fetchedArtifact.title,
                         currentVersion: fetchedArtifact.currentVersion ?? undefined,
                         proposedVersion: fetchedArtifact.proposedVersion ?? undefined,
+                        pecp: fetchedArtifact.pecp ?? undefined,
                         updatedAt: fetchedArtifact.updatedAt,
                         isLoading: false,
                     },

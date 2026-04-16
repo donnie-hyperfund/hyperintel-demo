@@ -4,6 +4,7 @@ export * from './artifacts/artifact-file.entity';
 export * from './artifacts/artifact-version.entity';
 export * from './chats/chat.entity';
 export * from './chats/chat-message.entity';
+export * from './chats/chat-message-file.entity';
 export * from './columns.entity';
 export * from './projects/project.entity';
 export * from './users/user.entity';

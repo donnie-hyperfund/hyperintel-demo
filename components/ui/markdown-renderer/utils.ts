@@ -31,5 +31,7 @@ function normalizeCustomMathTags(input: string): string {
 }
 
 export function preprocessMarkdown(input: string): string {
-    return input.replace(/={6,}/g, (match) => `<span class="md-divider">${match}</span>`);
+    return input
+        .replace(/\$(?=\d[\d.,]*[BMKTbmkt]\b)/g, '\\$')
+        .replace(/={6,}/g, (match) => `<span class="md-divider">${match}</span>`);
 }

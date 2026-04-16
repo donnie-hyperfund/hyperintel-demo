@@ -105,60 +105,96 @@ export interface EditResult {
 }
 
 /**
+ * Find oldContent within the specified line range, allowing ±wiggle lines
+ * for model off-by-one errors. Returns the actual matched range (1-based).
+ */
+function findOldContent(
+    content: string,
+    edit: EditOperation,
+    wiggle: number,
+): { success: true; actualStart: number; actualEnd: number } | { success: false; error: string } {
+    const lines = content.split('\n');
+    const totalLines = lines.length;
+
+    // Validate base range is sane
+    if (edit.startLine < 1 || edit.endLine > totalLines || edit.startLine > edit.endLine) {
+        return {
+            success: false,
+            error: `Invalid line range ${edit.startLine}-${edit.endLine}. Document has ${totalLines} lines.`,
+        };
+    }
+
+    // Try exact range first, then expand ±1, ±2, ... up to wiggle
+    for (let offset = 0; offset <= wiggle; offset++) {
+        const starts = offset === 0 ? [edit.startLine] : [edit.startLine - offset, edit.startLine + offset];
+        for (const start of starts) {
+            const end = start + (edit.endLine - edit.startLine);
+            if (start < 1 || end > totalLines) continue;
+
+            const rangeLines = lines.slice(start - 1, end);
+            const rangeContent = rangeLines.join('\n');
+
+            const matchIndex = rangeContent.indexOf(edit.oldContent);
+            if (matchIndex === -1) continue;
+
+            // Check for ambiguity
+            const secondMatch = rangeContent.indexOf(edit.oldContent, matchIndex + 1);
+            if (secondMatch !== -1) {
+                return {
+                    success: false,
+                    error: `Multiple matches for oldContent in lines ${start}-${end}. Edit is ambiguous.`,
+                };
+            }
+
+            return { success: true, actualStart: start, actualEnd: end };
+        }
+    }
+
+    return {
+        success: false,
+        error: `oldContent not found in lines ${edit.startLine}-${edit.endLine} (±${wiggle}). Content may have changed.`,
+    };
+}
+
+/**
  * Apply precision edits to content.
  * Validates that oldContent matches exactly within the line range.
  */
 export function applyEdits(content: string, edits: EditOperation[]): EditResult {
     let currentContent = content;
 
+    // Allow ±2 lines for model off-by-one errors.
+    // NOTE: Multi-edit with line-shifting (e.g. first edit removes 5 lines) can cause
+    // subsequent edits' line numbers to be stale. The wiggle covers small shifts, but
+    // large structural changes should use a single edit with a big oldContent/newContent range.
+    // If this becomes a real problem, consider tracking cumulative line offsets across edits.
+    const LINE_WIGGLE = 2;
+
     // Validate all edits first (atomic)
     for (const edit of edits) {
-        const lines = currentContent.split('\n');
-        const totalLines = lines.length;
-
-        // Validate line range
-        if (edit.startLine < 1 || edit.endLine > totalLines || edit.startLine > edit.endLine) {
-            return {
-                success: false,
-                error: `Invalid line range ${edit.startLine}-${edit.endLine}. Document has ${totalLines} lines.`,
-            };
-        }
-
-        // Extract the range
-        const rangeLines = lines.slice(edit.startLine - 1, edit.endLine);
-        const rangeContent = rangeLines.join('\n');
-
-        // Check for exact match
-        const matchIndex = rangeContent.indexOf(edit.oldContent);
-        if (matchIndex === -1) {
-            return {
-                success: false,
-                error: `oldContent not found in lines ${edit.startLine}-${edit.endLine}. Content may have changed.`,
-            };
-        }
-
-        // Check for multiple matches (ambiguous)
-        const secondMatch = rangeContent.indexOf(edit.oldContent, matchIndex + 1);
-        if (secondMatch !== -1) {
-            return {
-                success: false,
-                error: `Multiple matches for oldContent in lines ${edit.startLine}-${edit.endLine}. Edit is ambiguous.`,
-            };
+        const match = findOldContent(currentContent, edit, LINE_WIGGLE);
+        if (!match.success) {
+            return { success: false, error: match.error };
         }
     }
 
     // Apply all edits (now that validation passed)
     for (const edit of edits) {
+        const match = findOldContent(currentContent, edit, LINE_WIGGLE);
+        if (!match.success) {
+            return { success: false, error: match.error };
+        }
+
         const lines = currentContent.split('\n');
-        const rangeLines = lines.slice(edit.startLine - 1, edit.endLine);
+        const rangeLines = lines.slice(match.actualStart - 1, match.actualEnd);
         const rangeContent = rangeLines.join('\n');
 
         // Apply replacement
         const newRangeContent = rangeContent.replace(edit.oldContent, edit.newContent);
 
         // Rebuild content
-        const before = lines.slice(0, edit.startLine - 1);
-        const after = lines.slice(edit.endLine);
+        const before = lines.slice(0, match.actualStart - 1);
+        const after = lines.slice(match.actualEnd);
         currentContent = [...before, ...newRangeContent.split('\n'), ...after].join('\n');
     }
 
@@ -262,6 +298,8 @@ export interface DocumentInfo {
     lineCount: number;
     /** Whether this artifact is a read-only public resource (or imported from one) */
     isReadOnly: boolean;
+    /** Whether this artifact is a PECP (auto-generated, cannot be edited directly) */
+    isPECP: boolean;
 }
 
 /**
@@ -315,6 +353,7 @@ export async function findDocumentByName(
         rejectionReason: rejected?.rejection_reason ?? null,
         lineCount: countLines(proposedContent ?? approvedContent ?? ''),
         isReadOnly,
+        isPECP: !!(artifact as any).is_pecp,
     };
 }
 
@@ -322,6 +361,7 @@ export interface DocumentListItem {
     name: string;
     title: string;
     lines: number;
+    documentType: string;
     currentVersion: number | null;
     currentStatus: VersionStatus | null;
     latestVersion: number;
@@ -346,6 +386,7 @@ export async function listDocuments(
         {
             $and: [
                 scopeFilter(scope),
+                { is_pecp: false },
                 { $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
             ],
         } as any,
@@ -364,6 +405,7 @@ export async function listDocuments(
             name: a.key,
             title: a.title,
             lines: countLines(contentForLines),
+            documentType: latest?.document_type ?? a.current_version?.document_type ?? 'Other',
             currentVersion: a.current_version?.version ?? null,
             currentStatus: a.current_version?.status ?? null,
             latestVersion: latest?.version ?? 0,
@@ -390,6 +432,7 @@ export async function upsertDocument(
     document_type = 'Other',
 ): Promise<{
     action: 'created' | 'proposed';
+    artifactId: string;
     name: string;
     version: number;
     versionId: string;
@@ -443,6 +486,7 @@ export async function upsertDocument(
 
         return {
             action: 'proposed',
+            artifactId: existing.id,
             name: normalizedName,
             version: newVersionNum,
             versionId: newVersion.id,
@@ -453,6 +497,7 @@ export async function upsertDocument(
         // Create new - two-phase insert wrapped in transaction to handle circular FK
         // Transaction ensures atomicity: if phase 2 fails, phase 1 is rolled back
         let createdVersionId = '';
+        let createdArtifactId = '';
 
         await em.transactional(async (txEm) => {
             // Phase 1: Create artifact (current_version will be NULL - nothing approved yet)
@@ -465,6 +510,7 @@ export async function upsertDocument(
 
             txEm.persist(artifact);
             await txEm.flush();
+            createdArtifactId = artifact.id;
 
             // Phase 2: Create proposed version
             const version = new ArtifactVersionEntity();
@@ -485,6 +531,7 @@ export async function upsertDocument(
 
         return {
             action: 'created',
+            artifactId: createdArtifactId,
             name: normalizedName,
             version: 1,
             versionId: createdVersionId,

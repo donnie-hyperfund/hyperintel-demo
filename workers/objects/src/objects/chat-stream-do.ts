@@ -15,6 +15,8 @@ const ABORT_WAIT_TIMEOUT_MS = 60_000; // 60 seconds
 const TOOL_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 /** How often to flush state to storage during streaming (crash-recovery only). */
 const PERSIST_INTERVAL_MS = 1_000;
+/** If a sequence gap isn't filled within this window, skip ahead and drain what we have. */
+const REORDER_GAP_TIMEOUT_MS = 5_000;
 
 // Storage keys
 const SK_BLOCKS = 'blocks';
@@ -28,6 +30,7 @@ const SK_TEXT_BLOCK_ID = 'currentTextBlockId';
 const SK_REASONING_BLOCK_ID = 'currentReasoningBlockId';
 const SK_TOPIC_PREFIX = 'topicPrefix';
 const SK_PREVIEW_ALIAS = 'previewAlias';
+const SK_DISPLAY_STATUS = 'displayStatus';
 
 // ============================================================================
 // CHAT STREAM DO
@@ -58,6 +61,7 @@ export class ChatStreamDO extends DurableObject<Env> {
     private previewAlias: string | null = null;
     private currentTextBlockId: string | null = null;
     private currentReasoningBlockId: string | null = null;
+    private displayStatus: string | null = null;
 
     // --- In-memory state (lost on hibernation) ---
     private abortResolve: ((value: 'abort' | 'done') => void) | null = null;
@@ -68,6 +72,8 @@ export class ChatStreamDO extends DurableObject<Env> {
     // --- Reorder buffer for fire-and-forget push (in-memory only) ---
     private nextExpectedSeq = 0;
     private pendingBatches = new Map<number, StreamEvent[]>();
+    /** Timestamp when we first noticed a gap (pendingBatches has items but nextExpectedSeq is missing) */
+    private gapDetectedAt: number | null = null;
 
     // --- Broadcast queue — serializes delivery, prevents interleaving ---
     private broadcastQueue: unknown[][] = [];
@@ -92,6 +98,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             reasoningBlockId,
             topicPrefix,
             previewAlias,
+            displayStatus,
         ] = await Promise.all([
             this.ctx.storage.get<StreamBlock[]>(SK_BLOCKS),
             this.ctx.storage.get<[string, ActiveDocument][]>(SK_ACTIVE_DOCS),
@@ -104,6 +111,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             this.ctx.storage.get<string | null>(SK_REASONING_BLOCK_ID),
             this.ctx.storage.get<string>(SK_TOPIC_PREFIX),
             this.ctx.storage.get<string | null>(SK_PREVIEW_ALIAS),
+            this.ctx.storage.get<string | null>(SK_DISPLAY_STATUS),
         ]);
 
         if (blocks) this.blocks = blocks;
@@ -117,6 +125,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         if (reasoningBlockId) this.currentReasoningBlockId = reasoningBlockId;
         if (topicPrefix) this.topicPrefix = topicPrefix;
         if (previewAlias) this.previewAlias = previewAlias;
+        if (displayStatus) this.displayStatus = displayStatus;
     }
 
     /** Persist all mutable state to storage */
@@ -133,6 +142,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             [SK_REASONING_BLOCK_ID]: this.currentReasoningBlockId,
             [SK_TOPIC_PREFIX]: this.topicPrefix,
             [SK_PREVIEW_ALIAS]: this.previewAlias,
+            [SK_DISPLAY_STATUS]: this.displayStatus,
         });
     }
 
@@ -258,6 +268,8 @@ export class ChatStreamDO extends DurableObject<Env> {
                     pendingVersion: event.pendingVersion,
                     loadedVersion: event.loadedVersion,
                     content: '',
+                    documentType: event.documentType,
+                    isInternal: event.isInternal,
                 });
                 break;
             }
@@ -284,6 +296,12 @@ export class ChatStreamDO extends DurableObject<Env> {
                 break;
             }
 
+            case 'document_progress': {
+                const doc = this.activeDocuments.get(event.name);
+                if (doc) doc.progress = event.progress;
+                break;
+            }
+
             case 'document_complete': {
                 this.activeDocuments.delete(event.name);
                 break;
@@ -291,6 +309,8 @@ export class ChatStreamDO extends DurableObject<Env> {
 
             // --- Status & terminal ---
             case 'status_update':
+                this.displayStatus = event.status;
+                break;
             case 'done':
             case 'done_ext':
             case 'error':
@@ -382,13 +402,15 @@ export class ChatStreamDO extends DurableObject<Env> {
 
     /** Queue a stream_status message for broadcast. */
     private broadcastStatus(status: StreamStatus) {
-        this.queueBroadcast([{
-            topic: this.topic,
-            type: 'stream_status',
-            status,
-            agentMessageId: this.agentMessageId,
-            _seq: this.broadcastSeq++,
-        }]);
+        this.queueBroadcast([
+            {
+                topic: this.topic,
+                type: 'stream_status',
+                status,
+                agentMessageId: this.agentMessageId,
+                _seq: this.broadcastSeq++,
+            },
+        ]);
     }
 
     // ========================================================================
@@ -426,6 +448,39 @@ export class ChatStreamDO extends DurableObject<Env> {
                 this.applyEvent(event);
             }
             allDrained.push(...batch);
+        }
+
+        // Gap detection: if we have buffered batches but the next expected seq is missing,
+        // a fire-and-forget push was lost. After REORDER_GAP_TIMEOUT_MS, skip ahead.
+        if (this.pendingBatches.size > 0 && allDrained.length === 0) {
+            const now2 = Date.now();
+            if (!this.gapDetectedAt) {
+                this.gapDetectedAt = now2;
+                console.warn(
+                    `[ChatStreamDO] gap detected: waiting for seq=${this.nextExpectedSeq}, have ${[...this.pendingBatches.keys()].join(',')}`,
+                );
+            } else if (now2 - this.gapDetectedAt >= REORDER_GAP_TIMEOUT_MS) {
+                // Skip ahead to the lowest buffered seq and drain from there
+                const sortedSeqs = [...this.pendingBatches.keys()].sort((a, b) => a - b);
+                console.warn(
+                    `[ChatStreamDO] gap timeout: skipping seq ${this.nextExpectedSeq}→${sortedSeqs[0]}, lost ${sortedSeqs[0] - this.nextExpectedSeq} batch(es)`,
+                );
+                this.nextExpectedSeq = sortedSeqs[0];
+                this.gapDetectedAt = null;
+                // Re-drain from the new position
+                while (this.pendingBatches.has(this.nextExpectedSeq)) {
+                    const batch = this.pendingBatches.get(this.nextExpectedSeq)!;
+                    this.pendingBatches.delete(this.nextExpectedSeq);
+                    this.nextExpectedSeq++;
+                    for (const event of batch) {
+                        this.applyEvent(event);
+                    }
+                    allDrained.push(...batch);
+                }
+            }
+        } else {
+            // No gap — reset detector
+            this.gapDetectedAt = null;
         }
 
         // Queue for serial broadcast — each event tagged with _seq for client-side verification
@@ -492,6 +547,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         this.status = 'idle';
         this.nextExpectedSeq = 0;
         this.pendingBatches.clear();
+        this.gapDetectedAt = null;
         this.broadcastQueue = [];
         this.isBroadcasting = false;
         this.broadcastSeq = 0;
@@ -552,6 +608,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             blocks: this.blocks,
             activeDocuments: [...this.activeDocuments.values()],
             status: this.status === 'idle' ? 'streaming' : this.status,
+            displayStatus: this.displayStatus,
         };
     }
 

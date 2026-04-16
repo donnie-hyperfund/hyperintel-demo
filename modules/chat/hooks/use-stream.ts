@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
 import type { ActiveDocument, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import type {
+    CbStatusChangedMessage,
     ChatMessageCreatedMessage,
     ModelChangedMessage,
     ServerMessage,
@@ -24,7 +25,7 @@ import type { Artifact } from '@/modules/chat/types';
 // TYPES
 // ============================================================================
 
-type StreamingDoc = { artifactId: string; content: string; version: number };
+type StreamingDoc = { artifactId: string; content: string; version: number; isPECP?: boolean };
 
 type StreamingState = {
     blocks: StreamBlock[];
@@ -41,11 +42,15 @@ export type ToolDocumentDecision = {
 
 export type UseStreamOptions = {
     /** Artifact context for document side-effects. If omitted, activeDocuments are tracked but no artifact provider calls are made. */
-    artifactContext?: Pick<ArtifactContextValue, 'getArtifact' | 'addArtifact' | 'updateArtifact'>;
+    artifactContext?: Pick<ArtifactContextValue, 'getArtifact' | 'getStore' | 'addArtifact' | 'updateArtifact'>;
     /** Called on WS reconnect — consumer provides refetch logic (e.g., reload messages) */
     onReconnect?: () => void;
     /** Called when stream reaches a terminal status (done, aborted, error), potentially carrying terminal data payload */
-    onDone?: (status: StreamStatus, terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' }) => void;
+    onDone?: (
+        status: StreamStatus,
+        terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' },
+        agentMessageId?: string,
+    ) => void;
     /** Called when a document stream starts */
     onDocumentStart?: () => void;
     /** Called when an artifact should be opened for preview */
@@ -66,11 +71,17 @@ export type UseStreamOptions = {
     /** Called when a new chat message is created and broadcast */
     onMessageCreated?: (message: unknown, tempId?: string) => void;
     /** Called once when the initial subscribe_response arrives — useful for clearing stale generating state */
-    onSubscribeResponse?: (status: 'idle' | 'streaming' | 'stale', selectedModel: string | null) => void;
+    onSubscribeResponse?: (
+        status: 'idle' | 'streaming' | 'stale',
+        selectedModel: string | null,
+        completionBriefStatus: string | null,
+    ) => void;
     /** Called when approve_document/reject_document tool completes during stream (for project flow redirect) */
     onToolDocumentDecision?: (decision: ToolDocumentDecision) => Promise<void>;
     /** Called when the chat's selected model is changed (via WS broadcast) */
     onModelChanged?: (model: string) => void;
+    /** Called when the Completion Brief status changes (via UG broadcast) */
+    onCbStatusChanged?: (status: string) => void;
 };
 
 export type UseStreamReturn = {
@@ -91,6 +102,15 @@ export type UseStreamReturn = {
 // ============================================================================
 // HELPERS
 // ============================================================================
+
+function resolveParentVersion(ac: Pick<ArtifactContextValue, 'getStore'>, parentId: string) {
+    const versions = ac.getStore()[parentId];
+    if (!versions) return null;
+    const keys = Object.keys(versions);
+    if (!keys.length) return null;
+    const maxKey = keys.reduce((a, b) => (Number(b) > Number(a) ? b : a));
+    return (Number(maxKey) || maxKey) as number | 'latest';
+}
 
 function createStreamingState(): StreamingState {
     return {
@@ -143,6 +163,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const [streamType, setStreamType] = useState<'chat' | 'summary' | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isRetracted, setIsRetracted] = useState(false);
+    const ownedAgentMessageIdRef = useRef<string | null>(null);
 
     // Mutable streaming state (mutated in place, then flushed to React state)
     const stateRef = useRef<StreamingState>(createStreamingState());
@@ -186,16 +207,14 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     // Document delta drip (same adaptive smoothing for artifact content)
     type DocDripItem = { name: string; content: string };
     const applyDocDrip = (item: DocDripItem) => {
-        const s = stateRef.current;
-        const o = optsRef.current;
-        const doc = s.streamingDocs.get(item.name);
-        if (doc) {
-            doc.content += item.content;
-            o.artifactContext?.updateArtifact(
-                doc.artifactId,
-                { proposedVersion: { content: doc.content } },
-                doc.version,
-            );
+        const doc = stateRef.current.streamingDocs.get(item.name);
+        if (!doc) return;
+        doc.content += item.content;
+        const ac = optsRef.current.artifactContext;
+        if (doc.isPECP) {
+            ac?.updateArtifact(doc.artifactId, { pecpContent: doc.content }, doc.version);
+        } else {
+            ac?.updateArtifact(doc.artifactId, { proposedVersion: { content: doc.content } }, doc.version);
         }
     };
     const docDripRef = useRef(new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()));
@@ -276,6 +295,22 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
         switch (type) {
             case 'document_start': {
+                if (payload.isPECP && payload.parentDocument && ac) {
+                    const parentId = payload.parentDocument;
+                    const ver = resolveParentVersion(ac, parentId);
+                    if (ver != null) {
+                        s.streamingDocs.set(payload.name, {
+                            artifactId: parentId,
+                            content: '',
+                            version: ver as number,
+                            isPECP: true,
+                        });
+                        ac.updateArtifact(parentId, { pecpContent: '', isStreaming: true }, ver);
+                        o.onArtifactOpen?.(parentId, typeof ver === 'number' ? ver : 1);
+                    }
+                    break;
+                }
+
                 const artifactId = payload.name;
                 const now = new Date().toISOString();
                 o.onDocumentStart?.();
@@ -309,7 +344,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         1,
                     );
 
-                    o.onArtifactOpen?.(artifactId, 1);
+                    if (!payload.isInternal) {
+                        o.onArtifactOpen?.(artifactId, 1);
+                    }
                 } else if (payload.mode === 'edit') {
                     const loadedVersion = payload.loadedVersion ?? 1;
                     let existingArtifact = ac?.getArtifact(artifactId, loadedVersion) ?? null;
@@ -358,7 +395,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         newVersion,
                     );
 
-                    o.onArtifactOpen?.(artifactId, newVersion);
+                    if (!payload.isInternal) {
+                        o.onArtifactOpen?.(artifactId, newVersion);
+                    }
                 }
 
                 flushActiveDocuments();
@@ -418,10 +457,16 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             }
 
             case 'document_complete': {
-                // Flush pending drip deltas before marking complete
                 docDripRef.current.drain();
                 const doc = s.streamingDocs.get(payload.name);
                 if (!doc) break;
+
+                if (doc.isPECP) {
+                    ac?.updateArtifact(doc.artifactId, { isStreaming: false }, doc.version);
+                    s.streamingDocs.delete(payload.name);
+                    flushActiveDocuments();
+                    break;
+                }
 
                 ac?.updateArtifact(
                     doc.artifactId,
@@ -468,6 +513,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         setStreamType(null);
         setError(null);
         setIsRetracted(false);
+        ownedAgentMessageIdRef.current = null;
 
         // Subscribe (ref-counted in WS client)
         const unsub = ws.subscribe(topic);
@@ -490,12 +536,39 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     const resp = msg as SubscribeResponse;
                     if (resp.status === 'streaming') {
                         const sr = resp as SubscribeResponseStreaming;
+                        const ownedAgentMessageId = ownedAgentMessageIdRef.current;
+
+                        if (sr.snapshot.status !== 'streaming' && sr.snapshot.status !== 'pending_approval') {
+                            ownedAgentMessageIdRef.current = null;
+                            setStatus('idle');
+                            setAgentMessageId(null);
+                            setStreamType(null);
+                            setDisplayStatus(null);
+                            o.onSubscribeResponse?.(
+                                'idle',
+                                resp.selectedModel ?? null,
+                                resp.completionBriefStatus ?? null,
+                            );
+                            break;
+                        }
+
+                        if (ownedAgentMessageId && sr.agentMessageId !== ownedAgentMessageId) {
+                            o.onSubscribeResponse?.(
+                                'streaming',
+                                resp.selectedModel ?? null,
+                                resp.completionBriefStatus ?? null,
+                            );
+                            break;
+                        }
+
+                        ownedAgentMessageIdRef.current = sr.agentMessageId;
                         stateRef.current = initFromSnapshot(sr.snapshot);
                         setBlocks([...sr.snapshot.blocks]);
                         setActiveDocuments(sr.snapshot.activeDocuments);
                         setStatus(sr.snapshot.status);
                         setAgentMessageId(sr.agentMessageId);
                         setStreamType(sr.streamType ?? null);
+                        setDisplayStatus(sr.snapshot.displayStatus ?? null);
 
                         // Initialize artifact state from snapshot activeDocuments
                         if (o.artifactContext && sr.snapshot.activeDocuments.length > 0) {
@@ -512,6 +585,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                             version: doc.pendingVersion,
                                             content: doc.content,
                                             status: 'proposed',
+                                            documentType: doc.documentType,
+                                            isInternal: doc.isInternal,
                                             createdAt: now,
                                             updatedAt: now,
                                         },
@@ -532,7 +607,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         isStreaming: true,
                                         isUpdating: doc.mode === 'edit',
                                         isLoading: false,
-                                        progress: 0,
+                                        progress: doc.progress ?? 0,
                                     },
                                     doc.pendingVersion,
                                 );
@@ -540,11 +615,19 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         }
 
                         documentQueueRef.current = new AsyncEventQueue(handleDocumentEvent);
-                        o.onSubscribeResponse?.('streaming', resp.selectedModel ?? null);
+                        o.onSubscribeResponse?.(
+                            'streaming',
+                            resp.selectedModel ?? null,
+                            resp.completionBriefStatus ?? null,
+                        );
                     } else {
                         // idle or stale — no active stream
+                        ownedAgentMessageIdRef.current = null;
                         setStatus('idle');
-                        o.onSubscribeResponse?.('idle', resp.selectedModel ?? null);
+                        setAgentMessageId(null);
+                        setStreamType(null);
+                        setDisplayStatus(null);
+                        o.onSubscribeResponse?.('idle', resp.selectedModel ?? null, resp.completionBriefStatus ?? null);
                     }
                     break;
                 }
@@ -568,10 +651,20 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 }
 
                 // ==============================================================
+                // COMPLETION BRIEF STATUS CHANGED
+                // ==============================================================
+                case ServerMsg.CbStatusChanged: {
+                    const { status: cbStatus } = msg as CbStatusChangedMessage;
+                    o.onCbStatusChanged?.(cbStatus);
+                    break;
+                }
+
+                // ==============================================================
                 // STREAM STARTED (new response within existing subscription)
                 // ==============================================================
                 case ServerMsg.StreamStarted: {
                     const started = msg as StreamStartedMessage;
+                    ownedAgentMessageIdRef.current = started.agentMessageId;
                     stateRef.current = createStreamingState();
                     documentQueueRef.current = new AsyncEventQueue(handleDocumentEvent);
                     setBlocks([]);
@@ -595,7 +688,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 // STREAM EVENT (live event during streaming)
                 // ==============================================================
                 case ServerMsg.StreamEvent: {
-                    const { event } = msg as StreamEventMessage;
+                    const { event, agentMessageId: eventAgentMessageId } = msg as StreamEventMessage;
+                    if (eventAgentMessageId !== ownedAgentMessageIdRef.current) {
+                        break;
+                    }
 
                     switch (event.type) {
                         // ----- Text -----
@@ -747,6 +843,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                         // ----- Documents (queued for async processing) -----
                         case 'document_start':
+                            documentQueueRef.current?.push({ type: event.type, payload: event });
+                            break;
                         case 'document_delta':
                         case 'document_edit':
                         case 'document_progress':
@@ -776,11 +874,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             // Don't override aborted/error — stream_status is authoritative
                             setStatus((prev) => (prev === 'aborted' || prev === 'error' ? prev : 'done'));
                             if (o.onToolDocumentDecision) flushDocumentDecisions(o.onToolDocumentDecision);
-                            o.onDone?.('done', event);
+                            o.onDone?.('done', event, eventAgentMessageId);
                             break;
 
                         case 'done_ext':
-                            o.onDone?.('done', event);
+                            o.onDone?.('done', event, eventAgentMessageId);
                             break;
 
                         case 'safety_retract':
@@ -809,6 +907,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 // ==============================================================
                 case ServerMsg.StreamStatus: {
                     const sm = msg as StreamStatusMessage;
+                    if (sm.agentMessageId !== ownedAgentMessageIdRef.current) {
+                        break;
+                    }
                     const isTerminal = sm.status === 'done' || sm.status === 'aborted' || sm.status === 'error';
                     if (isTerminal) flushSync();
 
@@ -816,8 +917,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     setAgentMessageId(sm.agentMessageId);
 
                     if (isTerminal) {
+                        ownedAgentMessageIdRef.current = null;
                         setDisplayStatus(null);
-                        o.onDone?.(sm.status);
+                        o.onDone?.(sm.status, undefined, sm.agentMessageId);
                     }
                     break;
                 }

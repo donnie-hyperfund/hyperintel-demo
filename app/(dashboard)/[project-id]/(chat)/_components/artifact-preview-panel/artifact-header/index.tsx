@@ -5,8 +5,8 @@ import { enUS } from 'date-fns/locale';
 import { ArrowLeft, EllipsisVertical, X } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
@@ -57,11 +57,16 @@ export function ArtifactHeader({
         <div className="flex items-center justify-between gap-2 h-14 px-4 border-b border-border">
             <div className="flex items-center gap-2.5 min-w-0">
                 {backHref && (
-                    <Button variant="ghost" size="icon-sm" asChild>
-                        <Link href={backHref}>
-                            <ArrowLeft className="size-4" />
-                        </Link>
-                    </Button>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <IconButton size="sm" asChild>
+                                <Link href={backHref}>
+                                    <ArrowLeft />
+                                </Link>
+                            </IconButton>
+                        </TooltipTrigger>
+                        <TooltipContent>Back</TooltipContent>
+                    </Tooltip>
                 )}
                 <div className="flex gap-3 items-center">
                     <Icon className="size-5 shrink-0 text-neutral-500 mt-0.5" />
@@ -85,14 +90,19 @@ export function ArtifactHeader({
                 </div>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
                 {isLgViewportOrSmaller ? (
                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-sm">
-                                <EllipsisVertical className="size-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <DropdownMenuTrigger asChild>
+                                    <IconButton size="sm">
+                                        <EllipsisVertical />
+                                    </IconButton>
+                                </DropdownMenuTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent>Actions</TooltipContent>
+                        </Tooltip>
                         <DropdownMenuContent align="end">
                             <ArtifactActions
                                 type="menu-item"
@@ -118,14 +128,9 @@ export function ArtifactHeader({
                 {actions}
 
                 {!backHref && onCloseAction && (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon-sm" onClick={onCloseAction}>
-                                <X className="size-4" />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Close</TooltipContent>
-                    </Tooltip>
+                    <IconButton size="sm" onClick={onCloseAction}>
+                        <X />
+                    </IconButton>
                 )}
             </div>
         </div>
