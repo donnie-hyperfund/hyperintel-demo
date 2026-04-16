@@ -1,17 +1,24 @@
 import { MockCFWebSocket, MockDurableObjectNamespace } from '@common/common/local.do-mock';
 import { makeSecretMock } from '@common/common/local.helpers';
+import { MockQueue } from '@common/common/local.queue-mock';
+import Reducto from 'reductoai';
 import { WebSocketServer } from 'ws';
 import { backendEnv } from '@/app/api/env';
+import type { EmbeddingQueueMessage } from '@/lib/api/client/queue/embedding-queue.adapter';
+import type { ExtractionQueueMessage } from '@/lib/api/client/queue/extraction-queue.adapter';
+import { MockR2Bucket } from '@/lib/local/r2-mock';
+import { openai } from '@/lib/vendor/openai';
+import { orouterSdk } from '@/lib/vendor/openrouter';
+import { MockRustWorkerFetcher } from '@/workers/extract-rust/tester/local-mock';
 
 // eslint-disable-next-line -- require() to avoid pulling worker files into root tsc
 const { UserGateway } = require('@/workers/objects/src/objects/user-gateway');
 const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do');
 
-/**
- * Mock env that matches the worker's Env type.
- * Provides all properties expected by InferredContext<Env>.
- */
-export const envSecretMocks: Record<string, unknown> = {
+
+
+// --- Secrets & plain config ---
+const envSecrets: Record<string, unknown> = {
     // Secrets (SecretsStoreSecret interface)
     OPENROUTER_API_KEY: makeSecretMock(backendEnv.OPENROUTER_API_KEY!),
     CF_TOKEN: makeSecretMock('TODO'), // backendEnv.CF_GATEWAY_TOKEN!
@@ -26,8 +33,7 @@ export const envSecretMocks: Record<string, unknown> = {
     R2_ACCESS_KEY_ID: makeSecretMock(process.env.R2_ACCESS_KEY_ID ?? ''),
     R2_SECRET_ACCESS_KEY: makeSecretMock(process.env.R2_SECRET_ACCESS_KEY ?? ''),
     CF_ACCOUNT_ID: makeSecretMock(process.env.CF_ACCOUNT_ID ?? ''),
-    // Service Bindings / Queues (mocked)
-    EMBEDDING_QUEUE: { send: () => Promise.resolve() } as any,
+    REDUCTO_API_KEY: makeSecretMock(process.env.REDUCTO_API_KEY ?? ''),
     // Non-secrets (plain strings)
     CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? '',
     LANGFUSE_ENVIRONMENT: process.env.LANGFUSE_ENVIRONMENT ?? 'Development',
@@ -40,23 +46,58 @@ export const envSecretMocks: Record<string, unknown> = {
     CORS_ALLOWED_ORIGIN: '*',
 };
 
+/**
+ * Full worker env mock — secrets + bindings in one object.
+ * Bindings (DOs, queues, R2) are added below and via ensureDOMocks().
+ * Handlers see everything on ctx.env.
+ */
+export const workerEnv: Record<string, unknown> = {
+    ...envSecrets,
+    // R2 bindings — real dev buckets via AWS SDK behind CF R2Bucket interface
+    ARTIFACTS_BUCKET: new MockR2Bucket('hi-artifacts-dev'),
+    USER_IMAGES_BUCKET: new MockR2Bucket('hi-user-images-dev'),
+    // Service bindings — in-process WASM
+    EXTRACT_RUST: new MockRustWorkerFetcher(),
+    // DO bindings assigned in ensureDOMocks()
+};
+
+// Queue bindings — in-process mocks, call worker handlers directly.
+// Assigned after workerEnv exists so the MockQueue can hold a reference to it.
+// Uses dynamic import() to avoid Turbopack/webpack pulling in worker dep trees at bundle time.
+workerEnv.EMBEDDING_QUEUE = new MockQueue<EmbeddingQueueMessage>(
+    async (message, ctx) => {
+        const { processMessage } = await import('@/workers/embedding/src/index');
+        return processMessage(message, ctx, '[embedding/local]');
+    },
+    workerEnv,
+    { openai, orouterSdk },
+);
+workerEnv.EXTRACTION_QUEUE = new MockQueue<ExtractionQueueMessage>(
+    async (message, ctx) => {
+        const { processMessage } = await import('@/workers/extraction/src/index');
+        return processMessage(message, ctx, '[extraction/local]');
+    },
+    workerEnv,
+    { reducto: process.env.REDUCTO_API_KEY ? new Reducto({ apiKey: process.env.REDUCTO_API_KEY }) : undefined },
+);
+
 // --- DO namespace mocks ---
 // Survives hot reload: store actual instances on globalThis so we keep in-memory
-// DO state across module re-evaluations. Always re-assign to envSecretMocks
+// DO state across module re-evaluations. Always re-assign to workerEnv
 // since that object gets recreated on hot reload.
 const DO_KEY = Symbol.for('__hyperintel_dev_do_mocks');
 export function ensureDOMocks() {
     let cached = (globalThis as any)[DO_KEY] as { USER_GATEWAY: any; CHAT_STREAM_DO: any } | undefined;
     if (!cached) {
         cached = {
-            USER_GATEWAY: new MockDurableObjectNamespace(UserGateway, envSecretMocks),
-            CHAT_STREAM_DO: new MockDurableObjectNamespace(ChatStreamDO, envSecretMocks),
+            USER_GATEWAY: new MockDurableObjectNamespace(UserGateway, workerEnv),
+            CHAT_STREAM_DO: new MockDurableObjectNamespace(ChatStreamDO, workerEnv),
         };
         (globalThis as any)[DO_KEY] = cached;
     }
-    // Always re-assign — envSecretMocks is a fresh object after hot reload
-    envSecretMocks.USER_GATEWAY = cached.USER_GATEWAY;
-    envSecretMocks.CHAT_STREAM_DO = cached.CHAT_STREAM_DO;
+    // Always re-assign — workerEnv is a fresh object after hot reload
+    workerEnv.USER_GATEWAY = cached.USER_GATEWAY;
+    workerEnv.CHAT_STREAM_DO = cached.CHAT_STREAM_DO;
 }
 
 // --- Dev WS server (lazy, starts on first API route hit) ---
@@ -64,7 +105,7 @@ export function ensureDOMocks() {
 const WS_KEY = Symbol.for('__hyperintel_dev_wss');
 export function ensureDevWsServer() {
     if (process.env.NODE_ENV === 'production') return;
-    // Always re-assign DO mocks — envSecretMocks is a fresh object after hot reload
+    // Always re-assign DO mocks — workerEnv is a fresh object after hot reload
     ensureDOMocks();
     if ((globalThis as any)[WS_KEY]) return;
 
@@ -97,7 +138,7 @@ export function ensureDevWsServer() {
 
         console.log(`[ws] connected: ${userId}`);
 
-        const ugNamespace = envSecretMocks.USER_GATEWAY as any;
+        const ugNamespace = workerEnv.USER_GATEWAY as any;
         const ugId = ugNamespace.idFromName(userId);
         const ug = ugNamespace.get(ugId);
 

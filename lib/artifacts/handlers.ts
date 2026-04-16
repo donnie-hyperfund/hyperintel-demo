@@ -1,7 +1,7 @@
-import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { raw, wrap } from '@mikro-orm/core';
 import type { SqlEntityManager } from '@mikro-orm/knex';
 import { type NextRequest, NextResponse } from 'next/server';
+import { createEmbeddingQueueAdapter } from '@/lib/api/client/queue/embedding-queue.adapter';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
@@ -424,10 +424,7 @@ export async function handleImportArtifacts(
 
     // Queue embeddings for imported artifacts (fire-and-forget)
     if (result.imported > 0) {
-        const embeddingQueue = createEmbeddingQueueAdapter({
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
-            authSecret: process.env.AUTH_SECRET,
-        });
+        const embeddingQueue = createEmbeddingQueueAdapter();
 
         const embedPromises = result.details
             .filter((d) => d.status === 'imported' && d.newVersionId && d.content)

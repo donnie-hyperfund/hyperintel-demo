@@ -13,7 +13,7 @@ import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
 import type { CamelCaseDto } from '@/lib/api/client/types';
-import { abort, associateArtifacts, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
+import { abort, associateUploads, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
@@ -1083,9 +1083,24 @@ export function ChatProvider({
                         .catch((err) => console.error('Failed to persist initial model selection:', err));
                 }
 
-                // Associate staged uploads with the newly created (or existing) chat
-                if (opts?.stagedArtifactIds?.length) {
-                    await associateArtifacts({ artifactIds: opts.stagedArtifactIds, chatId: chatIdToUse }, accessToken);
+                // Associate staged uploads (artifacts + images) with the newly created (or existing) chat.
+                // Images uploaded before the chat existed are staged under the user and need chat_id set
+                // before the generation handler can link them to the message.
+                if (opts?.stagedArtifactIds?.length || opts?.imageFileIds?.length) {
+                    const associationResponse = await associateUploads(
+                        {
+                            ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
+                            ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
+                            chatId: chatIdToUse,
+                            ...(projectId ? { projectId } : {}),
+                        },
+                        accessToken,
+                    );
+
+                    if (!associationResponse.ok) {
+                        const errorText = await associationResponse.text().catch(() => 'Unknown error');
+                        throw new Error(`Associate uploads failed: ${associationResponse.status} — ${errorText}`);
+                    }
                 }
 
                 // POST triggers server-side generation — stream arrives via WS subscription

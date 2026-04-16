@@ -2,7 +2,6 @@ import { runAgentStream } from '@common/ai/agent';
 import type { MessageUsage } from '@common/ai/agent/usage-types';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
 import { calculateCost, ensurePricingCache, getModelPricing } from '@common/ai/inference/openrouter-pricing';
-import { createEmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
@@ -394,13 +393,6 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         // Load previously loaded prompts from chat metadata
         const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
 
-        // Create embedding queue adapter
-        const embeddingQueue = createEmbeddingQueueAdapter({
-            queue: ctx.env.EMBEDDING_QUEUE,
-            httpEndpoint: process.env.EMBEDDING_WORKER_URL ? `${process.env.EMBEDDING_WORKER_URL}/enqueue` : undefined,
-            authSecret: process.env.AUTH_SECRET,
-        });
-
         // Track version IDs created during this turn
         const createdVersionIds: string[] = [];
 
@@ -411,7 +403,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             projectId: chat.project!.id,
             chatId: chat.id,
             draftManager: new DraftManager(),
-            embeddingQueue,
+            embeddingQueue: ctx.env.EMBEDDING_QUEUE,
             previewAlias: ctx.previewAlias,
             createdVersionIds,
             onVersionCreated: (event) => {
@@ -631,13 +623,24 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                 debugData.rawResponse = event.error!.rawResponse ?? null;
                             }
 
+                            // Strip ephemeral toolContentParts (signed URLs) before DB persistence.
+                            // toolImageRefs (stable refs) are kept for history reconstruction.
+                            const blocksForDb =
+                                streamLog.blocks.length > 0
+                                    ? streamLog.blocks.map((b) =>
+                                          b.type === 'tool_call' && 'toolContentParts' in b
+                                              ? (({ toolContentParts, ...rest }) => rest)(b)
+                                              : b,
+                                      )
+                                    : null;
+
                             assistantMsg = em!.create(ChatMessageEntity, {
                                 id: agentMessageId,
                                 chat: chatId,
                                 role: 'assistant',
                                 content: assistantContent,
                                 reasoning: streamLog.fullReasoning || null,
-                                blocks: streamLog.blocks.length > 0 ? streamLog.blocks : null,
+                                blocks: blocksForDb,
                                 metadata: msgMetadata,
                                 ...(isError && { is_error: true }),
                                 ...(isAborted && { is_aborted: true }),

@@ -9,11 +9,13 @@
 import type { AgentStreamEvent } from '@common/ai/agent';
 import type { ContentPart, ImageContentPart } from '@common/ai/inference/types';
 import { serializeException, stringifyError } from '@/common/ai/utils';
+import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
+import { buildArtifactImageContentParts } from '@/lib/markdown/artifact-images';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
-import { generateSignedImageUrls } from '../image-uploader';
+import { generateSignedImageUrls } from '../uploads/image-uploader';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
 
 // ============================================================================
@@ -333,6 +335,40 @@ export async function loadChatHistory(em: any, chatId: string, env?: Env) {
         env && imageFiles.length > 0
             ? await generateSignedImageUrls(env, imageFiles as ChatMessageFileEntity[])
             : new Map<string, string>();
+
+    // Reconstruct toolContentParts for tool blocks with toolImageRefs.
+    // toolContentParts is ephemeral (stripped before DB save), so we rebuild
+    // it from the stable toolImageRefs + freshly signed URLs.
+    if (env) {
+        // Collect all unique R2 keys across all tool blocks in history
+        const artifactImageKeys = new Set<string>();
+        const SCHEME = 'artifact-image://';
+        for (const m of dbMessages as ChatMessageEntity[]) {
+            if (!m.blocks) continue;
+            for (const b of m.blocks as any[]) {
+                if (b.type === 'tool_call' && b.toolImageRefs?.length) {
+                    for (const ref of b.toolImageRefs as string[]) {
+                        if (ref.startsWith(SCHEME)) {
+                            artifactImageKeys.add(ref.slice(SCHEME.length));
+                        }
+                    }
+                }
+            }
+        }
+
+        if (artifactImageKeys.size > 0) {
+            const artifactSignedUrls = await signArtifactImageKeys(env, [...artifactImageKeys]);
+
+            for (const m of dbMessages as ChatMessageEntity[]) {
+                if (!m.blocks) continue;
+                for (const b of m.blocks as any[]) {
+                    if (b.type !== 'tool_call' || !b.toolImageRefs?.length) continue;
+
+                    b.toolContentParts = buildArtifactImageContentParts(b.toolOutput ?? '', artifactSignedUrls);
+                }
+            }
+        }
+    }
 
     return dbMessages.map((m: ChatMessageEntity) => {
         if (m.is_error || m.is_aborted) {

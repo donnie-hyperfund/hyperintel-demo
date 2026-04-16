@@ -1,8 +1,41 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@radix-ui/react-tooltip';
 import { ExternalLink, Info, Loader2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Components } from 'react-markdown';
+import { getArtifactImageUrl } from '@/lib/api/requests/worker/chat';
 import { cn } from '@/lib/utils';
+
+const ARTIFACT_IMAGE_PROTOCOL = 'artifact-image://';
+
+function resolveArtifactImageSrc(src: string): string {
+    const key = src.slice(ARTIFACT_IMAGE_PROTOCOL.length);
+    return getArtifactImageUrl(key);
+}
+
+function MarkdownImage({ src, alt, className, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+    const [broken, setBroken] = useState(false);
+    const resolvedSrc = typeof src === 'string' && src.startsWith(ARTIFACT_IMAGE_PROTOCOL)
+        ? resolveArtifactImageSrc(src)
+        : src;
+
+    useEffect(() => {
+        setBroken(false);
+    }, [resolvedSrc]);
+
+    if (broken) {
+        return <span className="text-muted-foreground italic text-sm">[Image could not be loaded]</span>;
+    }
+
+    return (
+        <img
+            src={resolvedSrc}
+            alt={alt ?? ''}
+            {...props}
+            className={cn('aspect-square object-cover max-w-[300px] rounded-lg w-full', className)}
+            onError={() => setBroken(true)}
+        />
+    );
+}
 
 type UseMarkdownComponentsParams = {
     id?: string;
@@ -55,16 +88,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                 );
             },
             // TODO: Add separate styles for logo images and remove the square aspect ratio
-            img: ({ src, alt, className, ...props }) => {
-                return (
-                    <img
-                        src={src}
-                        alt={alt}
-                        {...props}
-                        className={cn('aspect-square object-cover max-w-[300px] rounded-lg w-full', className)}
-                    />
-                );
-            },
+            img: MarkdownImage,
             li: ({ children, id, ...props }) => {
                 if (id) {
                     id = `_${randId}__${id}`;

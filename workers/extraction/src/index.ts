@@ -10,13 +10,15 @@
  */
 
 import type { MessageBatch } from '@cloudflare/workers-types';
-import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { type ExtractionQueueMessage, ExtractionQueueMessageSchema } from '@common/queue/extraction-queue.adapter';
+import { type ExtractionQueueMessage, ExtractionQueueMessageSchema } from '@/lib/api/client/queue/extraction-queue.adapter';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { initInferredContext } from '@worker/context.helpers';
 import { Hono } from 'hono';
 import type Reducto from 'reductoai';
+import type { ParseResponse } from 'reductoai/resources/shared';
 import { toFile } from 'reductoai/uploads';
+import { uploadArtifactImage } from '@/lib/artifacts/artifact-images';
+import { persistMarkdownImages } from '@/lib/markdown/artifact-images';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 
@@ -24,12 +26,16 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 // FILETYPE ROUTING
 // ============================================================================
 
-type Filetype = 'docx' | 'pptx' | 'pdf';
+type Filetype = 'docx' | 'pptx' | 'pdf' | 'image';
 
 const MIME_TO_FILETYPE: Record<string, Filetype> = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
     'application/pdf': 'pdf',
+    'image/png': 'image',
+    'image/jpeg': 'image',
+    'image/gif': 'image',
+    'image/webp': 'image',
 };
 
 function resolveFiletype(mimeType: string, originalName: string): Filetype | null {
@@ -40,6 +46,7 @@ function resolveFiletype(mimeType: string, originalName: string): Filetype | nul
     if (ext === '.docx') return 'docx';
     if (ext === '.pptx') return 'pptx';
     if (ext === '.pdf') return 'pdf';
+    if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) return 'image';
 
     return null;
 }
@@ -48,7 +55,7 @@ function resolveFiletype(mimeType: string, originalName: string): Filetype | nul
 // EXTRACTION LOGIC
 // ============================================================================
 
-interface ExtractionContext {
+export interface ExtractionContext {
     env: Env;
     em: EntityManager;
     reducto?: Reducto;
@@ -89,7 +96,7 @@ async function extractViaRustWorker(
 ): Promise<RustExtractResponse> {
     const response = await env.EXTRACT_RUST.fetch('http://extract-rust/extract/v2', {
         method: 'POST',
-        headers: { 'X-File-Type': filetype },
+        headers: { 'X-File-Type': filetype, 'X-Embed-Images': 'true' },
         body: fileBytes,
     });
 
@@ -105,46 +112,150 @@ const FILETYPE_TO_MIME: Record<Filetype, string> = {
     docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     pdf: 'application/pdf',
+    image: 'image/png', // Fallback — callers should pass mimeTypeOverride for correct type
 };
 
+/** Max images to persist per document (prevent R2 bloat on huge PDFs) */
+const MAX_IMAGES_PER_DOCUMENT = 500;
+/** Max images per page (estimated via chunk count) */
+const MAX_IMAGES_PER_PAGE = 5;
+
+interface ReductoExtractionResult {
+    content: string;
+    imageCount: number;
+}
+
 /**
- * Upload file to Reducto and parse with OCR, returning aggregated markdown.
+ * Upload file to Reducto and parse with OCR.
+ * Fetches figure images from Reducto's temporary URLs, persists to R2,
+ * and injects `artifact-image://` references into the markdown.
  */
 async function extractViaReducto(
     fileBytes: ArrayBuffer,
     filetype: Filetype,
     originalName: string,
     reducto: Reducto,
-): Promise<string> {
-    const file = await toFile(new Blob([fileBytes], { type: FILETYPE_TO_MIME[filetype] }), originalName);
+    r2Bucket: R2Bucket,
+    storagePrefix: string,
+    mimeTypeOverride?: string,
+): Promise<ReductoExtractionResult> {
+    const file = await toFile(new Blob([fileBytes], { type: mimeTypeOverride ?? FILETYPE_TO_MIME[filetype] }), originalName);
     const upload = await reducto.upload({ file });
 
     const result = await reducto.parse.run({
         input: upload,
         formatting: { table_output_format: 'md' },
         enhance: { summarize_figures: true },
+        settings: { return_images: ['figure'] },
     });
 
     if ('job_id' in result && !('result' in result)) {
         throw new Error('Reducto returned async response — sync expected');
     }
 
-    const parseResult = (result as { result: { type: string; chunks?: Array<{ content: string }>; url?: string } })
-        .result;
+    const parseResult = (result as ParseResponse).result;
 
-    // Full result — aggregate chunks
-    if (parseResult.type === 'full' && parseResult.chunks) {
-        return parseResult.chunks.map((chunk) => chunk.content).join('\n\n');
-    }
+    let chunks: ParseResponse.FullResult.Chunk[];
 
-    // URL result — large response, fetch from presigned URL
-    if (parseResult.type === 'url' && parseResult.url) {
+    if (parseResult.type === 'full') {
+        chunks = parseResult.chunks;
+    } else if (parseResult.type === 'url') {
         const res = await fetch(parseResult.url);
-        const full = (await res.json()) as { chunks: Array<{ content: string }> };
-        return full.chunks.map((chunk) => chunk.content).join('\n\n');
+        const full = (await res.json()) as ParseResponse.FullResult;
+        chunks = full.chunks;
+    } else {
+        throw new Error('Unexpected Reducto response format');
     }
 
-    throw new Error('Unexpected Reducto response format');
+    // Extract figure images and inject artifact-image:// refs
+    const { contents, imageCount } = await processChunksWithImages(chunks, r2Bucket, storagePrefix);
+    return { content: contents.join('\n\n'), imageCount };
+}
+
+/**
+ * Process Reducto chunks: persist figure images to R2, inject artifact-image:// refs.
+ */
+export async function processChunksWithImages(
+    chunks: ParseResponse.FullResult.Chunk[],
+    r2Bucket: R2Bucket,
+    storagePrefix: string,
+): Promise<{ contents: string[]; imageCount: number }> {
+    // Collect all figure images across chunks (respecting limits)
+    interface FigureRef {
+        chunkIndex: number;
+        blockIndex: number;
+        alt: string;
+        imageUrl: string;
+    }
+
+    const figures: FigureRef[] = [];
+    const perChunkCount = new Map<number, number>();
+
+    for (const [ci, chunk] of chunks.entries()) {
+        for (const [bi, block] of chunk.blocks.entries()) {
+            if (block.type !== 'Figure' || !block.image_url) continue;
+            if (figures.length >= MAX_IMAGES_PER_DOCUMENT) break;
+
+            const chunkCount = perChunkCount.get(ci) ?? 0;
+            if (chunkCount >= MAX_IMAGES_PER_PAGE) continue;
+            perChunkCount.set(ci, chunkCount + 1);
+
+            figures.push({
+                chunkIndex: ci,
+                blockIndex: bi,
+                alt: block.content.slice(0, 200),
+                imageUrl: block.image_url,
+            });
+        }
+    }
+
+    // Fetch + upload all images in parallel
+    const uploaded = await Promise.all(
+        figures.map(async (fig) => {
+            const response = await fetch(fig.imageUrl);
+            if (!response.ok) return null;
+
+            const bytes = await response.arrayBuffer();
+            const contentType = response.headers.get('content-type') ?? 'image/png';
+            const key = await uploadArtifactImage(r2Bucket, storagePrefix, bytes, contentType);
+            return { ...fig, key };
+        }),
+    );
+
+    // Group successful uploads by chunk index
+    const byChunk = new Map<number, Array<{ blockIndex: number; alt: string; key: string }>>();
+    for (const entry of uploaded) {
+        if (!entry) continue;
+        const list = byChunk.get(entry.chunkIndex) ?? [];
+        list.push(entry);
+        byChunk.set(entry.chunkIndex, list);
+    }
+
+    // Build final content per chunk from ordered blocks so repeated figure text
+    // still maps each uploaded image to the correct figure occurrence.
+    const contents = chunks.map((chunk, ci) => {
+        const chunkImages = byChunk.get(ci);
+        if (!chunkImages) return chunk.content;
+
+        const imagesByBlockIndex = new Map(chunkImages.map((img) => [img.blockIndex, img]));
+        const parts: string[] = [];
+
+        for (const [bi, block] of chunk.blocks.entries()) {
+            if (block.content) {
+                parts.push(block.content);
+            }
+
+            const img = imagesByBlockIndex.get(bi);
+            if (img) {
+                parts.push(`![${img.alt}](artifact-image://${img.key})`);
+            }
+        }
+
+        return parts.join('\n\n');
+    });
+
+    const imageCount = uploaded.filter(Boolean).length;
+    return { contents, imageCount };
 }
 
 // ============================================================================
@@ -152,7 +263,7 @@ async function extractViaReducto(
 // ============================================================================
 
 // biome-ignore lint/suspicious/useAwait: delegates to async processExtraction
-async function processMessage(
+export async function processMessage(
     message: ExtractionQueueMessage,
     ctx: ExtractionContext,
     logPrefix: string,
@@ -170,7 +281,7 @@ async function processExtraction(
     ctx: ExtractionContext,
     logPrefix: string,
 ): Promise<{ success: boolean; error?: string }> {
-    const { fileId, versionId, storageKey, originalName, mimeType, projectId, chatId } = message;
+    const { fileId, artifactId, versionId, storageKey, originalName, mimeType, projectId, chatId } = message;
 
     console.log(`${logPrefix} Extracting ${originalName} (${mimeType}) from ${storageKey}`);
 
@@ -193,53 +304,84 @@ async function processExtraction(
     const fileBytes = await r2Object.arrayBuffer();
     console.log(`${logPrefix} Read ${fileBytes.byteLength} bytes for ${filetype} extraction`);
 
-    // 3. Extract via Rust worker (v2 with embedded images + text detection)
-    const MIN_CONTENT_LENGTH = 50;
+    // Image prefix is artifact-scoped (not version-scoped) — cleanup deletes the whole artifact prefix.
+    const scope = projectId ? `project/${projectId}` : chatId ? `chat/${chatId}` : 'staged';
+    const imageStoragePrefix = `uploads/${scope}/${artifactId}/images`;
     let markdown: string;
-    try {
-        const rustResult = await extractDocument(fileBytes, filetype, ctx.env);
-        markdown = rustResult.content;
 
-        const contentTooShort = !markdown.trim() || markdown.trim().length < MIN_CONTENT_LENGTH;
-        const needsReducto = rustResult.imageText || contentTooShort;
+    if (filetype === 'image') {
+        // 3a. Image files: skip Rust entirely, send straight to Reducto for OCR
+        const copyImageAsRef = async () => {
+            const key = await uploadArtifactImage(ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix, fileBytes, mimeType);
+            return `![${originalName}](artifact-image://${key})`;
+        };
 
-        if (contentTooShort) {
-            console.log(
-                `${logPrefix} Content too short (${markdown.trim().length} chars) for ${originalName}, treating as image-heavy document`,
-            );
-        }
-
-        if (needsReducto && ctx.reducto) {
-            console.log(
-                `${logPrefix} Re-processing ${originalName} via Reducto OCR (imageText=${rustResult.imageText}, contentTooShort=${contentTooShort})`,
-            );
-            try {
-                markdown = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto);
-                console.log(`${logPrefix} Reducto OCR produced ${markdown.length} chars`);
-            } catch (ocrError) {
-                console.error(`${logPrefix} Reducto OCR failed, falling back to Rust extraction:`, ocrError);
-            }
-        } else if (needsReducto) {
-            console.warn(`${logPrefix} Needs Reducto but not configured — using Rust extraction`);
-        }
-    } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`${logPrefix} Extraction failed:`, errorMsg);
-
-        // Rust extraction completely failed — try Reducto as last resort
         if (ctx.reducto) {
-            console.log(`${logPrefix} Attempting Reducto fallback after Rust failure`);
             try {
-                markdown = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto);
-                console.log(`${logPrefix} Reducto fallback produced ${markdown.length} chars`);
-            } catch (reductoError) {
-                console.error(`${logPrefix} Reducto fallback also failed:`, reductoError);
+                const reductoResult = await extractViaReducto(
+                    fileBytes, filetype, originalName, ctx.reducto,
+                    ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix, mimeType,
+                );
+                markdown = reductoResult.content;
+                console.log(`${logPrefix} Reducto image extraction produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
+            } catch (error) {
+                console.error(`${logPrefix} Reducto failed for image, falling back to raw image ref:`, error);
+                markdown = await copyImageAsRef();
+            }
+        } else {
+            console.warn(`${logPrefix} No Reducto configured for image extraction — storing raw image ref`);
+            markdown = await copyImageAsRef();
+        }
+    } else {
+        // 3b. Document files: extract via Rust worker (v2 with embedded images + text detection)
+        const MIN_CONTENT_LENGTH = 50;
+        try {
+            const rustResult = await extractDocument(fileBytes, filetype, ctx.env);
+            markdown = rustResult.content;
+
+            const contentTooShort = !markdown.trim() || markdown.trim().length < MIN_CONTENT_LENGTH;
+            const needsReducto = rustResult.imageText || contentTooShort;
+
+            if (contentTooShort) {
+                console.log(
+                    `${logPrefix} Content too short (${markdown.trim().length} chars) for ${originalName}, treating as image-heavy document`,
+                );
+            }
+
+            if (needsReducto && ctx.reducto) {
+                console.log(
+                    `${logPrefix} Re-processing ${originalName} via Reducto OCR (imageText=${rustResult.imageText}, contentTooShort=${contentTooShort})`,
+                );
+                try {
+                    const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
+                    markdown = reductoResult.content;
+                    console.log(`${logPrefix} Reducto OCR produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
+                } catch (ocrError) {
+                    console.error(`${logPrefix} Reducto OCR failed, falling back to Rust extraction:`, ocrError);
+                }
+            } else if (needsReducto) {
+                console.warn(`${logPrefix} Needs Reducto but not configured — using Rust extraction`);
+            }
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`${logPrefix} Extraction failed:`, errorMsg);
+
+            // Rust extraction completely failed — try Reducto as last resort
+            if (ctx.reducto) {
+                console.log(`${logPrefix} Attempting Reducto fallback after Rust failure`);
+                try {
+                    const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
+                    markdown = reductoResult.content;
+                    console.log(`${logPrefix} Reducto fallback produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
+                } catch (reductoError) {
+                    console.error(`${logPrefix} Reducto fallback also failed:`, reductoError);
+                    await markFileFailed(ctx.em, fileId, errorMsg);
+                    return { success: false, error: errorMsg };
+                }
+            } else {
                 await markFileFailed(ctx.em, fileId, errorMsg);
                 return { success: false, error: errorMsg };
             }
-        } else {
-            await markFileFailed(ctx.em, fileId, errorMsg);
-            return { success: false, error: errorMsg };
         }
     }
 
@@ -248,6 +390,12 @@ async function processExtraction(
         await markFileFailed(ctx.em, fileId, 'Extraction produced empty content');
         return { success: false, error: 'Empty extraction result' };
     }
+
+    // Persist any embedded data: URI images (from Rust extractor) to R2.
+    // No-op if markdown has no data: URIs (e.g. Reducto path already handled images).
+    markdown = await persistMarkdownImages(markdown, (bytes, contentType) =>
+        uploadArtifactImage(ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix, bytes, contentType),
+    );
 
     // Strip null bytes — PostgreSQL text columns reject \0
     markdown = markdown.replaceAll('\0', '');
@@ -273,8 +421,7 @@ async function processExtraction(
     // 5. Queue embedding (skip for staged uploads — embedding deferred until association)
     if (ctx.env.EMBEDDING_QUEUE && (projectId || chatId)) {
         try {
-            const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
-            await embeddingQueue.send({
+            await ctx.env.EMBEDDING_QUEUE.send({
                 type: 'index_artifact_version',
                 projectId: projectId ?? null,
                 chatId: chatId ?? null,

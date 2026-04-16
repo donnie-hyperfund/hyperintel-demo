@@ -7,10 +7,10 @@
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PublicError } from '@common/common/error.helpers';
-import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
-import { createR2Client, getR2CredentialsFromWorkerEnv } from '@/lib/vendor/r2';
-import type { Ctx } from './context';
+import { createWorkerS3Client } from '@/lib/vendor/r2';
+import type { Ctx } from '../context';
+import { resolveDbUserId, verifyChatOwnership } from './scope';
 
 // ============================================================================
 // CONSTANTS
@@ -32,20 +32,20 @@ function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-user-images-dev' : 'hi-user-images';
 }
 
-async function createS3Client(env: Env) {
-    const creds = await getR2CredentialsFromWorkerEnv(env);
-    if (!creds) {
-        throw new PublicError(500, {
-            message: 'R2 credentials not configured (CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)',
-            code: 'R2_NOT_CONFIGURED',
-        });
-    }
-    return createR2Client(creds);
+function buildStorageKey(filename: string, scope: { chatId?: string; userId?: string }): string {
+    const ext = getExtension(filename);
+    const prefix = scope.chatId ? scope.chatId : `staged/${scope.userId}`;
+    return `chat-images/${prefix}/${crypto.randomUUID()}${ext}`;
 }
 
-function buildStorageKey(chatId: string, filename: string): string {
-    const ext = getExtension(filename);
-    return `chat-images/${chatId}/${crypto.randomUUID()}${ext}`;
+/** Key prefix used for images uploaded before a chat exists (mirrors artifact staging). */
+function stagedPrefixForUser(dbUserId: string): string {
+    return `chat-images/staged/${dbUserId}/`;
+}
+
+/** True when the file was uploaded via the staged flow (no chat yet). */
+export function isStagedImageKey(storageKey: string): boolean {
+    return storageKey.startsWith('chat-images/staged/');
 }
 
 // ============================================================================
@@ -58,7 +58,9 @@ import { IMAGE_EXTENSIONS, IMAGE_MIME_TYPES, isImageExtension } from '@/lib/sche
 export const PresignImageUploadSchema = z.object({
     filename: z.string().min(1),
     fileSize: z.number().int().positive().max(MAX_IMAGE_SIZE),
-    chatId: z.string().uuid(),
+    /** Optional — when omitted, the image is staged under the current user and must be
+     *  associated with a chat later via /uploads/associate. Mirrors the staged-artifact flow. */
+    chatId: z.string().uuid().optional(),
 });
 export type PresignImageUploadDto = z.infer<typeof PresignImageUploadSchema>;
 
@@ -90,18 +92,17 @@ export async function presignImageUploadHandler(data: PresignImageUploadDto, ctx
         });
     }
 
-    // Verify chat ownership (phase chats go through project.user, intake chats have direct user FK)
-    await em.findOneOrFail(ChatEntity, {
-        id: chatId,
-        $or: [{ project: { user: { clerkId: user.userId } } }, { user: { clerkId: user.userId } }],
-    });
+    // For scoped uploads, chat ownership gates the presign. For staged uploads, we just
+    // need the internal userId — it's encoded in the storage key so associate-time checks
+    // can verify the caller owns the file.
+    const dbUserId = chatId ? await verifyChatOwnership(em, user, chatId) : await resolveDbUserId(em, user);
 
     const mimeType = IMAGE_MIME_TYPES[ext] ?? 'application/octet-stream';
-    const storageKey = buildStorageKey(chatId, filename);
+    const storageKey = buildStorageKey(filename, { chatId, userId: dbUserId });
 
     // Create file record
     const file = new ChatMessageFileEntity();
-    file.chat_id = chatId;
+    file.chat_id = chatId ?? null;
     file.storage_key = storageKey;
     file.original_name = filename;
     file.mime_type = mimeType;
@@ -112,7 +113,7 @@ export async function presignImageUploadHandler(data: PresignImageUploadDto, ctx
     await em.flush();
 
     // Generate presigned PUT URL
-    const s3 = await createS3Client(ctx.env);
+    const s3 = await createWorkerS3Client(ctx.env);
     const command = new PutObjectCommand({
         Bucket: getBucketName(ctx.env),
         Key: storageKey,
@@ -135,11 +136,16 @@ export async function confirmImageUploadHandler(data: ConfirmImageUploadDto, ctx
 
     const file = await em.findOneOrFail(ChatMessageFileEntity, { id: fileId });
 
-    // Verify chat ownership
-    await em.findOneOrFail(ChatEntity, {
-        id: file.chat_id,
-        $or: [{ project: { user: { clerkId: user.userId } } }, { user: { clerkId: user.userId } }],
-    });
+    if (file.chat_id) {
+        // Associated upload — verify chat ownership
+        await verifyChatOwnership(em, user, file.chat_id);
+    } else {
+        // Staged upload — verify ownership by matching the userId embedded in storage_key
+        const dbUserId = await resolveDbUserId(em, user);
+        if (!file.storage_key.startsWith(stagedPrefixForUser(dbUserId))) {
+            throw new PublicError(403, { message: 'Not your file', code: 'FORBIDDEN' });
+        }
+    }
 
     if (file.status !== 'pending_upload') {
         throw new PublicError(400, {
@@ -149,7 +155,7 @@ export async function confirmImageUploadHandler(data: ConfirmImageUploadDto, ctx
     }
 
     // Verify file exists in storage via S3 API (works both in CF workers and locally)
-    const s3 = await createS3Client(ctx.env);
+    const s3 = await createWorkerS3Client(ctx.env);
     try {
         await s3.send(new HeadObjectCommand({ Bucket: getBucketName(ctx.env), Key: file.storage_key }));
     } catch {
@@ -168,6 +174,35 @@ export async function confirmImageUploadHandler(data: ConfirmImageUploadDto, ctx
     };
 }
 
+/**
+ * Associate staged chat-message images (uploaded without a chatId) with a chat.
+ * Caller is responsible for having already verified that `dbUserId` owns `chatId`.
+ * Ownership of individual files is re-verified here via the storage_key prefix.
+ * Returns the number of images that were successfully associated.
+ */
+export async function associateImagesInternal(
+    em: Ctx['em'],
+    dbUserId: string,
+    chatId: string,
+    imageFileIds: string[],
+): Promise<number> {
+    if (imageFileIds.length === 0) return 0;
+
+    const imageFiles = await em.find(ChatMessageFileEntity, {
+        id: { $in: imageFileIds },
+        chat_id: null,
+        storage_key: { $like: `${stagedPrefixForUser(dbUserId)}%` },
+    });
+
+    if (imageFiles.length === 0) return 0;
+
+    for (const file of imageFiles) {
+        file.chat_id = chatId;
+    }
+    await em.flush();
+    return imageFiles.length;
+}
+
 // ============================================================================
 // SIGNED URL GENERATION (used at context build time)
 // ============================================================================
@@ -179,7 +214,7 @@ export async function confirmImageUploadHandler(data: ConfirmImageUploadDto, ctx
 export async function generateSignedImageUrls(env: Env, files: ChatMessageFileEntity[]): Promise<Map<string, string>> {
     if (files.length === 0) return new Map();
 
-    const s3 = await createS3Client(env);
+    const s3 = await createWorkerS3Client(env);
     const bucket = getBucketName(env);
     const urlMap = new Map<string, string>();
 
