@@ -382,12 +382,36 @@ describe('ChatProvider', () => {
             await result.current.sendMessage('hello', { imageFileIds: ['file-1'] });
         });
 
-        expect(associateUploadsMock).toHaveBeenCalledWith({ imageFileIds: ['file-1'], chatId: 'chat-initial' }, 'token-abc');
+        expect(associateUploadsMock).toHaveBeenCalledWith(
+            { imageFileIds: ['file-1'], chatId: 'chat-initial', projectId: 'project-1' },
+            'token-abc',
+        );
         expect(sendActionMock).not.toHaveBeenCalled();
         await waitFor(() => {
             expect(result.current.state.error?.message).toContain('Associate uploads failed: 500');
         });
         consoleSpy.mockRestore();
+    });
+
+    it('includes projectId when associating uploads after creating a new phase chat', async () => {
+        apiMock.chats.create.mockResolvedValue({
+            id: 'chat-1',
+            phaseIndex: 3,
+        });
+        associateUploadsMock.mockResolvedValue(mockResponse({ associatedArtifacts: 1, associatedImages: 0 }));
+        sendActionMock.mockResolvedValue(mockResponse());
+
+        const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWrapper });
+
+        await act(async () => {
+            await result.current.sendMessage('hello world', { stagedArtifactIds: ['artifact-1'] });
+        });
+
+        expect(associateUploadsMock).toHaveBeenCalledWith(
+            { artifactIds: ['artifact-1'], chatId: 'chat-1', projectId: 'project-1' },
+            'token-abc',
+        );
+        expect(sendActionMock).toHaveBeenCalled();
     });
 
     it('creates intake chats for company mode and uses intake send endpoint', async () => {

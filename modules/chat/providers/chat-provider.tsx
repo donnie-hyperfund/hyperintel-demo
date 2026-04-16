@@ -1064,6 +1064,7 @@ export function ChatProvider({
                             ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
                             ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
                             chatId: chatIdToUse,
+                            ...(projectId ? { projectId } : {}),
                         },
                         accessToken,
                     );

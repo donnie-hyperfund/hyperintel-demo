@@ -158,7 +158,7 @@ const ChatMessageForm = ({ className, ref, showGradientFade = true }: ChatMessag
                     const name = `screenshot-${Date.now()}${imageFiles.length > 1 ? `-${i + 1}` : ''}.${ext}`;
                     return new File([f], name, { type: f.type });
                 });
-                addFiles(named);
+                addFiles(named, { source: 'paste' });
             }
         },
         [addFiles],

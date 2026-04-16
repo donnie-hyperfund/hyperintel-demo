@@ -126,6 +126,26 @@ describe('FileUploadProvider image routing', () => {
         });
     });
 
+    it('routes pasted chat images through the chat-image upload path', async () => {
+        const { result } = renderHook(() => useFileUploadContext(), {
+            wrapper: makeWrapper({ chatId: '11111111-1111-1111-1111-111111111111', trackAsPending: true }),
+        });
+
+        const file = new File(['image-bytes'], 'screenshot.png', { type: 'image/png' });
+
+        await act(async () => {
+            result.current.addFiles([file], { source: 'paste' });
+        });
+
+        await waitFor(() => expect(presignImageUploadMock).toHaveBeenCalledTimes(1));
+
+        expect(presignUploadMock).not.toHaveBeenCalled();
+        expect(presignImageUploadMock.mock.calls[0]?.[0]).toMatchObject({
+            filename: 'screenshot.png',
+            chatId: '11111111-1111-1111-1111-111111111111',
+        });
+    });
+
     it('routes artifact-panel image uploads to artifact presign', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
             wrapper: makeWrapper({ projectId: '22222222-2222-2222-2222-222222222222', trackAsPending: false }),

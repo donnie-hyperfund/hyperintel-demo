@@ -64,12 +64,13 @@ export const PROMPT_IMAGE_UPLOAD_INTENT = false;
 type UploadBatch = { pendingIds: Set<string>; total: number; firstName: string };
 type ImageUploadIntent = 'artifact' | 'chat-image';
 type PendingImageIntent = { fileName: string } | null;
+type AddFilesOptions = { source?: 'paste' };
 
 const IMAGE_UPLOAD_INTENT_STORAGE_KEY = 'image-upload-intent';
 
 export type FileUploadContextValue = {
     files: FileEntry[];
-    addFiles: (files: File[]) => void;
+    addFiles: (files: File[], options?: AddFilesOptions) => void;
     removeFile: (index: number) => void;
     clearFiles: () => void;
     submitFiles: () => Promise<void>;
@@ -578,7 +579,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     );
 
     const startEagerUpload = useCallback(
-        async (file: File, entryId: string) => {
+        async (file: File, entryId: string, options?: AddFilesOptions) => {
             const ext = `.${file.name.split('.').pop()?.toLowerCase()}`;
             const isStaged = !scope?.projectId && !scope?.chatId;
 
@@ -589,6 +590,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 if (!token) throw new Error('Not authenticated');
 
                 if (isImageExtension(ext)) {
+                    if (options?.source === 'paste') {
+                        await uploadChatImage(file, entryId, token, ext);
+                        return;
+                    }
+
                     const imageIntent = await resolveImageUploadIntent(file);
                     if (imageIntent === 'chat-image') {
                         await uploadChatImage(file, entryId, token, ext);
@@ -644,7 +650,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     );
 
     const addFiles = useCallback(
-        (newFiles: File[]) => {
+        (newFiles: File[], options?: AddFilesOptions) => {
             const entries: FileEntry[] = [];
             for (const file of newFiles) {
                 const error = validateArtifactFile(file);
@@ -678,7 +684,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 queueMicrotask(() => {
                     entries.forEach((entry) => {
                         if (entry.file) {
-                            startEagerUpload(entry.file, entry.id);
+                            startEagerUpload(entry.file, entry.id, options);
                         }
                     });
                 });
