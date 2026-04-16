@@ -139,7 +139,7 @@ export function createOnTurnComplete(
         }
         if (options.pecp && agentCtx.pendingPECP) {
             const p = agentCtx.pendingPECP;
-            return `You MUST generate a PECP for "${p.parentDocumentType}". Call begin_document with mode="create", name="${p.pecpKey}", document_type="PECP", parent_document="${p.parentDocument}", is_internal=false. Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
+            return `You MUST generate a PECP for "${p.parentDocumentType}". Call begin_document with mode="create", name="${p.pecpKey}", document_type="PECP", parent_document="${p.parentDocument}". Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
         }
         return null;
     };

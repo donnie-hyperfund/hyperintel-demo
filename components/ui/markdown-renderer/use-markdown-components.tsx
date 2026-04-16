@@ -44,7 +44,7 @@ type UseMarkdownComponentsParams = {
 export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
     // TODO stupid.. make it stable fallback to full reta... I mean random
     const [hoveredCitation, setHoveredCitation] = useState<string | null>(null);
-    const [randId, setRandomId] = useState<string>(id ?? `${Math.round(Math.random() * 10000)}`);
+    const [randId] = useState<string>(id ?? `${Math.round(Math.random() * 10000)}`);
 
     const components = useMemo(() => {
         return {
@@ -58,7 +58,7 @@ export const useMarkdownComponents = ({ id }: UseMarkdownComponentsParams) => {
                 if (id) {
                     id = `_${randId}__${id}`;
                 }
-                if (props.href && props.href.startsWith('#')) {
+                if (props.href?.startsWith('#')) {
                     //if(scrollToId){
 
                     //    return (

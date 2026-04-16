@@ -92,7 +92,6 @@ When you have gathered sufficient information, create the document using the doc
    - \`name\`: \`${docInfo.namePattern}\` (lowercase, hyphens)
    - \`title\`: \`${docInfo.titlePattern}\`
    - \`mode\`: \`create\`
-   - \`is_internal\`: \`true\`
    - \`document_type\`: \`${docInfo.documentType}\`
 
 2. Call \`write_document\` with the full content.

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
+import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
@@ -173,6 +174,19 @@ export function ChatProvider({
     const { selectedModel, setSelectedModel, persistSelection, isModelAvailable, setIsChangingModel } =
         useModelSelection();
     const skipNextLoad = useRef(false);
+
+    const captureChatAnalytics = useCallback(
+        (event: string, properties: Record<string, string | number | boolean | null | undefined> = {}) => {
+            capturePostHogEvent(event, {
+                chat_type: chatType,
+                project_id: projectId ?? null,
+                chat_id: chatId ?? null,
+                model: selectedModel ?? null,
+                ...properties,
+            });
+        },
+        [chatId, chatType, projectId, selectedModel],
+    );
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
     const [state, setState] = useState<ChatState>(() => {
@@ -473,6 +487,13 @@ export function ChatProvider({
 
     const handleStreamStarted = useCallback(
         (agentMessageId: string, userMessageId: string, tempId?: string, streamType?: 'chat' | 'summary') => {
+            captureChatAnalytics('chat_stream_started', {
+                agent_message_id: agentMessageId,
+                user_message_id: userMessageId || null,
+                submission_id: tempId ?? userMessageId ?? null,
+                stream_type: streamType ?? 'chat',
+            });
+
             if (streamType === 'summary') {
                 // Summary stream arrived on existing chat: subscription — enter summarize mode
                 setState((prev) => ({
@@ -495,7 +516,7 @@ export function ChatProvider({
                 });
             }
         },
-        [],
+        [captureChatAnalytics],
     );
 
     const handleMessageCreated = useCallback(
@@ -930,7 +951,6 @@ export function ChatProvider({
                 api.messages.list(chatId, { page: 1 }),
                 api.chats.get(chatId),
             ]);
-
             // API returns DESC order (newest first), reverse for display (newest at bottom)
             const apiMessages: Message[] =
                 messagesData.data?.map((m) => mapApiMessage(m, chatData.activeAgentMessageId)) || [];
@@ -1048,6 +1068,14 @@ export function ChatProvider({
             try {
                 const chatIdToUse = await ensureChatId();
 
+                captureChatAnalytics('chat_turn_submitted', {
+                    chat_id: chatIdToUse,
+                    submission_id: userMessage.id,
+                    input_length: content.length,
+                    staged_artifact_count: opts?.stagedArtifactIds?.length ?? 0,
+                    image_count: opts?.imageFileIds?.length ?? 0,
+                });
+
                 // Ensure newly created chat has the correct model in DB
                 if (!chatId && selectedModel) {
                     api.chats
@@ -1113,6 +1141,10 @@ export function ChatProvider({
                     return;
                 }
                 console.error('Error sending message:', error);
+                captureChatAnalytics('chat_turn_submission_failed', {
+                    submission_id: userMessage.id,
+                    error_message: error instanceof Error ? error.message : 'Failed to send message',
+                });
                 setState((prev) => ({
                     ...prev,
                     isGenerating: false,

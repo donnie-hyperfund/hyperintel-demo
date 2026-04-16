@@ -8,7 +8,7 @@ type ListPageHeaderProps = {
 
 export function ListPageHeader({ title, ActionComponent }: ListPageHeaderProps) {
     return (
-        <div className="sticky top-0 z-10 bg-neutral-975 px-4">
+        <div className="sticky top-(--processing-bar-height,0px) z-10 bg-neutral-975 px-4">
             <div className="mx-auto w-full max-w-3xl">
                 {/* Mobile */}
                 <div className="hidden md:flex items-center justify-between pb-6 pt-12">

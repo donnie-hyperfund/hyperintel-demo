@@ -154,7 +154,7 @@ Never skip straight to \`read_document\` with a guessed name — always discover
 After finalizing any internal document, finalize_document will instruct you to generate a PECP.
 The PECP is the PE-facing communication for the deliverable — use the PECP stage templates from your loaded prompts (Identity Framework Part 10).
 **This is the ONE exception to the "no proactive documents" rule.** When finalize_document returns \`pecpRequired\`, you MUST immediately:
-1. Call \`begin_document\` with the exact name, document_type="PECP", parent_document, and is_internal=false as specified
+1. Call \`begin_document\` with the exact name, document_type="PECP", and parent_document as specified
 2. Write the PECP using the appropriate stage template from your system prompt
 3. Call \`finalize_document\` — the PECP will be auto-approved
 After the PECP is finalized, STOP and wait for the user.
@@ -195,14 +195,8 @@ const BeginDocumentParams = z.object({
         ),
     name: z.string().min(1).describe('Document name (e.g., "analysis.md"). Extension auto-appended if missing.'),
     title: z.string().optional().nullable().describe('Display title for the document (required for create).'),
-    is_internal: z
-        .boolean()
-        .default(true)
-        .describe(
-            'Whether this is an internal document (content hidden from user). Set to false for client deliverables that the user should see. In edit mode, you should generally keep the same value as the existing version.',
-        ),
     document_type: DocumentTypeSchema.describe(
-        'Classification of the document type. Must be one of the allowed types. In edit mode, you should generally keep the same value as the existing version.',
+        'Classification of the document type. Must be one of the allowed types. The type determines whether the document is internal (hidden from the user) or a client deliverable (visible) — no separate flag is needed. In edit mode, you should generally keep the same value as the existing version.',
     ),
     parent_document: z
         .string()
@@ -284,13 +278,10 @@ Modes:
   • If rejected version exists → loads it with rejection reason (revise it)
   • Otherwise → loads approved version (start new changes)
 
-Internal vs Client Deliverable:
-- is_internal=true (default): Internal working document. Content is NOT visible to the user.
-- is_internal=false: Client deliverable. Content IS visible to the user in the UI.
-- In edit mode, you should generally keep the same is_internal value as the existing version.
-
-Document Type:
+Document Type (also controls visibility):
 - Classify the document with the appropriate document_type.
+- Internal working documents (Genesis DNA, Legacy DNA, Team Specification, MID, PSEB, Action Plan, Completion Brief, Company Profile, Human Persona) are hidden from the user.
+- All other types (Research Report, Executive Summary, PECP, Other) are client-visible deliverables.
 - In edit mode, you should generally keep the same document_type as the existing version.
 
 After calling this, use write_document to add content or patch_document for precise edits.
@@ -298,14 +289,16 @@ You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
                 const { mode, name, title, document_type, parent_document } = input;
-                let { is_internal } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
                 const scopeId = ctx.projectId ?? ctx.userId!;
 
+                // Internal/deliverable visibility is derived solely from document_type.
+                const is_internal = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
+
                 const isPECP = document_type === 'PECP';
 
-                // PECP validation: must have parent_document, must be create mode, must not be internal
+                // PECP validation: must have parent_document, must be create mode
                 if (isPECP) {
                     if (!parent_document) {
                         return {
@@ -315,7 +308,6 @@ You MUST call finalize_document when done or content will be lost.`,
                     if (mode !== 'create') {
                         return { error: 'PECP documents can only be created (mode="create"), not edited.' };
                     }
-                    is_internal = false; // PECPs are always public
                 }
 
                 // Resolve parent version for PECP
@@ -336,13 +328,6 @@ You MUST call finalize_document when done or content will be lost.`,
                         return { error: `Parent document "${parentNormalized}" has no version to summarize.` };
                     }
                     parentVersionId = parentVersion.id;
-                }
-
-                // Enforce is_internal for internal document types
-                const isInternalType = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
-                const internalEnforced = isInternalType && !is_internal;
-                if (isInternalType) {
-                    is_internal = true;
                 }
 
                 const normalizedName = normalizeArtifactKey(name);
@@ -408,12 +393,9 @@ You MUST call finalize_document when done or content will be lost.`,
                                     parentDocument: normalizeArtifactKey(parent_document),
                                 }),
                             ...(isDeleted && { previouslyDeleted: true }),
-                            ...(internalEnforced && { internalEnforced: true }),
                             message: isDeleted
                                 ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
-                                : internalEnforced
-                                  ? `Draft started. Use write_document to add content, then finalize_document. Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
-                                  : 'Draft started. Use write_document to add content, then finalize_document.',
+                                : 'Draft started. Use write_document to add content, then finalize_document.',
                         };
                     } catch (err: any) {
                         return { error: err.message };
@@ -470,10 +452,6 @@ You MUST call finalize_document when done or content will be lost.`,
                         deleted: `Document was deleted (v${loadedVersion}). Loaded deleted content. Finalizing will restore it as a new proposed version.`,
                     };
 
-                    const message = internalEnforced
-                        ? `${messages[loadedFrom]} Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
-                        : messages[loadedFrom];
-
                     return {
                         status: 'editing',
                         mode: 'edit',
@@ -486,9 +464,8 @@ You MUST call finalize_document when done or content will be lost.`,
                         loadedFrom,
                         loadedVersion,
                         lines: countLines(draft.content),
-                        message,
+                        message: messages[loadedFrom],
                         ...(isDeleted && { previouslyDeleted: true }),
-                        ...(internalEnforced && { internalEnforced: true }),
                         ...(rejectionReason && { rejectionReason }),
                     };
                 } catch (err: any) {
@@ -722,7 +699,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         response.pecpRequired = pecpInfo;
                         // Store on context so onTurnComplete can nudge the agent
                         ctx.pendingPECP = pecpInfo;
-                        response.message = `Saved as proposed v${result.version}. Awaiting user approval. Now you MUST generate a PECP for this "${draft.document_type}". Call begin_document with mode="create", name="${pecpKey}", document_type="PECP", parent_document="${draft.name}", is_internal=false. Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
+                        response.message = `Saved as proposed v${result.version}. Awaiting user approval. Now you MUST generate a PECP for this "${draft.document_type}". Call begin_document with mode="create", name="${pecpKey}", document_type="PECP", parent_document="${draft.name}". Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
                     }
 
                     return response;

@@ -11,7 +11,7 @@ export default function Layout({ children }: DashboardLayoutProps) {
     return (
         <WebsocketProvider>
             <ArtifactProcessingProvider>
-                <div className="flex h-dvh flex-col overflow-hidden">
+                <div className="flex min-h-dvh flex-col">
                     <ProcessingStatusBar />
                     <DashboardLayout>
                         <UserEventsInvalidator />

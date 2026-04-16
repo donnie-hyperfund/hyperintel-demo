@@ -31,7 +31,7 @@ class HmrMetadataCacheAdapter implements CacheAdapter {
     private byPath = new Map<string, any>();
     private byName = new Map<string, any>();
 
-    constructor(private options: { data: Record<string, any> }) {
+    constructor(options: { data: Record<string, any> }) {
         for (const [key, meta] of Object.entries(options.data)) {
             this.byName.set(key, meta);
             // Index by source file path (stripping extension) for MikroORM's internal lookups
@@ -95,9 +95,9 @@ export async function getOrm(
     raw = false,
 ): Promise<MikroORM | { em: ScopedEntityManager }> {
     let injectConfig: Options;
+    const shouldReturnRaw = _.isBoolean(injectConfigOrRaw) ? injectConfigOrRaw : raw;
     if (_.isBoolean(injectConfigOrRaw)) {
-        raw = injectConfigOrRaw;
-        if (raw && !reqStore().verified) {
+        if (shouldReturnRaw && !reqStore().verified) {
             throw new Error("You don't know what you're doing");
         }
         injectConfig = {};
@@ -130,10 +130,7 @@ export async function getOrm(
             // debug: true,
         }).then((orm) => {
             // Serialization group support (deployment-level + toObject patch)
-            initSerializationGroups(
-                orm,
-                process.env.NEXT_PUBLIC_APP_ENV === 'development' ? ['dev'] : undefined,
-            );
+            initSerializationGroups(orm, process.env.NEXT_PUBLIC_APP_ENV === 'development' ? ['dev'] : undefined);
 
             return orm;
         });
@@ -149,10 +146,17 @@ export async function getOrm(
                         const live = orm.getMetadata().getAll();
                         const cleaned: Record<string, any> = {};
                         for (const [key, meta] of Object.entries(live)) {
-                            const { class: _cls, prototype: _proto, props: _props,
-                                referencingProperties: _refs, propertyOrder: _po,
-                                relations: _rels, concurrencyCheckKeys: _cck,
-                                checks: _chk, ...rest } = meta;
+                            const {
+                                class: _cls,
+                                prototype: _proto,
+                                props: _props,
+                                referencingProperties: _refs,
+                                propertyOrder: _po,
+                                relations: _rels,
+                                concurrencyCheckKeys: _cck,
+                                checks: _chk,
+                                ...rest
+                            } = meta;
                             cleaned[key] = rest;
                         }
                         globalThis.__ormMetadataCache = cleaned;
@@ -185,7 +189,7 @@ export async function getOrm(
             });
         }
     }
-    if (raw) {
+    if (shouldReturnRaw) {
         return globalThis.__ormPromise;
     } else {
         return { em: await getRequestFork() };
