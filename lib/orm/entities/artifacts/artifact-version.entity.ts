@@ -11,7 +11,6 @@ export { DOCUMENT_TYPES, VERSION_STATUSES } from '@/lib/schema/artifact';
 
 @Entity({ tableName: 'artifact_versions' })
 @Index({ properties: ['artifact', 'status'] })
-@Index({ properties: ['chat', 'status'] })
 export class ArtifactVersionEntity extends IdCreatedColumns {
     @ManyToOne(() => 'ArtifactEntity', { fieldName: 'artifact_id', serializer: (artifact) => artifact.id })
     artifact!: ArtifactEntity;

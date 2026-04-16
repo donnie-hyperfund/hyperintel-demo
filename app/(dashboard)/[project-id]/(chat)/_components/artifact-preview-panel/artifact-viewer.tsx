@@ -219,9 +219,8 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                 {!isAtBottom && content.length > 0 && (
                     <Button
                         onClick={() => scrollToBottom({ behavior: 'smooth' })}
-                        size="icon-lg"
                         variant="secondary"
-                        className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-xl z-10"
+                        className="size-10 absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-xl z-10"
                         aria-label="Scroll to bottom"
                     >
                         <ChevronDown className="size-4" />
