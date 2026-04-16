@@ -3,9 +3,9 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { NextResponse } from 'next/server';
 import { assertAuth } from '@/lib/api/auth-guard';
 import { IS_DEV } from '@/lib/config';
-import { initNextjsWorkerContext } from '@/lib/local/context';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
+import { getOrm } from '@/lib/orm/orm';
 import { createR2Client, getR2CredentialsFromEnv } from '@/lib/vendor/r2';
 
 const SIGN_EXPIRY_SECONDS = 60 * 60; // 1 hour
@@ -13,9 +13,7 @@ const SIGN_EXPIRY_SECONDS = 60 * 60; // 1 hour
 export async function GET(_req: Request, { params }: { params: Promise<{ fileId: string }> }) {
     const user = await assertAuth();
     const { fileId } = await params;
-
-    const ctx = await initNextjsWorkerContext({ skipAI: true });
-    const em = ctx.em;
+    const { em } = await getOrm();
 
     const file = await em.findOne(ChatMessageFileEntity, { id: fileId });
     if (!file) return NextResponse.json({ error: 'Not found' }, { status: 404 });

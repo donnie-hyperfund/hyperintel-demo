@@ -4,9 +4,9 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { assertAuth } from '@/lib/api/auth-guard';
 import { IS_DEV } from '@/lib/config';
-import { initNextjsWorkerContext } from '@/lib/local/context';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import { getOrm } from '@/lib/orm/orm';
 import { createR2Client, getR2CredentialsFromEnv } from '@/lib/vendor/r2';
 
 const SIGN_EXPIRY_SECONDS = 60 * 60; // 1 hour
@@ -17,7 +17,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
     const { key: keyParts } = await params;
     const key = keyParts.join('/');
 
-    // Key pattern: uploads/{project|chat}/{id}/{artifactId}/images/{filename}
     if (
         !key.startsWith('uploads/') ||
         keyParts.length !== 6 ||
@@ -28,7 +27,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
         return NextResponse.json({ error: 'Invalid artifact image key' }, { status: 404 });
     }
 
-    const scopeType = keyParts[1]; // 'project' or 'chat'
+    const scopeType = keyParts[1];
     const scopeId = keyParts[2];
     const artifactId = keyParts[3];
 
@@ -36,8 +35,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
         return NextResponse.json({ error: 'Invalid artifact image key' }, { status: 404 });
     }
 
-    const ctx = await initNextjsWorkerContext({ skipAI: true });
-    const em = ctx.em;
+    const { em } = await getOrm();
 
     if (scopeType === 'project') {
         const project = await em.findOne(ProjectEntity, {
