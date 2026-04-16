@@ -1,7 +1,7 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PublicError } from '@common/common/error.helpers';
-import { LockMode, raw } from '@mikro-orm/core';
+import { raw } from '@mikro-orm/core';
 import { ExtractionQueueAdapter } from '@/lib/api/client/queue/extraction-queue.adapter';
 import { normalizeUploadedFileKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
@@ -110,55 +110,48 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
           ? { project: projectId, key: normalizedKey }
           : { chat: chatId, key: normalizedKey, project: null };
 
-    const existing = scopeFilter ? await em.findOne(ArtifactEntity, scopeFilter) : null;
+    const existing = scopeFilter
+        ? await em.findOne(ArtifactEntity, scopeFilter, { populate: ['current_version', 'versions'] })
+        : null;
 
     if (existing) {
-        const result: UpsertResult = { action: 'new_version', artifactId: '', versionId: '', version: 0 };
+        const versions = existing.versions.getItems();
+        const newVersionNum = Math.max(...versions.map((v) => v.version), 0) + 1;
 
-        await em.transactional(async (txEm) => {
-            // Lock the artifact row to prevent concurrent version creation
-            const locked = await txEm.findOneOrFail(ArtifactEntity, existing.id, {
-                populate: ['current_version', 'versions'],
-                lockMode: LockMode.PESSIMISTIC_WRITE,
-            });
+        const existingProposed = versions.find((v) => v.status === 'proposed');
+        const supersededVersion = existingProposed?.version;
 
-            const versions = locked.versions.getItems();
-            const newVersionNum = Math.max(...versions.map((v) => v.version), 0) + 1;
+        if (existingProposed) {
+            existingProposed.status = 'superseded';
+            existingProposed.rejection_reason = `Superseded by uploaded v${newVersionNum}`;
+            existingProposed.status_changed_at = new Date();
+        }
 
-            const existingProposed = versions.find((v) => v.status === 'proposed');
-            const supersededVersion = existingProposed?.version;
+        const newVersion = new ArtifactVersionEntity();
+        newVersion.artifact = existing;
+        newVersion.version = newVersionNum;
+        newVersion.content = content;
+        newVersion.status = status;
+        newVersion.is_internal = false;
+        newVersion.is_uploaded = true;
+        newVersion.status_changed_at = new Date();
+        newVersion.status_changed_by = statusChangedBy;
+        if (chatId) newVersion.chat = em.getReference('ChatEntity', chatId) as any;
 
-            if (existingProposed) {
-                existingProposed.status = 'superseded';
-                existingProposed.rejection_reason = `Superseded by uploaded v${newVersionNum}`;
-                existingProposed.status_changed_at = new Date();
-            }
+        em.persist(newVersion);
+        existing.version = newVersionNum;
+        existing.title = title;
+        if (status === 'approved') existing.current_version = newVersion;
 
-            const newVersion = new ArtifactVersionEntity();
-            newVersion.artifact = locked;
-            newVersion.version = newVersionNum;
-            newVersion.content = content;
-            newVersion.status = status;
-            newVersion.is_internal = false;
-            newVersion.is_uploaded = true;
-            newVersion.status_changed_at = new Date();
-            newVersion.status_changed_by = statusChangedBy;
-            if (chatId) newVersion.chat = txEm.getReference('ChatEntity', chatId) as any;
+        await em.flush();
 
-            txEm.persist(newVersion);
-            locked.version = newVersionNum;
-            locked.title = title;
-            if (status === 'approved') locked.current_version = newVersion;
-
-            await txEm.flush();
-
-            result.artifactId = locked.id;
-            result.versionId = newVersion.id;
-            result.version = newVersionNum;
-            result.supersededVersion = supersededVersion;
-        });
-
-        return result;
+        return {
+            action: 'new_version',
+            artifactId: existing.id,
+            versionId: newVersion.id,
+            version: newVersionNum,
+            supersededVersion,
+        };
     }
 
     const result: UpsertResult = { action: 'created', artifactId: '', versionId: '', version: 1 };
