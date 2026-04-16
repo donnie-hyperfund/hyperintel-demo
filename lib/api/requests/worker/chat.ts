@@ -210,14 +210,20 @@ export const confirmUpload = (data: ConfirmUploadDto, accessToken: string) => {
 // ── Image serving ──
 
 /**
- * Build the URL to serve a chat message image (auth-gated via worker).
- * Use as `src` on `<img>` tags — the browser will send the auth cookie.
+ * Build the same-origin URL to serve a chat message image.
+ * Browser-driven requests like `<img>` tags cannot attach our worker auth header,
+ * so image rendering must go through the Next.js gateway route.
  */
 export function getImageUrl(fileId: string): string {
-    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
-        return `${getWorkerUrl(WORKERS.Chat, CHAT_EP.ImageServe)}/${fileId}`;
-    }
     return `${WORKERS_LOCAL_ENDPOINTS.ImageServe}/${fileId}`;
+}
+
+/**
+ * Build the same-origin URL to serve an artifact image reference.
+ * Like chat images, this must stay on the app origin so auth cookies are included.
+ */
+export function getArtifactImageUrl(key: string): string {
+    return `${WORKERS_LOCAL_ENDPOINTS.ArtifactImageServe}/${key}`;
 }
 
 // ── Image upload (chat message attachments) ──

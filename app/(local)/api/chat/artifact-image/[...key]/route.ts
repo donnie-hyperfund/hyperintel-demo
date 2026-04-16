@@ -42,14 +42,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
     if (scopeType === 'project') {
         const project = await em.findOne(ProjectEntity, {
             id: scopeId,
-            user: { clerkId: user.userId },
+            user: { clerkId: user.clerkId },
             archived_at: null,
         });
         if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     } else if (scopeType === 'chat') {
         const chat = await em.findOne(ChatEntity, {
             id: scopeId,
-            $or: [{ project: { user: { clerkId: user.userId } } }, { user: { clerkId: user.userId } }],
+            $or: [{ project: { user: { clerkId: user.clerkId } } }, { user: { clerkId: user.clerkId } }],
         });
         if (!chat) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     } else {

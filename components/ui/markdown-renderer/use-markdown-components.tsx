@@ -2,19 +2,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@radix-ui/react-tooltip
 import { ExternalLink, Info, Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Components } from 'react-markdown';
-import { getWorkerUrl } from '@/lib/api/requests/worker/common';
-import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
-import { frontendEnv } from '@/lib/env';
+import { getArtifactImageUrl } from '@/lib/api/requests/worker/chat';
 import { cn } from '@/lib/utils';
 
 const ARTIFACT_IMAGE_PROTOCOL = 'artifact-image://';
 
 function resolveArtifactImageSrc(src: string): string {
     const key = src.slice(ARTIFACT_IMAGE_PROTOCOL.length);
-    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
-        return getWorkerUrl(WORKERS.Chat, `${CHAT_EP.ArtifactImageServe}/${key}`);
-    }
-    return `${WORKERS_LOCAL_ENDPOINTS.ArtifactImageServe}/${key}`;
+    return getArtifactImageUrl(key);
 }
 
 function MarkdownImage({ src, alt, className, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
