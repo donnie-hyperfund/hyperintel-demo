@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import { z } from 'zod';
+import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
 import { ChatEntity, ChatMessageFileEntity, ProjectEntity } from '@/lib/orm/entities';
 import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import {
@@ -25,7 +26,6 @@ import {
     SummarizeActionSchema,
 } from '@/lib/schema/chat';
 import { ImportArtifactsActionSchema } from '@/lib/schema/project';
-import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
 import { branchDoName, getPreviewAlias } from '@/workers/_common/util/preview-alias';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
 import { deleteArtifactHandler } from './artifact-deleter';
@@ -35,11 +35,7 @@ import { chatActionHandler } from './chat-handler';
 import type { Ctx } from './context';
 import { intakeActionHandler } from './intake-handler';
 import { summarizeActionHandler } from './summarizer';
-import {
-    confirmUploadHandler,
-    presignUploadHandler,
-    uploadArtifactHandler,
-} from './uploads/artifact-uploader';
+import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './uploads/artifact-uploader';
 import { associateUploadsHandler } from './uploads/associate-handler';
 import { cleanupStaleUploads } from './uploads/cleanup';
 import {
@@ -53,9 +49,18 @@ import type { UserGatewayStub } from './utils/do-stubs';
 const app = new Hono<HonoEnv<Env>>({ strict: false });
 const UuidSchema = z.string().uuid();
 
-/** Build Ctx with preview alias resolved from the request (null on prod) */
-function ctxWithAlias(c: { env: Env; req: { raw: Request }; var: any }): Ctx {
-    return { ...c.var, previewAlias: getPreviewAlias(c.env as any, c.req.raw) };
+/** Build Ctx with preview alias + request ID resolved from the request */
+function ctxWithAlias(c: {
+    env: Env;
+    req: { raw: Request };
+    var: any;
+    get: (key: 'requestId') => string | undefined;
+}): Ctx {
+    return {
+        ...c.var,
+        previewAlias: getPreviewAlias(c.env as any, c.req.raw),
+        requestId: c.get('requestId') ?? null,
+    };
 }
 
 app.use(prettyJSON());

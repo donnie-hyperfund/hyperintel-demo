@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 import camelcaseKeys from 'camelcase-keys';
+import { REQUEST_ID_HEADER } from '@/lib/api/request-id';
 import { ApiClientError } from './types';
 
 export type TokenGetter = () => Promise<string | null>;
@@ -37,13 +38,17 @@ export function createAxiosInstance(getToken: TokenGetter): AxiosInstance {
         (error: AxiosError<{ message?: string; code?: string; details?: Record<string, unknown> }>) => {
             const status = error.response?.status ?? 500;
             const data = error.response?.data;
+            const requestId =
+                error.response?.headers?.[REQUEST_ID_HEADER.toLowerCase()] ??
+                error.response?.headers?.[REQUEST_ID_HEADER];
 
-            throw new ApiClientError(
-                data?.message ?? error.message ?? 'Request failed',
+            throw new ApiClientError({
+                message: data?.message ?? error.message ?? 'Request failed',
                 status,
-                data?.code,
-                data?.details,
-            );
+                code: data?.code,
+                details: data?.details,
+                requestId: typeof requestId === 'string' ? requestId : undefined,
+            });
         },
     );
 

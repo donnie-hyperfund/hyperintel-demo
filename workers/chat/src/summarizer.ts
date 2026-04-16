@@ -12,6 +12,7 @@ import { preprocessContext } from './chat-handler';
 import { Ctx } from './context';
 import { listDocuments } from './tools/documents/document-service';
 import type { UserGatewayStub } from './utils/do-stubs';
+import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
 import { extractDocuments } from './utils/extract-documents';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
@@ -201,7 +202,11 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
 
         // Fetch the approved Completion Brief content — extract the Next-Phase Initialization Blurb
         if (chat.completion_brief) {
-            const cbArtifact = await em!.findOne(ArtifactEntity, { id: typeof chat.completion_brief === 'string' ? chat.completion_brief : chat.completion_brief.id }, { populate: ['current_version'] });
+            const cbArtifact = await em!.findOne(
+                ArtifactEntity,
+                { id: typeof chat.completion_brief === 'string' ? chat.completion_brief : chat.completion_brief.id },
+                { populate: ['current_version'] },
+            );
             const cbContent = cbArtifact?.current_version?.content;
             if (cbContent) {
                 instructions += `\n\n## Approved Completion Brief\n\nThe following is the approved Completion Brief for this phase. It contains a "Next-Phase Initialization Blurb" (Section 13) that MUST be included verbatim at the end of your summary. Copy it exactly as-is — do not modify it.\n\n${cbContent}`;
@@ -217,7 +222,8 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Anthropic requires conversation to end with user message for model to respond.
         historyMessages.push({
             role: 'user' as const,
-            content: 'Please provide a comprehensive summary of this conversation. Include the Next-Phase Initialization Blurb from the Completion Brief at the end.',
+            content:
+                'Please provide a comprehensive summary of this conversation. Include the Next-Phase Initialization Blurb from the Completion Brief at the end.',
         });
 
         const inferenceParams = options.overrideInference ?? {
@@ -274,7 +280,18 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             chat.active_agent_message_id = null;
             await em!.flush();
 
-            await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, new Error('Summarization cancelled'));
+            const cancellationError = new Error('Summarization cancelled');
+            await cleanupStreamDO({
+                pusher,
+                streamDO,
+                ugStub,
+                topic: `chat:${chatId}`,
+                error: cancellationError,
+                errorMetadata: buildPublicErrorMetadata({
+                    error: cancellationError,
+                    requestId: ctx.requestId,
+                }),
+            });
             return;
         }
 
@@ -356,16 +373,44 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
-        console.error('[summarizer] generation error:', error?.message ?? error, error?.stack);
+        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        logWorkerError(
+            'summarizer',
+            buildWorkerErrorLogContext({
+                error,
+                stage: 'catch',
+                chatId,
+                agentMessageId,
+                errorMetadata,
+            }),
+            error,
+        );
 
         // Clear active_agent_message_id on error (summarizer has no agent message to persist)
         try {
             chat.active_agent_message_id = null;
             await em!.flush();
         } catch (saveErr) {
-            console.error('[summarizer] failed to clear active_agent_message_id:', saveErr);
+            logWorkerError(
+                'summarizer',
+                buildWorkerErrorLogContext({
+                    error: saveErr,
+                    stage: 'clear_active_agent_message_id',
+                    chatId,
+                    agentMessageId,
+                    requestId: ctx.requestId,
+                }),
+                saveErr,
+            );
         }
 
-        await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
+        await cleanupStreamDO({
+            pusher,
+            streamDO,
+            ugStub,
+            topic: `chat:${chatId}`,
+            error,
+            errorMetadata,
+        });
     }
 }

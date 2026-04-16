@@ -1,6 +1,7 @@
 'use client';
 
 import { memo } from 'react';
+import { ErrorReferenceList } from '@/components/ui/error-reference-list';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
 import { DevSlot } from '@/lib/dev-slots';
@@ -25,12 +26,34 @@ const chatDirectives = {
 export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessageProps) => {
     const { chatId } = useChatContext();
     const { blocks, role, isStreaming } = message;
+    const errorReferenceItems = [
+        { label: 'Request ID', value: message.metadata?.requestId },
+        { label: 'Error Code', value: message.metadata?.errorCode },
+    ];
+    const visibleErrorReferenceItems = errorReferenceItems.filter((item) => !!item.value?.trim());
+    const hasRequestId = !!message.metadata?.requestId?.trim();
+    const errorTracingHint = hasRequestId
+        ? 'Copy the request ID if you need help tracing this failure.'
+        : visibleErrorReferenceItems.length > 0
+          ? 'Copy the reference below if you need help tracing this failure.'
+          : 'This older error does not include trace identifiers.';
 
     if (role === 'user') {
         const text = blocks
             .filter((b) => b.type === 'text')
             .map((b) => b.content)
             .join('\n');
+        const userMessageActionProps = {
+            name: 'message-actions' as const,
+            chatId,
+            messageId: message.id,
+            content: text,
+            role: 'user' as const,
+            blocks,
+            feedbackScore: message.feedbackScore,
+            feedbackComment: message.feedbackComment,
+            metadata: message.metadata,
+        };
         return (
             <div className="group max-w-[90%] min-w-0 justify-self-end">
                 <div className="rounded-4 py-3 px-4 bg-neutral-800 text-foreground">
@@ -43,17 +66,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                     </div>
                 </div>
                 <div className="flex justify-end">
-                    <DevSlot
-                        name="message-actions"
-                        chatId={chatId}
-                        messageId={message.id}
-                        content={text}
-                        role="user"
-                        blocks={blocks}
-                        feedbackScore={message.feedbackScore}
-                        feedbackComment={message.feedbackComment}
-                        metadata={message.metadata}
-                    />
+                    <DevSlot {...userMessageActionProps} />
                 </div>
             </div>
         );
@@ -71,6 +84,17 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
 
     const thinkingBlocks = blocks.filter((b) => b.type === 'reasoning' || b.type === 'tool_call');
     const { fullText: textContent, citations } = convertBlocksToGlobalAnnotations(blocks, '\n');
+    const assistantMessageActionProps = {
+        name: 'message-actions' as const,
+        chatId,
+        messageId: message.id,
+        content: textContent,
+        role: 'assistant' as const,
+        blocks,
+        feedbackScore: message.feedbackScore,
+        feedbackComment: message.feedbackComment,
+        metadata: message.metadata,
+    };
 
     return (
         <div className="group max-w-[90%] min-w-0">
@@ -101,8 +125,17 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                 {isStreaming && <ActiveInternalDocs />}
 
                 {message.isError && (
-                    <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
-                        Sorry, there was an error processing your request. Please try again.
+                    <div className="mt-3 rounded-2xl border border-red-500/22 bg-red-500/[0.08] p-4">
+                        <div className="space-y-2">
+                            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-red-200/72">
+                                Request Failed
+                            </p>
+                            <p className="text-sm font-medium text-red-100">
+                                {message.metadata?.error ?? 'We could not complete this request.'}
+                            </p>
+                            <p className="text-sm leading-6 text-red-100/68">{errorTracingHint}</p>
+                        </div>
+                        <ErrorReferenceList className="mt-3" items={errorReferenceItems} variant="compact" />
                     </div>
                 )}
 
@@ -112,17 +145,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                     </div>
                 )}
             </div>
-            <DevSlot
-                name="message-actions"
-                chatId={chatId}
-                messageId={message.id}
-                content={textContent}
-                role="assistant"
-                blocks={blocks}
-                feedbackScore={message.feedbackScore}
-                feedbackComment={message.feedbackComment}
-                metadata={message.metadata}
-            />
+            <DevSlot {...assistantMessageActionProps} />
         </div>
     );
 });

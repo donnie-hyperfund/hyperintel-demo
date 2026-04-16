@@ -29,15 +29,8 @@ import { useChatStream } from '../hooks/use-chat-stream';
 import type { ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
-import type {
-    ChatState,
-    ChatType,
-    Message,
-    MessageMetadata,
-    PaginationState,
-    StreamBlock,
-    SummaryStatus,
-} from '../types';
+import type { ChatState, ChatType, Message, PaginationState, StreamBlock, SummaryStatus } from '../types';
+import { pickDisplaySafeMessageMetadata } from '../utils/message-metadata';
 
 export type BaseChatContextValue = {
     state: ChatState;
@@ -471,15 +464,8 @@ export function ChatProvider({
                 }),
                 feedbackScore: (m as any).feedback_score ?? null,
                 feedbackComment: (m as any).feedback ?? null,
-                // Only forward display-safe fields — metadata can contain safetyAnalysis, errors, etc.
-                metadata:
-                    meta.preset || meta.inference || meta.usage
-                        ? ({
-                              ...(meta.preset ? { preset: meta.preset as string } : {}),
-                              ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
-                              ...(meta.usage ? { usage: meta.usage } : {}),
-                          } as MessageMetadata)
-                        : undefined,
+                // Only forward display-safe fields — metadata can contain safetyAnalysis, etc.
+                metadata: pickDisplaySafeMessageMetadata(meta),
             };
         },
         [],
@@ -603,17 +589,12 @@ export function ChatProvider({
             });
             if (wasSummary) return;
 
-            // Extract safe message metadata from done event (preset, inference, usage)
+            // Extract safe message metadata from done event (display-safe only)
             const doneMeta = isNormalDone
                 ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
                 : undefined;
-            const doneMessageMetadata: MessageMetadata | undefined = doneMeta
-                ? {
-                      ...(doneMeta.preset ? { preset: doneMeta.preset as string } : {}),
-                      ...(doneMeta.inference ? { inference: doneMeta.inference as Record<string, unknown> } : {}),
-                      ...(doneMeta.usage ? { usage: doneMeta.usage as MessageMetadata['usage'] } : {}),
-                  }
-                : undefined;
+            const doneMessageMetadata = pickDisplaySafeMessageMetadata(doneMeta);
+            const hasTerminalError = status === 'error' || Boolean(isNormalDone && terminalEvent.error);
 
             setState((prev) => {
                 const targetMessageId = completedAgentMessageId ?? prev.activeResponseId;
@@ -635,7 +616,7 @@ export function ChatProvider({
                                   ...msg,
                                   isStreaming: false,
                                   status: undefined,
-                                  ...(status === 'error' && { isError: true }),
+                                  ...(hasTerminalError && { isError: true }),
                                   ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
                                   ...(doneMessageMetadata &&
                                       Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
@@ -847,14 +828,15 @@ export function ChatProvider({
             setState((prev) => {
                 const msgId = s.agentMessageId!;
                 const existing = prev.messages.find((m) => m.id === msgId);
+                const hasErrorState = s.status === 'error' || !!s.error || !!existing?.isError;
                 const streamMsg: Message = {
                     id: msgId,
                     role: 'assistant',
                     blocks: s.blocks,
                     isStreaming: active,
                     ...(active && s.displayStatus && { status: s.displayStatus }),
-                    ...(s.status === 'error' && { isError: true }),
-                    ...(s.status === 'aborted' && !s.isRetracted && { isAborted: true }),
+                    ...(hasErrorState && { isError: true }),
+                    ...((s.status === 'aborted' || existing?.isAborted) && !s.isRetracted && { isAborted: true }),
                     ...(s.isRetracted && { isRetracted: true }),
                     // Preserve metadata set by handleStreamDone (model badge, cost, etc.)
                     ...(existing?.metadata && { metadata: existing.metadata }),
@@ -895,6 +877,7 @@ export function ChatProvider({
         stream.status,
         stream.displayStatus,
         stream.streamType,
+        stream.error,
         stream.isRetracted,
     ]);
 
