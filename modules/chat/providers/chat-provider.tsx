@@ -54,7 +54,17 @@ export type BaseChatContextValue = {
     /** Load more (older) messages for infinite scroll */
     loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
-    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => Promise<void>;
+    sendMessage: (
+        content: string,
+        opts?: {
+            resolvedChatId?: string;
+            stagedArtifactIds?: string[];
+            imageFileIds?: string[];
+            uploadsAlreadyAssociated?: boolean;
+        },
+    ) => Promise<void>;
+    /** Ensure staged uploads are associated to a real chat before waiting on processing. */
+    prepareUploadsForSend: (opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => Promise<string>;
     /** Send a nudge (message: null) to trigger generation on last injected system event */
     sendNudge: () => Promise<void>;
     /** Stop the current generation */
@@ -1041,9 +1051,52 @@ export function ChatProvider({
     // SEND MESSAGE
     // ========================================================================
 
+    const associatePendingUploads = useCallback(
+        async (
+            chatIdToUse: string,
+            opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] },
+        ) => {
+            if (!opts?.stagedArtifactIds?.length && !opts?.imageFileIds?.length) return;
+
+            const accessToken = (await getToken()) ?? '';
+            const associationResponse = await associateUploads(
+                {
+                    ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
+                    ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
+                    chatId: chatIdToUse,
+                    ...(projectId ? { projectId } : {}),
+                },
+                accessToken,
+            );
+
+            if (!associationResponse.ok) {
+                const errorText = await associationResponse.text().catch(() => 'Unknown error');
+                throw new Error(`Associate uploads failed: ${associationResponse.status} - ${errorText}`);
+            }
+        },
+        [getToken, projectId],
+    );
+
+    const prepareUploadsForSend = useCallback(
+        async (opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
+            const chatIdToUse = await ensureChatId();
+            await associatePendingUploads(chatIdToUse, opts);
+            return chatIdToUse;
+        },
+        [associatePendingUploads, ensureChatId],
+    );
+
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
-        async (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
+        async (
+            content: string,
+            opts?: {
+                resolvedChatId?: string;
+                stagedArtifactIds?: string[];
+                imageFileIds?: string[];
+                uploadsAlreadyAssociated?: boolean;
+            },
+        ) => {
             if (!content.trim() || state.isGenerating) return;
 
             if (!isModelAvailable) {
@@ -1066,7 +1119,7 @@ export function ChatProvider({
             const accessToken = (await getToken()) ?? '';
 
             try {
-                const chatIdToUse = await ensureChatId();
+                const chatIdToUse = opts?.resolvedChatId ?? (await ensureChatId());
 
                 captureChatAnalytics('chat_turn_submitted', {
                     chat_id: chatIdToUse,
@@ -1086,7 +1139,7 @@ export function ChatProvider({
                 // Associate staged uploads (artifacts + images) with the newly created (or existing) chat.
                 // Images uploaded before the chat existed are staged under the user and need chat_id set
                 // before the generation handler can link them to the message.
-                if (opts?.stagedArtifactIds?.length || opts?.imageFileIds?.length) {
+                if (!opts?.uploadsAlreadyAssociated && (opts?.stagedArtifactIds?.length || opts?.imageFileIds?.length)) {
                     const associationResponse = await associateUploads(
                         {
                             ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
@@ -1363,6 +1416,7 @@ export function ChatProvider({
                 loadMessages,
                 loadMoreMessages,
                 sendMessage,
+                prepareUploadsForSend,
                 sendNudge,
                 stopGeneration,
                 setChatId,
