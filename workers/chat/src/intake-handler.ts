@@ -6,7 +6,9 @@
  */
 
 import { runAgentStream } from '@common/ai/agent';
+import { buildMessageUsage } from '@common/ai/agent/usage-builder';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
+import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
 import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -24,6 +26,7 @@ import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
+import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
@@ -320,6 +323,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
 
+        // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
+        if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
+
         const presetId = data.model ?? getDefaultPresetId(ctx.env);
         const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
         if (!resolved) {
@@ -400,6 +406,20 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
 
+                        // --- Cost calculation from apiUsage ---
+                        const apiUsage = event.apiUsage;
+                        let messageUsage: ReturnType<typeof buildMessageUsage> = null;
+                        if (apiUsage) {
+                            const pricing = await resolvePricing({
+                                apiUsage,
+                                modelId: inferenceParams.params?.model as string | undefined,
+                                presetId,
+                                allowed: ctx.env.ALLOWED_PRESETS,
+                                blocked: ctx.env.BLOCKED_PRESETS,
+                            });
+                            messageUsage = buildMessageUsage({ apiUsage, pricing });
+                        }
+
                         // --- Persist agent message to DB (using pre-generated ID) ---
                         let assistantMsg: ChatMessageEntity | null = null;
                         if (isError || isAborted || assistantContent || streamLog.blocks.length > 0) {
@@ -421,6 +441,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                                     preset: presetId,
                                     inference: extractInferenceMetadata(inferenceParams),
                                     ...(isError && { error: event.error!.message }),
+                                    ...(messageUsage && { usage: messageUsage }),
                                 },
                                 ...(isError && { is_error: true }),
                                 ...(isAborted && { is_aborted: true }),
@@ -431,6 +452,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
                         // Flush assistant message before linking versions (FK requires row to exist)
                         chat.active_agent_message_id = null;
+                        if (messageUsage?.cost != null) {
+                            chat.total_cost = Number(chat.total_cost ?? 0) + messageUsage.cost;
+                        }
                         await em!.flush();
 
                         // Link created document versions to the assistant message
@@ -442,9 +466,11 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                                 .execute();
                         }
 
-                        // Push terminal done event
+                        // Push terminal done event (totalCost is dev-only — matches chat-handler contract)
+                        const isDev = ctx.env.ENV === 'dev';
                         const doneEvent: StreamEvent = {
                             type: 'done',
+                            ...(isDev && chat.total_cost != null && { totalCost: Number(chat.total_cost) }),
                             ...(isError && { error: event.error!.message }),
                             ...(pendingDoneEvent?.outputType === 'tool' &&
                                 pendingDoneEvent.outputTool && {
