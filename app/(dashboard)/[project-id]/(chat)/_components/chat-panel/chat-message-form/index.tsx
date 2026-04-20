@@ -162,36 +162,27 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             consumeStagedArtifactIds();
             consumeStagedImageFileIds();
 
-            // Normal path: clear eagerly so the input matches the optimistically-displayed message.
-            // Deferred path: leave text/draft intact so the migrated form instance hydrates with it
-            // while uploads finish processing; the post-stream effect below clears it when the send
-            // actually fires (activeResponseId transitions null→set).
-            const originalMessage = data.message;
-            if (!opts.isDeferredSend) {
-                clearDraft();
-                reset({ message: '' });
-                textareaRef.current?.updateTextareaHeight();
-            }
-
+            // Don't clear input or files until the POST resolves successfully. This keeps both
+            // halves of the draft in sync with the transcript (visible during the POST round-trip,
+            // cleared together once the server accepts the message) AND gives us the disaster-mode
+            // guarantee for free: on failure nothing was cleared, so there's nothing to restore.
+            // Deferred path: input clear is handled by the activeResponseId effect above (the form
+            // instance may remount mid-flight); submitFiles below clears the chips.
             try {
                 await sendMessage(message, Object.keys(opts).length > 0 ? opts : undefined);
             } catch (error) {
-                // sendMessage rolls back its own optimistic state on failure. We handle the form-side
-                // fallout here: keep the files visible (no submitFiles → no clearFiles wipe), restore
-                // the user's text in the input, and surface the failure via toast. Silently leaving
-                // the user with an empty form and a vanished upload on a 502 is a disaster mode we
-                // explicitly refuse to repeat.
-                if (!opts.isDeferredSend) {
-                    reset({ message: originalMessage });
-                    saveDraft(originalMessage);
-                    textareaRef.current?.updateTextareaHeight();
-                }
                 toast({
                     title: 'Failed to send message',
                     description: error instanceof Error ? error.message : 'Please try again.',
                     variant: 'destructive',
                 });
                 return;
+            }
+
+            if (!opts.isDeferredSend) {
+                clearDraft();
+                reset({ message: '' });
+                textareaRef.current?.updateTextareaHeight();
             }
 
             if (uploadedFiles.length > 0) {
