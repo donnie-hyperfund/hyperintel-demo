@@ -5,7 +5,7 @@ import { createEmbeddingQueueAdapter } from '@/lib/api/client/queue/embedding-qu
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
-import { loadPECPsForArtifacts, loadVersionsForArtifacts } from '@/lib/artifacts/queries';
+import { loadPECPsForArtifacts, loadPECPsForParentVersions, loadVersionsForArtifacts } from '@/lib/artifacts/queries';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { handleListChatArtifacts } from '@/lib/chats/handlers';
@@ -181,9 +181,6 @@ export async function handleListProjectArtifacts(
             return NextResponse.json({ error: 'Artifact not found', code: 'ARTIFACT_NOT_FOUND' }, { status: 404 });
         }
 
-        // Load PECP for internal docs (via parent_version FK)
-        const pecpMap = await loadPECPsForArtifacts(em, [artifact.id]);
-
         if (queryData.version !== undefined) {
             const requestedVersion = await em.findOne(ArtifactVersionEntity, {
                 artifact: artifact.id,
@@ -200,12 +197,13 @@ export async function handleListProjectArtifacts(
                           version: queryData.version - 1,
                       })
                     : null;
+            const pecpByParentVersion = await loadPECPsForParentVersions(em, [requestedVersion.id]);
 
             return NextResponse.json({
                 ...wrap(artifact).toJSON(),
                 current_version: previousVersion ? wrap(previousVersion).toJSON() : undefined,
                 proposed_version: wrap(requestedVersion).toJSON(),
-                pecp: pecpMap.get(artifact.id) ?? null,
+                pecp: pecpByParentVersion.get(requestedVersion.id) ?? null,
             });
         }
 
@@ -213,6 +211,7 @@ export async function handleListProjectArtifacts(
             artifact: artifact.id,
             status: 'proposed',
         });
+        const pecpMap = await loadPECPsForArtifacts(em, [artifact.id]);
 
         return NextResponse.json({
             ...wrap(artifact).toJSON(),
@@ -435,21 +434,24 @@ export async function handleGetArtifact(req: NextRequest, artifactId: string, us
     const artifact = await findArtifactForOwner(em, artifactId, user.id);
     if (!artifact) return ARTIFACT_ERRORS.NOT_FOUND();
 
-    const [proposedVersion, requestedVersion, pecpMap] = await Promise.all([
+    const [proposedVersion, requestedVersion] = await Promise.all([
         em.findOne(ArtifactVersionEntity, { artifact: artifact.id, status: 'proposed' }),
         query.version !== undefined
             ? em.findOne(ArtifactVersionEntity, { artifact: artifact.id, version: query.version })
             : null,
-        loadPECPsForArtifacts(em, [artifact.id]),
     ]);
 
     if (query.version !== undefined && !requestedVersion) return ARTIFACT_ERRORS.VERSION_NOT_FOUND();
+
+    const pecp = requestedVersion
+        ? ((await loadPECPsForParentVersions(em, [requestedVersion.id])).get(requestedVersion.id) ?? null)
+        : ((await loadPECPsForArtifacts(em, [artifact.id])).get(artifact.id) ?? null);
 
     return NextResponse.json({
         ...wrap(artifact).toJSON(),
         proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
         loaded_version: requestedVersion ? wrap(requestedVersion).toJSON() : undefined,
-        pecp: pecpMap.get(artifact.id) ?? null,
+        pecp,
     });
 }
 
@@ -703,11 +705,13 @@ export async function handleGetResourceByKey(req: NextRequest, key: string, user
                       version: queryData.version - 1,
                   })
                 : null;
+        const pecpByParentVersion = await loadPECPsForParentVersions(em, [requestedVersion.id]);
 
         return NextResponse.json({
             ...wrap(artifact).toJSON(),
             current_version: previousVersion ? wrap(previousVersion).toJSON() : undefined,
             proposed_version: wrap(requestedVersion).toJSON(),
+            pecp: pecpByParentVersion.get(requestedVersion.id) ?? null,
         });
     }
 
@@ -715,10 +719,12 @@ export async function handleGetResourceByKey(req: NextRequest, key: string, user
         artifact: artifact.id,
         status: 'proposed',
     });
+    const pecpMap = await loadPECPsForArtifacts(em, [artifact.id]);
 
     return NextResponse.json({
         ...wrap(artifact).toJSON(),
         proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
+        pecp: pecpMap.get(artifact.id) ?? null,
     });
 }
 

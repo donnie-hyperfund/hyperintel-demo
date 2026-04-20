@@ -51,6 +51,21 @@ export async function restoreArtifactHandler(
             });
         }
 
+        const sourcePecpVersion = sourceVersion.is_internal
+            ? await txEm.findOne(
+                  ArtifactVersionEntity,
+                  {
+                      document_type: 'PECP',
+                      status: 'approved',
+                      parent_version: sourceVersion.id,
+                  },
+                  {
+                      orderBy: { version: 'DESC' },
+                      populate: ['artifact'],
+                  },
+              )
+            : null;
+
         const sourceArtifact = sourceVersion.artifact;
         if (projectId) {
             // Project-scoped: validate artifact belongs to the requested project.
@@ -153,6 +168,47 @@ export async function restoreArtifactHandler(
         artifact.version = newVersionNumber;
         artifact.current_version = restored;
         await txEm.flush();
+
+        if (sourcePecpVersion) {
+            await txEm.execute('SELECT id FROM artifacts WHERE id = ? FOR UPDATE', [sourcePecpVersion.artifact.id]);
+
+            const pecpArtifact = await txEm.findOne(
+                ArtifactEntity,
+                { id: sourcePecpVersion.artifact.id },
+                { populate: ['versions', 'current_version', 'project', 'project.user', 'user'] },
+            );
+
+            if (!pecpArtifact) {
+                throw new PublicError(404, {
+                    message: 'PECP artifact not found',
+                    code: 'ARTIFACT_NOT_FOUND',
+                });
+            }
+
+            const pecpVersions = pecpArtifact.versions.getItems();
+            const newPecpVersionNumber = Math.max(...pecpVersions.map((version) => version.version), 0) + 1;
+            const pecpOwnerId = pecpArtifact.project?.user?.id ?? pecpArtifact.user?.id ?? ownerId;
+
+            const restoredPecp = new ArtifactVersionEntity();
+            restoredPecp.artifact = pecpArtifact;
+            restoredPecp.chat = targetChat ?? undefined;
+            restoredPecp.parent_version = restored;
+            restoredPecp.version = newPecpVersionNumber;
+            restoredPecp.content = sourcePecpVersion.content;
+            restoredPecp.ai_content = sourcePecpVersion.ai_content;
+            restoredPecp.status = 'approved';
+            restoredPecp.is_uploaded = sourcePecpVersion.is_uploaded;
+            restoredPecp.is_internal = sourcePecpVersion.is_internal;
+            restoredPecp.document_type = sourcePecpVersion.document_type;
+            restoredPecp.status_changed_at = now;
+            restoredPecp.status_changed_by = pecpOwnerId;
+
+            txEm.persist(restoredPecp);
+            pecpArtifact.is_pecp = true;
+            pecpArtifact.version = newPecpVersionNumber;
+            pecpArtifact.current_version = restoredPecp;
+            await txEm.flush();
+        }
 
         return {
             restoredVersion: restored,
