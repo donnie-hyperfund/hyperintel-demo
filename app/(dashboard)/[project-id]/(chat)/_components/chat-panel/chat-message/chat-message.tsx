@@ -43,17 +43,6 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
             .filter((b) => b.type === 'text')
             .map((b) => b.content)
             .join('\n');
-        const userMessageActionProps = {
-            name: 'message-actions' as const,
-            chatId,
-            messageId: message.id,
-            content: text,
-            role: 'user' as const,
-            blocks,
-            feedbackScore: message.feedbackScore,
-            feedbackComment: message.feedbackComment,
-            metadata: message.metadata,
-        };
         return (
             <div className="group max-w-[90%] min-w-0 justify-self-end">
                 <div className="rounded-4 py-3 px-4 bg-neutral-800 text-foreground">
@@ -66,7 +55,18 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                     </div>
                 </div>
                 <div className="flex justify-end">
-                    <DevSlot {...userMessageActionProps} />
+                    {/* biome-ignore lint/a11y/useValidAriaRole: `role` is a DevSlot prop, not an ARIA role */}
+                    <DevSlot
+                        name="message-actions"
+                        chatId={chatId}
+                        messageId={message.id}
+                        content={text}
+                        role="user"
+                        blocks={blocks}
+                        feedbackScore={message.feedbackScore}
+                        feedbackComment={message.feedbackComment}
+                        metadata={message.metadata}
+                    />
                 </div>
             </div>
         );
@@ -84,17 +84,6 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
 
     const thinkingBlocks = blocks.filter((b) => b.type === 'reasoning' || b.type === 'tool_call');
     const { fullText: textContent, citations } = convertBlocksToGlobalAnnotations(blocks, '\n');
-    const assistantMessageActionProps = {
-        name: 'message-actions' as const,
-        chatId,
-        messageId: message.id,
-        content: textContent,
-        role: 'assistant' as const,
-        blocks,
-        feedbackScore: message.feedbackScore,
-        feedbackComment: message.feedbackComment,
-        metadata: message.metadata,
-    };
 
     return (
         <div className="group max-w-[90%] min-w-0">
@@ -145,7 +134,18 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                     </div>
                 )}
             </div>
-            <DevSlot {...assistantMessageActionProps} />
+            {/* biome-ignore lint/a11y/useValidAriaRole: `role` is a DevSlot prop, not an ARIA role */}
+            <DevSlot
+                name="message-actions"
+                chatId={chatId}
+                messageId={message.id}
+                content={textContent}
+                role="assistant"
+                blocks={blocks}
+                feedbackScore={message.feedbackScore}
+                feedbackComment={message.feedbackComment}
+                metadata={message.metadata}
+            />
         </div>
     );
 });
