@@ -50,14 +50,11 @@ export type BaseChatContextValue = {
     sendMessage: (
         content: string,
         opts?: {
-            resolvedChatId?: string;
             stagedArtifactIds?: string[];
             imageFileIds?: string[];
-            uploadsAlreadyAssociated?: boolean;
+            onUploadsAssociated?: () => Promise<void>;
         },
     ) => Promise<void>;
-    /** Ensure staged uploads are associated to a real chat before waiting on processing. */
-    prepareUploadsForSend: (opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => Promise<string>;
     /** Send a nudge (message: null) to trigger generation on last injected system event */
     sendNudge: () => Promise<void>;
     /** Stop the current generation */
@@ -670,7 +667,11 @@ export function ChatProvider({
             }
             setState((prev) => {
                 const next = { ...prev, completionBriefStatus };
-                if (status === 'idle' && (prev.isGenerating || prev.isSummarizing)) {
+                if (
+                    status === 'idle' &&
+                    !sendInFlightRef.current &&
+                    (prev.isGenerating || prev.isSummarizing)
+                ) {
                     summarizeInFlightRef.current = false;
                     next.isGenerating = false;
                     next.isSummarizing = false;
@@ -1057,24 +1058,18 @@ export function ChatProvider({
         [getToken, projectId],
     );
 
-    const prepareUploadsForSend = useCallback(
-        async (opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
-            const chatIdToUse = await ensureChatId();
-            await associatePendingUploads(chatIdToUse, opts);
-            return chatIdToUse;
-        },
-        [associatePendingUploads, ensureChatId],
-    );
-
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
         async (
             content: string,
             opts?: {
-                resolvedChatId?: string;
                 stagedArtifactIds?: string[];
                 imageFileIds?: string[];
-                uploadsAlreadyAssociated?: boolean;
+                onUploadsAssociated?: () => Promise<void>;
+                // When true, the optimistic user-message push is delayed until after
+                // onUploadsAssociated resolves — used by the pre-chat→chat staged path
+                // so the info badge shows during the wait instead of a duplicated message.
+                isDeferredSend?: boolean;
             },
         ) => {
             if (!content.trim() || state.isGenerating) return;
@@ -1084,13 +1079,16 @@ export function ChatProvider({
                 return;
             }
 
+            sendInFlightRef.current = true;
+
             // Create user message with temporary client-side ID
             const userMessage = createUserMessage(content);
 
-            // Add user message and set generating state
+            // Deferred path: only flip generating flag; defer optimistic push until uploads are ready.
+            // Normal path: push optimistically for immediate display.
             setState((prev) => ({
                 ...prev,
-                messages: [...prev.messages, userMessage],
+                ...(opts?.isDeferredSend ? {} : { messages: [...prev.messages, userMessage] }),
                 isGenerating: true,
                 error: null,
             }));
@@ -1099,7 +1097,7 @@ export function ChatProvider({
             const accessToken = (await getToken()) ?? '';
 
             try {
-                const chatIdToUse = opts?.resolvedChatId ?? (await ensureChatId());
+                const chatIdToUse = await ensureChatId();
 
                 captureChatAnalytics('chat_turn_submitted', {
                     chat_id: chatIdToUse,
@@ -1119,10 +1117,7 @@ export function ChatProvider({
                 // Associate staged uploads (artifacts + images) with the newly created (or existing) chat.
                 // Images uploaded before the chat existed are staged under the user and need chat_id set
                 // before the generation handler can link them to the message.
-                if (
-                    !opts?.uploadsAlreadyAssociated &&
-                    (opts?.stagedArtifactIds?.length || opts?.imageFileIds?.length)
-                ) {
+                if (opts?.stagedArtifactIds?.length || opts?.imageFileIds?.length) {
                     const associationResponse = await associateUploads(
                         {
                             ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
@@ -1137,6 +1132,14 @@ export function ChatProvider({
                         const errorText = await associationResponse.text().catch(() => 'Unknown error');
                         throw new Error(`Associate uploads failed: ${associationResponse.status} — ${errorText}`);
                     }
+                }
+
+                await opts?.onUploadsAssociated?.();
+
+                // Deferred path: push optimistic user message now that uploads are ready,
+                // right before the POST fires.
+                if (opts?.isDeferredSend) {
+                    setState((prev) => ({ ...prev, messages: [...prev.messages, userMessage] }));
                 }
 
                 // POST triggers server-side generation — stream arrives via WS subscription
@@ -1181,11 +1184,19 @@ export function ChatProvider({
                     submission_id: userMessage.id,
                     error_message: error instanceof Error ? error.message : 'Failed to send message',
                 });
+                // Roll back the optimistic user message so we don't leave a ghost "sent" row
+                // that actually never went through.
                 setState((prev) => ({
                     ...prev,
+                    messages: prev.messages.filter((m) => m.id !== userMessage.id),
                     isGenerating: false,
                     error: error instanceof Error ? error : new Error('Failed to send message'),
                 }));
+                // Re-throw so the caller can keep the user's text/files intact (no submitFiles,
+                // no silent wipe) and surface the failure.
+                throw error instanceof Error ? error : new Error('Failed to send message');
+            } finally {
+                sendInFlightRef.current = false;
             }
         },
         [
@@ -1250,6 +1261,10 @@ export function ChatProvider({
     // instances (desktop + mobile) react to pendingPhaseTransition simultaneously.
     const summarizeInFlightRef = useRef(false);
     const summaryCancelledRef = useRef(false);
+    // Guards against onSubscribeResponse('idle') clobbering client-optimistic isGenerating
+    // during pre-chat→chat migration: ensureChatId triggers a fresh WS subscribe whose
+    // initial response arrives before the POST has started generation server-side.
+    const sendInFlightRef = useRef(false);
 
     /** Trigger summarization — fires POST, then waits for stream_started(streamType:'summary') via WS */
     const summarizeChat = useCallback(async () => {
@@ -1399,7 +1414,6 @@ export function ChatProvider({
                 loadMessages,
                 loadMoreMessages,
                 sendMessage,
-                prepareUploadsForSend,
                 sendNudge,
                 stopGeneration,
                 setChatId,
