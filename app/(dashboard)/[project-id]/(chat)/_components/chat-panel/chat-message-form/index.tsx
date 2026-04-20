@@ -37,6 +37,7 @@ type ChatMessageFormProps = {
 const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageFormProps) => {
     const {
         sendMessage,
+        prepareUploadsForSend,
         chatType,
         chatId,
         projectId,
@@ -81,9 +82,15 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
 
     const message = watch('message');
     const hasContent = message && message.trim().length > 0;
-    const hasProcessingFiles = files.some((f) => f.status === 'uploading' || f.status === 'processing');
+    const hasDeferredFilesAwaitingAssociation =
+        !chatId && files.some((f) => f.status === 'processing' && f.requiresAssociation);
+    const hasBlockingFiles = files.some(
+        (f) =>
+            (f.status === 'uploading' || f.status === 'processing') &&
+            !(f.status === 'processing' && !chatId && f.requiresAssociation),
+    );
     const isBusy =
-        isGenerating || isSummarizing || isLoading || isSubmitting || hasProcessingFiles || isProcessingArtifactAction;
+        isGenerating || isSummarizing || isLoading || isSubmitting || hasBlockingFiles || isProcessingArtifactAction;
     const isDisabled = !hasContent || isBusy;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
@@ -101,6 +108,18 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         // Consume staged IDs before submitFiles clears state
         const stagedArtifactIds = consumeStagedArtifactIds();
         const imageFileIds = consumeStagedImageFileIds();
+
+        const needsUploadPreparation =
+            hasDeferredFilesAwaitingAssociation && (stagedArtifactIds.length > 0 || imageFileIds.length > 0);
+
+        let preparedChatId: string | undefined;
+
+        if (needsUploadPreparation) {
+            preparedChatId = await prepareUploadsForSend({
+                ...(stagedArtifactIds.length > 0 ? { stagedArtifactIds } : {}),
+                ...(imageFileIds.length > 0 ? { imageFileIds } : {}),
+            });
+        }
 
         if (uploadedFiles.length > 0) {
             await submitFiles();
@@ -127,9 +146,16 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         textareaRef.current?.updateTextareaHeight();
 
         if (message) {
-            const opts: { stagedArtifactIds?: string[]; imageFileIds?: string[] } = {};
-            if (stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
+            const opts: {
+                resolvedChatId?: string;
+                stagedArtifactIds?: string[];
+                imageFileIds?: string[];
+                uploadsAlreadyAssociated?: boolean;
+            } = {};
+            if (preparedChatId) opts.resolvedChatId = preparedChatId;
+            if (!needsUploadPreparation && stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
             if (imageFileIds.length > 0) opts.imageFileIds = imageFileIds;
+            if (needsUploadPreparation) opts.uploadsAlreadyAssociated = true;
             await sendMessage(message, Object.keys(opts).length > 0 ? opts : undefined);
         }
     };
