@@ -153,6 +153,46 @@ describe('FileUploadProvider image routing', () => {
         ).toBe(false);
     });
 
+    it('waits for staged artifact extraction after association before clearing', async () => {
+        let statusCalls = 0;
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((input: string | URL | Request) => {
+                const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+                if (url.includes('/api/artifacts/files/status')) {
+                    statusCalls++;
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({
+                            files: [{ fileId: 'file-1', status: 'processed' }],
+                        }),
+                    } as Response);
+                }
+
+                return Promise.resolve({ ok: true } as Response);
+            }),
+        );
+
+        const { result } = renderHook(() => useFileUploadContext(), {
+            wrapper: makeWrapper({ trackAsPending: true }),
+        });
+
+        const file = new File(['image-bytes'], 'photo.png', { type: 'image/png' });
+
+        act(() => {
+            result.current.addFiles([file]);
+        });
+
+        await waitFor(() => expect(result.current.files[0]?.status).toBe('ready'));
+
+        await act(async () => {
+            await result.current.waitForArtifactsReady(['artifact-1']);
+        });
+
+        expect(result.current.files[0]?.status).toBe('ready');
+        expect(statusCalls).toBe(1);
+    });
+
     it('routes pasted chat images through the chat-image upload path', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
             wrapper: makeWrapper({ chatId: '11111111-1111-1111-1111-111111111111', trackAsPending: true }),
