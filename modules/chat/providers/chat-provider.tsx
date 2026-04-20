@@ -1035,10 +1035,7 @@ export function ChatProvider({
     // ========================================================================
 
     const associatePendingUploads = useCallback(
-        async (
-            chatIdToUse: string,
-            opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] },
-        ) => {
+        async (chatIdToUse: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
             if (!opts?.stagedArtifactIds?.length && !opts?.imageFileIds?.length) return;
 
             const accessToken = (await getToken()) ?? '';
@@ -1122,7 +1119,10 @@ export function ChatProvider({
                 // Associate staged uploads (artifacts + images) with the newly created (or existing) chat.
                 // Images uploaded before the chat existed are staged under the user and need chat_id set
                 // before the generation handler can link them to the message.
-                if (!opts?.uploadsAlreadyAssociated && (opts?.stagedArtifactIds?.length || opts?.imageFileIds?.length)) {
+                if (
+                    !opts?.uploadsAlreadyAssociated &&
+                    (opts?.stagedArtifactIds?.length || opts?.imageFileIds?.length)
+                ) {
                     const associationResponse = await associateUploads(
                         {
                             ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
