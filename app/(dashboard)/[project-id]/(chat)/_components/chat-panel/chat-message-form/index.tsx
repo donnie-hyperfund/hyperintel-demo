@@ -82,8 +82,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
 
     const message = watch('message');
     const hasContent = message && message.trim().length > 0;
-    const hasDeferredFilesAwaitingAssociation =
-        !chatId && files.some((f) => f.status === 'processing' && f.requiresAssociation);
+    const hasDeferredFilesAwaitingAssociation = !chatId && files.some((f) => f.requiresAssociation);
     const hasBlockingFiles = files.some(
         (f) =>
             (f.status === 'uploading' || f.status === 'processing') &&
