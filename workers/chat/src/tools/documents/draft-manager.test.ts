@@ -136,6 +136,34 @@ describe('DraftManager', () => {
 		});
 	});
 
+	describe('appliedEdits side channel', () => {
+		const edits = [{ startLine: 1, endLine: 2, oldContent: 'a', newContent: 'b' }];
+
+		it('take returns undefined when nothing stashed', () => {
+			expect(dm.takeAppliedEdits('tc1')).toBeUndefined();
+		});
+
+		it('set then take returns the edits exactly once', () => {
+			dm.setAppliedEdits('tc1', edits);
+			expect(dm.takeAppliedEdits('tc1')).toEqual(edits);
+			expect(dm.takeAppliedEdits('tc1')).toBeUndefined();
+		});
+
+		it('isolates edits per tool_call_id', () => {
+			const other = [{ startLine: 3, endLine: 3, oldContent: 'x', newContent: 'y' }];
+			dm.setAppliedEdits('tc1', edits);
+			dm.setAppliedEdits('tc2', other);
+			expect(dm.takeAppliedEdits('tc2')).toEqual(other);
+			expect(dm.takeAppliedEdits('tc1')).toEqual(edits);
+		});
+
+		it('clear() drops all stashed edits', () => {
+			dm.setAppliedEdits('tc1', edits);
+			dm.clear();
+			expect(dm.takeAppliedEdits('tc1')).toBeUndefined();
+		});
+	});
+
 	describe('full workflow: begin → write → finalize', () => {
 		it('produces correct final content', () => {
 			dm.begin('project-1', 'analysis.md', 'Market Analysis', 'create', '', undefined, false, 'Report');

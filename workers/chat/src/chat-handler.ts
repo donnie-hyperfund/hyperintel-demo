@@ -533,7 +533,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         await runStreamLoop({
             stream,
             push: pusher.push,
-            docEventsCtx: { em: em!, projectId: agentCtx.projectId },
+            docEventsCtx: { em: em!, projectId: agentCtx.projectId, draftManager: agentCtx.draftManager },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
