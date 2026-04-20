@@ -3,7 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowUp, Loader2, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import {
     AlertDialog,
@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/hooks/use-toast';
 import { IS_DEV } from '@/lib/config';
 import { DevSlot } from '@/lib/dev-slots';
 import { cn } from '@/lib/utils';
@@ -37,7 +38,6 @@ type ChatMessageFormProps = {
 const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageFormProps) => {
     const {
         sendMessage,
-        prepareUploadsForSend,
         chatType,
         chatId,
         projectId,
@@ -82,6 +82,19 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
     });
 
     const message = watch('message');
+
+    // Clear draft + input when the send actually starts streaming. This is the shared
+    // cleanup for the deferred path (whose remounted form instance hydrates with the
+    // migrated draft) and a redundant safety-net for the normal path (already cleared).
+    const prevActiveResponseIdRef = useRef(activeResponseId);
+    useEffect(() => {
+        if (!prevActiveResponseIdRef.current && activeResponseId) {
+            clearDraft();
+            reset({ message: '' });
+            textareaRef.current?.updateTextareaHeight();
+        }
+        prevActiveResponseIdRef.current = activeResponseId;
+    }, [activeResponseId, clearDraft, reset]);
     const hasContent = message && message.trim().length > 0;
     const hasDeferredFilesAwaitingAssociation = !chatId && files.some((f) => f.requiresAssociation);
     const hasBlockingFiles = files.some(
@@ -91,7 +104,8 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
     );
     const isBusy =
         isGenerating || isSummarizing || isLoading || isSubmitting || hasBlockingFiles || isProcessingArtifactAction;
-    const isDisabled = !hasContent || isBusy;
+    const isAwaitingStream = isGenerating && !activeResponseId;
+    const isSubmitDisabled = !hasContent || isBusy;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
         if (!data.message.trim() && files.length === 0) return;
@@ -112,21 +126,8 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         ];
         const imageFileIds = [...new Set(files.flatMap((entry) => (entry.imageFileId ? [entry.imageFileId] : [])))];
 
-        const needsUploadPreparation =
+        const hasStagedUploads =
             hasDeferredFilesAwaitingAssociation && (stagedArtifactIds.length > 0 || imageFileIds.length > 0);
-
-        let preparedChatId: string | undefined;
-
-        if (needsUploadPreparation) {
-            preparedChatId = await prepareUploadsForSend({
-                ...(stagedArtifactIds.length > 0 ? { stagedArtifactIds } : {}),
-                ...(imageFileIds.length > 0 ? { imageFileIds } : {}),
-            });
-
-            if (stagedArtifactIds.length > 0) {
-                await waitForArtifactsReady(stagedArtifactIds);
-            }
-        }
 
         const fileDirective =
             uploadedFiles.length > 0
@@ -146,33 +147,63 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
 
         if (message) {
             const opts: {
-                resolvedChatId?: string;
                 stagedArtifactIds?: string[];
                 imageFileIds?: string[];
-                uploadsAlreadyAssociated?: boolean;
+                onUploadsAssociated?: () => Promise<void>;
+                isDeferredSend?: boolean;
             } = {};
-            if (preparedChatId) opts.resolvedChatId = preparedChatId;
-            if (!needsUploadPreparation && stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
+            if (hasStagedUploads && stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
             if (imageFileIds.length > 0) opts.imageFileIds = imageFileIds;
-            if (needsUploadPreparation) opts.uploadsAlreadyAssociated = true;
-            await sendMessage(message, Object.keys(opts).length > 0 ? opts : undefined);
-
-            if (uploadedFiles.length > 0) {
-                await submitFiles();
+            if (hasStagedUploads && stagedArtifactIds.length > 0) {
+                opts.onUploadsAssociated = () => waitForArtifactsReady(stagedArtifactIds);
+                opts.isDeferredSend = true;
             }
 
             consumeStagedArtifactIds();
             consumeStagedImageFileIds();
-            clearDraft();
-            reset({ message: '' });
-            textareaRef.current?.updateTextareaHeight();
+
+            // Normal path: clear eagerly so the input matches the optimistically-displayed message.
+            // Deferred path: leave text/draft intact so the migrated form instance hydrates with it
+            // while uploads finish processing; the post-stream effect below clears it when the send
+            // actually fires (activeResponseId transitions null→set).
+            const originalMessage = data.message;
+            if (!opts.isDeferredSend) {
+                clearDraft();
+                reset({ message: '' });
+                textareaRef.current?.updateTextareaHeight();
+            }
+
+            try {
+                await sendMessage(message, Object.keys(opts).length > 0 ? opts : undefined);
+            } catch (error) {
+                // sendMessage rolls back its own optimistic state on failure. We handle the form-side
+                // fallout here: keep the files visible (no submitFiles → no clearFiles wipe), restore
+                // the user's text in the input, and surface the failure via toast. Silently leaving
+                // the user with an empty form and a vanished upload on a 502 is a disaster mode we
+                // explicitly refuse to repeat.
+                if (!opts.isDeferredSend) {
+                    reset({ message: originalMessage });
+                    saveDraft(originalMessage);
+                    textareaRef.current?.updateTextareaHeight();
+                }
+                toast({
+                    title: 'Failed to send message',
+                    description: error instanceof Error ? error.message : 'Please try again.',
+                    variant: 'destructive',
+                });
+                return;
+            }
+
+            if (uploadedFiles.length > 0) {
+                await submitFiles();
+            }
         }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            if (!isDisabled) {
+            if (!isSubmitDisabled) {
                 handleSubmit(onFormSubmit)();
             }
         }
@@ -180,6 +211,8 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
 
     const handlePaste = useCallback(
         (e: React.ClipboardEvent) => {
+            if (isAwaitingStream) return;
+
             const imageFiles = Array.from(e.clipboardData.items)
                 .filter((item) => item.type.startsWith('image/'))
                 .map((item) => item.getAsFile())
@@ -195,7 +228,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 addFiles(named, { source: 'paste' });
             }
         },
-        [addFiles],
+        [addFiles, isAwaitingStream],
     );
 
     const handleContainerClick = useCallback(() => {
@@ -280,12 +313,13 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                 onKeyDown={handleKeyDown}
                                 onPaste={handlePaste}
                                 placeholder="Type your message..."
-                                className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground"
+                                className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
                                 maxHeight={384}
                                 minHeight={24}
+                                disabled={isAwaitingStream}
                             />
 
-                            {(chatId || chatType !== 'phase') && <AttachFileButton />}
+                            {(chatId || chatType !== 'phase') && <AttachFileButton disabled={isAwaitingStream} />}
 
                             <div className="flex items-end gap-2 ml-auto">
                                 {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
@@ -306,7 +340,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                         </Button>
                                     )
                                 ) : (
-                                    <Button type="submit" disabled={isDisabled} className="size-9 shrink-0">
+                                    <Button type="submit" disabled={isSubmitDisabled} className="size-9 shrink-0">
                                         <ArrowUp className="size-5" />
                                     </Button>
                                 )}

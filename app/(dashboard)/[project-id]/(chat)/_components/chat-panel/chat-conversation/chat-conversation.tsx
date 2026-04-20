@@ -10,6 +10,7 @@ import { IS_DEV } from '@/lib/config';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
+import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ChatMessage } from '../chat-message/chat-message';
 import { SystemEventMessage } from '../chat-message/system-event-message';
 import { ChatEmptyState, type ChatEmptyStateProps } from './chat-empty-state';
@@ -32,6 +33,11 @@ function ChatConversation({ emptyState }: ChatConversationProps) {
     const { state, pagination, loadMoreMessages } = useChatContext();
     const { messages, isGenerating, isLoading } = state;
     const { target: scrollTarget, foundRef: scrollTargetFoundRef } = useScrollTargetContext();
+    const { files } = useFileUploadContext();
+
+    // Deferred-send wait: uploads are being processed post-chat-migration before the POST fires.
+    // The optimistic user message is intentionally deferred, so we render an info badge in its place.
+    const isWaitingOnUploads = isGenerating && files.some((f) => f.status === 'processing');
 
     const { containerRef } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
         threshold: 100,
@@ -136,8 +142,20 @@ function ChatConversation({ emptyState }: ChatConversationProps) {
                     })}
                 </AnimatePresence>
 
+                {/* User-side info badge shown during the pre-send upload wait. */}
+                {isWaitingOnUploads && (
+                    <div className="w-full min-w-0 mb-6">
+                        <div className="max-w-[90%] min-w-0 ml-auto">
+                            <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-2.5 text-sm text-blue-400/80 flex items-center gap-2">
+                                <Loader2 className="size-4 animate-spin shrink-0" />
+                                <span>Processing your uploads — your message will send shortly.</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Match the streaming assistant frame while waiting for the first token. */}
-                {isGenerating && !messages.some((m) => m.isStreaming) && (
+                {isGenerating && !isWaitingOnUploads && !messages.some((m) => m.isStreaming) && (
                     <div className="group max-w-[90%] min-w-0">
                         <div className="min-w-0 space-y-3">
                             <TypingIndicator />
