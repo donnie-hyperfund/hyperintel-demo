@@ -1093,9 +1093,6 @@ export function ChatProvider({
                 error: null,
             }));
 
-            // Get access token for worker auth
-            const accessToken = (await getToken()) ?? '';
-
             try {
                 const chatIdToUse = await ensureChatId();
 
@@ -1125,7 +1122,7 @@ export function ChatProvider({
                             chatId: chatIdToUse,
                             ...(projectId ? { projectId } : {}),
                         },
-                        accessToken,
+                        (await getToken()) ?? '',
                     );
 
                     if (!associationResponse.ok) {
@@ -1142,7 +1139,9 @@ export function ChatProvider({
                     setState((prev) => ({ ...prev, messages: [...prev.messages, userMessage] }));
                 }
 
-                // POST triggers server-side generation — stream arrives via WS subscription
+                // POST triggers server-side generation — stream arrives via WS subscription.
+                // Refresh token just-in-time: onUploadsAssociated can poll for extraction for
+                // minutes, long enough for a captured token to expire into a 401.
                 // TODO: Unify this when backend is updated
                 const send = chatType === 'phase' ? sendAction : sendIntakeAction;
                 const response = await send(
@@ -1153,7 +1152,7 @@ export function ChatProvider({
                         tempId: userMessage.id, // Reconcile across WS boundaries
                         ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
                     },
-                    accessToken,
+                    (await getToken()) ?? '',
                 );
 
                 if (!response.ok) {
