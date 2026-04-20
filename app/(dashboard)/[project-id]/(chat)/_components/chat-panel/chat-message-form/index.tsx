@@ -60,6 +60,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         addFiles,
         removeFile,
         submitFiles,
+        waitForArtifactsReady,
         isSubmitting,
         consumeStagedArtifactIds,
         consumeStagedImageFileIds,
@@ -104,9 +105,12 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             imageHeight: entry.imageHeight,
         }));
 
-        // Consume staged IDs before submitFiles clears state
-        const stagedArtifactIds = consumeStagedArtifactIds();
-        const imageFileIds = consumeStagedImageFileIds();
+        const stagedArtifactIds = [
+            ...new Set(
+                files.flatMap((entry) => (entry.requiresAssociation && entry.artifactId ? [entry.artifactId] : [])),
+            ),
+        ];
+        const imageFileIds = [...new Set(files.flatMap((entry) => (entry.imageFileId ? [entry.imageFileId] : [])))];
 
         const needsUploadPreparation =
             hasDeferredFilesAwaitingAssociation && (stagedArtifactIds.length > 0 || imageFileIds.length > 0);
@@ -118,10 +122,10 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 ...(stagedArtifactIds.length > 0 ? { stagedArtifactIds } : {}),
                 ...(imageFileIds.length > 0 ? { imageFileIds } : {}),
             });
-        }
 
-        if (uploadedFiles.length > 0) {
-            await submitFiles();
+            if (stagedArtifactIds.length > 0) {
+                await waitForArtifactsReady(stagedArtifactIds);
+            }
         }
 
         const fileDirective =
@@ -140,10 +144,6 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
 
         const message = [fileDirective, data.message.trim()].filter(Boolean).join('\n\n');
 
-        clearDraft();
-        reset({ message: '' });
-        textareaRef.current?.updateTextareaHeight();
-
         if (message) {
             const opts: {
                 resolvedChatId?: string;
@@ -156,6 +156,16 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             if (imageFileIds.length > 0) opts.imageFileIds = imageFileIds;
             if (needsUploadPreparation) opts.uploadsAlreadyAssociated = true;
             await sendMessage(message, Object.keys(opts).length > 0 ? opts : undefined);
+
+            if (uploadedFiles.length > 0) {
+                await submitFiles();
+            }
+
+            consumeStagedArtifactIds();
+            consumeStagedImageFileIds();
+            clearDraft();
+            reset({ message: '' });
+            textareaRef.current?.updateTextareaHeight();
         }
     };
 

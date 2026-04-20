@@ -74,6 +74,7 @@ export type FileUploadContextValue = {
     removeFile: (index: number) => void;
     clearFiles: () => void;
     submitFiles: () => Promise<void>;
+    waitForArtifactsReady: (artifactIds: string[]) => Promise<void>;
     isSubmitting: boolean;
     /** Consume staged artifact IDs (uploads without scope). Returns IDs and clears the list. */
     consumeStagedArtifactIds: () => string[];
@@ -130,7 +131,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     }, [globalMutate, scope?.projectId]);
 
     const updateEntry = useCallback((entryId: string, update: Partial<FileEntry>) => {
-        setFiles((prev) => prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry)));
+        setFiles((prev) => {
+            const next = prev.map((entry) => (entry.id === entryId ? { ...entry, ...update } : entry));
+            filesRef.current = next;
+            return next;
+        });
     }, []);
 
     const finalizeEntry = useCallback(
@@ -520,6 +525,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         async (fileId: string, entryId: string) => {
             let failures = 0;
             const MAX_FAILURES = 30; // ~60s of consecutive errors before giving up
+            const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
             const poll = async () => {
                 const token = await getToken();
@@ -538,8 +544,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                             failEntry(entryId, 'Upload timed out — please try again');
                             return;
                         }
-                        setTimeout(poll, 2000);
-                        return;
+                        await delay(2000);
+                        return poll();
                     }
 
                     const data: { files: { fileId: string; status: string }[] } = await res.json();
@@ -550,8 +556,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         failEntry(entryId, 'Upload timed out — please try again');
                         return;
                     }
-                    setTimeout(poll, 2000);
-                    return;
+                    await delay(2000);
+                    return poll();
                 }
 
                 if (!filesRef.current.some((entry) => entry.id === entryId)) {
@@ -561,14 +567,14 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
                 if (fileStatus === 'pending_upload') {
                     updateEntry(entryId, { status: 'uploading' });
-                    setTimeout(poll, 1000);
-                    return;
+                    await delay(1000);
+                    return poll();
                 }
 
                 if (fileStatus === 'uploaded') {
                     updateEntry(entryId, { status: 'processing' });
-                    setTimeout(poll, 2000);
-                    return;
+                    await delay(2000);
+                    return poll();
                 }
 
                 if (fileStatus === 'processed') {
@@ -581,7 +587,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     return;
                 }
 
-                setTimeout(poll, 2000);
+                await delay(2000);
+                return poll();
             };
 
             await poll();
@@ -758,6 +765,39 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         });
     }, []);
 
+    const waitForArtifactsReady = useCallback(
+        async (artifactIds: string[]) => {
+            const artifactIdSet = new Set(artifactIds);
+            const artifactEntries = filesRef.current.filter(
+                (entry) => entry.artifactId && artifactIdSet.has(entry.artifactId),
+            );
+
+            if (artifactEntries.length === 0) return;
+
+            setIsSubmitting(true);
+            try {
+                await Promise.all(
+                    artifactEntries.map(async (entry) => {
+                        const fileId = entry.fileId ?? entry.presignData?.fileId;
+                        if (!fileId) return;
+
+                        updateEntry(entry.id, { status: 'processing' });
+                        if (!pollingEntryIdsRef.current.has(entry.id)) {
+                            pollingEntryIdsRef.current.add(entry.id);
+                            await pollFileStatus(fileId, entry.id);
+                            return;
+                        }
+
+                        await waitForStatus(entry.id, 'ready');
+                    }),
+                );
+            } finally {
+                setIsSubmitting(false);
+            }
+        },
+        [pollFileStatus, updateEntry, waitForStatus],
+    );
+
     const submitFiles = useCallback(async () => {
         setIsSubmitting(true);
         try {
@@ -808,6 +848,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     removeFile,
                     clearFiles,
                     submitFiles,
+                    waitForArtifactsReady,
                     isSubmitting,
                     consumeStagedArtifactIds,
                     consumeStagedImageFileIds,
