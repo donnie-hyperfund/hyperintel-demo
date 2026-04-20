@@ -33,15 +33,30 @@ export type MessageMetadata = {
         reasoningTokens?: number;
         cacheReadTokens?: number;
         cacheWriteTokens?: number;
+        cacheWrite1hTokens?: number;
         cost?: number;
+        costWarnings?: string[];
+        cacheCost?: {
+            readCost?: number;
+            readSaved?: number;
+            writeCost?: number;
+            write1hCost?: number;
+        };
         segments: Array<{
             inputTokens: number;
             outputTokens: number;
             reasoningTokens?: number;
+            cacheReadTokens?: number;
+            cacheWriteTokens?: number;
+            cacheWrite1hTokens?: number;
             cost?: number;
             toolCalls?: Array<{
                 toolName: string;
+                argumentTokens?: number;
+                resultTokens?: number;
+                /** @deprecated compat only — older rows; use `argumentTokens` */
                 inputTokens?: number;
+                /** @deprecated compat only — older rows; use `resultTokens` */
                 outputTokens?: number;
                 usageLabel?: string;
             }>;
