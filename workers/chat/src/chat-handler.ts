@@ -26,6 +26,7 @@ import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
+import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
 import { captureWorkerPostHogEvent } from './utils/posthog';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
@@ -575,10 +576,31 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
                         // --- Persist agent message to DB (using pre-generated ID) ---
                         let assistantMsg: ChatMessageEntity | null = null;
+                        const errorMetadata = isError
+                            ? buildPublicErrorMetadata({
+                                  error: event.error!.raw,
+                                  fallbackMessage: event.error!.message,
+                                  requestId: ctx.requestId,
+                              })
+                            : null;
+                        if (isError && errorMetadata) {
+                            logWorkerError(
+                                'chat-handler',
+                                buildWorkerErrorLogContext({
+                                    error: event.error!.raw,
+                                    stage: 'done_ext',
+                                    chatId,
+                                    agentMessageId,
+                                    fallbackMessage: event.error!.message,
+                                    errorMetadata,
+                                }),
+                                event.error!.raw,
+                            );
+                        }
                         const msgMetadata = {
                             preset: presetId,
                             inference: extractInferenceMetadata(inferenceParams),
-                            ...(isError && { error: event.error!.message }),
+                            ...(errorMetadata ?? {}),
                             ...(messageUsage && { usage: messageUsage }),
                         };
 
@@ -726,8 +748,15 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                   ...(msgMetadata.preset && { preset: msgMetadata.preset }),
                                   ...(msgMetadata.inference && { inference: msgMetadata.inference }),
                                   ...(msgMetadata.usage && { usage: msgMetadata.usage }),
+                                  ...(msgMetadata.error && { error: msgMetadata.error }),
+                                  ...(msgMetadata.errorCode && { errorCode: msgMetadata.errorCode }),
+                                  ...(msgMetadata.requestId && { requestId: msgMetadata.requestId }),
                               }
-                            : undefined;
+                            : {
+                                  ...(msgMetadata.error && { error: msgMetadata.error }),
+                                  ...(msgMetadata.errorCode && { errorCode: msgMetadata.errorCode }),
+                                  ...(msgMetadata.requestId && { requestId: msgMetadata.requestId }),
+                              };
 
                         const doneEvent: StreamEvent = {
                             type: 'done',
@@ -765,8 +794,27 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
-        console.error('[chat-handler] generation error:', error?.message ?? error, error?.stack);
-        await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'chat-handler');
+        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        logWorkerError(
+            'chat-handler',
+            buildWorkerErrorLogContext({
+                error,
+                stage: 'catch',
+                chatId,
+                agentMessageId,
+                errorMetadata,
+            }),
+            error,
+        );
+        await persistErrorMessage({
+            em: em!,
+            chatId,
+            agentMessageId,
+            chat,
+            error,
+            errorMetadata,
+            label: 'chat-handler',
+        });
         ctx.eCtx?.waitUntil(
             captureWorkerPostHogEvent(ctx, 'worker_chat_turn_failed', ctx.user.userId, {
                 project_id: chat.project?.id ?? null,
@@ -776,6 +824,13 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                 error_message: error?.message ?? 'Unknown error',
             }).catch((captureError) => console.error('[posthog] failed to capture chat failure:', captureError)),
         );
-        await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
+        await cleanupStreamDO({
+            pusher,
+            streamDO,
+            ugStub,
+            topic: `chat:${chatId}`,
+            error,
+            errorMetadata,
+        });
     }
 }

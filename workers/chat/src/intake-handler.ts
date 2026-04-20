@@ -28,6 +28,7 @@ import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, Draf
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
+import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
@@ -405,6 +406,27 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         const isAborted = !!event.aborted;
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
+                        const errorMetadata = isError
+                            ? buildPublicErrorMetadata({
+                                  error: event.error!.raw,
+                                  fallbackMessage: event.error!.message,
+                                  requestId: ctx.requestId,
+                              })
+                            : null;
+                        if (isError && errorMetadata) {
+                            logWorkerError(
+                                'intake-handler',
+                                buildWorkerErrorLogContext({
+                                    error: event.error!.raw,
+                                    stage: 'done_ext',
+                                    chatId,
+                                    agentMessageId,
+                                    fallbackMessage: event.error!.message,
+                                    errorMetadata,
+                                }),
+                                event.error!.raw,
+                            );
+                        }
 
                         // --- Cost calculation from apiUsage ---
                         const apiUsage = event.apiUsage;
@@ -440,7 +462,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                                 metadata: {
                                     preset: presetId,
                                     inference: extractInferenceMetadata(inferenceParams),
-                                    ...(isError && { error: event.error!.message }),
+                                    ...(errorMetadata ?? {}),
                                     ...(messageUsage && { usage: messageUsage }),
                                 },
                                 ...(isError && { is_error: true }),
@@ -472,6 +494,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                             type: 'done',
                             ...(isDev && chat.total_cost != null && { totalCost: Number(chat.total_cost) }),
                             ...(isError && { error: event.error!.message }),
+                            ...(errorMetadata && { messageMetadata: errorMetadata }),
                             ...(pendingDoneEvent?.outputType === 'tool' &&
                                 pendingDoneEvent.outputTool && {
                                     outputType: 'tool' as const,
@@ -498,8 +521,34 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
     } catch (error: any) {
-        console.error('[intake-handler] generation error:', error?.message ?? error, error?.stack);
-        await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'intake-handler');
-        await cleanupStreamDO(pusher, streamDO, ugStub, `intake:${chatId}`, error);
+        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        logWorkerError(
+            'intake-handler',
+            buildWorkerErrorLogContext({
+                error,
+                stage: 'catch',
+                chatId,
+                agentMessageId,
+                errorMetadata,
+            }),
+            error,
+        );
+        await persistErrorMessage({
+            em: em!,
+            chatId,
+            agentMessageId,
+            chat,
+            error,
+            errorMetadata,
+            label: 'intake-handler',
+        });
+        await cleanupStreamDO({
+            pusher,
+            streamDO,
+            ugStub,
+            topic: `intake:${chatId}`,
+            error,
+            errorMetadata,
+        });
     }
 }

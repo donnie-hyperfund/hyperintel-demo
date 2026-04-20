@@ -22,6 +22,9 @@ export type MessageArtifactRef = {
 
 export type MessageMetadata = {
     preset?: string;
+    error?: string;
+    errorCode?: string;
+    requestId?: string;
     inference?: {
         paramsType?: string;
         model?: string;
