@@ -209,16 +209,27 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 throw new Error(err.message || 'Confirm failed');
             }
 
+            addPendingArtifactId(presignData.artifactId);
+
+            if (isStaged) {
+                finalizeEntry(entryId, {
+                    artifactId: presignData.artifactId,
+                    requiresAssociation: true,
+                    fileId: presignData.fileId,
+                    presignData,
+                });
+                return;
+            }
+
             updateEntry(entryId, {
                 status: 'processing',
                 artifactId: presignData.artifactId,
-                requiresAssociation: isStaged,
+                requiresAssociation: false,
                 fileId: presignData.fileId,
                 presignData,
             });
-            addPendingArtifactId(presignData.artifactId);
         },
-        [addPendingArtifactId, invalidateResources, scope, trackAsPending, updateEntry],
+        [addPendingArtifactId, finalizeEntry, invalidateResources, scope, trackAsPending, updateEntry],
     );
 
     const uploadChatImage = useCallback(
@@ -838,17 +849,24 @@ function ImageUploadIntentDialog({
     onRememberChange,
     onSelect,
 }: ImageUploadIntentDialogProps) {
+    const rememberId = 'image-upload-intent-remember';
+
     return (
         <Dialog open={open}>
             <DialogContent showCloseButton={false} onInteractOutside={(e) => e.preventDefault()}>
                 <DialogHeader>
                     <DialogTitle>Upload image</DialogTitle>
                     <DialogDescription>
-                        Choose whether {fileName ? `"${fileName}"` : 'this image'} should be uploaded as a document or attached to the message.
+                        Choose whether {fileName ? `"${fileName}"` : 'this image'} should be uploaded as a document or
+                        attached to the message.
                     </DialogDescription>
                 </DialogHeader>
-                <label className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={remember} onCheckedChange={(checked) => onRememberChange(checked === true)} />
+                <label htmlFor={rememberId} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                        id={rememberId}
+                        checked={remember}
+                        onCheckedChange={(checked) => onRememberChange(checked === true)}
+                    />
                     Remember for this session
                 </label>
                 <DialogFooter>
