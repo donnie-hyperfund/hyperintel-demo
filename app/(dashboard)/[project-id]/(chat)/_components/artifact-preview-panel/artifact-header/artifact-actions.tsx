@@ -1,11 +1,20 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
-import { Check, Copy, Download, FileUp, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { Check, Copy, Download, FileUp, Loader2, LocateFixed } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useState } from 'react';
 import { useClipboardAction } from '@/hooks/use-clipboard-action';
+import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { exportArtifact } from '@/lib/api/requests/worker/chat';
+import { getPhaseNumber } from '@/lib/phases';
+import { SEARCH_PARAMS } from '@/lib/search-params';
 import { downloadBlob } from '@/lib/utils';
+import { getArtifactChatId } from '@/modules/artifacts/utils';
+import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
+import type { Artifact } from '@/modules/chat/types';
+import { PhaseSwitchDialog } from '../../phase-switch-dialog';
 import type { ActionType } from './header-action';
 import { HeaderAction } from './header-action';
 
@@ -16,6 +25,8 @@ type ArtifactActionsProps = {
     isInternal?: boolean;
     artifactVersionId?: string;
     isStreaming?: boolean;
+    artifact?: Artifact;
+    version?: number;
 };
 
 export function ArtifactActions({
@@ -25,16 +36,28 @@ export function ArtifactActions({
     isInternal,
     artifactVersionId,
     isStreaming,
+    artifact,
+    version,
 }: ArtifactActionsProps) {
     const { getToken } = useAuth();
     const { isCopied, copy } = useClipboardAction();
     const [isDownloaded, setIsDownloaded] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [phaseSwitchData, setPhaseSwitchData] = useState<{
+        phaseName: string;
+        targetChatId: string;
+    } | null>(null);
+
+    const router = useRouter();
+    const { scrollTo } = useScrollTargetContext();
+    const { projectId, chatId } = useChatContext();
+    // TODO: Refactor this and use a better way of getting the phase number
+    const { data: chatsData } = useFetchChats(projectId ?? '', { limit: 100 });
+
+    const artifactKey = artifact?.key;
 
     const canExportDocx = !isInternal && !!artifactVersionId && !!content;
     const showContentActions = !!content && !isStreaming;
-
-    if (!showContentActions && !canExportDocx) return null;
 
     const handleDownload = () => {
         const blob = new Blob([content], { type: 'text/markdown' });
@@ -63,8 +86,38 @@ export function ArtifactActions({
         }
     };
 
+    const handleFindInChat = useCallback(() => {
+        if (!artifactKey || !artifact || version == null) return;
+
+        const artifactChatId = getArtifactChatId(artifact);
+
+        if (artifactChatId && artifactChatId !== chatId) {
+            const phaseNumber = chatsData?.data ? getPhaseNumber(chatsData.data, artifactChatId) : null;
+            setPhaseSwitchData({
+                phaseName: phaseNumber ? `Phase ${phaseNumber}` : 'another phase',
+                targetChatId: artifactChatId,
+            });
+            return;
+        }
+
+        scrollTo({ key: artifactKey, version });
+    }, [artifact, artifactKey, chatId, chatsData?.data, scrollTo, version]);
+
+    const handlePhaseSwitch = useCallback(() => {
+        if (!phaseSwitchData || !projectId || !artifactKey || version == null) return;
+        setPhaseSwitchData(null);
+        const search = new URLSearchParams({
+            [SEARCH_PARAMS.SCROLL_ARTIFACT_KEY]: artifactKey,
+            [SEARCH_PARAMS.SCROLL_ARTIFACT_VERSION]: String(version),
+        });
+        router.push(`/${projectId}/${phaseSwitchData.targetChatId}?${search}`);
+    }, [phaseSwitchData, projectId, artifactKey, version, router]);
+
     return (
         <>
+            {artifactKey && version != null && (
+                <HeaderAction type={type} icon={LocateFixed} label="Find in chat" onClick={handleFindInChat} />
+            )}
             {showContentActions && (
                 <>
                     <HeaderAction
@@ -93,6 +146,14 @@ export function ArtifactActions({
                     label={isExporting ? 'Exporting...' : 'Export to DOCX'}
                     onClick={handleExportDocx}
                     disabled={isExporting}
+                />
+            )}
+            {phaseSwitchData && (
+                <PhaseSwitchDialog
+                    open
+                    phaseName={phaseSwitchData.phaseName}
+                    onConfirm={handlePhaseSwitch}
+                    onClose={() => setPhaseSwitchData(null)}
                 />
             )}
         </>
