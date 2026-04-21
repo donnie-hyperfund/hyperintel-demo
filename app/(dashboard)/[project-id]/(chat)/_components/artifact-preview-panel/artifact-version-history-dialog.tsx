@@ -20,6 +20,7 @@ import {
 } from '@/lib/api/client/hooks/use-project-artifacts';
 import { type ArtifactVersionDto, TERMINAL_VERSION_STATUSES } from '@/lib/schema/artifact';
 import { useArtifactRestore } from '@/modules/artifacts/hooks/use-artifact-restore';
+import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
 import { useUserEvents } from '@/modules/chat/hooks/use-user-events';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -55,7 +56,11 @@ export function ArtifactVersionHistoryDialog({
         mutate: mutateHistory,
     } = useFetchProjectArtifactVersions(open ? projectId : undefined, open ? artifactKey : undefined);
 
-    const { restore, isRestoring, isGenerating, redirectDialog } = useArtifactRestore({ artifactKey });
+    const { restore, isRestoring, isGenerating, isAnotherRestoreActive, redirectDialog } = useArtifactRestore({
+        artifactKey,
+        artifactId,
+    });
+    const { suppressVersion } = useArtifactProcessing();
 
     useEffect(() => {
         if (!open || !history) return;
@@ -82,6 +87,13 @@ export function ArtifactVersionHistoryDialog({
         [versions, selectedVersion],
     );
 
+    // Hide the status-bar entry while the in-dialog Restoring state is visible here.
+    useEffect(() => {
+        if (!open || !isRestoring) return;
+        suppressVersion(selectedEntry?.id ?? null);
+        return () => suppressVersion(null);
+    }, [open, isRestoring, selectedEntry?.id, suppressVersion]);
+
     const {
         data: previewArtifact,
         isLoading: isLoadingPreview,
@@ -101,7 +113,13 @@ export function ArtifactVersionHistoryDialog({
         !TERMINAL_VERSION_STATUSES.includes(selectedEntry.status);
     const isCurrentActive =
         !!history && selectedVersion === history.artifact.currentVersion && selectedEntry?.status === 'approved';
-    const isRestoreDisabled = !selectedEntry || isLatestNonTerminal || isCurrentActive || isRestoring || isGenerating;
+    const isRestoreDisabled =
+        !selectedEntry ||
+        isLatestNonTerminal ||
+        isCurrentActive ||
+        isRestoring ||
+        isGenerating ||
+        isAnotherRestoreActive;
 
     const handleRestore = async () => {
         if (!selectedEntry) return;
@@ -138,7 +156,7 @@ export function ArtifactVersionHistoryDialog({
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <DialogTrigger asChild>
-                            <Button variant="ghost" size="icon-sm">
+                            <Button variant="ghost" size="sm">
                                 <History className="size-4" />
                             </Button>
                         </DialogTrigger>

@@ -7,7 +7,6 @@ import ProjectArtifactsPanel from '@/app/(dashboard)/[project-id]/(chat)/_compon
 import ResourcesPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/resources-panel';
 import { PhaseHeader } from '@/components/layouts/dashboard-layout/phase-header';
 import { ResizablePanelWrapper } from '@/components/layouts/panel-wrapper/resizable-panel-wrapper';
-import { useNudgeParam } from '@/hooks/use-nudge-param';
 import { usePanelIntentParam } from '@/hooks/use-panel-intent-param';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
@@ -23,7 +22,6 @@ export default function PhaseChatInterface() {
     const router = useRouter();
 
     usePanelIntentParam();
-    useNudgeParam();
 
     // On mount: if there's a processing artifact for this chat, scroll to it
     // and open its preview. If the user just entered this project (not switching
@@ -41,7 +39,11 @@ export default function PhaseChatInterface() {
 
         const currentChatEntry = initialEntries.find((entry) => entry.chatId === initialChatId);
         if (currentChatEntry) {
-            scrollTo({ key: currentChatEntry.artifactName, version: currentChatEntry.artifactVersion });
+            const version =
+                currentChatEntry.action === 'restore'
+                    ? currentChatEntry.sourceVersionNumber
+                    : currentChatEntry.artifactVersion;
+            scrollTo({ key: currentChatEntry.artifactName, version });
             return;
         }
 

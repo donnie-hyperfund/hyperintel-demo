@@ -153,6 +153,7 @@ export const restoreArtifact = (data: RestoreArtifactActionDto, accessToken: str
                 Authorization: `Bearer ${accessToken}`,
             },
             body: JSON.stringify(data),
+            keepalive: true,
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.RestoreAction, {
@@ -161,6 +162,7 @@ export const restoreArtifact = (data: RestoreArtifactActionDto, accessToken: str
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
+        keepalive: true,
     });
 };
 

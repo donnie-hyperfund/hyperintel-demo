@@ -10,18 +10,19 @@ import {
 } from '@/lib/storage/session-storage';
 import { ARTIFACT_PROCESSING_KEY, NUDGE_PENDING_KEY } from '@/lib/storage/storage-keys';
 import { useUserEvents } from '@/modules/chat/hooks/use-user-events';
-import { type ProcessingAction, type ProcessingEntry, type ProcessingStatus } from './types';
+import type { ProcessingAction, ProcessingEntry, ProcessingEntryInput, ProcessingStatus } from './types';
 
 const AUTO_DISMISS_MS = 3000;
 const STALE_THRESHOLD_MS = 60_000;
 
 type ArtifactProcessingContextValue = {
-    startProcessing: (entry: Omit<ProcessingEntry, 'status' | 'startedAt' | 'initiatedLocally'>) => void;
+    startProcessing: (entry: ProcessingEntryInput) => void;
     failProcessing: (versionId: string) => void;
     isProcessing: (versionId: string) => boolean;
     hasEntry: (versionId: string) => boolean;
     activeEntries: ProcessingEntry[];
     visibleEntries: ProcessingEntry[];
+    isAnyActionProcessing: (action: ProcessingAction) => boolean;
     hasPendingNudge: (chatId: string) => boolean;
     clearPendingNudge: (chatId: string) => void;
     suppressVersion: (versionId: string | null) => void;
@@ -59,12 +60,38 @@ function savePendingNudges(ids: Set<string>) {
     }
 }
 
+function buildEntryFromEvent(event: WsEventPayload): ProcessingEntry | null {
+    const base = {
+        versionId: event.versionId!,
+        artifactId: event.artifactId ?? '',
+        artifactName: event.artifactName ?? '',
+        status: 'processing' as const,
+        projectId: event.projectId,
+        projectName: event.projectName,
+        phaseName: event.phaseName ?? undefined,
+        phaseIndex: event.phaseIndex,
+        chatId: event.chatId,
+        startedAt: Date.now(),
+        initiatedLocally: false,
+    };
+
+    if (event.action === 'restore') {
+        return { ...base, action: 'restore', sourceVersionNumber: event.sourceVersionNumber ?? 0 };
+    }
+    if (event.action === 'approve' || event.action === 'reject') {
+        return { ...base, action: event.action, artifactVersion: event.version ?? 0 };
+    }
+    return null;
+}
+
 type WsEventPayload = {
     artifactId?: string;
     artifactName?: string;
     versionId?: string;
     version?: number;
-    action?: string;
+    sourceVersionNumber?: number;
+    restoredVersionNumber?: number;
+    action?: ProcessingAction;
     previousStatus?: string;
     status?: string;
     nextStatus?: string;
@@ -101,13 +128,21 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
     }, []);
 
     const updateEntryStatus = useCallback(
-        (versionId: string, status: ProcessingStatus) => {
+        ({
+            versionId,
+            status,
+            patch,
+        }: {
+            versionId: string;
+            status: ProcessingStatus;
+            patch?: Partial<ProcessingEntry>;
+        }) => {
             let nudgeChatId: string | undefined;
 
             setEntries((prev) => {
                 const entry = prev.get(versionId);
                 if (!entry) return prev;
-                const updated = { ...entry, status };
+                const updated = { ...entry, ...patch, status } as ProcessingEntry;
                 if (status === 'completed' && entry.initiatedLocally && entry.chatId) {
                     nudgeChatId = entry.chatId;
                 }
@@ -134,7 +169,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
         [scheduleDismiss],
     );
 
-    const startProcessing = useCallback((entry: Omit<ProcessingEntry, 'status' | 'startedAt' | 'initiatedLocally'>) => {
+    const startProcessing = useCallback((entry: ProcessingEntryInput) => {
         setEntries((prev) => {
             const next = new Map(prev);
             next.set(entry.versionId, {
@@ -142,7 +177,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                 status: 'processing',
                 startedAt: Date.now(),
                 initiatedLocally: true,
-            });
+            } as ProcessingEntry);
             saveToStorage(next);
             return next;
         });
@@ -150,7 +185,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
 
     const failProcessing = useCallback(
         (versionId: string) => {
-            updateEntryStatus(versionId, 'failed');
+            updateEntryStatus({ versionId, status: 'failed' });
         },
         [updateEntryStatus],
     );
@@ -163,34 +198,40 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
 
                 const event = payload as WsEventPayload;
                 if (!event.versionId || !event.action) return;
+                const versionId = event.versionId;
 
                 if (eventType === 'artifact_version_update_started') {
                     setEntries((prev) => {
-                        if (prev.has(event.versionId!)) return prev;
+                        const incoming = buildEntryFromEvent(event);
+                        if (!incoming) return prev;
                         const next = new Map(prev);
-                        next.set(event.versionId!, {
-                            versionId: event.versionId!,
-                            artifactId: event.artifactId ?? '',
-                            artifactName: event.artifactName ?? '',
-                            artifactVersion: event.version ?? 0,
-                            action: event.action as ProcessingAction,
-                            status: 'processing',
-                            projectId: event.projectId,
-                            projectName: event.projectName,
-                            phaseName: event.phaseName ?? undefined,
-                            phaseIndex: event.phaseIndex,
-                            chatId: event.chatId,
-                            startedAt: Date.now(),
-                            initiatedLocally: false,
-                        });
+                        const existing = prev.get(versionId);
+                        if (existing) {
+                            // Local optimistic entry — merge worker-authoritative target context
+                            // (chatId/phase) so cross-phase restore enrolls the nudge for the
+                            // correct target chat, not the user's current chat.
+                            next.set(versionId, {
+                                ...existing,
+                                chatId: incoming.chatId ?? existing.chatId,
+                                projectName: incoming.projectName ?? existing.projectName,
+                                phaseName: incoming.phaseName ?? existing.phaseName,
+                                phaseIndex: incoming.phaseIndex ?? existing.phaseIndex,
+                            } as ProcessingEntry);
+                        } else {
+                            next.set(versionId, incoming);
+                        }
                         saveToStorage(next);
                         return next;
                     });
                     return;
                 }
 
-                const finalStatus = event.status === 'approved' || event.status === 'rejected' ? 'completed' : 'failed';
-                updateEntryStatus(event.versionId!, finalStatus);
+                const status = event.status === 'approved' || event.status === 'rejected' ? 'completed' : 'failed';
+                const patch =
+                    event.restoredVersionNumber != null
+                        ? { restoredVersionNumber: event.restoredVersionNumber }
+                        : undefined;
+                updateEntryStatus({ versionId, status, patch });
             },
             [updateEntryStatus],
         ),
@@ -219,7 +260,8 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                     continue;
                 }
 
-                // Verify current status via API
+                // Verify current status via API — only approve/reject flip an existing proposed version.
+                if (entry.action !== 'approve' && entry.action !== 'reject') continue;
                 if (!entry.projectId || !entry.artifactName) continue;
                 try {
                     const artifact = await createProjectArtifactApi(() => Promise.resolve(token)).getByKey(
@@ -228,7 +270,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                     );
                     const stillPending = artifact.proposedVersion?.status === 'proposed';
                     if (!stillPending) {
-                        updateEntryStatus(versionId, 'completed');
+                        updateEntryStatus({ versionId, status: 'completed' });
                     }
                 } catch {
                     // API error — leave as processing, WS will update eventually
@@ -286,6 +328,11 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
         [allEntries, suppressedVersionId],
     );
 
+    const isAnyActionProcessing = useCallback(
+        (action: ProcessingAction) => activeEntries.some((entry) => entry.action === action),
+        [activeEntries],
+    );
+
     const contextValue = useMemo(
         () => ({
             startProcessing,
@@ -294,6 +341,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
             hasEntry,
             activeEntries,
             visibleEntries,
+            isAnyActionProcessing,
             hasPendingNudge,
             clearPendingNudge,
             suppressVersion,
@@ -306,6 +354,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
             hasEntry,
             activeEntries,
             visibleEntries,
+            isAnyActionProcessing,
             hasPendingNudge,
             clearPendingNudge,
             suppressVersion,
