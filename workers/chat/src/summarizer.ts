@@ -8,8 +8,9 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
-import { preprocessContext } from './chat-handler';
+import { chatActionHandler, type ChatActionResult, preprocessContext } from './chat-handler';
 import { Ctx } from './context';
+import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
 import type { UserGatewayStub } from './utils/do-stubs';
 import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
@@ -200,7 +201,9 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             }
         }
 
-        // Fetch the approved Completion Brief content — extract the Next-Phase Initialization Blurb
+        // Fetch the approved Completion Brief content — Section 13 (the Next-Phase Initialization Blurb)
+        // is emitted separately by the agent via the `generate_blurb` terminal tool; it MUST NOT appear
+        // in the summary text. The CB is attached here only as reference material.
         if (chat.completion_brief) {
             const cbArtifact = await em!.findOne(
                 ArtifactEntity,
@@ -209,7 +212,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             );
             const cbContent = cbArtifact?.current_version?.content;
             if (cbContent) {
-                instructions += `\n\n## Approved Completion Brief\n\nThe following is the approved Completion Brief for this phase. It contains a "Next-Phase Initialization Blurb" (Section 13) that MUST be included verbatim at the end of your summary. Copy it exactly as-is — do not modify it.\n\n${cbContent}`;
+                instructions += `\n\n## Approved Completion Brief (reference)\n\nThe following is the approved Completion Brief for this phase. It contains a "Next-Phase Initialization Blurb" (Section 13).\n\n**CRITICAL OUTPUT RULES:**\n1. Your text response is the summary ONLY. Do NOT include Section 13 / the Next-Phase Initialization Blurb anywhere in the summary text.\n2. After finishing the summary text, you MUST call the \`generate_blurb\` tool EXACTLY ONCE, passing Section 13 verbatim as the \`blurb\` parameter (raw content only — no header, no intro phrase, no surrounding commentary).\n3. Calling \`generate_blurb\` is a TERMINAL action and ends the summarization.\n\n${cbContent}`;
             }
         }
 
@@ -223,13 +226,15 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         historyMessages.push({
             role: 'user' as const,
             content:
-                'Please provide a comprehensive summary of this conversation. Include the Next-Phase Initialization Blurb from the Completion Brief at the end.',
+                'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. After the summary, call the generate_blurb tool with the Next-Phase Initialization Blurb (Section 13 of the Completion Brief) verbatim as its input.',
         });
 
         const inferenceParams = options.overrideInference ?? {
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.SONNET },
         };
+
+        const blurbTools = createBlurbTools();
 
         const { stream, historyPromise } = runAgentStream(
             {},
@@ -241,8 +246,10 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 countReasoningAsContent: true,
                 contentThreshold: 5,
             },
-            [] as const,
+            blurbTools,
             {
+                terminalToolNames: ['generate_blurb'],
+                toolGroups: [BlurbToolGroup],
                 config: {
                     preprocessContext,
                     abortSignal: abortController.signal,
@@ -251,6 +258,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         );
 
         let summaryContent = '';
+        let blurbContent: string | null = null;
         let wasAborted = false;
 
         /** Push a status_update event to the stream DO */
@@ -269,6 +277,11 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 if (event.type === 'done_ext') {
                     summaryContent = event.streamLog.fullContent ?? '';
                     wasAborted = event.aborted ?? false;
+                } else if (event.type === 'done' && event.outputType === 'tool' && event.outputTool === 'generate_blurb') {
+                    const input = event.finalOutput as { blurb?: unknown } | undefined;
+                    if (input && typeof input.blurb === 'string' && input.blurb.trim().length > 0) {
+                        blurbContent = input.blurb.trim();
+                    }
                 }
             },
         });
@@ -312,12 +325,34 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         });
         em!.persist(newChat);
 
+        // Explicit timestamps so summary is ordered before the init message when both are persisted
+        // in the same flush (column precision is 1ms, and `now()` default can collide on same-tick inserts).
+        const summaryCreatedAt = new Date();
         const summaryMessage = em!.create(ChatMessageEntity, {
             chat: newChat,
             role: 'assistant',
             content: SUMMARY_PREFIX + summaryContent,
+            created_at: summaryCreatedAt,
         });
         em!.persist(summaryMessage);
+
+        // Initiation blurb — persist as a user-role message so the next-phase agent auto-responds (nudge).
+        // If the agent didn't emit a blurb via generate_blurb, we skip this and log a warning; the user can
+        // still drive the next phase manually.
+        let initMessage: ChatMessageEntity | null = null;
+        if (blurbContent) {
+            initMessage = em!.create(ChatMessageEntity, {
+                chat: newChat,
+                role: 'user',
+                content: blurbContent,
+                created_at: new Date(summaryCreatedAt.getTime() + 1),
+            });
+            em!.persist(initMessage);
+        } else {
+            console.warn(
+                `[summarizer] no blurb emitted by generate_blurb (chat=${chatId}) — next phase will start without an initiation prompt`,
+            );
+        }
 
         // Clear active_agent_message_id before flush (before finalize)
         chat.active_agent_message_id = null;
@@ -366,6 +401,37 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 payload: { chatId: newChat.id, projectId: chat.project!.id },
             })
             .catch(console.error);
+
+        // Push the initiation message via socket to the new chat's topic so frontends subscribed
+        // to it see the user message appear in real time (same pattern as chatActionHandler uses
+        // for newly-created user messages). Then kick off an agent nudge on the new chat so the
+        // next-phase agent responds automatically to the blurb.
+        if (initMessage) {
+            const initMsgPayload: Record<string, unknown> = { message: initMessage.toJSON() };
+            await ugStub
+                .systemAction(`chat:${newChat.id}`, 'messageCreated', initMsgPayload, ctx.previewAlias ?? undefined)
+                .catch((err) => console.error('[summarizer] failed to broadcast init messageCreated:', err));
+
+            // Trigger generation on the new chat (nudge mode — message=null responds to the last user msg).
+            // Runs as an independent generation streaming to `chat:${newChat.id}` topic; we extend
+            // Worker lifetime via ctx.waitUntil so it outlives this SSE response.
+            const nudgePromise = (async () => {
+                try {
+                    const result = await chatActionHandler(
+                        { chatId: newChat.id, message: null },
+                        ctx,
+                        { onEvent: () => {} },
+                    );
+                    const generation = (result as ChatActionResult).generation;
+                    if (generation) await generation;
+                } catch (err) {
+                    console.error('[summarizer] next-phase nudge failed:', err);
+                }
+            })();
+            if (ctx.eCtx) {
+                ctx.eCtx.waitUntil(nudgePromise);
+            }
+        }
 
         // Push terminal done event with newChatId
         await pusher.waitAll();
