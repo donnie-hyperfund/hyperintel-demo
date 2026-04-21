@@ -78,6 +78,7 @@ export default function PhaseChatInterface() {
                 </>
             }
             rightPaneDefaultSize={activePanel === 'artifact-preview' ? 35 : 25}
+            rightPaneMaxSize={activePanel === 'artifact-preview' ? 80 : 30}
         />
     );
 }
