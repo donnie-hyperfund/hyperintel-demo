@@ -10,12 +10,14 @@ type ResizablePanelWrapperProps = {
     LeftPaneComponent: ReactNode;
     RightPaneComponent: ReactNode;
     rightPaneDefaultSize?: number;
+    rightPaneMaxSize?: number;
 };
 
 export const ResizablePanelWrapper = ({
     LeftPaneComponent,
     RightPaneComponent,
     rightPaneDefaultSize = 35,
+    rightPaneMaxSize = 40,
 }: ResizablePanelWrapperProps) => {
     const { panelState } = useActivePanelContext();
     const { breakpoint } = useBreakpoint();
@@ -55,7 +57,7 @@ export const ResizablePanelWrapper = ({
                         id="chat-panel"
                         order={1}
                         defaultSize={60}
-                        minSize={60}
+                        minSize={100 - rightPaneMaxSize}
                         maxSize={80}
                         className={cn(isPanelOpen && 'shadow-[inset_-4px_0_48px_rgba(0,0,0,0.25)]', 'h-full min-h-0')}
                     >
@@ -71,6 +73,7 @@ export const ResizablePanelWrapper = ({
                                 order={2}
                                 defaultSize={rightPaneDefaultSize}
                                 minSize={20}
+                                maxSize={rightPaneMaxSize}
                                 className="flex h-full min-h-0 flex-col"
                             >
                                 {RightPaneComponent}
