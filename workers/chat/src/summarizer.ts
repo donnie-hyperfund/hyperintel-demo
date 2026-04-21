@@ -325,30 +325,14 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         });
         em!.persist(newChat);
 
-        // Explicit timestamps so summary is ordered before the init message when both are persisted
-        // in the same flush (column precision is 1ms, and `now()` default can collide on same-tick inserts).
-        const summaryCreatedAt = new Date();
         const summaryMessage = em!.create(ChatMessageEntity, {
             chat: newChat,
             role: 'assistant',
             content: SUMMARY_PREFIX + summaryContent,
-            created_at: summaryCreatedAt,
         });
         em!.persist(summaryMessage);
 
-        // Initiation blurb — persist as a user-role message so the next-phase agent auto-responds (nudge).
-        // If the agent didn't emit a blurb via generate_blurb, we skip this and log a warning; the user can
-        // still drive the next phase manually.
-        let initMessage: ChatMessageEntity | null = null;
-        if (blurbContent) {
-            initMessage = em!.create(ChatMessageEntity, {
-                chat: newChat,
-                role: 'user',
-                content: blurbContent,
-                created_at: new Date(summaryCreatedAt.getTime() + 1),
-            });
-            em!.persist(initMessage);
-        } else {
+        if (!blurbContent) {
             console.warn(
                 `[summarizer] no blurb emitted by generate_blurb (chat=${chatId}) — next phase will start without an initiation prompt`,
             );
@@ -402,34 +386,26 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             })
             .catch(console.error);
 
-        // Push the initiation message via socket to the new chat's topic so frontends subscribed
-        // to it see the user message appear in real time (same pattern as chatActionHandler uses
-        // for newly-created user messages). Then kick off an agent nudge on the new chat so the
-        // next-phase agent responds automatically to the blurb.
-        if (initMessage) {
-            const initMsgPayload: Record<string, unknown> = { message: initMessage.toJSON() };
-            await ugStub
-                .systemAction(`chat:${newChat.id}`, 'messageCreated', initMsgPayload, ctx.previewAlias ?? undefined)
-                .catch((err) => console.error('[summarizer] failed to broadcast init messageCreated:', err));
-
-            // Trigger generation on the new chat (nudge mode — message=null responds to the last user msg).
-            // Runs as an independent generation streaming to `chat:${newChat.id}` topic; we extend
-            // Worker lifetime via ctx.waitUntil so it outlives this SSE response.
-            const nudgePromise = (async () => {
+        // Send the initiation blurb as a user message on the new chat via the normal chat handler —
+        // it persists the user message, broadcasts messageCreated on `chat:${newChat.id}`, and runs
+        // the next-phase agent generation streaming to that same topic. Extend Worker lifetime via
+        // ctx.waitUntil so the generation outlives this SSE response.
+        if (blurbContent) {
+            const initPromise = (async () => {
                 try {
                     const result = await chatActionHandler(
-                        { chatId: newChat.id, message: null },
+                        { chatId: newChat.id, message: blurbContent },
                         ctx,
                         { onEvent: () => {} },
                     );
                     const generation = (result as ChatActionResult).generation;
                     if (generation) await generation;
                 } catch (err) {
-                    console.error('[summarizer] next-phase nudge failed:', err);
+                    console.error('[summarizer] next-phase initiation failed:', err);
                 }
             })();
             if (ctx.eCtx) {
-                ctx.eCtx.waitUntil(nudgePromise);
+                ctx.eCtx.waitUntil(initPromise);
             }
         }
 
