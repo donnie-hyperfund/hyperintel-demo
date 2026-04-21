@@ -8,7 +8,7 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
-import { chatActionHandler, type ChatActionResult, preprocessContext } from './chat-handler';
+import { type ChatActionResult, chatActionHandler, preprocessContext } from './chat-handler';
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
@@ -286,7 +286,11 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 if (event.type === 'done_ext') {
                     summaryContent = event.streamLog.fullContent ?? '';
                     wasAborted = event.aborted ?? false;
-                } else if (event.type === 'done' && event.outputType === 'tool' && event.outputTool === 'generate_blurb') {
+                } else if (
+                    event.type === 'done' &&
+                    event.outputType === 'tool' &&
+                    event.outputTool === 'generate_blurb'
+                ) {
                     const input = event.finalOutput as { blurb?: unknown } | undefined;
                     if (input && typeof input.blurb === 'string' && input.blurb.trim().length > 0) {
                         blurbContent = input.blurb.trim();
@@ -365,10 +369,10 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 const nameResult = await runInferenceNoStream(ctx, {
                     paramsType: AIParamsType.OpenRouter,
                     instructions:
-                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs and PECP\'s — they are generated automatically and are not relevant. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
+                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs and PECP\'s — they are generated automatically and are not relevant. Never include them in the title. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
                     context: [{ role: 'user', content: summaryContent + docContext }],
                     params: {
-                        model: COMMON_MODELS.GEMINI_FLASH,
+                        model: COMMON_MODELS.GPT_5_4_NANO,
                         maxTokens: 30,
                     },
                 });
