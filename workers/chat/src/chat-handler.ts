@@ -498,6 +498,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                             localPath,
                             WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
                         ),
+                    behavioralGuidance: [
+                        'DECISION ESCALATION: When you encounter an ambiguous situation where multiple valid actions are possible (e.g., a tool call fails with recoverable options, a name conflict, missing resource, unclear user intent), NEVER silently pick one option yourself. Instead: (1) explain the situation clearly to the user, (2) present the available options, (3) wait for their choice. The user controls the workflow — you execute their decisions. Examples: document name taken, requested resource not found, unclear which version to use, conflicting instructions.',
+                    ],
                     statusUpdates: { enabled: true },
                     preprocessContext,
                     abortSignal: abortController.signal,

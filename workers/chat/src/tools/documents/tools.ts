@@ -140,6 +140,15 @@ When a **regular** user message (not a \`<system>\` event) contains approval or 
 - **Compound messages:** If the user says something like "approved, now do X" or "looks good, proceed with Y" — FIRST call \`approve_document\` for the pending document, THEN proceed with the rest of the request.
 - **Ambiguity:** If it's unclear whether the user is approving or just continuing, and there IS a pending proposed document, ask for clarification before proceeding.
 
+## Conflict Resolution — ALWAYS Ask the User
+When a tool call fails or returns an error (e.g., name already taken, document not found, mode mismatch), **do NOT silently recover or decide on your own**. Instead:
+1. Tell the user what happened (in natural language, no raw errors).
+2. Present the available options clearly. For example:
+   - Name conflict: "A document called X already exists. Would you like me to (a) edit the existing document and create a new version, or (b) create a new document with a different name?"
+   - Document not found: "I couldn't find a document called X. Would you like me to create a new one, or did you mean a different name? Here are similar documents: ..."
+3. Wait for the user's choice before proceeding.
+**Never assume the user's intent when multiple valid paths exist.**
+
 ## Important
 \`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.
 
@@ -169,7 +178,7 @@ After the PECP is finalized, STOP and wait for the user.
 - Mention "Phase 2", "next step", or suggest what comes next — let the user drive the workflow
 Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
     behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval.',
+        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval. CRITICAL: When a document tool returns an error (name conflict, not found, mode mismatch, etc.), NEVER silently recover or decide on your own. Always explain the situation to the user in plain language, present the available options, and wait for their choice before proceeding.',
     tools: [
         'begin_document',
         'write_document',
@@ -355,12 +364,12 @@ You MUST call finalize_document when done or content will be lost.`,
                 const isDeleted = existing?.currentStatus === 'deleted';
                 if (mode === 'create' && existing && !isDeleted && !isPECP) {
                     return {
-                        error: `Document "${normalizedName}" already exists. Use mode="edit" to modify it.`,
+                        error: `Document "${normalizedName}" already exists. Ask the user how to proceed — options: (a) edit the existing document to create a new version (mode="edit"), or (b) create a new document with a different name. Do NOT decide on your own.`,
                     };
                 }
                 if (mode === 'edit' && !existing) {
                     return {
-                        error: `Document "${normalizedName}" does not exist. Use mode="create" for new documents.`,
+                        error: `Document "${normalizedName}" does not exist. Ask the user how to proceed — options: (a) create a new document with this name (mode="create"), or (b) use a different existing document. You can use list_documents to show available options. Do NOT decide on your own.`,
                     };
                 }
 
