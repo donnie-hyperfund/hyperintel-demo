@@ -21,6 +21,8 @@ export class Migration20260421120000_BackfillImportedArtifactSourceChatId extend
     }
 
     override async down(): Promise<void> {
-        this.addSql(`update "artifacts" set "metadata" = "metadata" - 'sourceChatId' where "metadata" ? 'sourceChatId';`);
+        this.addSql(
+            `update "artifacts" set "metadata" = "metadata" - 'sourceChatId' where "metadata" ? 'sourceChatId';`,
+        );
     }
 }
