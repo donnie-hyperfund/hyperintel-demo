@@ -130,7 +130,14 @@ export async function importArtifactsToProject(
             artifact.title = source.title;
             artifact.version = 1;
             artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
-            artifact.metadata = { importedFrom: artifactId };
+            const metadata: Record<string, unknown> = { importedFrom: artifactId };
+            // Track the originating chat only for own imports — the importing user has access to it.
+            // Agent-created artifacts store chat on the version; intake uploads store it on the artifact.
+            if (source.user?.id === userId) {
+                const originChatId = bestVersion.chat?.id ?? source.chat?.id;
+                if (originChatId) metadata.sourceChatId = originChatId;
+            }
+            artifact.metadata = metadata;
 
             txEm.persist(artifact);
             await txEm.flush();

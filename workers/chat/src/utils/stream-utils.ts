@@ -17,6 +17,7 @@ import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
 import { generateSignedImageUrls } from '../uploads/image-uploader';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
+import { buildWorkerErrorLogContext, logWorkerError, type PublicErrorMetadata } from './error-metadata';
 
 // ============================================================================
 // DO LIFECYCLE HELPERS
@@ -216,14 +217,23 @@ export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher 
  * Used by chat-handler and intake-handler catch blocks.
  * Summarizer skips this (no agent message to persist on error).
  */
-export async function persistErrorMessage(
-    em: any,
-    chatId: string,
-    agentMessageId: string,
-    chat: { active_agent_message_id: string | null },
-    error: any,
-    label: string,
-) {
+export async function persistErrorMessage({
+    em,
+    chatId,
+    agentMessageId,
+    chat,
+    error,
+    errorMetadata,
+    label,
+}: {
+    em: any;
+    chatId: string;
+    agentMessageId: string;
+    chat: { active_agent_message_id: string | null };
+    error: any;
+    errorMetadata: PublicErrorMetadata;
+    label: string;
+}) {
     try {
         const existing = await em.findOne(ChatMessageEntity, { id: agentMessageId });
         if (!existing) {
@@ -233,7 +243,7 @@ export async function persistErrorMessage(
                 role: 'assistant',
                 content: '',
                 is_error: true,
-                metadata: { error: error?.message || 'Unknown error' },
+                metadata: errorMetadata,
                 debug_data: { error: serializeException(error) },
             });
             em.persist(errorMsg);
@@ -241,7 +251,17 @@ export async function persistErrorMessage(
         chat.active_agent_message_id = null;
         await em.flush();
     } catch (saveErr) {
-        console.error(`[${label}] failed to save error state:`, saveErr);
+        logWorkerError(
+            label,
+            buildWorkerErrorLogContext({
+                error: saveErr,
+                stage: 'persist_error_state',
+                chatId,
+                agentMessageId,
+                errorMetadata,
+            }),
+            saveErr,
+        );
     }
 }
 
@@ -249,16 +269,35 @@ export async function persistErrorMessage(
  * Error epilogue: drain inflight pushes, push error event, done+finalize, clearStream.
  * Shared by all three handlers' catch blocks.
  */
-export async function cleanupStreamDO(
-    pusher: Pusher,
-    streamDO: ChatStreamDOStub,
-    ugStub: UserGatewayStub,
-    topic: string,
-    error: any,
-) {
+export async function cleanupStreamDO({
+    pusher,
+    streamDO,
+    ugStub,
+    topic,
+    error,
+    errorMetadata,
+}: {
+    pusher: Pusher;
+    streamDO: ChatStreamDOStub;
+    ugStub: UserGatewayStub;
+    topic: string;
+    error: any;
+    errorMetadata?: PublicErrorMetadata;
+}) {
     try {
         await pusher.waitAll();
-        await streamDO.push([{ type: 'error', error: error?.message || 'Unknown error' }], pusher.seq);
+        const errorMessage = errorMetadata?.error ?? error?.message ?? 'Unknown error';
+        await streamDO.push(
+            [
+                { type: 'error', error: errorMessage },
+                {
+                    type: 'done',
+                    error: errorMessage,
+                    ...(errorMetadata && { messageMetadata: errorMetadata }),
+                },
+            ],
+            pusher.seq,
+        );
         await streamDO.done();
         await streamDO.finalize();
     } catch {

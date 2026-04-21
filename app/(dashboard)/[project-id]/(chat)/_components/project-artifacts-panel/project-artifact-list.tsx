@@ -1,24 +1,17 @@
 import { useAuth } from '@clerk/nextjs';
 import { FileText, Loader2 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { EmptyState } from '@/components/ui/empty-state';
 import type { ProjectArtifactFilterParams } from '@/lib/api/client/fetchers/project-artifacts';
 import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
-import { useFetchChats } from '@/lib/api/client/hooks/use-chats';
 import { useFetchProjectArtifactsInfinite } from '@/lib/api/client/hooks/use-project-artifacts';
 import type { CamelCaseDto } from '@/lib/api/client/types';
-import { getPhaseNumber } from '@/lib/phases';
 import type { ArtifactDto } from '@/lib/schema/artifact';
-import { SEARCH_PARAMS } from '@/lib/search-params';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
-import { getLatestArtifactVersionChatId } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
-import { PhaseSwitchDialog } from '../phase-switch-dialog';
 import type { ProjectArtifactFilters } from './project-artifact-filter-dropdown';
 import { getActiveFilterCount } from './project-artifact-filter-dropdown';
 
@@ -30,13 +23,6 @@ function filtersToParams(filters: ProjectArtifactFilters): ProjectArtifactFilter
     return params;
 }
 
-type PhaseDialogData = {
-    phaseName: string;
-    targetChatId: string;
-    artifactKey: string;
-    artifactVersion: number;
-};
-
 const PAGE_SIZE = 20;
 
 type ProjectArtifactListProps = {
@@ -44,10 +30,9 @@ type ProjectArtifactListProps = {
 };
 
 export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
-    const router = useRouter();
     const { getToken } = useAuth();
 
-    const { projectId, chatId } = useChatContext<'phase'>();
+    const { projectId } = useChatContext<'phase'>();
 
     const filterParams = useMemo(() => filtersToParams(filters), [filters]);
 
@@ -55,14 +40,9 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         limit: PAGE_SIZE,
         ...filterParams,
     });
-    const { data: chatsData } = useFetchChats(projectId, { limit: 100 });
 
     const { addArtifact, updateArtifact } = useArtifactActions();
     const { openPanel } = useActivePanelContext();
-    const { scrollTo } = useScrollTargetContext();
-
-    const [dialogOpen, setDialogOpen] = useState(false);
-    const [dialogData, setDialogData] = useState<PhaseDialogData | null>(null);
 
     const artifacts = useMemo(() => {
         if (!data) return [];
@@ -96,49 +76,13 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
         [projectId, getToken, addArtifact, updateArtifact, openPanel],
     );
 
-    const navigateToArtifact = useCallback(
-        (targetChatId: string, artifactKey: string, artifactVersion: number) => {
-            if (!projectId) return;
-            const search = new URLSearchParams({
-                [SEARCH_PARAMS.SCROLL_ARTIFACT_KEY]: artifactKey,
-                [SEARCH_PARAMS.SCROLL_ARTIFACT_VERSION]: String(artifactVersion),
-            });
-            router.push(`/${projectId}/${targetChatId}?${search}`);
-        },
-        [projectId, router],
-    );
-
     const handleArtifactClick = useCallback(
         (artifact: CamelCaseDto<ArtifactDto>) => {
             if (!projectId) return;
-
-            const artifactChatId = getLatestArtifactVersionChatId(artifact);
-
-            if (artifactChatId && artifactChatId !== chatId) {
-                const phaseNumber = chatsData?.data ? getPhaseNumber(chatsData.data, artifactChatId) : null;
-
-                setDialogData({
-                    phaseName: phaseNumber ? `Phase ${phaseNumber}` : 'another phase',
-                    targetChatId: artifactChatId,
-                    artifactKey: artifact.key,
-                    artifactVersion: artifact.version,
-                });
-                setDialogOpen(true);
-                return;
-            }
-
             openArtifactPreview(artifact);
-            scrollTo({ key: artifact.key, version: artifact.version });
         },
-        [projectId, chatId, chatsData?.data, openArtifactPreview, scrollTo],
+        [projectId, openArtifactPreview],
     );
-
-    const handlePhaseSwitch = useCallback(() => {
-        if (!dialogData) return;
-        setDialogOpen(false);
-        const { targetChatId, artifactKey, artifactVersion } = dialogData;
-        navigateToArtifact(targetChatId, artifactKey, artifactVersion);
-    }, [dialogData, navigateToArtifact]);
 
     if (isLoading) {
         return (
@@ -181,31 +125,20 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     }
 
     return (
-        <>
-            <div className="space-y-2">
-                {artifacts.map((artifact) => (
-                    <ArtifactListItem
-                        key={artifact.id}
-                        artifact={artifact}
-                        size="sm"
-                        onClick={() => handleArtifactClick(artifact)}
-                    />
-                ))}
-                {(isLoading || hasNextPage) && (
-                    <div ref={sentryRef} className="flex items-center justify-center py-3">
-                        <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                    </div>
-                )}
-            </div>
-
-            {dialogData && dialogOpen && (
-                <PhaseSwitchDialog
-                    open={dialogOpen}
-                    phaseName={dialogData.phaseName}
-                    onConfirm={handlePhaseSwitch}
-                    onClose={() => setDialogOpen(false)}
+        <div className="space-y-2">
+            {artifacts.map((artifact) => (
+                <ArtifactListItem
+                    key={artifact.id}
+                    artifact={artifact}
+                    size="sm"
+                    onClick={() => handleArtifactClick(artifact)}
                 />
+            ))}
+            {(isLoading || hasNextPage) && (
+                <div ref={sentryRef} className="flex items-center justify-center py-3">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                </div>
             )}
-        </>
+        </div>
     );
 }

@@ -186,6 +186,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                 isUploaded={activeVersion?.isUploaded}
                 isInternal={activeVersion?.isInternal}
                 artifactVersionId={activeVersion?.id}
+                artifact={artifact}
                 updatedAt={updatedAt}
                 backHref={backHref}
                 onCloseAction={onCloseAction}

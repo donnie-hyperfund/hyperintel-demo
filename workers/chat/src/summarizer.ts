@@ -8,10 +8,12 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
-import { preprocessContext } from './chat-handler';
+import { type ChatActionResult, chatActionHandler, preprocessContext } from './chat-handler';
 import { Ctx } from './context';
+import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
 import type { UserGatewayStub } from './utils/do-stubs';
+import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
 import { extractDocuments } from './utils/extract-documents';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
@@ -199,12 +201,18 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             }
         }
 
-        // Fetch the approved Completion Brief content — extract the Next-Phase Initialization Blurb
+        // Fetch the approved Completion Brief content — Section 13 (the Next-Phase Initialization Blurb)
+        // is emitted separately by the agent via the `generate_blurb` terminal tool; it MUST NOT appear
+        // in the summary text. The CB is attached here only as reference material.
         if (chat.completion_brief) {
-            const cbArtifact = await em!.findOne(ArtifactEntity, { id: typeof chat.completion_brief === 'string' ? chat.completion_brief : chat.completion_brief.id }, { populate: ['current_version'] });
+            const cbArtifact = await em!.findOne(
+                ArtifactEntity,
+                { id: typeof chat.completion_brief === 'string' ? chat.completion_brief : chat.completion_brief.id },
+                { populate: ['current_version'] },
+            );
             const cbContent = cbArtifact?.current_version?.content;
             if (cbContent) {
-                instructions += `\n\n## Approved Completion Brief\n\nThe following is the approved Completion Brief for this phase. It contains a "Next-Phase Initialization Blurb" (Section 13) that MUST be included verbatim at the end of your summary. Copy it exactly as-is — do not modify it.\n\n${cbContent}`;
+                instructions += `\n\n## Approved Completion Brief (reference)\n\nThe following is the approved Completion Brief for this phase. It contains a "Next-Phase Initialization Blurb" (Section 13).\n\n**CRITICAL OUTPUT RULES:**\n1. Your text response is the summary ONLY. Do NOT include Section 13 / the Next-Phase Initialization Blurb anywhere in the summary text.\n2. After finishing the summary text, you MUST call the \`generate_blurb\` tool EXACTLY ONCE, passing Section 13 verbatim as the \`blurb\` parameter (raw content only — no header, no intro phrase, no surrounding commentary).\n3. Calling \`generate_blurb\` is a TERMINAL action and ends the summarization.\n\n${cbContent}`;
             }
         }
 
@@ -217,13 +225,16 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         // Anthropic requires conversation to end with user message for model to respond.
         historyMessages.push({
             role: 'user' as const,
-            content: 'Please provide a comprehensive summary of this conversation. Include the Next-Phase Initialization Blurb from the Completion Brief at the end.',
+            content:
+                'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. After the summary, call the generate_blurb tool with the Next-Phase Initialization Blurb (Section 13 of the Completion Brief) verbatim as its input.',
         });
 
         const inferenceParams = options.overrideInference ?? {
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.SONNET },
         };
+
+        const blurbTools = createBlurbTools();
 
         const { stream, historyPromise } = runAgentStream(
             {},
@@ -235,8 +246,10 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 countReasoningAsContent: true,
                 contentThreshold: 5,
             },
-            [] as const,
+            blurbTools,
             {
+                terminalToolNames: ['generate_blurb'],
+                toolGroups: [BlurbToolGroup],
                 config: {
                     preprocessContext,
                     abortSignal: abortController.signal,
@@ -245,6 +258,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         );
 
         let summaryContent = '';
+        let blurbContent: string | null = null;
         let wasAborted = false;
 
         /** Push a status_update event to the stream DO */
@@ -263,6 +277,15 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 if (event.type === 'done_ext') {
                     summaryContent = event.streamLog.fullContent ?? '';
                     wasAborted = event.aborted ?? false;
+                } else if (
+                    event.type === 'done' &&
+                    event.outputType === 'tool' &&
+                    event.outputTool === 'generate_blurb'
+                ) {
+                    const input = event.finalOutput as { blurb?: unknown } | undefined;
+                    if (input && typeof input.blurb === 'string' && input.blurb.trim().length > 0) {
+                        blurbContent = input.blurb.trim();
+                    }
                 }
             },
         });
@@ -274,7 +297,18 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             chat.active_agent_message_id = null;
             await em!.flush();
 
-            await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, new Error('Summarization cancelled'));
+            const cancellationError = new Error('Summarization cancelled');
+            await cleanupStreamDO({
+                pusher,
+                streamDO,
+                ugStub,
+                topic: `chat:${chatId}`,
+                error: cancellationError,
+                errorMetadata: buildPublicErrorMetadata({
+                    error: cancellationError,
+                    requestId: ctx.requestId,
+                }),
+            });
             return;
         }
 
@@ -302,6 +336,12 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         });
         em!.persist(summaryMessage);
 
+        if (!blurbContent) {
+            console.warn(
+                `[summarizer] no blurb emitted by generate_blurb (chat=${chatId}) — next phase will start without an initiation prompt`,
+            );
+        }
+
         // Clear active_agent_message_id before flush (before finalize)
         chat.active_agent_message_id = null;
         await em!.flush();
@@ -320,10 +360,10 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
                 const nameResult = await runInferenceNoStream(ctx, {
                     paramsType: AIParamsType.OpenRouter,
                     instructions:
-                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs and PECP\'s — they are generated automatically and are not relevant. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
+                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs and PECP\'s — they are generated automatically and are not relevant. Never include them in the title. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
                     context: [{ role: 'user', content: summaryContent + docContext }],
                     params: {
-                        model: COMMON_MODELS.GEMINI_FLASH,
+                        model: COMMON_MODELS.GPT_5_4_NANO,
                         maxTokens: 30,
                     },
                 });
@@ -350,22 +390,71 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             })
             .catch(console.error);
 
+        // Send the initiation blurb as a user message on the new chat via the normal chat handler —
+        // it persists the user message, broadcasts messageCreated on `chat:${newChat.id}`, and runs
+        // the next-phase agent generation streaming to that same topic. Extend Worker lifetime via
+        // ctx.waitUntil so the generation outlives this SSE response.
+        if (blurbContent) {
+            const initPromise = (async () => {
+                try {
+                    const result = await chatActionHandler({ chatId: newChat.id, message: blurbContent }, ctx, {
+                        onEvent: () => {},
+                    });
+                    const generation = (result as ChatActionResult).generation;
+                    if (generation) await generation;
+                } catch (err) {
+                    console.error('[summarizer] next-phase initiation failed:', err);
+                }
+            })();
+            if (ctx.eCtx) {
+                ctx.eCtx.waitUntil(initPromise);
+            }
+        }
+
         // Push terminal done event with newChatId
         await pusher.waitAll();
         await streamDO.push([{ type: 'done', newChatId: newChat.id }], pusher.seq);
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
-        console.error('[summarizer] generation error:', error?.message ?? error, error?.stack);
+        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        logWorkerError(
+            'summarizer',
+            buildWorkerErrorLogContext({
+                error,
+                stage: 'catch',
+                chatId,
+                agentMessageId,
+                errorMetadata,
+            }),
+            error,
+        );
 
         // Clear active_agent_message_id on error (summarizer has no agent message to persist)
         try {
             chat.active_agent_message_id = null;
             await em!.flush();
         } catch (saveErr) {
-            console.error('[summarizer] failed to clear active_agent_message_id:', saveErr);
+            logWorkerError(
+                'summarizer',
+                buildWorkerErrorLogContext({
+                    error: saveErr,
+                    stage: 'clear_active_agent_message_id',
+                    chatId,
+                    agentMessageId,
+                    requestId: ctx.requestId,
+                }),
+                saveErr,
+            );
         }
 
-        await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
+        await cleanupStreamDO({
+            pusher,
+            streamDO,
+            ugStub,
+            topic: `chat:${chatId}`,
+            error,
+            errorMetadata,
+        });
     }
 }

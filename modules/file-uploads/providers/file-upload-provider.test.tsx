@@ -91,16 +91,16 @@ describe('FileUploadProvider image routing', () => {
         });
         vi.stubGlobal(
             'fetch',
-            vi.fn(async (input: string | URL | Request) => {
+            vi.fn((input: string | URL | Request) => {
                 const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
                 if (url.includes('/api/artifacts/files/status')) {
-                    return {
+                    return Promise.resolve({
                         ok: true,
                         json: async () => ({ files: [{ fileId: 'file-1', status: 'processed' }] }),
-                    } as Response;
+                    } as Response);
                 }
 
-                return { ok: true } as Response;
+                return Promise.resolve({ ok: true } as Response);
             }),
         );
     });
@@ -112,7 +112,7 @@ describe('FileUploadProvider image routing', () => {
 
         const file = new File(['image-bytes'], 'photo.png', { type: 'image/png' });
 
-        await act(async () => {
+        act(() => {
             result.current.addFiles([file]);
         });
 
@@ -126,6 +126,73 @@ describe('FileUploadProvider image routing', () => {
         });
     });
 
+    it('marks staged artifact presign uploads ready after confirm without polling for extraction', async () => {
+        const { result } = renderHook(() => useFileUploadContext(), {
+            wrapper: makeWrapper({ trackAsPending: true }),
+        });
+
+        const file = new File(['image-bytes'], 'photo.png', { type: 'image/png' });
+
+        act(() => {
+            result.current.addFiles([file]);
+        });
+
+        await waitFor(() => expect(result.current.files[0]?.status).toBe('ready'));
+
+        expect(result.current.files[0]).toMatchObject({
+            artifactId: 'artifact-1',
+            fileId: 'file-1',
+            requiresAssociation: true,
+        });
+        expect(presignUploadMock.mock.calls[0]?.[0]).toMatchObject({
+            filename: 'photo.png',
+            source: 'chat-input',
+        });
+        expect(
+            vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('/api/artifacts/files/status')),
+        ).toBe(false);
+    });
+
+    it('waits for staged artifact extraction after association before clearing', async () => {
+        let statusCalls = 0;
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((input: string | URL | Request) => {
+                const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+                if (url.includes('/api/artifacts/files/status')) {
+                    statusCalls++;
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({
+                            files: [{ fileId: 'file-1', status: 'processed' }],
+                        }),
+                    } as Response);
+                }
+
+                return Promise.resolve({ ok: true } as Response);
+            }),
+        );
+
+        const { result } = renderHook(() => useFileUploadContext(), {
+            wrapper: makeWrapper({ trackAsPending: true }),
+        });
+
+        const file = new File(['image-bytes'], 'photo.png', { type: 'image/png' });
+
+        act(() => {
+            result.current.addFiles([file]);
+        });
+
+        await waitFor(() => expect(result.current.files[0]?.status).toBe('ready'));
+
+        await act(async () => {
+            await result.current.waitForArtifactsReady(['artifact-1']);
+        });
+
+        expect(result.current.files[0]?.status).toBe('ready');
+        expect(statusCalls).toBe(1);
+    });
+
     it('routes pasted chat images through the chat-image upload path', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
             wrapper: makeWrapper({ chatId: '11111111-1111-1111-1111-111111111111', trackAsPending: true }),
@@ -133,7 +200,7 @@ describe('FileUploadProvider image routing', () => {
 
         const file = new File(['image-bytes'], 'screenshot.png', { type: 'image/png' });
 
-        await act(async () => {
+        act(() => {
             result.current.addFiles([file], { source: 'paste' });
         });
 
@@ -153,7 +220,7 @@ describe('FileUploadProvider image routing', () => {
 
         const file = new File(['image-bytes'], 'diagram.png', { type: 'image/png' });
 
-        await act(async () => {
+        act(() => {
             result.current.addFiles([file]);
         });
 

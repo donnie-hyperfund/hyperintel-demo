@@ -29,15 +29,8 @@ import { useChatStream } from '../hooks/use-chat-stream';
 import type { ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
-import type {
-    ChatState,
-    ChatType,
-    Message,
-    MessageMetadata,
-    PaginationState,
-    StreamBlock,
-    SummaryStatus,
-} from '../types';
+import type { ChatState, ChatType, Message, PaginationState, StreamBlock, SummaryStatus } from '../types';
+import { pickDisplaySafeMessageMetadata } from '../utils/message-metadata';
 
 export type BaseChatContextValue = {
     state: ChatState;
@@ -54,7 +47,14 @@ export type BaseChatContextValue = {
     /** Load more (older) messages for infinite scroll */
     loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
-    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => Promise<void>;
+    sendMessage: (
+        content: string,
+        opts?: {
+            stagedArtifactIds?: string[];
+            imageFileIds?: string[];
+            onUploadsAssociated?: () => Promise<void>;
+        },
+    ) => Promise<void>;
     /** Send a nudge (message: null) to trigger generation on last injected system event */
     sendNudge: () => Promise<void>;
     /** Stop the current generation */
@@ -472,15 +472,8 @@ export function ChatProvider({
                 }),
                 feedbackScore: (m as any).feedback_score ?? null,
                 feedbackComment: (m as any).feedback ?? null,
-                // Only forward display-safe fields — metadata can contain safetyAnalysis, errors, etc.
-                metadata:
-                    meta.preset || meta.inference || meta.usage
-                        ? ({
-                              ...(meta.preset ? { preset: meta.preset as string } : {}),
-                              ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
-                              ...(meta.usage ? { usage: meta.usage } : {}),
-                          } as MessageMetadata)
-                        : undefined,
+                // Only forward display-safe fields — metadata can contain safetyAnalysis, etc.
+                metadata: pickDisplaySafeMessageMetadata(meta),
             };
         },
         [],
@@ -604,17 +597,12 @@ export function ChatProvider({
             });
             if (wasSummary) return;
 
-            // Extract safe message metadata from done event (preset, inference, usage)
+            // Extract safe message metadata from done event (display-safe only)
             const doneMeta = isNormalDone
                 ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
                 : undefined;
-            const doneMessageMetadata: MessageMetadata | undefined = doneMeta
-                ? {
-                      ...(doneMeta.preset ? { preset: doneMeta.preset as string } : {}),
-                      ...(doneMeta.inference ? { inference: doneMeta.inference as Record<string, unknown> } : {}),
-                      ...(doneMeta.usage ? { usage: doneMeta.usage as MessageMetadata['usage'] } : {}),
-                  }
-                : undefined;
+            const doneMessageMetadata = pickDisplaySafeMessageMetadata(doneMeta);
+            const hasTerminalError = status === 'error' || Boolean(isNormalDone && terminalEvent.error);
 
             setState((prev) => {
                 const targetMessageId = completedAgentMessageId ?? prev.activeResponseId;
@@ -636,7 +624,7 @@ export function ChatProvider({
                                   ...msg,
                                   isStreaming: false,
                                   status: undefined,
-                                  ...(status === 'error' && { isError: true }),
+                                  ...(hasTerminalError && { isError: true }),
                                   ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
                                   ...(doneMessageMetadata &&
                                       Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
@@ -680,7 +668,11 @@ export function ChatProvider({
             }
             setState((prev) => {
                 const next = { ...prev, completionBriefStatus };
-                if (status === 'idle' && (prev.isGenerating || prev.isSummarizing)) {
+                if (
+                    status === 'idle' &&
+                    !sendInFlightRef.current &&
+                    (prev.isGenerating || prev.isSummarizing)
+                ) {
                     summarizeInFlightRef.current = false;
                     next.isGenerating = false;
                     next.isSummarizing = false;
@@ -848,14 +840,15 @@ export function ChatProvider({
             setState((prev) => {
                 const msgId = s.agentMessageId!;
                 const existing = prev.messages.find((m) => m.id === msgId);
+                const hasErrorState = s.status === 'error' || !!s.error || !!existing?.isError;
                 const streamMsg: Message = {
                     id: msgId,
                     role: 'assistant',
                     blocks: s.blocks,
                     isStreaming: active,
                     ...(active && s.displayStatus && { status: s.displayStatus }),
-                    ...(s.status === 'error' && { isError: true }),
-                    ...(s.status === 'aborted' && !s.isRetracted && { isAborted: true }),
+                    ...(hasErrorState && { isError: true }),
+                    ...((s.status === 'aborted' || existing?.isAborted) && !s.isRetracted && { isAborted: true }),
                     ...(s.isRetracted && { isRetracted: true }),
                     // Preserve metadata set by handleStreamDone (model badge, cost, etc.)
                     ...(existing?.metadata && { metadata: existing.metadata }),
@@ -896,6 +889,7 @@ export function ChatProvider({
         stream.status,
         stream.displayStatus,
         stream.streamType,
+        stream.error,
         stream.isRetracted,
     ]);
 
@@ -1042,9 +1036,43 @@ export function ChatProvider({
     // SEND MESSAGE
     // ========================================================================
 
+    const associatePendingUploads = useCallback(
+        async (chatIdToUse: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
+            if (!opts?.stagedArtifactIds?.length && !opts?.imageFileIds?.length) return;
+
+            const accessToken = (await getToken()) ?? '';
+            const associationResponse = await associateUploads(
+                {
+                    ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
+                    ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
+                    chatId: chatIdToUse,
+                    ...(projectId ? { projectId } : {}),
+                },
+                accessToken,
+            );
+
+            if (!associationResponse.ok) {
+                const errorText = await associationResponse.text().catch(() => 'Unknown error');
+                throw new Error(`Associate uploads failed: ${associationResponse.status} - ${errorText}`);
+            }
+        },
+        [getToken, projectId],
+    );
+
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
-        async (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
+        async (
+            content: string,
+            opts?: {
+                stagedArtifactIds?: string[];
+                imageFileIds?: string[];
+                onUploadsAssociated?: () => Promise<void>;
+                // When true, the optimistic user-message push is delayed until after
+                // onUploadsAssociated resolves — used by the pre-chat→chat staged path
+                // so the info badge shows during the wait instead of a duplicated message.
+                isDeferredSend?: boolean;
+            },
+        ) => {
             if (!content.trim() || state.isGenerating) return;
 
             if (!isModelAvailable) {
@@ -1052,19 +1080,19 @@ export function ChatProvider({
                 return;
             }
 
+            sendInFlightRef.current = true;
+
             // Create user message with temporary client-side ID
             const userMessage = createUserMessage(content);
 
-            // Add user message and set generating state
+            // Deferred path: only flip generating flag; defer optimistic push until uploads are ready.
+            // Normal path: push optimistically for immediate display.
             setState((prev) => ({
                 ...prev,
-                messages: [...prev.messages, userMessage],
+                ...(opts?.isDeferredSend ? {} : { messages: [...prev.messages, userMessage] }),
                 isGenerating: true,
                 error: null,
             }));
-
-            // Get access token for worker auth
-            const accessToken = (await getToken()) ?? '';
 
             try {
                 const chatIdToUse = await ensureChatId();
@@ -1095,7 +1123,7 @@ export function ChatProvider({
                             chatId: chatIdToUse,
                             ...(projectId ? { projectId } : {}),
                         },
-                        accessToken,
+                        (await getToken()) ?? '',
                     );
 
                     if (!associationResponse.ok) {
@@ -1104,7 +1132,17 @@ export function ChatProvider({
                     }
                 }
 
-                // POST triggers server-side generation — stream arrives via WS subscription
+                await opts?.onUploadsAssociated?.();
+
+                // Deferred path: push optimistic user message now that uploads are ready,
+                // right before the POST fires.
+                if (opts?.isDeferredSend) {
+                    setState((prev) => ({ ...prev, messages: [...prev.messages, userMessage] }));
+                }
+
+                // POST triggers server-side generation — stream arrives via WS subscription.
+                // Refresh token just-in-time: onUploadsAssociated can poll for extraction for
+                // minutes, long enough for a captured token to expire into a 401.
                 // TODO: Unify this when backend is updated
                 const send = chatType === 'phase' ? sendAction : sendIntakeAction;
                 const response = await send(
@@ -1115,7 +1153,7 @@ export function ChatProvider({
                         tempId: userMessage.id, // Reconcile across WS boundaries
                         ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
                     },
-                    accessToken,
+                    (await getToken()) ?? '',
                 );
 
                 if (!response.ok) {
@@ -1146,11 +1184,19 @@ export function ChatProvider({
                     submission_id: userMessage.id,
                     error_message: error instanceof Error ? error.message : 'Failed to send message',
                 });
+                // Roll back the optimistic user message so we don't leave a ghost "sent" row
+                // that actually never went through.
                 setState((prev) => ({
                     ...prev,
+                    messages: prev.messages.filter((m) => m.id !== userMessage.id),
                     isGenerating: false,
                     error: error instanceof Error ? error : new Error('Failed to send message'),
                 }));
+                // Re-throw so the caller can keep the user's text/files intact (no submitFiles,
+                // no silent wipe) and surface the failure.
+                throw error instanceof Error ? error : new Error('Failed to send message');
+            } finally {
+                sendInFlightRef.current = false;
             }
         },
         [
@@ -1222,6 +1268,10 @@ export function ChatProvider({
     // instances (desktop + mobile) react to pendingPhaseTransition simultaneously.
     const summarizeInFlightRef = useRef(false);
     const summaryCancelledRef = useRef(false);
+    // Guards against onSubscribeResponse('idle') clobbering client-optimistic isGenerating
+    // during pre-chat→chat migration: ensureChatId triggers a fresh WS subscribe whose
+    // initial response arrives before the POST has started generation server-side.
+    const sendInFlightRef = useRef(false);
 
     /** Trigger summarization — fires POST, then waits for stream_started(streamType:'summary') via WS */
     const summarizeChat = useCallback(async () => {

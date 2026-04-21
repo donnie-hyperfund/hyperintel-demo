@@ -31,19 +31,34 @@ export interface ApiError {
     message: string;
     code?: string;
     details?: Record<string, unknown>;
+    requestId?: string;
 }
 
 export class ApiClientError extends Error {
     status: number;
     code?: string;
     details?: Record<string, unknown>;
+    requestId?: string;
 
-    constructor(message: string, status: number, code?: string, details?: Record<string, unknown>) {
+    constructor({
+        message,
+        status,
+        code,
+        details,
+        requestId,
+    }: {
+        message: string;
+        status: number;
+        code?: string;
+        details?: Record<string, unknown>;
+        requestId?: string;
+    }) {
         super(message);
         this.name = 'ApiClientError';
         this.status = status;
         this.code = code;
         this.details = details;
+        this.requestId = requestId;
     }
 }
 

@@ -51,9 +51,18 @@ import type { UserGatewayStub } from './utils/do-stubs';
 const app = new Hono<HonoEnv<Env>>({ strict: false });
 const UuidSchema = z.string().uuid();
 
-/** Build Ctx with preview alias resolved from the request (null on prod) */
-function ctxWithAlias(c: { env: Env; req: { raw: Request }; var: any }): Ctx {
-    return { ...c.var, previewAlias: getPreviewAlias(c.env as any, c.req.raw) };
+/** Build Ctx with preview alias + request ID resolved from the request */
+function ctxWithAlias(c: {
+    env: Env;
+    req: { raw: Request };
+    var: any;
+    get: (key: 'requestId') => string | undefined;
+}): Ctx {
+    return {
+        ...c.var,
+        previewAlias: getPreviewAlias(c.env as any, c.req.raw),
+        requestId: c.get('requestId') ?? null,
+    };
 }
 
 app.use(prettyJSON());
