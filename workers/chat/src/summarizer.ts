@@ -416,11 +416,9 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         // keeps the Worker alive via the GenerationProxyDO that holds its fetch open.
         if (blurbContent) {
             try {
-                const result = await chatActionHandler(
-                    { chatId: newChat.id, message: blurbContent },
-                    ctx,
-                    { onEvent: () => {} },
-                );
+                const result = await chatActionHandler({ chatId: newChat.id, message: blurbContent }, ctx, {
+                    onEvent: () => {},
+                });
                 const generation = (result as ChatActionResult).generation;
                 if (generation) await generation;
             } catch (err) {
