@@ -8,7 +8,7 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
-import { chatActionHandler, type ChatActionResult, preprocessContext } from './chat-handler';
+import { type ChatActionResult, chatActionHandler, preprocessContext } from './chat-handler';
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
@@ -286,7 +286,11 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 if (event.type === 'done_ext') {
                     summaryContent = event.streamLog.fullContent ?? '';
                     wasAborted = event.aborted ?? false;
-                } else if (event.type === 'done' && event.outputType === 'tool' && event.outputTool === 'generate_blurb') {
+                } else if (
+                    event.type === 'done' &&
+                    event.outputType === 'tool' &&
+                    event.outputTool === 'generate_blurb'
+                ) {
                     const input = event.finalOutput as { blurb?: unknown } | undefined;
                     if (input && typeof input.blurb === 'string' && input.blurb.trim().length > 0) {
                         blurbContent = input.blurb.trim();
@@ -402,11 +406,9 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         if (blurbContent) {
             const initPromise = (async () => {
                 try {
-                    const result = await chatActionHandler(
-                        { chatId: newChat.id, message: blurbContent },
-                        ctx,
-                        { onEvent: () => {} },
-                    );
+                    const result = await chatActionHandler({ chatId: newChat.id, message: blurbContent }, ctx, {
+                        onEvent: () => {},
+                    });
                     const generation = (result as ChatActionResult).generation;
                     if (generation) await generation;
                 } catch (err) {
