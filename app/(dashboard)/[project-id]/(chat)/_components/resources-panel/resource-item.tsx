@@ -19,6 +19,13 @@ const routePrefixByType: Record<string, string> = {
     'Human Persona': '/stakeholders',
 };
 
+function getResourceRoute(artifact: CamelCaseDto<ArtifactDto>): string | undefined {
+    const docType = getArtifactDocumentType(artifact);
+    const routePrefix = docType && routePrefixByType[docType];
+    const sourceChatId = artifact.metadata?.sourceChatId as string | undefined;
+    return routePrefix && sourceChatId ? `${routePrefix}/${sourceChatId}` : undefined;
+}
+
 export function isPublicImport(artifact: CamelCaseDto<ArtifactDto>): boolean {
     return artifact.metadata?.importedFromPublic === true;
 }
@@ -38,9 +45,7 @@ export function ResourceItem({
     const docType = getArtifactDocumentType(artifact);
     const borderClass = (docType && borderColorByType[docType]) ?? 'border-l-transparent';
     const alwaysAttached = isPublicImport(artifact);
-    const routePrefix = docType && routePrefixByType[docType];
-    const sourceChatId = artifact.metadata?.sourceChatId as string | undefined;
-    const href = routePrefix && sourceChatId ? `${routePrefix}/${sourceChatId}` : undefined;
+    const href = getResourceRoute(artifact);
 
     const handleRemove = async (e: React.MouseEvent) => {
         e.stopPropagation();
