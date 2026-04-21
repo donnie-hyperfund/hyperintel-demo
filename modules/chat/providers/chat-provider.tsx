@@ -667,11 +667,7 @@ export function ChatProvider({
             }
             setState((prev) => {
                 const next = { ...prev, completionBriefStatus };
-                if (
-                    status === 'idle' &&
-                    !sendInFlightRef.current &&
-                    (prev.isGenerating || prev.isSummarizing)
-                ) {
+                if (status === 'idle' && !sendInFlightRef.current && (prev.isGenerating || prev.isSummarizing)) {
                     summarizeInFlightRef.current = false;
                     next.isGenerating = false;
                     next.isSummarizing = false;
@@ -1256,8 +1252,8 @@ export function ChatProvider({
     // SUMMARIZE
     // ========================================================================
 
-    // Ref guard: prevents duplicate POST when multiple NextPhaseButton
-    // instances (desktop + mobile) react to pendingPhaseTransition simultaneously.
+    // Ref guard: prevents duplicate POST if pill click and pendingPhaseTransition
+    // effect race on the same tick.
     const summarizeInFlightRef = useRef(false);
     const summaryCancelledRef = useRef(false);
     // Guards against onSubscribeResponse('idle') clobbering client-optimistic isGenerating

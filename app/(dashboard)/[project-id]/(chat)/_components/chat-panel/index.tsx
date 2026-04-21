@@ -6,7 +6,8 @@ import { FileUploadProvider } from '@/modules/file-uploads/providers/file-upload
 import ChatConversation from './chat-conversation/chat-conversation';
 import { ChatEmptyTitle } from './chat-conversation/chat-empty-title';
 import ChatMessageForm from './chat-message-form';
-import { ContextWarningPill } from './context-warning-pill';
+import { PhaseTransitionController } from './phase-transition-controller';
+import { ChatStatusPill } from './status-pill';
 
 type ChatPanelProps = {
     HeaderComponent: React.ReactNode;
@@ -42,6 +43,9 @@ function ChatPanelContent({
     isEmpty: boolean;
     allowUploadBeforeFirstMessage: boolean;
 }) {
+    const { chatType } = useChatContext();
+    const isPhaseChat = chatType === 'phase';
+
     if (isEmpty) {
         const content = (
             <>
@@ -69,12 +73,14 @@ function ChatPanelContent({
                 <ChatConversation />
                 <div className="relative z-10 -mt-6 shrink-0">
                     <div className="pointer-events-none absolute inset-x-0 bottom-full z-20">
-                        <ContextWarningPill className="pointer-events-auto mb-3" />
+                        <ChatStatusPill className="pointer-events-auto mb-3" />
                     </div>
 
                     <ChatMessageForm />
                 </div>
             </div>
+
+            {isPhaseChat && <PhaseTransitionController />}
         </FileDropOverlay>
     );
 }
