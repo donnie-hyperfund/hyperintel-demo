@@ -100,12 +100,14 @@ export async function fetchChat(projectId: string, chatId: string, user: UserEnt
 
     const documents: ChatDocumentSummaryDto[] = artifacts.map((artifact) => {
         const currentVersion = artifact.current_version;
-        const newestVersion = artifact.versions.getItems().reduce((max, v) => Math.max(max, v.version), 0);
-        const newestVersionEntity = artifact.versions.getItems().find((v) => v.version === newestVersion);
+        const versions = artifact.versions.getItems();
+        const newestVersion = versions.reduce((max, v) => Math.max(max, v.version), 0);
+        const newestVersionEntity = versions.find((v) => v.version === newestVersion);
+        const proposedVersion = versions.find((v) => v.status === 'proposed');
         return {
             id: artifact.id,
             key: artifact.key,
-            title: artifact.title,
+            title: proposedVersion?.title ?? currentVersion?.title ?? '',
             current_version: currentVersion?.version ?? null,
             newest_version: newestVersion,
             status: newestVersionEntity?.status ?? 'approved',

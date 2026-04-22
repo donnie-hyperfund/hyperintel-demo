@@ -264,7 +264,7 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
         .orderBy({ 'a.created_at': 'DESC' });
 
     if (queryData.search) {
-        query.andWhere(raw('a.title ILIKE ?', [`%${escapeIlike(queryData.search)}%`]));
+        query.andWhere(raw('cv.title ILIKE ?', [`%${escapeIlike(queryData.search)}%`]));
     }
 
     // Filter by document_type through versions (an artifact may have the type on any version)
@@ -532,7 +532,7 @@ export async function handleListResources(
         }
 
         if (search) {
-            query.andWhere(raw('a.title ILIKE ?', [`%${escapeIlike(search)}%`]));
+            query.andWhere(raw('cv.title ILIKE ?', [`%${escapeIlike(search)}%`]));
         }
 
         // Exclude artifacts published from a specific project
@@ -563,9 +563,10 @@ export async function handleListResources(
 
     const data = nodes.map((a: ArtifactEntity) => {
         const ownerId = typeof a.user === 'object' && a.user ? a.user.id : a.user;
+        const proposed = proposedMap.get(a.id);
         return {
             ...wrap(a).toJSON(),
-            proposed_version: proposedMap.get(a.id) ? wrap(proposedMap.get(a.id)!).toJSON() : undefined,
+            proposed_version: proposed ? wrap(proposed).toJSON() : undefined,
             is_own: ownerId === user.id,
         };
     });

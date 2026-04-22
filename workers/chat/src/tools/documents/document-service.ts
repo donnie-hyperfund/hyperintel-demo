@@ -327,7 +327,7 @@ export async function findDocumentByName(
     return {
         id: artifact.id,
         name: artifact.key,
-        title: artifact.title,
+        title: proposed?.title ?? artifact.current_version?.title ?? '',
         currentVersion: artifact.current_version?.version ?? null,
         currentContent,
         currentStatus: artifact.current_version?.status ?? null,
@@ -391,7 +391,7 @@ export async function listDocuments(
 
         return {
             name: a.key,
-            title: a.title,
+            title: proposed?.title ?? a.current_version?.title ?? '',
             lines: countLines(contentForLines),
             documentType: latest?.document_type ?? a.current_version?.document_type ?? 'Other',
             currentVersion: a.current_version?.version ?? null,
@@ -457,6 +457,7 @@ export async function upsertDocument(
         const newVersion = new ArtifactVersionEntity();
         newVersion.artifact = existing;
         newVersion.version = newVersionNum;
+        newVersion.title = title;
         newVersion.content = content;
         newVersion.status = 'proposed';
         newVersion.is_internal = is_internal;
@@ -468,7 +469,6 @@ export async function upsertDocument(
 
         // Update artifact's version counter (but NOT current_version - that only changes on approval)
         existing.version = newVersionNum;
-        existing.title = title;
 
         await em.flush();
 
@@ -491,7 +491,6 @@ export async function upsertDocument(
             // Phase 1: Create artifact (current_version will be NULL - nothing approved yet)
             const artifact = new ArtifactEntity();
             artifact.key = normalizedName;
-            artifact.title = title;
             artifact.version = 1;
             setArtifactOwner(artifact, scope, txEm);
             // current_version stays null until first approval
@@ -504,6 +503,7 @@ export async function upsertDocument(
             const version = new ArtifactVersionEntity();
             version.artifact = artifact;
             version.version = 1;
+            version.title = title;
             version.content = content;
             version.status = 'proposed';
             version.is_internal = is_internal;

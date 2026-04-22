@@ -183,6 +183,7 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
         const newVersion = new ArtifactVersionEntity();
         newVersion.artifact = existing;
         newVersion.version = newVersionNum;
+        newVersion.title = title;
         newVersion.content = content;
         newVersion.status = status;
         newVersion.is_internal = false;
@@ -193,7 +194,6 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
 
         em.persist(newVersion);
         existing.version = newVersionNum;
-        existing.title = title;
         if (status === 'approved') existing.current_version = newVersion;
 
         await em.flush();
@@ -212,7 +212,6 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
     await em.transactional(async (txEm) => {
         const artifact = new ArtifactEntity();
         artifact.key = normalizedKey;
-        artifact.title = title;
         artifact.version = 1;
         artifact.is_draft = isDraft;
         if (projectId) artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
@@ -230,6 +229,7 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
         const version = new ArtifactVersionEntity();
         version.artifact = artifact;
         version.version = 1;
+        version.title = title;
         version.content = content;
         version.status = status;
         version.is_internal = false;
@@ -524,7 +524,10 @@ export async function associateArtifactsInternal(
             const uniqueKey = await findUniqueArtifactKey(em, artifact.key, renameScope);
             if (uniqueKey !== artifact.key) {
                 artifact.key = uniqueKey;
-                artifact.title = stripKeyExtension(uniqueKey);
+                const newTitle = stripKeyExtension(uniqueKey);
+                for (const version of artifact.versions.getItems()) {
+                    version.title = newTitle;
+                }
             }
         }
         if (projectId) artifact.project = em.getReference('ProjectEntity', projectId) as any;
