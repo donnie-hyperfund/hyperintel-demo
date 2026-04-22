@@ -319,10 +319,42 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
         limit: searchParams.get('limit') ?? undefined,
         type: searchParams.get('type') ?? undefined,
         projectId: searchParams.get('projectId') ?? undefined,
+        framework: searchParams.get('framework') ?? undefined,
+        incomplete: searchParams.get('incomplete') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
 
+    const { type, projectId: filterProjectId, framework, incomplete } = queryData;
+    const page = queryData.page ?? 1;
+    const perPage = queryData.limit ?? 20;
+
+    // Shared filter builder — applies ownership + query filters to any chat query builder
+    // biome-ignore lint/suspicious/noExplicitAny: MikroORM QB generics vary by select/join shape
+    function applyFilters(qb: any) {
+        if (projectId) {
+            qb.where({ 'p.id': projectId, 'p.user': user.id, 'p.archived_at': null });
+        } else {
+            qb.where({ $or: [{ 'c.user': user.id }, { 'p.user': user.id, 'p.archived_at': null }] });
+        }
+        if (type) qb.andWhere({ 'c.type': type });
+        if (filterProjectId) qb.andWhere({ 'c.project': filterProjectId });
+        if (framework) qb.andWhere(sql`c.metadata->>'framework' = ${framework}`);
+        if (incomplete) {
+            qb.andWhere(sql`EXISTS (SELECT 1 FROM chat_messages cm WHERE cm.chat_id = c.id)`);
+            qb.andWhere(sql`NOT EXISTS (
+                SELECT 1 FROM artifact_versions av
+                WHERE av.chat_id = c.id AND av.status = 'approved'
+            )`);
+        }
+    }
+
+    // Count query — separate from data query to avoid GROUP BY miscounting
+    const countQb = em.createQueryBuilder(ChatEntity, 'c').select('c.id').leftJoin('c.project', 'p');
+    applyFilters(countQb);
+    const totalCount = await countQb.getCount();
+
+    // Data query — with aggregations and GROUP BY
     const qb = em
         .createQueryBuilder(ChatEntity, 'c')
         .select('c.*')
@@ -337,25 +369,14 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
         .leftJoin('c.project', 'p')
         .leftJoin('c.messages', 'm');
 
-    if (projectId) {
-        qb.where({ 'p.id': projectId, 'p.user': user.id, 'p.archived_at': null });
-    } else {
-        qb.where({ $or: [{ 'c.user': user.id }, { 'p.user': user.id, 'p.archived_at': null }] });
-    }
+    applyFilters(qb);
 
-    if (queryData.type) {
-        qb.andWhere({ 'c.type': queryData.type });
-    }
-    if (queryData.projectId) {
-        qb.andWhere({ 'c.project': queryData.projectId });
-    }
+    qb.groupBy(['c.id'])
+        .orderBy(projectId ? { 'c.phase_index': 'ASC' } : { 'c.created_at': 'DESC' })
+        .limit(perPage)
+        .offset((page - 1) * perPage);
 
-    qb.groupBy(['c.id']).orderBy(projectId ? { 'c.phase_index': 'ASC' } : { 'c.created_at': 'DESC' });
-
-    const { nodes, totalCount } = await getPaginatedResult(qb, {
-        page: queryData.page ?? 1,
-        perPage: queryData.limit ?? 20,
-    });
+    const nodes = await qb.getResult();
 
     const mappedNodes = nodes.map((chat: any): ChatDto => {
         const chatEntity = chat as ChatEntity;
@@ -364,9 +385,7 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
         return wrap(chatEntity).toJSON();
     });
 
-    return NextResponse.json(
-        createPaginatedResponse(mappedNodes, totalCount, queryData.page ?? 1, queryData.limit ?? 20),
-    );
+    return NextResponse.json(createPaginatedResponse(mappedNodes, totalCount, page, perPage));
 }
 
 // ---------------------------------------------------------------------------
