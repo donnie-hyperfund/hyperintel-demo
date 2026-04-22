@@ -63,19 +63,25 @@ export function useFetchChat(
     );
 }
 
-export function useFetchIncompleteChats(
+export function useFetchIncompleteChatsInfinite(
     framework: string | undefined,
-    config?: SWRConfiguration<PaginatedResponse<CamelCaseDto<ChatDto>>>,
+    params: InfinitePaginationParams = { limit: 20 },
+    config?: SWRInfiniteConfiguration<PaginatedResponse<CamelCaseDto<ChatDto>>>,
 ) {
     const { getToken } = useAuth();
 
-    return useSWR<PaginatedResponse<CamelCaseDto<ChatDto>>>(
-        framework ? chatKeys.incomplete(framework) : null,
-        () => {
-            if (!framework) throw new Error('Framework is required');
-            return createChatApi(getToken).listIncomplete(framework);
+    return useSWRInfinitePaginated<CamelCaseDto<ChatDto>>(
+        (pageIndex, previousPageData) => {
+            if (!framework) return null;
+            if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
+            return chatKeys.incompleteList(framework, { page: pageIndex + 1, limit: params.limit });
         },
-        { revalidateOnFocus: false, ...config },
+        (key) => {
+            if (!framework) throw new Error('Framework is required');
+            const pageParams = key[key.length - 1] as PaginationParams;
+            return createChatApi(getToken).listIncomplete(framework, pageParams);
+        },
+        { revalidateOnFocus: false, revalidateFirstPage: false, ...config },
     );
 }
 

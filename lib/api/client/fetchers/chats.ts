@@ -17,8 +17,9 @@ export const chatKeys = {
     all: ['chats'] as const,
     lists: () => [...chatKeys.all, 'list'] as const,
     list: (projectId?: string, params?: PaginationParams) => [...chatKeys.lists(), projectId, params] as const,
-    incomplete: (framework: string, params?: PaginationParams) =>
-        [...chatKeys.all, 'incomplete', framework, params] as const,
+    incomplete: () => [...chatKeys.all, 'incomplete'] as const,
+    incompleteList: (framework: string, params?: PaginationParams) =>
+        [...chatKeys.incomplete(), framework, params] as const,
     details: () => [...chatKeys.all, 'detail'] as const,
     detail: (chatId: string) => [...chatKeys.details(), chatId] as const,
 };
