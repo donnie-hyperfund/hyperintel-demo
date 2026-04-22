@@ -1,3 +1,5 @@
+import { withPostHogConfig } from '@posthog/nextjs-config';
+
 let userConfig = undefined;
 try {
     userConfig = await import('./v0-user-next.config');
@@ -36,10 +38,9 @@ const nextConfig = {
         parallelServerBuildTraces: true,
         parallelServerCompiles: true,
     },
-    productionBrowserSourceMaps: true,
     serverExternalPackages: ['cloudflare:workers'],
-    webpack(config, { dev, isServer }) {
-        if (!dev /*&& !isServer*/) {
+    webpack(config, { isServer }) {
+        if (isServer) {
             config.devtool = 'source-map';
         }
         // Cloudflare-specific modules — never bundled by Next.js
@@ -130,4 +131,12 @@ function mergeConfig(nextConfig, userConfig) {
     }
 }
 
-export default nextConfig;
+export default withPostHogConfig(nextConfig, {
+    personalApiKey: process.env.POSTHOG_PRIVATE_KEY,
+    projectId: process.env.POSTHOG_PROJECT_ID,
+    host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+    sourcemaps: {
+        enabled: true,
+        deleteAfterUpload: true,
+    },
+});
