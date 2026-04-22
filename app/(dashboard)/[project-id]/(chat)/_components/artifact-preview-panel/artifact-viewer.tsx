@@ -153,6 +153,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
             <ArtifactHeader
                 title={title}
                 content={content}
+                fileKey={artifactKey}
                 version={version}
                 status={activeVersion?.status}
                 documentType={activeVersion?.documentType}

@@ -13,6 +13,13 @@ type ArtifactActionsProps = {
     type: ActionType;
     title: string;
     content: string;
+    /**
+     * Canonical artifact key (e.g. `HIAI_LI_Strategy_Mason_Crystal_v1_0.md`).
+     * Used as the download filename so files keep their naming-convention identity
+     * after they leave the system. Falls back to `title` when not provided
+     * (e.g. for uploaded files without a canonical key).
+     */
+    fileKey?: string;
     isInternal?: boolean;
     artifactVersionId?: string;
     isStreaming?: boolean;
@@ -22,6 +29,7 @@ export function ArtifactActions({
     type,
     title,
     content,
+    fileKey,
     isInternal,
     artifactVersionId,
     isStreaming,
@@ -36,9 +44,11 @@ export function ArtifactActions({
 
     if (!showContentActions && !canExportDocx) return null;
 
+    const downloadBaseName = fileKey || title;
+
     const handleDownload = () => {
         const blob = new Blob([content], { type: 'text/markdown' });
-        downloadBlob(blob, title.endsWith('.md') ? title : `${title}.md`);
+        downloadBlob(blob, downloadBaseName.endsWith('.md') ? downloadBaseName : `${downloadBaseName}.md`);
         setIsDownloaded(true);
         setTimeout(() => setIsDownloaded(false), 2000);
     };
@@ -55,7 +65,7 @@ export function ArtifactActions({
                 throw new Error(err.message ?? 'Export failed');
             }
             const blob = await res.blob();
-            downloadBlob(blob, `${title.replace(/\.md$/, '')}.docx`);
+            downloadBlob(blob, `${downloadBaseName.replace(/\.md$/, '')}.docx`);
         } catch (err) {
             console.error('[exportDocx] Failed:', err);
         } finally {

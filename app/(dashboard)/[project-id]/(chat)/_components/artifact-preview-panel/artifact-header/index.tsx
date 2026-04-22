@@ -17,6 +17,11 @@ import { ArtifactActions } from './artifact-actions';
 type ArtifactHeaderProps = {
     title: string;
     content: string;
+    /**
+     * Canonical artifact key (used as the download filename so files retain
+     * their naming-convention identity outside the system).
+     */
+    fileKey?: string;
     version?: number;
     status?: VersionStatus;
     documentType?: DocumentType;
@@ -35,6 +40,7 @@ type ArtifactHeaderProps = {
 export function ArtifactHeader({
     title,
     content,
+    fileKey,
     version,
     status,
     documentType,
@@ -108,6 +114,7 @@ export function ArtifactHeader({
                                 type="menu-item"
                                 title={title}
                                 content={content}
+                                fileKey={fileKey}
                                 isInternal={isInternal}
                                 artifactVersionId={artifactVersionId}
                                 isStreaming={isStreaming}
@@ -119,6 +126,7 @@ export function ArtifactHeader({
                         type="button"
                         title={title}
                         content={content}
+                        fileKey={fileKey}
                         isInternal={isInternal}
                         artifactVersionId={artifactVersionId}
                         isStreaming={isStreaming}
