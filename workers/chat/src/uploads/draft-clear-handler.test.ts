@@ -21,15 +21,22 @@ function makeArtifact(overrides: Partial<ArtifactEntity> & { is_draft: boolean }
 }
 
 function makeCtx(drafts: ArtifactEntity[]) {
+    const whereMock = vi.fn().mockReturnThis();
+    const qb = {
+        select: vi.fn().mockReturnThis(),
+        leftJoin: vi.fn().mockReturnThis(),
+        where: whereMock,
+        getResultList: vi.fn().mockResolvedValue(drafts),
+    };
     const em = {
-        find: vi.fn().mockResolvedValue(drafts),
+        createQueryBuilder: vi.fn().mockReturnValue(qb),
         findOneOrFail: vi.fn(async (entity: unknown) => {
             if (entity === UserEntity) return { id: DB_USER_ID };
             throw new Error('Unexpected entity');
         }),
         flush: vi.fn(),
     };
-    return { em, user: { userId: 'clerk-user-1' } } as any;
+    return { em, qb, whereMock, ctx: { em, user: { userId: 'clerk-user-1' } } as any };
 }
 
 describe('clearDraftsHandler', () => {
@@ -38,37 +45,43 @@ describe('clearDraftsHandler', () => {
     it('flips is_draft=false for matching drafts', async () => {
         const artifactA = makeArtifact({ is_draft: true });
         const artifactB = makeArtifact({ id: ARTIFACT_B, is_draft: true });
-        const ctx = makeCtx([artifactA, artifactB]);
+        const { ctx, em } = makeCtx([artifactA, artifactB]);
 
         const result = await clearDraftsHandler({ artifactIds: [ARTIFACT_A, ARTIFACT_B] }, ctx);
 
         expect(result.clearedDrafts).toBe(2);
         expect(artifactA.is_draft).toBe(false);
         expect(artifactB.is_draft).toBe(false);
-        expect(ctx.em.flush).toHaveBeenCalledOnce();
+        expect(em.flush).toHaveBeenCalledOnce();
     });
 
-    it('scopes the query to the caller via user_id OR stagedBy', async () => {
-        const ctx = makeCtx([]);
+    it('joins project + chat and $ors across every ownership path used in the codebase', async () => {
+        const { ctx, qb, whereMock } = makeCtx([]);
 
         await clearDraftsHandler({ artifactIds: [ARTIFACT_A] }, ctx);
 
-        const filter = ctx.em.find.mock.calls[0][1];
+        // Joins project and chat so the where-clause can traverse ownership via either.
+        expect(qb.leftJoin).toHaveBeenCalledWith('a.project', 'p');
+        expect(qb.leftJoin).toHaveBeenCalledWith('a.chat', 'c');
+
+        const filter = whereMock.mock.calls[0][0];
         expect(filter).toMatchObject({
-            id: { $in: [ARTIFACT_A] },
-            is_draft: true,
+            'a.id': { $in: [ARTIFACT_A] },
+            'a.is_draft': true,
         });
-        // The $or covers both association shapes: already-scoped (user=dbUserId) and staged (metadata.stagedBy=dbUserId)
-        expect(filter.$or).toHaveLength(2);
-        expect(filter.$or[0]).toEqual({ user: DB_USER_ID });
+        // All four ownership paths — direct user, staged metadata, project.user, chat.user.
+        expect(filter.$or).toHaveLength(4);
+        expect(filter.$or).toEqual(
+            expect.arrayContaining([{ 'a.user': DB_USER_ID }, { 'p.user': DB_USER_ID }, { 'c.user': DB_USER_ID }]),
+        );
     });
 
     it('is a no-op when no drafts match — never flushes', async () => {
-        const ctx = makeCtx([]);
+        const { ctx, em } = makeCtx([]);
 
         const result = await clearDraftsHandler({ artifactIds: [ARTIFACT_A] }, ctx);
 
         expect(result.clearedDrafts).toBe(0);
-        expect(ctx.em.flush).not.toHaveBeenCalled();
+        expect(em.flush).not.toHaveBeenCalled();
     });
 });
