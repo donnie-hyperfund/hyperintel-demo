@@ -42,7 +42,11 @@ export function useBreakpoint({ eager = false, defaultBreakpoint = 'lg' }: UseBr
     useEffect(() => {
         const update = () => {
             const w = window.innerWidth;
-            setState({ breakpoint: resolve(w), width: w });
+            const bp = resolve(w);
+            setState((prev) => {
+                if (prev.breakpoint === bp && prev.width === w) return prev;
+                return { breakpoint: bp, width: w };
+            });
         };
         update();
         window.addEventListener('resize', update);
