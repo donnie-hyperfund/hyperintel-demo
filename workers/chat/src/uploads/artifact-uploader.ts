@@ -30,15 +30,18 @@ function escapeLikePattern(value: string): string {
 }
 
 type UniqueKeyScope =
-    | { projectId: string; chatId?: string; stagedUserId?: undefined }
-    | { chatId: string; projectId?: undefined; stagedUserId?: undefined }
-    | { stagedUserId: string; projectId?: undefined; chatId?: undefined };
+    | { projectId: string }
+    | { chatId: string }
+    | { userId: string }
+    | { stagedUserId: string };
 
 /**
- * Resolve filename collisions by appending `(1)`, `(2)` ... before the extension,
- * mirroring OS-level duplicate handling. Scoped to the target project / chat, or
- * for staged uploads to the user's other staged artifacts so association can't
- * hit the (user_id, key) or (project_id, key) unique index.
+ * Resolve filename collisions by appending `(1)`, `(2)` ... before the extension.
+ * Scope must match the DB unique index that would fire at flush:
+ *   - projectId     → `(project_id, key) WHERE project_id IS NOT NULL`
+ *   - userId        → `(user_id, key) WHERE project_id IS NULL` (associated chat-only artifacts)
+ *   - chatId        → cosmetic dedup within a chat (user_id is null at upload time, no index fires)
+ *   - stagedUserId  → rename across a user's pre-association staged artifacts
  */
 async function findUniqueArtifactKey(
     em: Ctx['em'],
@@ -49,16 +52,19 @@ async function findUniqueArtifactKey(
     const base = dotIdx > 0 ? normalizedKey.slice(0, dotIdx) : normalizedKey;
     const ext = dotIdx > 0 ? normalizedKey.slice(dotIdx) : '';
 
-    const scopeFilter: Record<string, unknown> = scope.projectId
-        ? { project: scope.projectId }
-        : scope.chatId
-          ? { chat: scope.chatId, project: null }
-          : {
-                project: null,
-                chat: null,
-                user: null,
-                [raw("metadata->>'stagedBy'")]: scope.stagedUserId,
-            };
+    const scopeFilter: Record<string, unknown> =
+        'projectId' in scope
+            ? { project: scope.projectId }
+            : 'userId' in scope
+              ? { user: scope.userId, project: null }
+              : 'chatId' in scope
+                ? { chat: scope.chatId, project: null, user: null }
+                : {
+                      project: null,
+                      chat: null,
+                      user: null,
+                      [raw("metadata->>'stagedBy'")]: scope.stagedUserId,
+                  };
 
     const likePattern = `${escapeLikePattern(base)}%${escapeLikePattern(ext)}`;
     const existing = await em.find(ArtifactEntity, { ...scopeFilter, key: { $like: likePattern } });
@@ -510,10 +516,12 @@ export async function associateArtifactsInternal(
     // Associate each artifact with the target scope and clear staged metadata.
     // Rename on collision to preserve the (project_id, key) / (user_id, key) unique index —
     // two staged uploads named "foo.pdf" landing in the same project become "foo.pdf" + "foo(1).pdf".
+    // Chat-only association sets user_id but leaves project_id NULL, so the active index is
+    // (user_id, key) — must check against all of the user's non-project artifacts, not just this chat.
     const renameScope: UniqueKeyScope | null = projectId
         ? { projectId }
         : chatId
-          ? { chatId }
+          ? { userId: dbUserId }
           : null;
 
     for (const artifact of artifacts) {
