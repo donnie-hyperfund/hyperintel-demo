@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PublicError } from '@common/common/error.helpers';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/env', () => ({
     frontendEnv: {
@@ -112,6 +112,96 @@ describe('presignUploadHandler', () => {
                 ctx,
             ),
         ).rejects.toBeInstanceOf(PublicError);
+    });
+
+    // is_draft wiring — chat-input uploads must be born hidden from the project resources list.
+    function makeEmCapturingArtifact() {
+        const captured: { artifact?: ArtifactEntity } = {};
+
+        const em = {
+            find: vi.fn().mockResolvedValue([]),
+            findOne: vi.fn().mockResolvedValue(null),
+            findOneOrFail: vi.fn(async (entity: unknown) => {
+                if (entity === ProjectEntity) return { id: 'project-entity', user: { id: 'db-user-1' } };
+                if (entity === UserEntity) return { id: 'db-user-1' };
+                return { id: 'db-user-1', user: { id: 'db-user-1' } };
+            }),
+            getReference: vi.fn((_entity: string, id: string) => ({ id })),
+            persist: vi.fn((entity: unknown) => {
+                if (entity instanceof ArtifactVersionEntity && !entity.id) entity.id = 'version-1';
+                if (entity instanceof ArtifactFileEntity && !entity.id) entity.id = 'file-1';
+            }),
+            flush: vi.fn(),
+            transactional: vi.fn(async (callback: (em: any) => Promise<void>) => {
+                const txEm = {
+                    findOne: vi.fn().mockResolvedValue(null),
+                    findOneOrFail: vi.fn(),
+                    getReference: vi.fn((_entity: string, id: string) => ({ id })),
+                    persist: vi.fn((entity: unknown) => {
+                        if (entity instanceof ArtifactEntity) {
+                            if (!entity.id) entity.id = 'artifact-1';
+                            captured.artifact = entity;
+                        }
+                        if (entity instanceof ArtifactVersionEntity && !entity.id) entity.id = 'version-1';
+                    }),
+                    flush: vi.fn(),
+                };
+                await callback(txEm);
+            }),
+        };
+
+        return { em, captured };
+    }
+
+    it('marks chat-input uploads as drafts', async () => {
+        const { em, captured } = makeEmCapturingArtifact();
+        const ctx = { em, user: { userId: 'clerk-user-1' }, env: { ENV: 'test' } } as any;
+
+        await presignUploadHandler(
+            {
+                filename: 'doc.pdf',
+                fileSize: 1024,
+                projectId: '11111111-1111-1111-1111-111111111111',
+                chatId: '22222222-2222-2222-2222-222222222222',
+                source: 'chat-input',
+            },
+            ctx,
+        );
+
+        expect(captured.artifact?.is_draft).toBe(true);
+    });
+
+    it('does not mark project-resources uploads as drafts', async () => {
+        const { em, captured } = makeEmCapturingArtifact();
+        const ctx = { em, user: { userId: 'clerk-user-1' }, env: { ENV: 'test' } } as any;
+
+        await presignUploadHandler(
+            {
+                filename: 'doc.pdf',
+                fileSize: 1024,
+                projectId: '11111111-1111-1111-1111-111111111111',
+                source: 'project-resources',
+            },
+            ctx,
+        );
+
+        expect(captured.artifact?.is_draft).toBe(false);
+    });
+
+    it('defaults is_draft to false when source is omitted', async () => {
+        const { em, captured } = makeEmCapturingArtifact();
+        const ctx = { em, user: { userId: 'clerk-user-1' }, env: { ENV: 'test' } } as any;
+
+        await presignUploadHandler(
+            {
+                filename: 'doc.pdf',
+                fileSize: 1024,
+                projectId: '11111111-1111-1111-1111-111111111111',
+            },
+            ctx,
+        );
+
+        expect(captured.artifact?.is_draft).toBe(false);
     });
 });
 

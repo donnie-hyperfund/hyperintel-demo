@@ -29,11 +29,7 @@ function escapeLikePattern(value: string): string {
     return value.replace(/[\\%_]/g, '\\$&');
 }
 
-type UniqueKeyScope =
-    | { projectId: string }
-    | { chatId: string }
-    | { userId: string }
-    | { stagedUserId: string };
+type UniqueKeyScope = { projectId: string } | { chatId: string } | { userId: string } | { stagedUserId: string };
 
 /**
  * Resolve filename collisions by appending `(1)`, `(2)` ... before the extension.
@@ -43,11 +39,7 @@ type UniqueKeyScope =
  *   - chatId        → cosmetic dedup within a chat (user_id is null at upload time, no index fires)
  *   - stagedUserId  → rename across a user's pre-association staged artifacts
  */
-async function findUniqueArtifactKey(
-    em: Ctx['em'],
-    normalizedKey: string,
-    scope: UniqueKeyScope,
-): Promise<string> {
+async function findUniqueArtifactKey(em: Ctx['em'], normalizedKey: string, scope: UniqueKeyScope): Promise<string> {
     const dotIdx = normalizedKey.lastIndexOf('.');
     const base = dotIdx > 0 ? normalizedKey.slice(0, dotIdx) : normalizedKey;
     const ext = dotIdx > 0 ? normalizedKey.slice(dotIdx) : '';
@@ -148,6 +140,7 @@ interface UpsertInput {
     projectId?: string;
     chatId?: string;
     userId?: string;
+    isDraft?: boolean;
 }
 
 interface UpsertResult {
@@ -159,7 +152,7 @@ interface UpsertResult {
 }
 
 async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise<UpsertResult> {
-    const { normalizedKey, title, status, content, projectId, chatId, userId } = input;
+    const { normalizedKey, title, status, content, projectId, chatId, userId, isDraft = false } = input;
     const statusChangedBy = projectId ?? chatId;
     const isStaged = !projectId && !chatId;
 
@@ -221,6 +214,7 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
         artifact.key = normalizedKey;
         artifact.title = title;
         artifact.version = 1;
+        artifact.is_draft = isDraft;
         if (projectId) artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
         if (chatId) artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
         if (isStaged) {
@@ -300,7 +294,8 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         normalizedKey,
         projectId ? { projectId } : chatId ? { chatId } : { stagedUserId: dbUserId },
     );
-    const title = titleInput || (uniqueKey === normalizedKey ? file.name.replace(/\.[^.]+$/, '') : stripKeyExtension(uniqueKey));
+    const title =
+        titleInput || (uniqueKey === normalizedKey ? file.name.replace(/\.[^.]+$/, '') : stripKeyExtension(uniqueKey));
 
     const result = await upsertArtifactVersion(em, {
         normalizedKey: uniqueKey,
@@ -310,6 +305,7 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         projectId,
         chatId,
         userId: isStaged ? dbUserId : undefined,
+        isDraft: source === 'chat-input',
     });
 
     // Only queue embedding when we have a scope — staged uploads defer embedding until association
@@ -339,7 +335,8 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     const ext = getExtension(filename);
     if (!isBinaryArtifactExtension(ext) && !isImageExtension(ext)) {
         throw new PublicError(400, {
-            message: 'Only binary files (.pdf, .docx, .pptx) and images (.png, .jpg, .gif, .webp) use the presign flow. Text files use /artifacts/upload.',
+            message:
+                'Only binary files (.pdf, .docx, .pptx) and images (.png, .jpg, .gif, .webp) use the presign flow. Text files use /artifacts/upload.',
             code: 'TEXT_FILE_NOT_ALLOWED',
         });
     }
@@ -355,7 +352,8 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
         normalizedKey,
         projectId ? { projectId } : chatId ? { chatId } : { stagedUserId: dbUserId },
     );
-    const title = titleInput || (uniqueKey === normalizedKey ? filename.replace(/\.[^.]+$/, '') : stripKeyExtension(uniqueKey));
+    const title =
+        titleInput || (uniqueKey === normalizedKey ? filename.replace(/\.[^.]+$/, '') : stripKeyExtension(uniqueKey));
 
     const result = await upsertArtifactVersion(em, {
         normalizedKey: uniqueKey,
@@ -364,6 +362,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
         projectId,
         chatId,
         userId: isStaged ? dbUserId : undefined,
+        isDraft: source === 'chat-input',
     });
 
     // Create artifact_file record
@@ -518,11 +517,7 @@ export async function associateArtifactsInternal(
     // two staged uploads named "foo.pdf" landing in the same project become "foo.pdf" + "foo(1).pdf".
     // Chat-only association sets user_id but leaves project_id NULL, so the active index is
     // (user_id, key) — must check against all of the user's non-project artifacts, not just this chat.
-    const renameScope: UniqueKeyScope | null = projectId
-        ? { projectId }
-        : chatId
-          ? { userId: dbUserId }
-          : null;
+    const renameScope: UniqueKeyScope | null = projectId ? { projectId } : chatId ? { userId: dbUserId } : null;
 
     for (const artifact of artifacts) {
         if (renameScope) {
@@ -575,11 +570,7 @@ export async function associateArtifactsInternal(
 
     for (const artifact of artifacts) {
         for (const version of artifact.versions.getItems()) {
-            if (
-                version.content &&
-                version.status === 'approved' &&
-                !versionIdsWithPendingExtraction.has(version.id)
-            ) {
+            if (version.content && version.status === 'approved' && !versionIdsWithPendingExtraction.has(version.id)) {
                 await queueEmbedding(ctx, version.id, version.content, artifact.key, projectId, chatId);
             }
         }

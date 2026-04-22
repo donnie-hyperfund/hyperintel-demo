@@ -36,7 +36,6 @@ import { getUploadStorageKey } from '@/lib/storage/storage-keys';
 import { resolveImageDimensions } from '@/modules/file-uploads/utils/resolve-image-dimensions';
 import { useCrossTabUploadSync } from '../hooks/use-cross-tab-upload-sync';
 import { useProjectResourceUploadSync } from '../hooks/use-project-resource-upload-sync';
-import { usePendingUploads } from '../providers/pending-uploads-provider';
 import type { FileEntry, FileEntryStatus } from '../types';
 import { findFileEntryIndex, mergeFileEntry } from '../utils/file-entry';
 import {
@@ -80,6 +79,8 @@ export type FileUploadContextValue = {
     consumeStagedArtifactIds: () => string[];
     /** Consume staged image file IDs. Returns IDs and clears the list. */
     consumeStagedImageFileIds: () => string[];
+    /** Consume chat-input draft artifact IDs — every chat-input upload, whether staged or already scoped. */
+    consumeDraftArtifactIds: () => string[];
 };
 
 const FileUploadContext = createContext<FileUploadContextValue | null>(null);
@@ -87,22 +88,11 @@ const FileUploadContext = createContext<FileUploadContextValue | null>(null);
 type FileUploadProviderProps = {
     children: ReactNode;
     scope?: { projectId?: string; chatId?: string };
-    /** When true, uploaded artifact IDs are tracked as "pending" so the resource list hides them until the message is sent. */
+    /** When true, uploads go through the chat-input path: server marks them as drafts so the resource list hides them until the message is sent. */
     trackAsPending?: boolean;
 };
 
 export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
-    const {
-        pendingArtifactIds,
-        addPendingArtifactId: _addPending,
-        removePendingArtifactId: _removePending,
-        replacePendingArtifactIds: _replacePending,
-        clearPendingArtifactIds: _clearPending,
-    } = usePendingUploads();
-    const addPendingArtifactId: (id: string) => void = trackAsPending ? _addPending : () => {};
-    const removePendingArtifactId: (id: string) => void = trackAsPending ? _removePending : () => {};
-    const replacePendingArtifactIds: (ids: string[]) => void = trackAsPending ? _replacePending : () => {};
-    const clearPendingArtifactIds: () => void = trackAsPending ? _clearPending : () => {};
     const uploadsStorageKey = getUploadStorageKey(scope, trackAsPending);
     const initialPersistedStateRef = useRef(uploadsStorageKey ? readPersistedUploadState(uploadsStorageKey) : null);
     const initialPersistedState = initialPersistedStateRef.current;
@@ -115,8 +105,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     filesRef.current = files;
     const stagedArtifactIdsRef = useRef<string[]>([]);
     const stagedImageFileIdsRef = useRef<string[]>([]);
-    const hiddenArtifactIdsRef = useRef(trackAsPending ? (initialPersistedState?.hiddenArtifactIds ?? []) : []);
-    hiddenArtifactIdsRef.current = trackAsPending ? pendingArtifactIds : [];
+    const draftArtifactIdsRef = useRef<string[]>([]);
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
@@ -188,6 +177,9 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             if (isStaged) {
                 stagedArtifactIdsRef.current = [...stagedArtifactIdsRef.current, presignData.artifactId];
             }
+            if (trackAsPending) {
+                draftArtifactIdsRef.current = [...draftArtifactIdsRef.current, presignData.artifactId];
+            }
 
             invalidateResources();
 
@@ -214,8 +206,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 throw new Error(err.message || 'Confirm failed');
             }
 
-            addPendingArtifactId(presignData.artifactId);
-
             if (isStaged) {
                 finalizeEntry(entryId, {
                     artifactId: presignData.artifactId,
@@ -234,7 +224,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 presignData,
             });
         },
-        [addPendingArtifactId, finalizeEntry, invalidateResources, scope, trackAsPending, updateEntry],
+        [finalizeEntry, invalidateResources, scope, trackAsPending, updateEntry],
     );
 
     const uploadChatImage = useCallback(
@@ -352,15 +342,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     const clearFiles = useCallback(() => {
         setFiles([]);
-        clearPendingArtifactIds();
-    }, [clearPendingArtifactIds]);
+    }, []);
 
     const syncFilesFromStorage = useCallback(
         (serializedState: string | null) => {
-            const previousHiddenArtifactIds = hiddenArtifactIdsRef.current;
-
             if (serializedState === null) {
-                pruneRemovedArtifactsFromResourceCache(previousHiddenArtifactIds);
                 clearFiles();
                 invalidateResources();
                 return;
@@ -373,20 +359,13 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     return;
                 }
 
-                const nextHiddenArtifactIds = new Set(parsedState.hiddenArtifactIds);
-                const removedArtifactIds = previousHiddenArtifactIds.filter(
-                    (artifactId) => !nextHiddenArtifactIds.has(artifactId),
-                );
-
-                pruneRemovedArtifactsFromResourceCache(removedArtifactIds);
                 setFiles(parsedState.entries);
-                replacePendingArtifactIds(parsedState.hiddenArtifactIds);
                 invalidateResources();
             } catch {
                 clearFiles();
             }
         },
-        [clearFiles, invalidateResources, pruneRemovedArtifactsFromResourceCache, replacePendingArtifactIds],
+        [clearFiles, invalidateResources],
     );
 
     // Cross-tab sync for draft uploads (chat input chips) via localStorage StorageEvent.
@@ -416,7 +395,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     useProjectResourceUploadSync(trackAsPending ? undefined : scope?.projectId, handleResourceUploadEvent);
 
-    // Persist upload entries and resource-hiding state for cross-tab draft sync.
+    // Persist upload entries for cross-tab draft sync and refresh restore.
     useEffect(() => {
         if (!uploadsStorageKey) return;
 
@@ -431,50 +410,46 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 fileId: rest.fileId ?? presignData?.fileId,
             }));
 
-        writePersistedUploadState(uploadsStorageKey, {
-            entries: persistable,
-            hiddenArtifactIds: trackAsPending ? pendingArtifactIds : [],
-        });
-    }, [files, pendingArtifactIds, trackAsPending, uploadsStorageKey]);
+        writePersistedUploadState(uploadsStorageKey, { entries: persistable });
+    }, [files, uploadsStorageKey]);
 
-    // Re-populate pending artifact IDs from restored file entries on mount
-    useEffect(() => {
-        if (!trackAsPending) return;
-        replacePendingArtifactIds(initialPersistedState?.hiddenArtifactIds ?? []);
-    }, [initialPersistedState?.hiddenArtifactIds, replacePendingArtifactIds, trackAsPending]);
-
-    // Re-populate staged refs from restored draft entries so that consume*()
-    // returns correct IDs on send after a page refresh. Only entries that were
-    // originally uploaded without scope are restored for associateUploads();
-    // images are only persisted once they already have an uploaded file ID.
+    // Re-populate staged + draft refs from restored entries so that consume*() returns correct IDs
+    // on send after a page refresh. Staged = subset that needed association. Draft = every
+    // chat-input upload with an artifactId (trackAsPending), whether staged or already scoped.
+    // Images are only persisted once they already have an uploaded file ID.
     // TODO: cross-tab send needs to be supported too, rebuild these refs in
     // syncFilesFromStorage as well instead of only on mount.
     useEffect(() => {
         if (!trackAsPending) return;
 
         const entries = initialPersistedState?.entries ?? [];
+        const restoredArtifactEntries = entries.filter(
+            (entry): entry is FileEntry & { artifactId: string } =>
+                (entry.status === 'processing' || entry.status === 'ready') && !!entry.artifactId,
+        );
 
-        const restoredArtifactIds = [
+        const restoredStagedArtifactIds = [
             ...new Set(
-                entries
-                    .filter(
-                        (e): e is FileEntry & { artifactId: string } =>
-                            !!e.requiresAssociation &&
-                            (e.status === 'processing' || e.status === 'ready') &&
-                            !!e.artifactId,
-                    )
-                    .map((e) => e.artifactId),
+                restoredArtifactEntries.filter((entry) => !!entry.requiresAssociation).map((entry) => entry.artifactId),
             ),
         ];
-        if (restoredArtifactIds.length > 0) {
-            stagedArtifactIdsRef.current = restoredArtifactIds;
+        if (restoredStagedArtifactIds.length > 0) {
+            stagedArtifactIdsRef.current = restoredStagedArtifactIds;
+        }
+
+        const restoredDraftArtifactIds = [...new Set(restoredArtifactEntries.map((entry) => entry.artifactId))];
+        if (restoredDraftArtifactIds.length > 0) {
+            draftArtifactIdsRef.current = restoredDraftArtifactIds;
         }
 
         const restoredImageIds = [
             ...new Set(
                 entries
-                    .filter((e): e is FileEntry & { imageFileId: string } => e.status === 'ready' && !!e.imageFileId)
-                    .map((e) => e.imageFileId),
+                    .filter(
+                        (entry): entry is FileEntry & { imageFileId: string } =>
+                            entry.status === 'ready' && !!entry.imageFileId,
+                    )
+                    .map((entry) => entry.imageFileId),
             ),
         ];
         if (restoredImageIds.length > 0) {
@@ -494,13 +469,22 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         return ids;
     }, []);
 
+    const consumeDraftArtifactIds = useCallback(() => {
+        const ids = draftArtifactIdsRef.current;
+        draftArtifactIdsRef.current = [];
+        return ids;
+    }, []);
+
     const failEntry = useCallback(
         (entryId: string, description?: string) => {
             pollingEntryIdsRef.current.delete(entryId);
             const failedEntry = filesRef.current.find((entry) => entry.id === entryId);
             setFiles((prev) => prev.filter((e) => e.id !== entryId));
             if (failedEntry?.artifactId) {
-                removePendingArtifactId(failedEntry.artifactId);
+                stagedArtifactIdsRef.current = stagedArtifactIdsRef.current.filter(
+                    (id) => id !== failedEntry.artifactId,
+                );
+                draftArtifactIdsRef.current = draftArtifactIdsRef.current.filter((id) => id !== failedEntry.artifactId);
                 // Clean up the orphaned artifact from the database
                 getToken().then((token) => {
                     if (!token) return;
@@ -518,7 +502,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 if (batch.pendingIds.size === 0) batchesRef.current.splice(i, 1);
             }
         },
-        [getToken, invalidateResources, pruneRemovedArtifactsFromResourceCache, removePendingArtifactId],
+        [getToken, invalidateResources, pruneRemovedArtifactsFromResourceCache],
     );
 
     const pollFileStatus = useCallback(
@@ -640,9 +624,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
                     const resData: { artifactId?: string } = await res.json();
                     if (resData.artifactId) {
-                        addPendingArtifactId(resData.artifactId);
                         if (isStaged) {
                             stagedArtifactIdsRef.current = [...stagedArtifactIdsRef.current, resData.artifactId];
+                        }
+                        if (trackAsPending) {
+                            draftArtifactIdsRef.current = [...draftArtifactIdsRef.current, resData.artifactId];
                         }
                     }
 
@@ -656,7 +642,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             }
         },
         [
-            addPendingArtifactId,
             failEntry,
             getToken,
             resolveImageUploadIntent,
@@ -721,6 +706,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             // Keep the eventual send payload in sync with visible chips.
             if (entry.artifactId) {
                 stagedArtifactIdsRef.current = stagedArtifactIdsRef.current.filter((id) => id !== entry.artifactId);
+                draftArtifactIdsRef.current = draftArtifactIdsRef.current.filter((id) => id !== entry.artifactId);
             }
             if (entry.imageFileId) {
                 stagedImageFileIdsRef.current = stagedImageFileIdsRef.current.filter((id) => id !== entry.imageFileId);
@@ -730,7 +716,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             if (artifactId) {
                 getToken().then(async (token) => {
                     if (!token) {
-                        removePendingArtifactId(artifactId);
                         invalidateResources();
                         return;
                     }
@@ -741,7 +726,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     } catch {
                         toast({ title: 'Remove failed', description: entry.name, variant: 'destructive' });
                     } finally {
-                        removePendingArtifactId(artifactId);
                         invalidateResources();
                     }
                 });
@@ -749,7 +733,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
             setFiles((prev) => prev.filter((_, i) => i !== index));
         },
-        [getToken, invalidateResources, pruneRemovedArtifactsFromResourceCache, removePendingArtifactId],
+        [getToken, invalidateResources, pruneRemovedArtifactsFromResourceCache],
     );
 
     const waitForStatus = useCallback((entryId: string, target: FileEntryStatus): Promise<void> => {
@@ -811,7 +795,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 }),
             );
 
-            pruneRemovedArtifactsFromResourceCache(hiddenArtifactIdsRef.current);
             clearFiles();
             invalidateResources();
         } catch (err) {
@@ -823,7 +806,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         } finally {
             setIsSubmitting(false);
         }
-    }, [waitForStatus, pruneRemovedArtifactsFromResourceCache, clearFiles, invalidateResources]);
+    }, [waitForStatus, clearFiles, invalidateResources]);
 
     // Poll server for file status once an entry reaches 'processing' (i.e. after confirm).
     // Entries at 'uploading' or 'pending' are still in-flight on the client — no need to poll yet.
@@ -852,6 +835,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     isSubmitting,
                     consumeStagedArtifactIds,
                     consumeStagedImageFileIds,
+                    consumeDraftArtifactIds,
                 }}
             >
                 {children}

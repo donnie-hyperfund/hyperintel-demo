@@ -44,6 +44,10 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'boolean', default: false })
     is_pecp!: boolean & Opt;
 
+    /** Chat-input uploads start as drafts and are hidden from the project resources list until the send flow clears the flag. */
+    @Property({ type: 'boolean', default: false })
+    is_draft!: boolean & Opt;
+
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;
 }
