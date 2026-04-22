@@ -40,9 +40,6 @@ const nextConfig = {
     },
     serverExternalPackages: ['cloudflare:workers'],
     webpack(config, { isServer }) {
-        if (isServer) {
-            config.devtool = 'source-map';
-        }
         // Cloudflare-specific modules — never bundled by Next.js
         // (pulled in via dynamic import in cf-env-secret-mock.ts → chat-stream-do.ts)
         if (isServer) {
