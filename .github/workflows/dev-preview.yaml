@@ -24,7 +24,22 @@ jobs:
         id: branch
         run: |
           RAW="${GITHUB_REF_NAME}"
-          CF_ALIAS=$(echo "$RAW" | sed 's/[^a-zA-Z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-60)
+          # Cloudflare requires `alias + "-" + script_name <= 63 chars`.
+          # The longest dev script we deploy is `hi-extraction-dev` (17 chars),
+          # so the alias itself must be <= 45 chars (45 + 1 + 17 = 63).
+          MAX_ALIAS_LEN=45
+          CF_ALIAS=$(echo "$RAW" \
+            | sed 's/[^a-zA-Z0-9]/-/g' \
+            | sed 's/--*/-/g' \
+            | sed 's/^-//' \
+            | sed 's/-$//' \
+            | cut -c1-"$MAX_ALIAS_LEN" \
+            | sed 's/-$//')
+          if [[ -z "$CF_ALIAS" ]]; then
+            echo "::error::Branch name '$RAW' produced an empty Cloudflare alias after sanitization."
+            exit 1
+          fi
+          echo "Branch '$RAW' -> Cloudflare alias '$CF_ALIAS' (${#CF_ALIAS} chars, max ${MAX_ALIAS_LEN})"
           echo "cf_alias=$CF_ALIAS" >> "$GITHUB_OUTPUT"
 
       - name: Get or create Neon branch
