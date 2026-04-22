@@ -16,18 +16,13 @@ type PersistedUploadEntry = {
 
 type PersistedUploadState = {
     entries: PersistedUploadEntry[];
-    hiddenArtifactIds: string[];
 };
-
-function dedupeArtifactIds(ids: string[]): string[] {
-    return [...new Set(ids)];
-}
 
 function isPersistedUploadState(value: unknown): value is PersistedUploadState {
     if (!value || typeof value !== 'object') return false;
 
     const candidate = value as Partial<PersistedUploadState>;
-    return Array.isArray(candidate.entries) && Array.isArray(candidate.hiddenArtifactIds);
+    return Array.isArray(candidate.entries);
 }
 
 export function normalizePersistedUploadState(value: unknown): PersistedUploadState | null {
@@ -39,9 +34,6 @@ export function normalizePersistedUploadState(value: unknown): PersistedUploadSt
                 ...entry,
                 fileId: entry.fileId ?? entry.presignData?.fileId,
             })),
-            hiddenArtifactIds: dedupeArtifactIds(
-                value.hiddenArtifactIds.filter((artifactId): artifactId is string => typeof artifactId === 'string'),
-            ),
         };
     }
 
@@ -52,9 +44,6 @@ export function normalizePersistedUploadState(value: unknown): PersistedUploadSt
                 ...entry,
                 fileId: entry.fileId ?? entry.presignData?.fileId,
             })),
-            hiddenArtifactIds: dedupeArtifactIds(
-                entries.flatMap((entry) => (typeof entry.artifactId === 'string' ? [entry.artifactId] : [])),
-            ),
         };
     }
 
@@ -66,19 +55,14 @@ export function readPersistedUploadState(key: string): PersistedUploadState | nu
 }
 
 export function writePersistedUploadState(key: string, state: PersistedUploadState): void {
-    const nextState = {
-        entries: state.entries,
-        hiddenArtifactIds: dedupeArtifactIds(state.hiddenArtifactIds),
-    };
-
-    if (nextState.entries.length === 0 && nextState.hiddenArtifactIds.length === 0) {
+    if (state.entries.length === 0) {
         if (safeGetItem(key) !== null) {
             safeRemoveItem(key);
         }
         return;
     }
 
-    const serialized = JSON.stringify(nextState);
+    const serialized = JSON.stringify(state);
     if (safeGetItem(key) !== serialized) {
         safeSetItem(key, serialized);
     }

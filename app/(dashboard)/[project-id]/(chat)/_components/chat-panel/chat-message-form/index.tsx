@@ -64,6 +64,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         isSubmitting,
         consumeStagedArtifactIds,
         consumeStagedImageFileIds,
+        consumeDraftArtifactIds,
     } = useFileUploadContext();
     const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
@@ -124,6 +125,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 files.flatMap((entry) => (entry.requiresAssociation && entry.artifactId ? [entry.artifactId] : [])),
             ),
         ];
+        const draftArtifactIds = [...new Set(files.flatMap((entry) => (entry.artifactId ? [entry.artifactId] : [])))];
         const imageFileIds = [...new Set(files.flatMap((entry) => (entry.imageFileId ? [entry.imageFileId] : [])))];
 
         const hasStagedUploads =
@@ -148,11 +150,13 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         if (message) {
             const opts: {
                 stagedArtifactIds?: string[];
+                draftArtifactIds?: string[];
                 imageFileIds?: string[];
                 onUploadsAssociated?: () => Promise<void>;
                 isDeferredSend?: boolean;
             } = {};
             if (hasStagedUploads && stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
+            if (draftArtifactIds.length > 0) opts.draftArtifactIds = draftArtifactIds;
             if (imageFileIds.length > 0) opts.imageFileIds = imageFileIds;
             if (hasStagedUploads && stagedArtifactIds.length > 0) {
                 opts.onUploadsAssociated = () => waitForArtifactsReady(stagedArtifactIds);
@@ -161,6 +165,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
 
             consumeStagedArtifactIds();
             consumeStagedImageFileIds();
+            consumeDraftArtifactIds();
 
             // Don't clear input or files until the POST resolves successfully. This keeps both
             // halves of the draft in sync with the transcript (visible during the POST round-trip,

@@ -14,7 +14,6 @@ import { getLatestArtifactVersion } from '@/lib/artifacts/utils';
 import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { useProjectResourceMutationSync } from '@/modules/file-uploads/hooks/use-project-resource-mutation-sync';
 import { useUploadEntries } from '@/modules/file-uploads/hooks/use-upload-entries';
-import { usePendingUploads } from '@/modules/file-uploads/providers/pending-uploads-provider';
 import { mergeByDate } from '@/modules/file-uploads/utils/merge-resource-list';
 import { ResourceItem } from './resource-item';
 import { UploadingResourceItem } from './uploading-resource-item';
@@ -26,23 +25,10 @@ const PAGE_SIZE = 20;
 export function ResourceList() {
     const { 'project-id': projectId } = useParams<ResourceListParams>();
     const { getToken } = useAuth();
-    const { pendingArtifactIds } = usePendingUploads();
 
-    const {
-        allItems: rawItems,
-        isLoading,
-        error,
-        size,
-        setSize,
-        hasNextPage,
-        mutate,
-    } = useFetchProjectResources(projectId, { limit: PAGE_SIZE });
-
-    const allItems = useMemo(() => {
-        if (pendingArtifactIds.length === 0) return rawItems;
-        const pendingSet = new Set(pendingArtifactIds);
-        return rawItems.filter((a) => !pendingSet.has(a.id));
-    }, [rawItems, pendingArtifactIds]);
+    const { allItems, isLoading, error, size, setSize, hasNextPage, mutate } = useFetchProjectResources(projectId, {
+        limit: PAGE_SIZE,
+    });
 
     // Cross-tab sync: re-fetch when another tab deletes or imports resources
     const handleMutationSync = useCallback(() => {

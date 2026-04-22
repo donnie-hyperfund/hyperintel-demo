@@ -285,6 +285,11 @@ export const AssociateUploadsSchema = z
     });
 export type AssociateUploadsDto = z.infer<typeof AssociateUploadsSchema>;
 
+export const ClearDraftsSchema = z.object({
+    artifactIds: z.array(z.string().uuid()).min(1).max(50),
+});
+export type ClearDraftsDto = z.infer<typeof ClearDraftsSchema>;
+
 export const EXPORT_FORMATS = ['docx'] as const;
 export const ExportFormatSchema = z.enum(EXPORT_FORMATS);
 export type ExportFormat = z.infer<typeof ExportFormatSchema>;

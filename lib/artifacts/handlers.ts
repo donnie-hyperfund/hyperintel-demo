@@ -483,7 +483,8 @@ export async function handleListResources(
     const query = em.createQueryBuilder(ArtifactEntity, 'a').select('a.*');
 
     if (projectId) {
-        // Project-scoped: imported resources + uploaded files
+        // Project-scoped: imported resources + uploaded files. Chat-input drafts are hidden until
+        // the message is sent (the send flow flips is_draft=false).
         query
             .leftJoin('a.project', 'p')
             .leftJoinAndSelect('a.current_version', 'cv')
@@ -492,6 +493,7 @@ export async function handleListResources(
                 'p.user': user.id,
                 'p.archived_at': null,
                 'a.is_pecp': false,
+                'a.is_draft': false,
                 $or: [{ [raw("a.metadata->>'importedFrom'")]: { $ne: null } }, { 'cv.is_uploaded': true }],
                 $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
             });

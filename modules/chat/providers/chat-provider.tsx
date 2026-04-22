@@ -13,7 +13,14 @@ import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
 import type { CamelCaseDto } from '@/lib/api/client/types';
-import { abort, associateUploads, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
+import {
+    abort,
+    associateUploads,
+    clearDrafts,
+    sendAction,
+    sendIntakeAction,
+    summarize,
+} from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
@@ -51,6 +58,7 @@ export type BaseChatContextValue = {
         content: string,
         opts?: {
             stagedArtifactIds?: string[];
+            draftArtifactIds?: string[];
             imageFileIds?: string[];
             onUploadsAssociated?: () => Promise<void>;
         },
@@ -1060,6 +1068,7 @@ export function ChatProvider({
             content: string,
             opts?: {
                 stagedArtifactIds?: string[];
+                draftArtifactIds?: string[];
                 imageFileIds?: string[];
                 onUploadsAssociated?: () => Promise<void>;
                 // When true, the optimistic user-message push is delayed until after
@@ -1124,6 +1133,21 @@ export function ChatProvider({
                     if (!associationResponse.ok) {
                         const errorText = await associationResponse.text().catch(() => 'Unknown error');
                         throw new Error(`Associate uploads failed: ${associationResponse.status} — ${errorText}`);
+                    }
+                }
+
+                // Flip is_draft=false so chat-input uploads surface in the project resources list.
+                // Separate from associate: associate sets scope, clear-drafts sets visibility. Both
+                // touch overlapping rows for staged uploads — sequential ordering keeps invariants
+                // simple (user_id is set before ownership is checked on the draft flip).
+                if (opts?.draftArtifactIds?.length) {
+                    const clearResponse = await clearDrafts(
+                        { artifactIds: opts.draftArtifactIds },
+                        (await getToken()) ?? '',
+                    );
+                    if (!clearResponse.ok) {
+                        const errorText = await clearResponse.text().catch(() => 'Unknown error');
+                        throw new Error(`Clear drafts failed: ${clearResponse.status} — ${errorText}`);
                     }
                 }
 

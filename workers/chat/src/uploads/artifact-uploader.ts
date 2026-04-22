@@ -140,6 +140,7 @@ interface UpsertInput {
     projectId?: string;
     chatId?: string;
     userId?: string;
+    isDraft?: boolean;
 }
 
 interface UpsertResult {
@@ -151,7 +152,7 @@ interface UpsertResult {
 }
 
 async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise<UpsertResult> {
-    const { normalizedKey, title, status, content, projectId, chatId, userId } = input;
+    const { normalizedKey, title, status, content, projectId, chatId, userId, isDraft = false } = input;
     const statusChangedBy = projectId ?? chatId;
     const isStaged = !projectId && !chatId;
 
@@ -213,6 +214,7 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
         artifact.key = normalizedKey;
         artifact.title = title;
         artifact.version = 1;
+        artifact.is_draft = isDraft;
         if (projectId) artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
         if (chatId) artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
         if (isStaged) {
@@ -303,6 +305,7 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         projectId,
         chatId,
         userId: isStaged ? dbUserId : undefined,
+        isDraft: source === 'chat-input',
     });
 
     // Only queue embedding when we have a scope — staged uploads defer embedding until association
@@ -359,6 +362,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
         projectId,
         chatId,
         userId: isStaged ? dbUserId : undefined,
+        isDraft: source === 'chat-input',
     });
 
     // Create artifact_file record
