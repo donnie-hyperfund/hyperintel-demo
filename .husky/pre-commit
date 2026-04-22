@@ -1,1 +1,16 @@
+# Skip during merge / rebase / cherry-pick. The index on those commits
+# includes every file the operation pulled in, not just what we authored,
+# so `biome check --staged` would lint files outside the change we're
+# actually making. CI re-validates the merged result against the PR's
+# real diff via .github/workflows/pr-check.yaml.
+git_dir=$(git rev-parse --git-dir 2>/dev/null || echo .git)
+if [ -f "$git_dir/MERGE_HEAD" ] \
+    || [ -f "$git_dir/REBASE_HEAD" ] \
+    || [ -f "$git_dir/CHERRY_PICK_HEAD" ] \
+    || [ -d "$git_dir/rebase-merge" ] \
+    || [ -d "$git_dir/rebase-apply" ]; then
+    echo "pre-commit: merge/rebase/cherry-pick in progress, skipping biome check (CI will validate the merged result)"
+    exit 0
+fi
+
 pnpm biome check --staged --no-errors-on-unmatched
