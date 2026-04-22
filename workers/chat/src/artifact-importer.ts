@@ -1,5 +1,4 @@
 import { PublicError } from '@common/common/error.helpers';
-import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { ImportArtifactsActionDto } from '@/lib/schema/project';
@@ -46,21 +45,17 @@ export async function importArtifactsHandler(
     // Queue embeddings for imported artifacts (fire-and-forget)
     if (result.imported > 0 && ctx.env.EMBEDDING_QUEUE) {
         try {
-            const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
-
             const embedPromises = result.details
                 .filter((d) => d.status === 'imported' && d.newVersionId && d.content)
                 .map((d) =>
-                    embeddingQueue
-                        .send({
-                            type: 'index_artifact_version',
-                            projectId,
-                            versionId: d.newVersionId!,
-                            content: d.content!,
-                            documentName: d.key,
-                            is_ai_content: true,
-                        })
-                        .catch((err) => console.error(`[import] Failed to queue embedding for ${d.key}:`, err)),
+                    ctx.env.EMBEDDING_QUEUE.send({
+                        type: 'index_artifact_version',
+                        projectId,
+                        versionId: d.newVersionId!,
+                        content: d.content!,
+                        documentName: d.key,
+                        is_ai_content: true,
+                    }).catch((err) => console.error(`[import] Failed to queue embedding for ${d.key}:`, err)),
                 );
 
             Promise.all(embedPromises).catch(() => {});

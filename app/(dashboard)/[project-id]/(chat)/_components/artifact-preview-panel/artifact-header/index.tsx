@@ -12,22 +12,19 @@ import { VersionStatusBadge } from '@/components/ui/version-status-badge';
 import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
 import type { DocumentType, VersionStatus } from '@/lib/schema/artifact';
 import { getDocumentTypeIcon } from '@/modules/artifacts/utils';
+import type { Artifact } from '@/modules/chat/types';
 import { ArtifactActions } from './artifact-actions';
 
 type ArtifactHeaderProps = {
     title: string;
     content: string;
-    /**
-     * Canonical artifact key (used as the download filename so files retain
-     * their naming-convention identity outside the system).
-     */
-    fileKey?: string;
     version?: number;
     status?: VersionStatus;
     documentType?: DocumentType;
     isUploaded?: boolean;
     isInternal?: boolean;
     artifactVersionId?: string;
+    artifact?: Artifact;
     backHref?: string;
     updatedAt?: Date;
     onCloseAction?: () => void;
@@ -40,13 +37,13 @@ type ArtifactHeaderProps = {
 export function ArtifactHeader({
     title,
     content,
-    fileKey,
     version,
     status,
     documentType,
     isUploaded,
     isInternal,
     artifactVersionId,
+    artifact,
     backHref,
     updatedAt,
     onCloseAction,
@@ -114,10 +111,11 @@ export function ArtifactHeader({
                                 type="menu-item"
                                 title={title}
                                 content={content}
-                                fileKey={fileKey}
                                 isInternal={isInternal}
                                 artifactVersionId={artifactVersionId}
                                 isStreaming={isStreaming}
+                                artifact={artifact}
+                                version={version}
                             />
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -126,10 +124,11 @@ export function ArtifactHeader({
                         type="button"
                         title={title}
                         content={content}
-                        fileKey={fileKey}
                         isInternal={isInternal}
                         artifactVersionId={artifactVersionId}
                         isStreaming={isStreaming}
+                        artifact={artifact}
+                        version={version}
                     />
                 )}
 

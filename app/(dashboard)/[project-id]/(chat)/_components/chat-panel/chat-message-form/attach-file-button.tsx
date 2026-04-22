@@ -7,7 +7,7 @@ import { useFileUploadContext } from '@/modules/file-uploads/providers/file-uplo
 
 const ACCEPT_STRING = ALLOWED_ARTIFACT_EXTENSIONS.join(',');
 
-export function AttachFileButton() {
+export function AttachFileButton({ disabled }: { disabled?: boolean }) {
     const { addFiles } = useFileUploadContext();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -33,10 +33,11 @@ export function AttachFileButton() {
                 accept={ACCEPT_STRING}
                 onChange={handleChange}
                 className="hidden"
+                disabled={disabled}
             />
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <IconButton onClick={handleClick}>
+                    <IconButton onClick={handleClick} disabled={disabled}>
                         <Paperclip />
                     </IconButton>
                 </TooltipTrigger>

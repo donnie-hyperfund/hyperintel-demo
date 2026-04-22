@@ -3,7 +3,7 @@ import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/route
 import { frontendEnv } from '@/lib/env';
 import {
     ApproveArtifactActionDto,
-    type AssociateArtifactsDto,
+    type AssociateUploadsDto,
     type ConfirmUploadDto,
     type DeleteArtifactDto,
     type ExportFormat,
@@ -106,6 +106,7 @@ export const approveArtifact = (data: ApproveArtifactActionDto, accessToken: str
                 Authorization: `Bearer ${accessToken}`,
             },
             body: JSON.stringify(data),
+            keepalive: true,
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.ApproveAction, {
@@ -114,6 +115,7 @@ export const approveArtifact = (data: ApproveArtifactActionDto, accessToken: str
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
+        keepalive: true,
     });
 };
 
@@ -127,6 +129,7 @@ export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: strin
                 Authorization: `Bearer ${accessToken}`,
             },
             body: JSON.stringify(data),
+            keepalive: true,
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.RejectAction, {
@@ -135,6 +138,7 @@ export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: strin
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
+        keepalive: true,
     });
 };
 
@@ -206,19 +210,25 @@ export const confirmUpload = (data: ConfirmUploadDto, accessToken: string) => {
 // ── Image serving ──
 
 /**
- * Build the URL to serve a chat message image (auth-gated via worker).
- * Use as `src` on `<img>` tags — the browser will send the auth cookie.
+ * Build the same-origin URL to serve a chat message image.
+ * Browser-driven requests like `<img>` tags cannot attach our worker auth header,
+ * so image rendering must go through the Next.js gateway route.
  */
 export function getImageUrl(fileId: string): string {
-    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
-        return `${getWorkerUrl(WORKERS.Chat, CHAT_EP.ImageServe)}/${fileId}`;
-    }
     return `${WORKERS_LOCAL_ENDPOINTS.ImageServe}/${fileId}`;
+}
+
+/**
+ * Build the same-origin URL to serve an artifact image reference.
+ * Like chat images, this must stay on the app origin so auth cookies are included.
+ */
+export function getArtifactImageUrl(key: string): string {
+    return `${WORKERS_LOCAL_ENDPOINTS.ArtifactImageServe}/${key}`;
 }
 
 // ── Image upload (chat message attachments) ──
 
-export type PresignImageUploadDto = { filename: string; fileSize: number; chatId: string };
+export type PresignImageUploadDto = { filename: string; fileSize: number; chatId?: string };
 export type ConfirmImageUploadDto = { fileId: string };
 
 export const presignImageUpload = (data: PresignImageUploadDto, accessToken: string) => {
@@ -259,7 +269,7 @@ export const confirmImageUpload = (data: ConfirmImageUploadDto, accessToken: str
     });
 };
 
-export const associateArtifacts = (data: AssociateArtifactsDto, accessToken: string) => {
+export const associateUploads = (data: AssociateUploadsDto, accessToken: string) => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.AssociateAction);
         return fetch(workerUrl, {

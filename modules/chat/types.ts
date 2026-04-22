@@ -12,12 +12,7 @@ import type { TokenUsage } from '@/lib/schema/stream';
 
 export type ChatType = 'phase' | 'company' | 'stakeholder';
 
-export type SummaryStatus =
-    | 'generating-summary'
-    | 'creating-completion-brief'
-    | 'creating-pecp'
-    | 'saving-document'
-    | 'finalizing';
+export type SummaryStatus = 'generating-summary' | 'finalizing';
 
 export type MessageArtifactRef = {
     id: string;
@@ -27,6 +22,9 @@ export type MessageArtifactRef = {
 
 export type MessageMetadata = {
     preset?: string;
+    error?: string;
+    errorCode?: string;
+    requestId?: string;
     inference?: {
         paramsType?: string;
         model?: string;
@@ -38,15 +36,30 @@ export type MessageMetadata = {
         reasoningTokens?: number;
         cacheReadTokens?: number;
         cacheWriteTokens?: number;
+        cacheWrite1hTokens?: number;
         cost?: number;
+        costWarnings?: string[];
+        cacheCost?: {
+            readCost?: number;
+            readSaved?: number;
+            writeCost?: number;
+            write1hCost?: number;
+        };
         segments: Array<{
             inputTokens: number;
             outputTokens: number;
             reasoningTokens?: number;
+            cacheReadTokens?: number;
+            cacheWriteTokens?: number;
+            cacheWrite1hTokens?: number;
             cost?: number;
             toolCalls?: Array<{
                 toolName: string;
+                argumentTokens?: number;
+                resultTokens?: number;
+                /** @deprecated compat only — older rows; use `argumentTokens` */
                 inputTokens?: number;
+                /** @deprecated compat only — older rows; use `resultTokens` */
                 outputTokens?: number;
                 usageLabel?: string;
             }>;
@@ -104,14 +117,14 @@ export type ChatState = {
     pendingPhaseTransition: boolean;
     /** Active agent message ID for WS-based abort */
     activeResponseId: string | null;
-    /** Artifact key of the completion brief being generated during summary, null when inactive */
-    summaryDocKey: string | null;
-    /** Current summarizer status (e.g. "generating-summary", "creating-pecp") */
+    /** Current summarizer status (e.g. "generating-summary", "finalizing") */
     summaryStatus: SummaryStatus | null;
     /** True while an artifact approval/rejection API call is in flight */
     isProcessingArtifactAction: boolean;
     /** True when the user tried to send with an unavailable model — shows an alert dialog */
     showInvalidModelAlert: boolean;
+    /** Completion Brief approval status for the current phase chat */
+    completionBriefStatus: string | null;
 };
 
 export type PaginationState = {

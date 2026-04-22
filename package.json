@@ -20,6 +20,7 @@
         "env:prd": "env-cmd -f .env.prd pnpm run ",
         "db:migration:create": "mikro-orm migration:create --config=mikro-orm.cli.config.ts",
         "db:migration:up": "mikro-orm migration:up --config=mikro-orm.cli.config.ts",
+        "db:migration:up:test": "cross-env DOTENV_CONFIG_PATH=.env.test DOTENV_CONFIG_OVERRIDE=true mikro-orm migration:up --config=mikro-orm.cli.config.ts",
         "db:compile-metadata": "mikro-orm cache:generate --combined --config=mikro-orm.cli.config.ts",
         "tsc:check": "tsc --noEmit",
         "tsc:workers": "tsc --noEmit -p workers/tsconfig.json",
@@ -28,6 +29,7 @@
         "db:compile": "pnpm run db:compile-metadata && pnpm run db:compile-jit",
         "db:gen-entity": "npx mikro-orm generate-entities --save --path=lib/orm/entities/gen/ --schema=public -- ",
         "gen:workers": "npx tsx workers/_common/config/generate.ts",
+        "build:extract-wasm": "cd workers/extract-rust/tester && wasm-pack build --target nodejs",
         "dump:prompts": "tsx tools/dump-langfuse-prompts.ts",
         "test:clean-errors": "tsx tools/clean-test-errors.ts",
         "test": "vitest --project app-unit --project app-e2e --project common --project workers-* --project workers_common",
@@ -124,6 +126,7 @@
         "openai": "^6.34.0",
         "partial-json": "^0.1.7",
         "postgres": "^3.4.8",
+        "posthog-js": "^1.368.0",
         "react": "19.2.3",
         "react-day-picker": "9.8.0",
         "react-dom": "19.2.3",
@@ -199,8 +202,12 @@
     },
     "pnpm": {
         "overrides": {
+            "@cerebras/cerebras_cloud_sdk": "link:./workers/_common/vendor/stubs/cerebras",
+            "@sendgrid/mail": "link:./workers/_common/vendor/stubs/sendgrid-mail",
+            "@supabase/supabase-js": "link:./workers/_common/vendor/stubs/supabase-js",
             "esbuild": "0.27.2",
-            "sharp": "0.34.5"
+            "sharp": "0.34.5",
+            "stripe": "link:./workers/_common/vendor/stubs/stripe"
         },
         "patchedDependencies": {
             "@mikro-orm/knex@6.4.16": "patches/@mikro-orm+knex@6.4.16.patch",

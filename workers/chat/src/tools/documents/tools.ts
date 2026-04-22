@@ -16,11 +16,13 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
-import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import type { QueueAdapter } from '@common/common/queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
+import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
@@ -56,7 +58,7 @@ export interface DocumentToolsContext {
     /** Draft manager instance */
     draftManager: DraftManager;
     /** Embedding queue adapter for async indexing (optional) */
-    embeddingQueue?: EmbeddingQueueAdapter;
+    embeddingQueue?: QueueAdapter;
     /** Preview branch alias for queue messages (so downstream workers connect to the correct DB branch) */
     previewAlias?: string | null;
     /** Version IDs created during this turn - will be linked to assistant message after persist */
@@ -69,6 +71,7 @@ export interface DocumentToolsContext {
         versionId: string;
         version: number;
         action: 'created' | 'proposed';
+        documentType?: string | null;
     }) => void;
 }
 
@@ -151,7 +154,7 @@ Never skip straight to \`read_document\` with a guessed name — always discover
 After finalizing any internal document, finalize_document will instruct you to generate a PECP.
 The PECP is the PE-facing communication for the deliverable — use the PECP stage templates from your loaded prompts (Identity Framework Part 10).
 **This is the ONE exception to the "no proactive documents" rule.** When finalize_document returns \`pecpRequired\`, you MUST immediately:
-1. Call \`begin_document\` with the exact name, document_type="PECP", parent_document, and is_internal=false as specified
+1. Call \`begin_document\` with the exact name, document_type="PECP", and parent_document as specified
 2. Write the PECP using the appropriate stage template from your system prompt
 3. Call \`finalize_document\` — the PECP will be auto-approved
 After the PECP is finalized, STOP and wait for the user.
@@ -192,14 +195,8 @@ const BeginDocumentParams = z.object({
         ),
     name: z.string().min(1).describe('Document name (e.g., "analysis.md"). Extension auto-appended if missing.'),
     title: z.string().optional().nullable().describe('Display title for the document (required for create).'),
-    is_internal: z
-        .boolean()
-        .default(true)
-        .describe(
-            'Whether this is an internal document (content hidden from user). Set to false for client deliverables that the user should see. In edit mode, you should generally keep the same value as the existing version.',
-        ),
     document_type: DocumentTypeSchema.describe(
-        'Classification of the document type. Must be one of the allowed types. In edit mode, you should generally keep the same value as the existing version.',
+        'Classification of the document type. Must be one of the allowed types. The type determines whether the document is internal (hidden from the user) or a client deliverable (visible) — no separate flag is needed. In edit mode, you should generally keep the same value as the existing version.',
     ),
     parent_document: z
         .string()
@@ -238,6 +235,7 @@ const ReadDocumentParams = z.object({
         .describe('Which version to read: "approved" (live), "proposed" (pending approval), "latest" (most recent).'),
     startLine: z.number().int().positive().optional().nullable().describe('First line to return (1-indexed).'),
     endLine: z.number().int().positive().optional().nullable().describe('Last line to return (inclusive).'),
+    skipImages: z.boolean().optional().default(false).describe('Skip embedded images and return text only.'),
 });
 
 const ListDocumentsParams = z.object({
@@ -280,13 +278,10 @@ Modes:
   • If rejected version exists → loads it with rejection reason (revise it)
   • Otherwise → loads approved version (start new changes)
 
-Internal vs Client Deliverable:
-- is_internal=true (default): Internal working document. Content is NOT visible to the user.
-- is_internal=false: Client deliverable. Content IS visible to the user in the UI.
-- In edit mode, you should generally keep the same is_internal value as the existing version.
-
-Document Type:
+Document Type (also controls visibility):
 - Classify the document with the appropriate document_type.
+- Internal working documents (Genesis DNA, Legacy DNA, Team Specification, MID, PSEB, Action Plan, Completion Brief, Company Profile, Human Persona) are hidden from the user.
+- All other types (Research Report, Executive Summary, PECP, Other) are client-visible deliverables.
 - In edit mode, you should generally keep the same document_type as the existing version.
 
 After calling this, use write_document to add content or patch_document for precise edits.
@@ -294,14 +289,16 @@ You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
                 const { mode, name, title, document_type, parent_document } = input;
-                let { is_internal } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
                 const scopeId = ctx.projectId ?? ctx.userId!;
 
+                // Internal/deliverable visibility is derived solely from document_type.
+                const is_internal = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
+
                 const isPECP = document_type === 'PECP';
 
-                // PECP validation: must have parent_document, must be create mode, must not be internal
+                // PECP validation: must have parent_document, must be create mode
                 if (isPECP) {
                     if (!parent_document) {
                         return {
@@ -311,7 +308,6 @@ You MUST call finalize_document when done or content will be lost.`,
                     if (mode !== 'create') {
                         return { error: 'PECP documents can only be created (mode="create"), not edited.' };
                     }
-                    is_internal = false; // PECPs are always public
                 }
 
                 // Resolve parent version for PECP
@@ -332,13 +328,6 @@ You MUST call finalize_document when done or content will be lost.`,
                         return { error: `Parent document "${parentNormalized}" has no version to summarize.` };
                     }
                     parentVersionId = parentVersion.id;
-                }
-
-                // Enforce is_internal for internal document types
-                const isInternalType = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
-                const internalEnforced = isInternalType && !is_internal;
-                if (isInternalType) {
-                    is_internal = true;
                 }
 
                 const normalizedName = normalizeArtifactKey(name);
@@ -404,12 +393,9 @@ You MUST call finalize_document when done or content will be lost.`,
                                     parentDocument: normalizeArtifactKey(parent_document),
                                 }),
                             ...(isDeleted && { previouslyDeleted: true }),
-                            ...(internalEnforced && { internalEnforced: true }),
                             message: isDeleted
                                 ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
-                                : internalEnforced
-                                  ? `Draft started. Use write_document to add content, then finalize_document. Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
-                                  : 'Draft started. Use write_document to add content, then finalize_document.',
+                                : 'Draft started. Use write_document to add content, then finalize_document.',
                         };
                     } catch (err: any) {
                         return { error: err.message };
@@ -466,10 +452,6 @@ You MUST call finalize_document when done or content will be lost.`,
                         deleted: `Document was deleted (v${loadedVersion}). Loaded deleted content. Finalizing will restore it as a new proposed version.`,
                     };
 
-                    const message = internalEnforced
-                        ? `${messages[loadedFrom]} Note: is_internal was enforced to true because "${document_type}" is an internal document type.`
-                        : messages[loadedFrom];
-
                     return {
                         status: 'editing',
                         mode: 'edit',
@@ -482,9 +464,8 @@ You MUST call finalize_document when done or content will be lost.`,
                         loadedFrom,
                         loadedVersion,
                         lines: countLines(draft.content),
-                        message,
+                        message: messages[loadedFrom],
                         ...(isDeleted && { previouslyDeleted: true }),
-                        ...(internalEnforced && { internalEnforced: true }),
                         ...(rejectionReason && { rejectionReason }),
                     };
                 } catch (err: any) {
@@ -614,6 +595,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         versionId: result.versionId,
                         version: result.version,
                         action: result.action,
+                        documentType: draft.document_type,
                     });
 
                     draftManager.discard();
@@ -650,6 +632,16 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             appendedOutput: '',
                             message: `PECP saved and auto-approved as v${result.version}.`,
                         };
+                    }
+
+                    // ── Completion Brief tracking ────────────────────────────
+                    if (draft.document_type === 'Completion Brief') {
+                        const chatEntity = await em.findOne(ChatEntity, { id: chatId });
+                        if (chatEntity) {
+                            chatEntity.completion_brief = em.getReference('ArtifactEntity', result.artifactId) as any;
+                            chatEntity.completion_brief_status = 'proposed';
+                            await em.flush();
+                        }
                     }
 
                     // ── Regular document path ────────────────────────────────
@@ -707,7 +699,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         response.pecpRequired = pecpInfo;
                         // Store on context so onTurnComplete can nudge the agent
                         ctx.pendingPECP = pecpInfo;
-                        response.message = `Saved as proposed v${result.version}. Awaiting user approval. Now you MUST generate a PECP for this "${draft.document_type}". Call begin_document with mode="create", name="${pecpKey}", document_type="PECP", parent_document="${draft.name}", is_internal=false. Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
+                        response.message = `Saved as proposed v${result.version}. Awaiting user approval. Now you MUST generate a PECP for this "${draft.document_type}". Call begin_document with mode="create", name="${pecpKey}", document_type="PECP", parent_document="${draft.name}". Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
                     }
 
                     return response;
@@ -730,16 +722,18 @@ Otherwise returns the requested version from the database.
 Version options:
 - "approved": The live version (what users see)
 - "proposed": The pending version awaiting approval
-- "latest": The most recent version regardless of status (default)`,
+- "latest": The most recent version regardless of status (default)
+
+Embedded images are included by default. Pass skipImages: true for text-only output.`,
             parameters: ReadDocumentParams,
-            executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext) => {
-                const { name, version: versionMode, startLine, endLine } = input;
+            executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
+                const { name, version: versionMode, startLine, endLine, skipImages } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
 
                 const normalizedName = normalizeArtifactKey(name);
 
-                // Check for active editing draft first
+                // Check for active editing draft first — no image resolution for drafts
                 const draft = draftManager.getCurrent();
                 if (draft && draft.name === normalizedName) {
                     const viewport = extractViewport(draft.content, startLine ?? undefined, endLine ?? undefined);
@@ -843,6 +837,22 @@ Version options:
                 if (source === 'proposed' && doc.currentVersion !== null) {
                     response.hasApproved = true;
                     response.approvedVersion = doc.currentVersion;
+                }
+
+                // Resolve artifact images — sign refs and return multimodal content.
+                // Refs stay in toolOutput text (stable for DB, needed by Chat Completions replacement).
+                if (!skipImages && rCtx) {
+                    const hydrated = await hydrateArtifactImages(viewport.content, rCtx.env, {
+                        projectId: ctx.projectId,
+                        chatId: ctx.chatId,
+                    });
+                    if (hydrated) {
+                        return {
+                            result: response,
+                            imageRefs: hydrated.imageRefs,
+                            contentParts: hydrated.contentParts,
+                        };
+                    }
                 }
 
                 return response;

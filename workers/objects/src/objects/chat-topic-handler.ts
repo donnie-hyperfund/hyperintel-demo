@@ -20,6 +20,7 @@ const RegisterStreamActionSchema = z.object({
     streamType: z.enum(['chat', 'summary']).optional(),
 });
 const ClearStreamActionSchema = z.object({ identifier: z.string() });
+const CbStatusChangedActionSchema = z.object({ identifier: z.string(), status: z.string() });
 const MessageCreatedActionSchema = z.object({
     identifier: z.string(),
     message: z.unknown(),
@@ -90,22 +91,24 @@ export class ChatTopicHandler extends StreamTopicHandler {
     async subscribe(userId: string, identifier: string, env: Env): Promise<SubscribeResponse> {
         const base = await super.subscribe(userId, identifier, env);
 
-        // Fetch selected_model from DB so the client knows which preset is active
+        // Fetch selected_model and completion_brief_status from DB
         const sql = await this.getSql(env);
-        const rows = await sql`SELECT selected_model FROM chats WHERE id = ${identifier} LIMIT 1`;
+        const rows =
+            await sql`SELECT selected_model, completion_brief_status FROM chats WHERE id = ${identifier} LIMIT 1`;
         const selectedModel = (rows[0]?.selected_model as string | null) ?? null;
+        const completionBriefStatus = (rows[0]?.completion_brief_status as string | null) ?? null;
 
         if (base.status !== 'streaming') {
-            return { ...base, selectedModel };
+            return { ...base, selectedModel, completionBriefStatus };
         }
 
         // Read the streamType that was stored by registerStream (may be absent for normal chat)
         const streamType = await this.storage.get<'chat' | 'summary'>(
             `${SK_PREFIX}${identifier}${SK_STREAM_TYPE_SUFFIX}`,
         );
-        if (!streamType || streamType === 'chat') return { ...base, selectedModel };
+        if (!streamType || streamType === 'chat') return { ...base, selectedModel, completionBriefStatus };
 
-        return { ...base, streamType, selectedModel };
+        return { ...base, streamType, selectedModel, completionBriefStatus };
     }
 
     // ========================================================================
@@ -167,6 +170,16 @@ export class ChatTopicHandler extends StreamTopicHandler {
                         topic: `chat:${chatId}`,
                         type: ServerMsg.ModelChanged,
                         model,
+                    },
+                };
+            }
+            case 'cbStatusChanged': {
+                const { identifier: chatId, status } = CbStatusChangedActionSchema.parse(payload);
+                return {
+                    broadcast: {
+                        topic: `chat:${chatId}`,
+                        type: ServerMsg.CbStatusChanged,
+                        status,
                     },
                 };
             }

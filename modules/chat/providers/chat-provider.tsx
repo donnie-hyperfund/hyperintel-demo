@@ -6,16 +6,19 @@ import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
+import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
+import { projectKeys } from '@/lib/api/client/fetchers/projects';
 import type { CamelCaseDto } from '@/lib/api/client/types';
-import { abort, associateArtifacts, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
+import { abort, associateUploads, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
 import { getDraftBaseKey } from '@/lib/storage/storage-keys';
+import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
@@ -26,15 +29,8 @@ import { useChatStream } from '../hooks/use-chat-stream';
 import type { ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
-import type {
-    ChatState,
-    ChatType,
-    Message,
-    MessageMetadata,
-    PaginationState,
-    StreamBlock,
-    SummaryStatus,
-} from '../types';
+import type { ChatState, ChatType, Message, PaginationState, StreamBlock, SummaryStatus } from '../types';
+import { pickDisplaySafeMessageMetadata } from '../utils/message-metadata';
 
 export type BaseChatContextValue = {
     state: ChatState;
@@ -51,7 +47,14 @@ export type BaseChatContextValue = {
     /** Load more (older) messages for infinite scroll */
     loadMoreMessages: () => Promise<void>;
     /** Send a message - creates chat if needed, handles streaming */
-    sendMessage: (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => Promise<void>;
+    sendMessage: (
+        content: string,
+        opts?: {
+            stagedArtifactIds?: string[];
+            imageFileIds?: string[];
+            onUploadsAssociated?: () => Promise<void>;
+        },
+    ) => Promise<void>;
     /** Send a nudge (message: null) to trigger generation on last injected system event */
     sendNudge: () => Promise<void>;
     /** Stop the current generation */
@@ -139,6 +142,7 @@ type ArtifactVersionEventPayload = {
     previousStatus?: string;
     status?: string;
     nextStatus?: 'approved' | 'rejected';
+    chatId?: string;
 };
 
 export function ChatProvider({
@@ -150,6 +154,7 @@ export function ChatProvider({
     chatRouteBuilder,
 }: ChatProviderProps) {
     const artifactContext = useArtifactActions();
+    const { hasPendingNudge, clearPendingNudge } = useArtifactProcessing();
 
     const { openPanel, closePanel, panelState } = useActivePanelContext();
     const panelStateRef = useRef(panelState);
@@ -166,15 +171,22 @@ export function ChatProvider({
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
-    const {
-        selectedModel,
-        setSelectedModel,
-        persistSelection,
-        clearPersistedSelection,
-        isModelAvailable,
-        setIsChangingModel,
-    } = useModelSelection();
+    const { selectedModel, setSelectedModel, persistSelection, isModelAvailable, setIsChangingModel } =
+        useModelSelection();
     const skipNextLoad = useRef(false);
+
+    const captureChatAnalytics = useCallback(
+        (event: string, properties: Record<string, string | number | boolean | null | undefined> = {}) => {
+            capturePostHogEvent(event, {
+                chat_type: chatType,
+                project_id: projectId ?? null,
+                chat_id: chatId ?? null,
+                model: selectedModel ?? null,
+                ...properties,
+            });
+        },
+        [chatId, chatType, projectId, selectedModel],
+    );
 
     // Chat state — seed from SWR cache if chat was prefetched server-side
     const [state, setState] = useState<ChatState>(() => {
@@ -195,10 +207,10 @@ export function ChatProvider({
             summaryNewChatId: null,
             pendingPhaseTransition: false,
             activeResponseId: null,
-            summaryDocKey: null,
             summaryStatus: null,
             isProcessingArtifactAction: false,
             showInvalidModelAlert: false,
+            completionBriefStatus: cached?.completionBriefStatus ?? null,
         };
     });
 
@@ -459,15 +471,8 @@ export function ChatProvider({
                 }),
                 feedbackScore: (m as any).feedback_score ?? null,
                 feedbackComment: (m as any).feedback ?? null,
-                // Only forward display-safe fields — metadata can contain safetyAnalysis, errors, etc.
-                metadata:
-                    meta.preset || meta.inference || meta.usage
-                        ? ({
-                              ...(meta.preset ? { preset: meta.preset as string } : {}),
-                              ...(meta.inference ? { inference: meta.inference as Record<string, unknown> } : {}),
-                              ...(meta.usage ? { usage: meta.usage } : {}),
-                          } as MessageMetadata)
-                        : undefined,
+                // Only forward display-safe fields — metadata can contain safetyAnalysis, etc.
+                metadata: pickDisplaySafeMessageMetadata(meta),
             };
         },
         [],
@@ -475,13 +480,19 @@ export function ChatProvider({
 
     const handleStreamStarted = useCallback(
         (agentMessageId: string, userMessageId: string, tempId?: string, streamType?: 'chat' | 'summary') => {
+            captureChatAnalytics('chat_stream_started', {
+                agent_message_id: agentMessageId,
+                user_message_id: userMessageId || null,
+                submission_id: tempId ?? userMessageId ?? null,
+                stream_type: streamType ?? 'chat',
+            });
+
             if (streamType === 'summary') {
                 // Summary stream arrived on existing chat: subscription — enter summarize mode
                 setState((prev) => ({
                     ...prev,
                     isSummarizing: true,
                     summaryNewChatId: null,
-                    summaryDocKey: null,
                     summaryStatus: null,
                 }));
             } else {
@@ -490,13 +501,15 @@ export function ChatProvider({
                     const messages = prev.messages.map((m) =>
                         m.id === userMessageId || m.tempId === userMessageId
                             ? { ...m, id: userMessageId, tempId: m.tempId || m.id }
-                            : m,
+                            : m.isStreaming && m.id !== agentMessageId
+                              ? { ...m, isStreaming: false, status: undefined }
+                              : m,
                     );
                     return { ...prev, isGenerating: true, activeResponseId: agentMessageId, messages };
                 });
             }
         },
-        [],
+        [captureChatAnalytics],
     );
 
     const handleMessageCreated = useCallback(
@@ -538,7 +551,11 @@ export function ChatProvider({
     );
 
     const handleStreamDone = useCallback(
-        (status: StreamStatus, terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' }) => {
+        (
+            status: StreamStatus,
+            terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' },
+            completedAgentMessageId?: string,
+        ) => {
             // Summary was cancelled — ignore any terminal events from the backend
             if (summaryCancelledRef.current) {
                 summaryCancelledRef.current = false;
@@ -574,48 +591,47 @@ export function ChatProvider({
                     isSummarizing: false,
                     summaryStatus: null,
                     summaryNewChatId: null,
-                    summaryDocKey: null,
                     error: null,
                 };
             });
             if (wasSummary) return;
 
-            // Extract safe message metadata from done event (preset, inference, usage)
+            // Extract safe message metadata from done event (display-safe only)
             const doneMeta = isNormalDone
                 ? (terminalEvent.messageMetadata as Record<string, unknown> | undefined)
                 : undefined;
-            const doneMessageMetadata = doneMeta
-                ? {
-                      ...(doneMeta.preset && { preset: doneMeta.preset as string }),
-                      ...(doneMeta.inference && { inference: doneMeta.inference as Record<string, unknown> }),
-                      ...(doneMeta.usage && { usage: doneMeta.usage }),
-                  }
-                : undefined;
+            const doneMessageMetadata = pickDisplaySafeMessageMetadata(doneMeta);
+            const hasTerminalError = status === 'error' || Boolean(isNormalDone && terminalEvent.error);
 
-            setState((prev) => ({
-                ...prev,
-                isGenerating: false,
-                activeResponseId: null,
-                tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
-                totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
-                hasPendingChanges: isNormalDone
-                    ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
-                    : prev.hasPendingChanges,
-                phaseIndex: isNormalDone ? (terminalEvent.phaseIndex ?? prev.phaseIndex) : prev.phaseIndex,
-                messages: prev.messages.map((msg) =>
-                    msg.isStreaming
-                        ? {
-                              ...msg,
-                              isStreaming: false,
-                              status: undefined,
-                              ...(status === 'error' && { isError: true }),
-                              ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
-                              ...(doneMessageMetadata &&
-                                  Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
-                          }
-                        : msg,
-                ),
-            }));
+            setState((prev) => {
+                const targetMessageId = completedAgentMessageId ?? prev.activeResponseId;
+                const isCurrentActiveStream = !!targetMessageId && prev.activeResponseId === targetMessageId;
+
+                return {
+                    ...prev,
+                    isGenerating: isCurrentActiveStream ? false : prev.isGenerating,
+                    activeResponseId: isCurrentActiveStream ? null : prev.activeResponseId,
+                    tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
+                    totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
+                    hasPendingChanges: isNormalDone
+                        ? (terminalEvent.hasPendingChanges ?? prev.hasPendingChanges)
+                        : prev.hasPendingChanges,
+                    phaseIndex: isNormalDone ? (terminalEvent.phaseIndex ?? prev.phaseIndex) : prev.phaseIndex,
+                    messages: prev.messages.map((msg) =>
+                        msg.id === targetMessageId
+                            ? {
+                                  ...msg,
+                                  isStreaming: false,
+                                  status: undefined,
+                                  ...(hasTerminalError && { isError: true }),
+                                  ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
+                                  ...(doneMessageMetadata &&
+                                      Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
+                              }
+                            : msg,
+                    ),
+                };
+            });
         },
         [],
     );
@@ -641,21 +657,34 @@ export function ChatProvider({
         // Clear stale isGenerating/isSummarizing set from DB's active_agent_message_id
         // when the initial WS subscribe_response confirms no active stream.
         // Also sync selectedModel from the subscribe response.
-        onSubscribeResponse: (status: 'idle' | 'streaming' | 'stale', selectedModel: string | null) => {
+        onSubscribeResponse: (
+            status: 'idle' | 'streaming' | 'stale',
+            selectedModel: string | null,
+            completionBriefStatus: string | null,
+        ) => {
             if (selectedModel) {
                 setSelectedModel(selectedModel);
             }
-            if (status === 'idle') {
-                summarizeInFlightRef.current = false;
-                setState((prev) =>
-                    prev.isGenerating || prev.isSummarizing
-                        ? { ...prev, isGenerating: false, isSummarizing: false, activeResponseId: null }
-                        : prev,
-                );
-            }
+            setState((prev) => {
+                const next = { ...prev, completionBriefStatus };
+                if (
+                    status === 'idle' &&
+                    !sendInFlightRef.current &&
+                    (prev.isGenerating || prev.isSummarizing)
+                ) {
+                    summarizeInFlightRef.current = false;
+                    next.isGenerating = false;
+                    next.isSummarizing = false;
+                    next.activeResponseId = null;
+                }
+                return next;
+            });
         },
         onModelChanged: (model: string) => {
             setSelectedModel(model);
+        },
+        onCbStatusChanged: (cbStatus: string) => {
+            setState((prev) => ({ ...prev, completionBriefStatus: cbStatus }));
         },
     };
 
@@ -810,14 +839,15 @@ export function ChatProvider({
             setState((prev) => {
                 const msgId = s.agentMessageId!;
                 const existing = prev.messages.find((m) => m.id === msgId);
+                const hasErrorState = s.status === 'error' || !!s.error || !!existing?.isError;
                 const streamMsg: Message = {
                     id: msgId,
                     role: 'assistant',
                     blocks: s.blocks,
                     isStreaming: active,
                     ...(active && s.displayStatus && { status: s.displayStatus }),
-                    ...(s.status === 'error' && { isError: true }),
-                    ...(s.status === 'aborted' && !s.isRetracted && { isAborted: true }),
+                    ...(hasErrorState && { isError: true }),
+                    ...((s.status === 'aborted' || existing?.isAborted) && !s.isRetracted && { isAborted: true }),
                     ...(s.isRetracted && { isRetracted: true }),
                     // Preserve metadata set by handleStreamDone (model badge, cost, etc.)
                     ...(existing?.metadata && { metadata: existing.metadata }),
@@ -858,6 +888,7 @@ export function ChatProvider({
         stream.status,
         stream.displayStatus,
         stream.streamType,
+        stream.error,
         stream.isRetracted,
     ]);
 
@@ -881,15 +912,6 @@ export function ChatProvider({
             );
         }
     }, [stream.streamType]);
-
-    // Track active summary document key (never clears — handleStreamDone resets).
-    useEffect(() => {
-        if (stream.streamType !== 'summary') return;
-        const docKey = stream.activeDocuments[0]?.name;
-        if (docKey) {
-            setState((prev) => (prev.summaryDocKey === docKey ? prev : { ...prev, summaryDocKey: docKey }));
-        }
-    }, [stream.streamType, stream.activeDocuments]);
 
     // Sync summary stream displayStatus to state (never clears — handleStreamDone resets).
     useEffect(() => {
@@ -923,15 +945,13 @@ export function ChatProvider({
                 api.messages.list(chatId, { page: 1 }),
                 api.chats.get(chatId),
             ]);
-
             // API returns DESC order (newest first), reverse for display (newest at bottom)
             const apiMessages: Message[] =
                 messagesData.data?.map((m) => mapApiMessage(m, chatData.activeAgentMessageId)) || [];
 
-            // Sync persisted model selection — DB is source of truth, clear localStorage bridge
+            // Sync model selection — DB is source of truth for existing chats
             if (chatData.selectedModel) {
                 setSelectedModel(chatData.selectedModel);
-                clearPersistedSelection();
             }
 
             setState((prev) => {
@@ -957,6 +977,7 @@ export function ChatProvider({
                     totalCost: chatData.totalCost != null ? Number(chatData.totalCost) : null,
                     hasPendingChanges: chatData.hasPendingChanges ?? false,
                     phaseIndex: chatData.phaseIndex,
+                    completionBriefStatus: chatData.completionBriefStatus ?? null,
                 };
             });
             setPagination({
@@ -969,7 +990,7 @@ export function ChatProvider({
             console.error('Error loading messages:', error);
             setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
         }
-    }, [api, chatId, mapApiMessage, setSelectedModel, clearPersistedSelection]);
+    }, [api, chatId, mapApiMessage, setSelectedModel]);
 
     // Keep reconnect ref in sync with loadMessages
     loadMessagesRef.current = loadMessages;
@@ -1014,9 +1035,43 @@ export function ChatProvider({
     // SEND MESSAGE
     // ========================================================================
 
+    const associatePendingUploads = useCallback(
+        async (chatIdToUse: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
+            if (!opts?.stagedArtifactIds?.length && !opts?.imageFileIds?.length) return;
+
+            const accessToken = (await getToken()) ?? '';
+            const associationResponse = await associateUploads(
+                {
+                    ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
+                    ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
+                    chatId: chatIdToUse,
+                    ...(projectId ? { projectId } : {}),
+                },
+                accessToken,
+            );
+
+            if (!associationResponse.ok) {
+                const errorText = await associationResponse.text().catch(() => 'Unknown error');
+                throw new Error(`Associate uploads failed: ${associationResponse.status} - ${errorText}`);
+            }
+        },
+        [getToken, projectId],
+    );
+
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
-        async (content: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
+        async (
+            content: string,
+            opts?: {
+                stagedArtifactIds?: string[];
+                imageFileIds?: string[];
+                onUploadsAssociated?: () => Promise<void>;
+                // When true, the optimistic user-message push is delayed until after
+                // onUploadsAssociated resolves — used by the pre-chat→chat staged path
+                // so the info badge shows during the wait instead of a duplicated message.
+                isDeferredSend?: boolean;
+            },
+        ) => {
             if (!content.trim() || state.isGenerating) return;
 
             if (!isModelAvailable) {
@@ -1024,37 +1079,69 @@ export function ChatProvider({
                 return;
             }
 
+            sendInFlightRef.current = true;
+
             // Create user message with temporary client-side ID
             const userMessage = createUserMessage(content);
 
-            // Add user message and set generating state
+            // Deferred path: only flip generating flag; defer optimistic push until uploads are ready.
+            // Normal path: push optimistically for immediate display.
             setState((prev) => ({
                 ...prev,
-                messages: [...prev.messages, userMessage],
+                ...(opts?.isDeferredSend ? {} : { messages: [...prev.messages, userMessage] }),
                 isGenerating: true,
                 error: null,
             }));
 
-            // Get access token for worker auth
-            const accessToken = (await getToken()) ?? '';
-
             try {
                 const chatIdToUse = await ensureChatId();
 
-                // Persist pre-chat model pick to DB (clear localStorage only on success)
+                captureChatAnalytics('chat_turn_submitted', {
+                    chat_id: chatIdToUse,
+                    submission_id: userMessage.id,
+                    input_length: content.length,
+                    staged_artifact_count: opts?.stagedArtifactIds?.length ?? 0,
+                    image_count: opts?.imageFileIds?.length ?? 0,
+                });
+
+                // Ensure newly created chat has the correct model in DB
                 if (!chatId && selectedModel) {
-                    api.chats.updateModel(chatIdToUse, selectedModel).then(
-                        () => clearPersistedSelection(),
-                        (err) => console.error('Failed to persist initial model selection:', err),
+                    api.chats
+                        .updateModel(chatIdToUse, selectedModel)
+                        .catch((err) => console.error('Failed to persist initial model selection:', err));
+                }
+
+                // Associate staged uploads (artifacts + images) with the newly created (or existing) chat.
+                // Images uploaded before the chat existed are staged under the user and need chat_id set
+                // before the generation handler can link them to the message.
+                if (opts?.stagedArtifactIds?.length || opts?.imageFileIds?.length) {
+                    const associationResponse = await associateUploads(
+                        {
+                            ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
+                            ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
+                            chatId: chatIdToUse,
+                            ...(projectId ? { projectId } : {}),
+                        },
+                        (await getToken()) ?? '',
                     );
+
+                    if (!associationResponse.ok) {
+                        const errorText = await associationResponse.text().catch(() => 'Unknown error');
+                        throw new Error(`Associate uploads failed: ${associationResponse.status} — ${errorText}`);
+                    }
                 }
 
-                // Associate staged uploads with the newly created (or existing) chat
-                if (opts?.stagedArtifactIds?.length) {
-                    await associateArtifacts({ artifactIds: opts.stagedArtifactIds, chatId: chatIdToUse }, accessToken);
+                await opts?.onUploadsAssociated?.();
+
+                // Deferred path: push optimistic user message now that uploads are ready,
+                // right before the POST fires.
+                if (opts?.isDeferredSend) {
+                    setState((prev) => ({ ...prev, messages: [...prev.messages, userMessage] }));
                 }
 
-                // POST triggers server-side generation — stream arrives via WS subscription
+                // POST triggers server-side generation — stream arrives via WS subscription.
+                // Refresh token just-in-time: onUploadsAssociated can poll for extraction for
+                // minutes, long enough for a captured token to expire into a 401.
                 // TODO: Unify this when backend is updated
                 const send = chatType === 'phase' ? sendAction : sendIntakeAction;
                 const response = await send(
@@ -1065,7 +1152,7 @@ export function ChatProvider({
                         tempId: userMessage.id, // Reconcile across WS boundaries
                         ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
                     },
-                    accessToken,
+                    (await getToken()) ?? '',
                 );
 
                 if (!response.ok) {
@@ -1092,11 +1179,23 @@ export function ChatProvider({
                     return;
                 }
                 console.error('Error sending message:', error);
+                captureChatAnalytics('chat_turn_submission_failed', {
+                    submission_id: userMessage.id,
+                    error_message: error instanceof Error ? error.message : 'Failed to send message',
+                });
+                // Roll back the optimistic user message so we don't leave a ghost "sent" row
+                // that actually never went through.
                 setState((prev) => ({
                     ...prev,
+                    messages: prev.messages.filter((m) => m.id !== userMessage.id),
                     isGenerating: false,
                     error: error instanceof Error ? error : new Error('Failed to send message'),
                 }));
+                // Re-throw so the caller can keep the user's text/files intact (no submitFiles,
+                // no silent wipe) and surface the failure.
+                throw error instanceof Error ? error : new Error('Failed to send message');
+            } finally {
+                sendInFlightRef.current = false;
             }
         },
         [
@@ -1104,7 +1203,6 @@ export function ChatProvider({
             cache,
             chatId,
             chatType,
-            clearPersistedSelection,
             ensureChatId,
             getToken,
             globalMutate,
@@ -1143,6 +1241,17 @@ export function ChatProvider({
         }
     }, [chatId, chatType, getToken, selectedModel, state.isGenerating]);
 
+    // Nudge recovery: when a locally-initiated approval/rejection completes,
+    // send the nudge from this tab. Reactive deps ensure the nudge fires when:
+    // - completion happens while this chat is open (state change → re-render)
+    // - user returns to this chat later (mount → effect runs)
+    // - isGenerating was true and flips to false (retry)
+    useEffect(() => {
+        if (!chatId || state.isGenerating || !hasPendingNudge(chatId)) return;
+        clearPendingNudge(chatId);
+        void sendNudge();
+    }, [chatId, state.isGenerating, hasPendingNudge, clearPendingNudge, sendNudge]);
+
     // ========================================================================
     // SUMMARIZE
     // ========================================================================
@@ -1151,6 +1260,10 @@ export function ChatProvider({
     // instances (desktop + mobile) react to pendingPhaseTransition simultaneously.
     const summarizeInFlightRef = useRef(false);
     const summaryCancelledRef = useRef(false);
+    // Guards against onSubscribeResponse('idle') clobbering client-optimistic isGenerating
+    // during pre-chat→chat migration: ensureChatId triggers a fresh WS subscribe whose
+    // initial response arrives before the POST has started generation server-side.
+    const sendInFlightRef = useRef(false);
 
     /** Trigger summarization — fires POST, then waits for stream_started(streamType:'summary') via WS */
     const summarizeChat = useCallback(async () => {
@@ -1206,7 +1319,6 @@ export function ChatProvider({
             isSummarizing: false,
             summaryStatus: null,
             summaryNewChatId: null,
-            summaryDocKey: null,
             error: null,
         }));
 
@@ -1251,9 +1363,12 @@ export function ChatProvider({
         }));
     }, [chatId, cleanupTransientArtifacts, getToken, state.activeResponseId, stream]);
 
-    /** Change the chat's selected model — persists via API when a chat exists, localStorage when not */
+    /** Change the chat's selected model — persists via API when a chat exists, project preference when not */
     const changeModel = useCallback(
         async (presetId: string) => {
+            // Radix Select's BubbleSelect dispatches onValueChange('') on mount — ignore it
+            if (!presetId) return;
+
             if (!chatId) {
                 persistSelection(presetId);
                 return;
@@ -1265,6 +1380,15 @@ export function ChatProvider({
 
             try {
                 await api.chats.updateModel(chatId, presetId);
+                // Backend propagated to project — keep SWR cache in sync for next new-chat init
+                if (projectId) {
+                    globalMutate(
+                        projectKeys.detail(projectId),
+                        (prev: Record<string, unknown> | undefined) =>
+                            prev ? { ...prev, preferredModel: presetId } : prev,
+                        { revalidate: false },
+                    );
+                }
             } catch (err) {
                 console.error('Failed to update model:', err);
                 setSelectedModel(previousModel); // revert
@@ -1272,7 +1396,7 @@ export function ChatProvider({
                 setIsChangingModel(false);
             }
         },
-        [chatId, api, persistSelection, setSelectedModel, selectedModel, setIsChangingModel],
+        [chatId, api, persistSelection, setSelectedModel, selectedModel, setIsChangingModel, projectId, globalMutate],
     );
 
     const dismissInvalidModelAlert = useCallback(() => {

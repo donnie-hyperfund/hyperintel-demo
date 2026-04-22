@@ -43,6 +43,7 @@ export function ProjectCreationWizardProvider({ children }: { children: React.Re
                 return;
             }
 
+            if (isSubmitting) return;
             setIsSubmitting(true);
 
             try {
@@ -68,11 +69,10 @@ export function ProjectCreationWizardProvider({ children }: { children: React.Re
             } catch (error) {
                 console.error('Failed to create project:', error);
                 toast({ title: 'Failed to create project. Please try again.', variant: 'destructive' });
-            } finally {
                 setIsSubmitting(false);
             }
         },
-        [data, user, getToken, router],
+        [data, user, getToken, router, isSubmitting],
     );
 
     return (

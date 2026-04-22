@@ -5,11 +5,13 @@ import { HonoEnv, honoMiddlewareAuthedWithOrm, honoMiddlewareWithOrm } from '@wo
 import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
-import { ChatEntity, ChatMessageFileEntity } from '@/lib/orm/entities';
+import { z } from 'zod';
+import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
+import { ChatEntity, ChatMessageFileEntity, ProjectEntity } from '@/lib/orm/entities';
 import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import {
     ApproveArtifactActionSchema,
-    AssociateArtifactsSchema,
+    AssociateUploadsSchema,
     ConfirmUploadSchema,
     DeleteArtifactSchema,
     ExportArtifactQuerySchema,
@@ -29,30 +31,36 @@ import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approv
 import { deleteArtifactHandler } from './artifact-deleter';
 import { exportArtifactHandler } from './artifact-exporter';
 import { importArtifactsHandler } from './artifact-importer';
-import {
-    associateArtifactsHandler,
-    confirmUploadHandler,
-    presignUploadHandler,
-    uploadArtifactHandler,
-} from './artifact-uploader';
 import { chatActionHandler } from './chat-handler';
-import { cleanupStaleUploads } from './cleanup';
 import type { Ctx } from './context';
+import { intakeActionHandler } from './intake-handler';
+import { summarizeActionHandler } from './summarizer';
+import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './uploads/artifact-uploader';
+import { associateUploadsHandler } from './uploads/associate-handler';
+import { cleanupStaleUploads } from './uploads/cleanup';
 import {
     ConfirmImageUploadSchema,
     confirmImageUploadHandler,
     PresignImageUploadSchema,
     presignImageUploadHandler,
-} from './image-uploader';
-import { intakeActionHandler } from './intake-handler';
-import { summarizeActionHandler } from './summarizer';
+} from './uploads/image-uploader';
 import type { UserGatewayStub } from './utils/do-stubs';
 
 const app = new Hono<HonoEnv<Env>>({ strict: false });
+const UuidSchema = z.string().uuid();
 
-/** Build Ctx with preview alias resolved from the request (null on prod) */
-function ctxWithAlias(c: { env: Env; req: { raw: Request }; var: any }): Ctx {
-    return { ...c.var, previewAlias: getPreviewAlias(c.env as any, c.req.raw) };
+/** Build Ctx with preview alias + request ID resolved from the request */
+function ctxWithAlias(c: {
+    env: Env;
+    req: { raw: Request };
+    var: any;
+    get: (key: 'requestId') => string | undefined;
+}): Ctx {
+    return {
+        ...c.var,
+        previewAlias: getPreviewAlias(c.env as any, c.req.raw),
+        requestId: c.get('requestId') ?? null,
+    };
 }
 
 app.use(prettyJSON());
@@ -222,9 +230,9 @@ app.post('/artifacts/import', zValidator('json', ImportArtifactsActionSchema), a
     });
 });
 
-app.post('/artifacts/associate', zValidator('json', AssociateArtifactsSchema), async (c) => {
+app.post('/uploads/associate', zValidator('json', AssociateUploadsSchema), async (c) => {
     return wrapWorker(async () => {
-        return await associateArtifactsHandler(c.req.valid('json'), ctxWithAlias(c));
+        return await associateUploadsHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
@@ -236,13 +244,13 @@ app.post('/artifacts/upload', zValidator('form', UploadArtifactSchema), async (c
 
 app.post('/artifacts/upload/presign', zValidator('json', PresignUploadSchema), async (c) => {
     return wrapWorker(async () => {
-        return await presignUploadHandler(c.req.valid('json'), c.var);
+        return await presignUploadHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
 app.post('/artifacts/upload/confirm', zValidator('json', ConfirmUploadSchema), async (c) => {
     return wrapWorker(async () => {
-        return await confirmUploadHandler(c.req.valid('json'), c.var);
+        return await confirmUploadHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
@@ -284,6 +292,58 @@ app.get('/images/:fileId', async (c) => {
             'Content-Type': file.mime_type,
             'Cache-Control': 'private, max-age=3600',
             'Content-Disposition': `inline; filename="${file.original_name}"`,
+        },
+    });
+});
+
+// ── Artifact image redirect (signed R2 URL) ──
+
+app.get('/artifact-image/*', async (c) => {
+    const key = c.req.path.replace('/artifact-image/', '');
+    if (!key) return c.json({ error: 'Missing key' }, 404);
+
+    // Key pattern: uploads/{project|chat}/{id}/{artifactId}/images/{filename}
+    const parts = key.split('/');
+    if (parts.length !== 6 || parts[0] !== 'uploads' || parts[4] !== 'images' || !parts[5]) {
+        return c.json({ error: 'Invalid artifact image key' }, 404);
+    }
+
+    const scopeType = parts[1]; // 'project' or 'chat'
+    const scopeId = parts[2];
+    const artifactId = parts[3];
+    const em = c.var.em!;
+    const clerkId = c.var.user.userId;
+
+    if (!UuidSchema.safeParse(scopeId).success || !UuidSchema.safeParse(artifactId).success) {
+        return c.json({ error: 'Invalid artifact image key' }, 404);
+    }
+
+    if (scopeType === 'project') {
+        const project = await em.findOne(ProjectEntity, {
+            id: scopeId,
+            user: { clerkId },
+            archived_at: null,
+        });
+        if (!project) return c.json({ error: 'Not found' }, 404);
+    } else if (scopeType === 'chat') {
+        const chat = await em.findOne(ChatEntity, {
+            id: scopeId,
+            $or: [{ project: { user: { clerkId } } }, { user: { clerkId } }],
+        });
+        if (!chat) return c.json({ error: 'Not found' }, 404);
+    } else {
+        return c.json({ error: 'Invalid artifact image key' }, 404);
+    }
+
+    const urlMap = await signArtifactImageKeys(c.env, [key]);
+    const signedUrl = urlMap.get(key);
+    if (!signedUrl) return c.json({ error: 'Failed to sign image key' }, 500);
+
+    return new Response(null, {
+        status: 302,
+        headers: {
+            Location: signedUrl,
+            'Cache-Control': 'private, max-age=3000',
         },
     });
 });

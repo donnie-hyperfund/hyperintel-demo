@@ -1,3 +1,4 @@
+import type { ModelPricing } from '@common/ai/inference/pricing';
 import { AIParamsType, type ParamsWithType } from '@common/ai/inference/types';
 import { ANTHROPIC_MODELS, COMMON_MODELS, OPENAI_MODELS } from '@common/ai/types';
 import { LOCAL_PRESETS } from './presets.local';
@@ -11,14 +12,17 @@ export type ModelPreset = {
     label: string;
     description?: string;
     inference: ParamsWithType;
-    pricing?: {
-        inputPer1M: number; // USD per 1M input tokens
-        outputPer1M: number; // USD per 1M output tokens
-        reasoningPer1M?: number; // USD per 1M reasoning tokens (defaults to output rate)
-        cacheReadPer1M?: number; // USD per 1M cached input tokens
-        cacheWritePer1M?: number; // USD per 1M cache-write tokens
-        webSearchPer1M?: number; // USD per 1M web search tokens
-    };
+    pricing?: ModelPricing;
+};
+
+// Anthropic prompt-cache rate factors (applied as multipliers of inputPer1M):
+//   read        = 0.10× base input
+//   write 5m    = 1.25× base input
+//   write 1h    = 2.00× base input  (schema-only — see pricing.ts TODO)
+const ANTHROPIC_CACHE: Pick<ModelPricing, 'cacheRead' | 'cacheWrite' | 'cacheWrite1h'> = {
+    cacheRead: { multiplier: 0.1 },
+    cacheWrite: { multiplier: 1.25 },
+    cacheWrite1h: { multiplier: 2.0 },
 };
 
 // ---------------------------------------------------------------------------
@@ -37,6 +41,7 @@ const BASE_PRESETS: ModelPreset[] = [
         pricing: {
             inputPer1M: 1,
             outputPer1M: 5,
+            ...ANTHROPIC_CACHE,
         },
     },
     {
@@ -50,6 +55,7 @@ const BASE_PRESETS: ModelPreset[] = [
         pricing: {
             inputPer1M: 3,
             outputPer1M: 15,
+            ...ANTHROPIC_CACHE,
         },
     },
     {
@@ -63,6 +69,7 @@ const BASE_PRESETS: ModelPreset[] = [
         pricing: {
             inputPer1M: 5,
             outputPer1M: 25,
+            ...ANTHROPIC_CACHE,
         },
     },
     //

@@ -6,7 +6,7 @@
  */
 
 import type { MessageBatch } from '@cloudflare/workers-types';
-import { type QueueMessage, QueueMessageSchema } from '@common/queue/embedding-queue.adapter';
+import { type EmbeddingQueueMessage, EmbeddingQueueMessageSchema } from '@/lib/api/client/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type { OpenRouter } from '@openrouter/sdk';
 import { initInferredContext } from '@worker/context.helpers';
@@ -19,7 +19,7 @@ import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-e
 // SHARED PROCESSING LOGIC
 // ============================================================================
 
-interface ProcessingContext {
+export interface ProcessingContext {
     openai: OpenAI;
     orouterSdk: OpenRouter;
     em: EntityManager;
@@ -38,8 +38,8 @@ interface ProcessingResult {
  * Process a single embedding message.
  * Shared between HTTP and queue handlers.
  */
-async function processMessage(
-    message: QueueMessage,
+export async function processMessage(
+    message: EmbeddingQueueMessage,
     ctx: ProcessingContext,
     logPrefix: string,
 ): Promise<ProcessingResult> {
@@ -138,7 +138,7 @@ app.post('/enqueue', async (c) => {
 
     // Parse and validate message
     const body = await c.req.json();
-    const parsed = QueueMessageSchema.safeParse(body);
+    const parsed = EmbeddingQueueMessageSchema.safeParse(body);
 
     if (!parsed.success) {
         return c.json({ error: 'Invalid message format', details: parsed.error.message }, 400);
@@ -190,7 +190,7 @@ async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: Ex
 
     for (const message of batch.messages) {
         // Parse and validate message
-        const parsed = QueueMessageSchema.safeParse(message.body);
+        const parsed = EmbeddingQueueMessageSchema.safeParse(message.body);
         if (!parsed.success) {
             console.error('[embedding/queue] Invalid message format:', parsed.error.message);
             message.ack(); // Ack to prevent infinite retries of invalid messages

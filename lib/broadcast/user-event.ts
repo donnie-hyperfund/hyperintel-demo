@@ -1,7 +1,7 @@
 /**
  * Server-side helper for broadcasting user-scoped events via the UserGateway DO.
  *
- * In local dev: uses the mock DO namespace from envSecretMocks.
+ * In local dev: uses the mock DO namespace from workerEnv.
  * In production: calls the worker's /internal/broadcast HTTP endpoint.
  */
 
@@ -27,8 +27,8 @@ export async function broadcastUserEvent(userId: string, eventType: string, payl
     try {
         if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS) {
             // Local dev — use mock DO namespace directly
-            const { envSecretMocks } = await import('@/lib/local/cf-env-secret-mock');
-            const ugNamespace = envSecretMocks.USER_GATEWAY as any;
+            const { workerEnv } = await import('@/lib/local/cf-env-secret-mock');
+            const ugNamespace = workerEnv.USER_GATEWAY as any;
             if (!ugNamespace) return;
             const ugId = ugNamespace.idFromName(userId);
             const ugStub = ugNamespace.get(ugId);

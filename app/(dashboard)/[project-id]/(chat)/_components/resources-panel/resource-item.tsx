@@ -14,6 +14,18 @@ const borderColorByType: Record<string, string> = {
     'Human Persona': 'border-l-blue-500',
 };
 
+const routePrefixByType: Record<string, string> = {
+    'Company Profile': '/companies',
+    'Human Persona': '/stakeholders',
+};
+
+function getResourceRoute(artifact: CamelCaseDto<ArtifactDto>): string | undefined {
+    const docType = getArtifactDocumentType(artifact);
+    const routePrefix = docType && routePrefixByType[docType];
+    const sourceChatId = artifact.metadata?.sourceChatId as string | undefined;
+    return routePrefix && sourceChatId ? `${routePrefix}/${sourceChatId}` : undefined;
+}
+
 export function isPublicImport(artifact: CamelCaseDto<ArtifactDto>): boolean {
     return artifact.metadata?.importedFromPublic === true;
 }
@@ -33,6 +45,7 @@ export function ResourceItem({
     const docType = getArtifactDocumentType(artifact);
     const borderClass = (docType && borderColorByType[docType]) ?? 'border-l-transparent';
     const alwaysAttached = isPublicImport(artifact);
+    const href = getResourceRoute(artifact);
 
     const handleRemove = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -55,6 +68,7 @@ export function ResourceItem({
                 artifact={artifact}
                 shouldDisplayVersionInfo={false}
                 badge={alwaysAttached && <AlwaysAttachedBadge />}
+                href={href}
             />
             {alwaysAttached ? (
                 <AlwaysAttachedInfo />

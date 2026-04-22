@@ -4,18 +4,14 @@ import { ArrowRight, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { useEasedProgress } from '@/hooks/use-eased-progress';
-import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import type { SummaryStatus } from '@/modules/chat/types';
 import { AnimatedHeadline } from './animated-headline';
+import { AnimatedStatusText } from './animated-status-text';
 import { CancelSummaryButton } from './cancel-summary-button';
-import { ShimmerProgress } from './shimmer-progress';
-import { ShimmerText } from './shimmer-text';
 
 type SummarizerOverlayProps = {
     open: boolean;
     isSummarizing: boolean;
-    summaryDocKey: string | null;
     summaryNewChatId: string | null;
     summaryStatus: SummaryStatus | null;
     error: Error | null;
@@ -26,9 +22,6 @@ type SummarizerOverlayProps = {
 
 const STATUS_HEADLINES: Record<SummaryStatus, string> = {
     'generating-summary': 'Distilling your conversation',
-    'creating-completion-brief': 'Drafting the Completion Brief',
-    'creating-pecp': 'Preparing the PECP',
-    'saving-document': 'Saving your documents',
     finalizing: 'Wrapping things up',
 };
 
@@ -40,20 +33,6 @@ const STATUS_SUBTITLES: Record<SummaryStatus, string[]> = {
         'Piecing together the full picture...',
         'Almost done reading through the conversation...',
     ],
-    'creating-completion-brief': [
-        'Capturing key decisions and outcomes...',
-        'Structuring the brief for the next phase...',
-        'Documenting action items and next steps...',
-        'Compiling the highlights into a brief...',
-    ],
-    'creating-pecp': [
-        'Summarizing for PE stakeholders...',
-        'Translating findings into stakeholder language...',
-        'Highlighting what matters most for PE...',
-        'Preparing the external communication...',
-        'Polishing the final document...',
-    ],
-    'saving-document': ['Persisting the generated artifacts...'],
     finalizing: ['Setting up your next phase...'],
 };
 
@@ -86,7 +65,6 @@ function getStatusTitle(status: SummaryStatus | null, isDone: boolean): string {
 export function SummarizerOverlay({
     open,
     isSummarizing,
-    summaryDocKey,
     summaryNewChatId,
     summaryStatus,
     error,
@@ -97,10 +75,6 @@ export function SummarizerOverlay({
     const [displayStatus, setDisplayStatus] = useState<SummaryStatus | null>(summaryStatus);
     const displayStatusRef = useRef(displayStatus);
     displayStatusRef.current = displayStatus;
-
-    const summaryArtifact = useArtifact(summaryDocKey ?? '', 1);
-    const rawProgress = summaryDocKey ? (summaryArtifact?.progress ?? 0) : 0;
-    const displayProgress = useEasedProgress(rawProgress, summaryDocKey);
 
     const isDone = !!summaryNewChatId;
     const showError = !!error && !isSummarizing;
@@ -136,21 +110,7 @@ export function SummarizerOverlay({
                     <div className="flex flex-col items-center gap-4 px-6">
                         <AnimatedHeadline text={title} />
 
-                        {subtitle && <ShimmerText text={subtitle} shimmer={!isDone} />}
-
-                        <AnimatePresence>
-                            {displayStatus === 'creating-completion-brief' && displayProgress > 0 && (
-                                <motion.div
-                                    initial={{ opacity: 0, width: 0 }}
-                                    animate={{ opacity: 1, width: '100%' }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ duration: 0.3 }}
-                                    className="w-full max-w-xs mt-2"
-                                >
-                                    <ShimmerProgress value={displayProgress} />
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
+                        {subtitle && <AnimatedStatusText text={subtitle} shimmer={!isDone} />}
 
                         <AnimatePresence>
                             {isDone && (

@@ -48,6 +48,11 @@ function NewResourceDropdown() {
 - The component is **complex enough** to warrant its own tests or documentation
 - Multiple instances of the same component pattern exist — deduplicate into a shared file
 
+## File ordering within a component file
+
+- **Pure utilities, constants, types, formatters** → place **above** the main component
+- **Inline sub-components** (render-only, no hooks) → place **below** the main component/export
+
 ## Do NOT extract when:
 
 - The JSX is simple and inline is more readable than an indirection

@@ -7,6 +7,7 @@ import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
+import { getAvailablePresets } from '@/lib/presets';
 import { ListProjectsQuerySchema, type ProjectDto, UpdateProjectBodySchema } from '@/lib/schema/project';
 
 function projectNotFound() {
@@ -148,7 +149,7 @@ export async function handleUpdateProject(
 
     if (bodyData instanceof NextResponse) return bodyData;
 
-    const { name, description, archived } = bodyData;
+    const { name, description, archived, preferred_model } = bodyData;
 
     if (name !== undefined) {
         project.name = name;
@@ -156,6 +157,19 @@ export async function handleUpdateProject(
 
     if (description !== undefined) {
         project.description = description;
+    }
+
+    if (preferred_model !== undefined) {
+        if (preferred_model !== null) {
+            const available = getAvailablePresets(process.env.ALLOWED_PRESETS, process.env.BLOCKED_PRESETS);
+            if (!available.some((preset) => preset.id === preferred_model)) {
+                return NextResponse.json(
+                    { error: `Preset '${preferred_model}' is not available`, code: 'INVALID_PRESET' },
+                    { status: 400 },
+                );
+            }
+        }
+        project.preferred_model = preferred_model;
     }
 
     let eventType: 'project_archived' | 'project_unarchived' | null = null;

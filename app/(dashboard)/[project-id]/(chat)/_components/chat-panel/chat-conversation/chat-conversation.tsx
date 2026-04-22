@@ -3,11 +3,14 @@
 import { cva } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { TypingIndicator } from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel/chat-conversation/typing-indicator';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { IS_DEV } from '@/lib/config';
+import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
+import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ChatMessage } from '../chat-message/chat-message';
 import { SystemEventMessage } from '../chat-message/system-event-message';
 import { ChatEmptyState, type ChatEmptyStateProps } from './chat-empty-state';
@@ -16,7 +19,7 @@ type ChatConversationProps = {
     emptyState?: ChatEmptyStateProps;
 };
 
-const messageContainerVariants = cva('w-full min-w-0 last:mb-0', {
+const messageContainerVariants = cva('w-full min-w-0', {
     variants: {
         role: {
             user: 'mb-6',
@@ -26,10 +29,15 @@ const messageContainerVariants = cva('w-full min-w-0 last:mb-0', {
     },
 });
 
-const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ emptyState }, ref) => {
+function ChatConversation({ emptyState }: ChatConversationProps) {
     const { state, pagination, loadMoreMessages } = useChatContext();
     const { messages, isGenerating, isLoading } = state;
     const { target: scrollTarget, foundRef: scrollTargetFoundRef } = useScrollTargetContext();
+    const { files } = useFileUploadContext();
+
+    // Deferred-send wait: uploads are being processed post-chat-migration before the POST fires.
+    // The optimistic user message is intentionally deferred, so we render an info badge in its place.
+    const isWaitingOnUploads = isGenerating && files.some((f) => f.status === 'processing');
 
     const { containerRef } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
         threshold: 100,
@@ -38,8 +46,6 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
     // Track previous scroll height to maintain position after loading more
     const prevScrollHeightRef = useRef<number>(0);
     const isRestoringScrollRef = useRef(false);
-
-    useImperativeHandle(ref, () => containerRef.current!, [containerRef]);
 
     // Detect scroll to top and trigger loading more messages
     const handleScroll = useCallback(() => {
@@ -91,7 +97,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
     }, [scrollTarget, scrollTargetFoundRef, pagination.hasMore, pagination.isLoadingMore, isLoading, loadMoreMessages]);
 
     return (
-        <div ref={containerRef} className="relative flex-1 overflow-y-auto py-6 px-4 lg:px-6">
+        <div ref={containerRef} className="relative flex min-h-0 flex-1 overflow-y-auto py-6 px-4 lg:px-6">
             <div className="w-full max-w-3xl mx-auto min-w-0 min-h-full flex flex-col">
                 {/* Loading indicator for older messages */}
                 {pagination?.isLoadingMore && (
@@ -116,6 +122,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
                 <AnimatePresence initial={false}>
                     {messages.map((message, index) => {
                         const role = message.systemEvent ? 'system' : message.role;
+                        const isLastMessage = index === messages.length - 1;
                         return (
                             <motion.div
                                 key={message.tempId ?? message.id ?? index}
@@ -123,7 +130,7 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                 exit={{ opacity: 0, y: -6, scale: 0.98 }}
                                 transition={{ duration: 0.3, ease: 'easeInOut' }}
-                                className={messageContainerVariants({ role })}
+                                className={cn(messageContainerVariants({ role }), isLastMessage && 'mb-0')}
                             >
                                 {message.systemEvent ? (
                                     <SystemEventMessage message={message} />
@@ -135,13 +142,33 @@ const ChatConversation = forwardRef<HTMLDivElement, ChatConversationProps>(({ em
                     })}
                 </AnimatePresence>
 
-                {/* Loading indicator when waiting for response */}
-                {isGenerating && !messages.some((m) => m.isStreaming) && <TypingIndicator className="py-2" />}
+                {/* User-side info badge shown during the pre-send upload wait. */}
+                {isWaitingOnUploads && (
+                    <div className="w-full min-w-0 mb-6">
+                        <div className="max-w-[90%] min-w-0 ml-auto">
+                            <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-2.5 text-sm text-blue-400/80 flex items-center gap-2">
+                                <Loader2 className="size-4 animate-spin shrink-0" />
+                                <span>Processing your uploads — your message will send shortly.</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Match the streaming assistant frame while waiting for the first token. */}
+                {isGenerating && !isWaitingOnUploads && !messages.some((m) => m.isStreaming) && (
+                    <div className="group max-w-[90%] min-w-0">
+                        <div className="min-w-0 space-y-3">
+                            <TypingIndicator />
+                        </div>
+                        {IS_DEV && <div aria-hidden className="mt-1 h-6" />}
+                    </div>
+                )}
+
+                {/* Preserve a safe scroll tail above the overlapping composer after removing the old JS bottom-padding hack. */}
+                {(messages.length > 0 || isGenerating) && <div aria-hidden className="h-12 shrink-0" />}
             </div>
         </div>
     );
-});
-
-ChatConversation.displayName = 'ChatConversation';
+}
 
 export default ChatConversation;
