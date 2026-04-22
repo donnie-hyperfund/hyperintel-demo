@@ -34,6 +34,7 @@ import { associateArtifactsInternal, confirmUploadHandler, presignUploadHandler 
 
 function makeEntityManager() {
     return {
+        find: vi.fn().mockResolvedValue([]),
         findOne: vi.fn().mockResolvedValue(null),
         findOneOrFail: vi.fn(async (entity: unknown) => {
             if (entity === ProjectEntity) {
@@ -252,7 +253,9 @@ describe('associateArtifactsInternal', () => {
         const emEmbedSend = vi.fn(async () => {});
 
         const em = {
-            find: vi.fn(async (entity: unknown) => {
+            find: vi.fn(async (entity: unknown, filter: any) => {
+                // The rename-on-collision check is keyed by $like; return empty so no rename happens
+                if (entity === ArtifactEntity && filter?.key?.$like) return [];
                 if (entity === ArtifactEntity) return [artifact];
                 if (entity === ArtifactFileEntity) return [pendingFile];
                 return [];
@@ -298,7 +301,8 @@ describe('associateArtifactsInternal', () => {
         const emEmbedSend = vi.fn(async () => {});
 
         const em = {
-            find: vi.fn(async (entity: unknown) => {
+            find: vi.fn(async (entity: unknown, filter: any) => {
+                if (entity === ArtifactEntity && filter?.key?.$like) return [];
                 if (entity === ArtifactEntity) return [artifact];
                 if (entity === ArtifactFileEntity) return []; // no pending extraction
                 return [];
@@ -340,7 +344,8 @@ describe('associateArtifactsInternal', () => {
         const emEmbedSend = vi.fn(async () => {});
 
         const em = {
-            find: vi.fn(async (entity: unknown) => {
+            find: vi.fn(async (entity: unknown, filter: any) => {
+                if (entity === ArtifactEntity && filter?.key?.$like) return [];
                 if (entity === ArtifactEntity) return [artifact];
                 if (entity === ArtifactFileEntity) return [pendingFile];
                 return [];

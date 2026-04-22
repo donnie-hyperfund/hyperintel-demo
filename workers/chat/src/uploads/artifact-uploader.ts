@@ -25,6 +25,60 @@ function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
 }
 
+function escapeLikePattern(value: string): string {
+    return value.replace(/[\\%_]/g, '\\$&');
+}
+
+type UniqueKeyScope =
+    | { projectId: string; chatId?: string; stagedUserId?: undefined }
+    | { chatId: string; projectId?: undefined; stagedUserId?: undefined }
+    | { stagedUserId: string; projectId?: undefined; chatId?: undefined };
+
+/**
+ * Resolve filename collisions by appending `(1)`, `(2)` ... before the extension,
+ * mirroring OS-level duplicate handling. Scoped to the target project / chat, or
+ * for staged uploads to the user's other staged artifacts so association can't
+ * hit the (user_id, key) or (project_id, key) unique index.
+ */
+async function findUniqueArtifactKey(
+    em: Ctx['em'],
+    normalizedKey: string,
+    scope: UniqueKeyScope,
+): Promise<string> {
+    const dotIdx = normalizedKey.lastIndexOf('.');
+    const base = dotIdx > 0 ? normalizedKey.slice(0, dotIdx) : normalizedKey;
+    const ext = dotIdx > 0 ? normalizedKey.slice(dotIdx) : '';
+
+    const scopeFilter: Record<string, unknown> = scope.projectId
+        ? { project: scope.projectId }
+        : scope.chatId
+          ? { chat: scope.chatId, project: null }
+          : {
+                project: null,
+                chat: null,
+                user: null,
+                [raw("metadata->>'stagedBy'")]: scope.stagedUserId,
+            };
+
+    const likePattern = `${escapeLikePattern(base)}%${escapeLikePattern(ext)}`;
+    const existing = await em.find(ArtifactEntity, { ...scopeFilter, key: { $like: likePattern } });
+    const taken = new Set(existing.map((a) => a.key));
+
+    if (!taken.has(normalizedKey)) return normalizedKey;
+
+    for (let i = 1; i < 10000; i++) {
+        const candidate = `${base}(${i})${ext}`;
+        if (!taken.has(candidate)) return candidate;
+    }
+    // Extreme fallback — 10k collisions on one base name is not a realistic case
+    return `${base}(${Date.now()})${ext}`;
+}
+
+function stripKeyExtension(key: string): string {
+    const dotIdx = key.lastIndexOf('.');
+    return dotIdx > 0 ? key.slice(0, dotIdx) : key;
+}
+
 function buildStorageKey(
     versionId: string,
     filename: string,
@@ -230,14 +284,20 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         });
     }
 
-    const title = titleInput || file.name.replace(/\.[^.]+$/, '');
     const normalizedKey = normalizeUploadedFileKey(file.name);
     const isStaged = !projectId && !chatId;
 
     const { dbUserId } = await resolveScope(em, user, projectId, chatId);
 
-    const result = await upsertArtifactVersion(em, {
+    const uniqueKey = await findUniqueArtifactKey(
+        em,
         normalizedKey,
+        projectId ? { projectId } : chatId ? { chatId } : { stagedUserId: dbUserId },
+    );
+    const title = titleInput || (uniqueKey === normalizedKey ? file.name.replace(/\.[^.]+$/, '') : stripKeyExtension(uniqueKey));
+
+    const result = await upsertArtifactVersion(em, {
+        normalizedKey: uniqueKey,
         title,
         status: 'approved',
         content,
@@ -248,10 +308,10 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
 
     // Only queue embedding when we have a scope — staged uploads defer embedding until association
     if (!isStaged) {
-        await queueEmbedding(ctx, result.versionId, content, normalizedKey, projectId, chatId);
+        await queueEmbedding(ctx, result.versionId, content, uniqueKey, projectId, chatId);
     }
 
-    broadcastArtifactCreated(ctx, result, normalizedKey);
+    broadcastArtifactCreated(ctx, result, uniqueKey);
     if (projectId && source === 'project-resources') {
         broadcastProjectResourceUploadUpdated(ctx, {
             projectId,
@@ -263,7 +323,7 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         });
     }
 
-    return { success: true, ...result, key: normalizedKey };
+    return { success: true, ...result, key: uniqueKey };
 }
 
 export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
@@ -279,14 +339,20 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     }
 
     const mimeType = MIME_TYPES[ext] ?? 'application/octet-stream';
-    const title = titleInput || filename.replace(/\.[^.]+$/, '');
     const normalizedKey = normalizeUploadedFileKey(filename);
     const isStaged = !projectId && !chatId;
 
     const { dbUserId } = await resolveScope(em, user, projectId, chatId);
 
-    const result = await upsertArtifactVersion(em, {
+    const uniqueKey = await findUniqueArtifactKey(
+        em,
         normalizedKey,
+        projectId ? { projectId } : chatId ? { chatId } : { stagedUserId: dbUserId },
+    );
+    const title = titleInput || (uniqueKey === normalizedKey ? filename.replace(/\.[^.]+$/, '') : stripKeyExtension(uniqueKey));
+
+    const result = await upsertArtifactVersion(em, {
+        normalizedKey: uniqueKey,
         title,
         status: 'proposed',
         projectId,
@@ -319,7 +385,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
 
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: PRESIGN_EXPIRY_SECONDS });
 
-    broadcastArtifactCreated(ctx, result, normalizedKey);
+    broadcastArtifactCreated(ctx, result, uniqueKey);
     if (projectId && source === 'project-resources') {
         broadcastProjectResourceUploadUpdated(ctx, {
             projectId,
@@ -336,7 +402,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
         uploadUrl,
         storageKey,
         fileId: artifactFile.id,
-        key: normalizedKey,
+        key: uniqueKey,
         ...result,
     };
 }
@@ -441,8 +507,23 @@ export async function associateArtifactsInternal(
 
     if (artifacts.length === 0) return 0;
 
-    // Associate each artifact with the target scope and clear staged metadata
+    // Associate each artifact with the target scope and clear staged metadata.
+    // Rename on collision to preserve the (project_id, key) / (user_id, key) unique index —
+    // two staged uploads named "foo.pdf" landing in the same project become "foo.pdf" + "foo(1).pdf".
+    const renameScope: UniqueKeyScope | null = projectId
+        ? { projectId }
+        : chatId
+          ? { chatId }
+          : null;
+
     for (const artifact of artifacts) {
+        if (renameScope) {
+            const uniqueKey = await findUniqueArtifactKey(em, artifact.key, renameScope);
+            if (uniqueKey !== artifact.key) {
+                artifact.key = uniqueKey;
+                artifact.title = stripKeyExtension(uniqueKey);
+            }
+        }
         if (projectId) artifact.project = em.getReference('ProjectEntity', projectId) as any;
         if (chatId) artifact.chat = em.getReference('ChatEntity', chatId) as any;
         artifact.user = em.getReference('UserEntity', dbUserId) as any;
