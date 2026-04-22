@@ -63,6 +63,22 @@ export function useFetchChat(
     );
 }
 
+export function useFetchIncompleteChats(
+    framework: string | undefined,
+    config?: SWRConfiguration<PaginatedResponse<CamelCaseDto<ChatDto>>>,
+) {
+    const { getToken } = useAuth();
+
+    return useSWR<PaginatedResponse<CamelCaseDto<ChatDto>>>(
+        framework ? chatKeys.incomplete(framework) : null,
+        () => {
+            if (!framework) throw new Error('Framework is required');
+            return createChatApi(getToken).listIncomplete(framework);
+        },
+        { revalidateOnFocus: false, ...config },
+    );
+}
+
 export function useUpdateChatName(chatId: string) {
     const { getToken } = useAuth();
 

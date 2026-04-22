@@ -9,10 +9,16 @@ const ENDPOINTS = {
     model: (chatId: string) => `/api/chats/${chatId}/model`,
 } as const;
 
+export interface IncompleteChatsParams extends PaginationParams {
+    framework: string;
+}
+
 export const chatKeys = {
     all: ['chats'] as const,
     lists: () => [...chatKeys.all, 'list'] as const,
     list: (projectId?: string, params?: PaginationParams) => [...chatKeys.lists(), projectId, params] as const,
+    incomplete: (framework: string, params?: PaginationParams) =>
+        [...chatKeys.all, 'incomplete', framework, params] as const,
     details: () => [...chatKeys.all, 'detail'] as const,
     detail: (chatId: string) => [...chatKeys.details(), chatId] as const,
 };
@@ -25,6 +31,18 @@ export function createChatApi(getToken: TokenGetter) {
             const { data } = await axios.get<PaginatedResponse<CamelCaseDto<ChatDto>>>(
                 buildUrl(ENDPOINTS.root, {
                     projectId,
+                    ...params,
+                } as Record<string, string | number | undefined>),
+            );
+            return data;
+        },
+
+        listIncomplete: async (framework: string, params?: PaginationParams) => {
+            const { data } = await axios.get<PaginatedResponse<CamelCaseDto<ChatDto>>>(
+                buildUrl(ENDPOINTS.root, {
+                    type: 'intake',
+                    framework,
+                    incomplete: 'true',
                     ...params,
                 } as Record<string, string | number | undefined>),
             );

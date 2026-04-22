@@ -115,6 +115,11 @@ export const ListChatsQuerySchema = z.object({
     limit: z.coerce.number().int().positive().max(100).optional(),
     type: z.string().optional(),
     projectId: z.string().uuid().optional(),
+    framework: z.string().optional(),
+    incomplete: z
+        .enum(['true', 'false'])
+        .transform((v) => v === 'true')
+        .optional(),
 });
 export type ListChatsQueryDto = z.infer<typeof ListChatsQuerySchema>;
 

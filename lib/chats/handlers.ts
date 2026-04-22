@@ -319,6 +319,8 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
         limit: searchParams.get('limit') ?? undefined,
         type: searchParams.get('type') ?? undefined,
         projectId: searchParams.get('projectId') ?? undefined,
+        framework: searchParams.get('framework') ?? undefined,
+        incomplete: searchParams.get('incomplete') ?? undefined,
     });
 
     if (queryData instanceof NextResponse) return queryData;
@@ -348,6 +350,19 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
     }
     if (queryData.projectId) {
         qb.andWhere({ 'c.project': queryData.projectId });
+    }
+    if (queryData.framework) {
+        qb.andWhere(sql`c.metadata->>'framework' = ${queryData.framework}`);
+    }
+    if (queryData.incomplete) {
+        // Only chats that have at least 1 message but no approved artifact
+        qb.andWhere(sql`EXISTS (
+            SELECT 1 FROM chat_messages cm WHERE cm.chat_id = c.id
+        )`);
+        qb.andWhere(sql`NOT EXISTS (
+            SELECT 1 FROM artifact_versions av
+            WHERE av.chat_id = c.id AND av.status = 'approved'
+        )`);
     }
 
     qb.groupBy(['c.id']).orderBy(projectId ? { 'c.phase_index': 'ASC' } : { 'c.created_at': 'DESC' });
