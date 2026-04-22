@@ -5,6 +5,26 @@ on:
     branches-ignore:
       - main
       - prod
+    # Skip worker preview deployment for pushes that only change FE / docs /
+    # local-tooling files. Workers consume code from `lib/`, `modules/`, and
+    # `common/` (and `migrations/` runs as part of this workflow), so those
+    # paths are intentionally NOT ignored. When the workflow is skipped, the
+    # Vercel FE preview falls back to the canonical `*-dev` workers backed by
+    # the base dev DB — see `getConnectionString` in
+    # `workers/_common/vendor/postgres.ts`. Trade-off: FE-only previews lose
+    # per-branch DB isolation in exchange for ~30-60s saved per push and not
+    # touching workers we didn't change.
+    paths-ignore:
+      - 'app/**'
+      - 'components/**'
+      - 'hooks/**'
+      - 'public/**'
+      - 'docs/**'
+      - 'exports/**'
+      - '.husky/**'
+      - '.vscode/**'
+      - '.cursor/**'
+      - '**/*.md'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,7 +44,27 @@ jobs:
         id: branch
         run: |
           RAW="${GITHUB_REF_NAME}"
-          CF_ALIAS=$(echo "$RAW" | sed 's/[^a-zA-Z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-60)
+          # Cloudflare requires `alias + "-" + script_name <= 63 chars`.
+          # The longest dev script we deploy is `hi-extraction-dev` (17 chars),
+          # so the alias itself must be <= 45 chars (45 + 1 + 17 = 63).
+          # NOTE: this sanitization is the sole source of truth for the runtime
+          # alias contract. The runtime side (`extractPreviewAlias` in
+          # workers/_common/util/preview-alias.ts) just parses whatever ends up
+          # in the `Host` header — if you change the shape produced here, the
+          # parser there must agree.
+          MAX_ALIAS_LEN=45
+          CF_ALIAS=$(echo "$RAW" \
+            | sed 's/[^a-zA-Z0-9]/-/g' \
+            | sed 's/--*/-/g' \
+            | sed 's/^-//' \
+            | sed 's/-$//' \
+            | cut -c1-"$MAX_ALIAS_LEN" \
+            | sed 's/-$//')
+          if [[ -z "$CF_ALIAS" ]]; then
+            echo "::error::Branch name '$RAW' produced an empty Cloudflare alias after sanitization."
+            exit 1
+          fi
+          echo "Branch '$RAW' -> Cloudflare alias '$CF_ALIAS' (${#CF_ALIAS} chars, max ${MAX_ALIAS_LEN})"
           echo "cf_alias=$CF_ALIAS" >> "$GITHUB_OUTPUT"
 
       - name: Get or create Neon branch
