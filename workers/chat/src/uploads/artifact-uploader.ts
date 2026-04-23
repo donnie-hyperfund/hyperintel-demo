@@ -525,9 +525,8 @@ export async function associateArtifactsInternal(
             if (uniqueKey !== artifact.key) {
                 artifact.key = uniqueKey;
                 const newTitle = stripKeyExtension(uniqueKey);
-                for (const version of artifact.versions.getItems()) {
-                    version.title = newTitle;
-                }
+                const latestVersion = artifact.versions.getItems().sort((a, b) => b.version - a.version)[0];
+                if (latestVersion) latestVersion.title = newTitle;
             }
         }
         if (projectId) artifact.project = em.getReference('ProjectEntity', projectId) as any;

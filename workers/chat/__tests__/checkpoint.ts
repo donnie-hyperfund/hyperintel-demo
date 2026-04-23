@@ -36,11 +36,13 @@ interface CheckpointMessage {
 
 interface CheckpointArtifact {
     key: string;
+    /** Legacy checkpoints stored the display title on the artifact instead of each version. */
+    title?: string;
     version: number;
     metadata?: Record<string, unknown> | null;
     versions: {
         version: number;
-        title: string;
+        title?: string;
         content?: string;
         ai_content?: string;
         status: string;
@@ -273,7 +275,7 @@ export async function loadCheckpoint(
                 artifact,
                 chat: chatId,
                 version: ver.version,
-                title: ver.title,
+                title: ver.title ?? art.title ?? art.key,
                 ...(ver.content && { content: ver.content }),
                 ...(ver.ai_content && { ai_content: ver.ai_content }),
                 status: ver.status as any,
