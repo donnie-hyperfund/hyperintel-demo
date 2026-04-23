@@ -344,7 +344,7 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
             qb.andWhere(sql`EXISTS (SELECT 1 FROM chat_messages cm WHERE cm.chat_id = c.id)`);
             qb.andWhere(sql`NOT EXISTS (
                 SELECT 1 FROM artifact_versions av
-                WHERE av.chat_id = c.id AND av.status = 'approved'
+                WHERE av.chat_id = c.id
             )`);
         }
     }
