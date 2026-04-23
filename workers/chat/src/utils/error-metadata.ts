@@ -1,18 +1,90 @@
-import { PublicError } from '@common/common/error.helpers';
-import { serializeException } from '@/common/ai/utils';
+/**
+ * Bridges `ErrorClassification` from the agent runner to the shapes the worker
+ * persists and logs. No user copy lives here — presentation is in `lib/errors`.
+ */
 
-export type PublicErrorMetadata = {
-    error: string;
-    errorCode?: string;
-    requestId?: string;
+import { PublicError } from '@common/common/error.helpers';
+import { classificationFromKind, type ErrorClassification, type PublicErrorCode } from '@/common/ai';
+import { classifyErrorFallback, serializeException } from '@/common/ai/utils';
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+/** Persisted in `ChatMessageEntity.metadata` and sent over WS. Never contains prose or raw text. */
+export type StoredErrorMetadata = {
+    code: PublicErrorCode;
+    retryable: boolean;
+    referenceId?: string;
 };
 
-export type WorkerErrorLogContext = PublicErrorMetadata & {
+/** `errorDetail` carries raw provider/internal text — logs only, never a client. */
+export type WorkerErrorLogContext = {
     stage: string;
+    code: PublicErrorCode;
+    retryable: boolean;
+    kind?: ErrorClassification['kind'];
+    referenceId?: string;
     chatId?: string;
     agentMessageId?: string;
-    errorStatus?: number;
+    errorDetail?: string;
 };
+
+// ============================================================================
+// CLASSIFICATION
+// ============================================================================
+
+/** For errors thrown inside the worker (not via the agent runner). */
+export function classifyWorkerError(error: unknown): ErrorClassification {
+    if (error instanceof PublicError) {
+        return publicErrorToClassification(error);
+    }
+    return classificationFromKind(classifyErrorFallback(error));
+}
+
+function publicErrorToClassification(error: PublicError): ErrorClassification {
+    const fromCode = mapPublicErrorCode(error.code);
+    if (fromCode) return fromCode;
+    // Unknown app-level code — delegate to HTTP status.
+    const kind = classifyErrorFallback(error);
+    return classificationFromKind(kind);
+}
+
+function mapPublicErrorCode(ourCode: string): ErrorClassification | undefined {
+    switch (ourCode) {
+        case 'UNAUTHORIZED':
+        case 'FORBIDDEN':
+            return { code: 'SERVICE_UNAVAILABLE', retryable: false };
+        case 'BAD_REQUEST':
+            return { code: 'INVALID_REQUEST', retryable: false };
+        case 'NOT_FOUND':
+            return { code: 'MODEL_UNAVAILABLE', retryable: false };
+        default:
+            return undefined;
+    }
+}
+
+// ============================================================================
+// STORED METADATA
+// ============================================================================
+
+export function buildStoredErrorMetadata({
+    classification,
+    requestId,
+}: {
+    classification: ErrorClassification;
+    requestId?: string | null;
+}): StoredErrorMetadata {
+    return {
+        code: classification.code,
+        retryable: classification.retryable,
+        ...(requestId && { referenceId: requestId }),
+    };
+}
+
+// ============================================================================
+// RAW DETAIL — dev-only WS overlay + log forensics, never persisted
+// ============================================================================
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
@@ -22,122 +94,51 @@ function readString(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-function getSerializedErrorRecord(error: unknown): Record<string, unknown> {
+export function extractRawErrorMessage(error: unknown): string | undefined {
     const serialized = serializeException(error);
-    return isRecord(serialized) ? serialized : {};
+    const fromSerialized = isRecord(serialized) ? readString(serialized.message) : undefined;
+    const fromError = isRecord(error) ? readString(error.message) : undefined;
+    return fromSerialized ?? fromError;
 }
 
-function resolveStatusCode(error: unknown, serialized: Record<string, unknown>): number | undefined {
-    if (error instanceof PublicError) {
-        return error.statusCode;
-    }
-
-    if (isRecord(error)) {
-        if (typeof error.status === 'number') {
-            return error.status;
-        }
-
-        const response = isRecord(error.response) ? error.response : undefined;
-        if (typeof response?.status === 'number') {
-            return response.status;
-        }
-    }
-
-    return typeof serialized.status === 'number' ? serialized.status : undefined;
-}
-
-function resolveErrorCode(error: unknown, serialized: Record<string, unknown>): string | undefined {
-    if (error instanceof PublicError) {
-        return error.code;
-    }
-
-    if (isRecord(error)) {
-        const directCode = readString(error.code);
-        if (directCode) {
-            return directCode;
-        }
-    }
-
-    const serializedCode = readString(serialized.code);
-    if (serializedCode) {
-        return serializedCode;
-    }
-
-    const statusCode = resolveStatusCode(error, serialized);
-    return statusCode ? `HTTP_${statusCode}` : undefined;
-}
-
-export function buildPublicErrorMetadata({
-    error,
-    fallbackMessage,
-    requestId,
-}: {
-    error: unknown;
-    fallbackMessage?: string;
-    requestId?: string | null;
-}): PublicErrorMetadata {
-    const serialized = getSerializedErrorRecord(error);
-    const errorMessage =
-        readString(fallbackMessage) ??
-        readString(serialized.message) ??
-        (isRecord(error) ? readString(error.message) : undefined) ??
-        'Unknown error';
-    const errorCode = resolveErrorCode(error, serialized);
-
-    return {
-        error: errorMessage,
-        ...(errorCode ? { errorCode } : {}),
-        ...(requestId ? { requestId } : {}),
-    };
-}
+// ============================================================================
+// LOGGING
+// ============================================================================
 
 export function buildWorkerErrorLogContext({
-    error,
+    classification,
     stage,
     chatId,
     agentMessageId,
     requestId,
-    fallbackMessage,
-    errorMetadata,
+    error,
 }: {
-    error: unknown;
+    classification: ErrorClassification;
     stage: string;
     chatId?: string;
     agentMessageId?: string;
     requestId?: string | null;
-    fallbackMessage?: string;
-    errorMetadata?: PublicErrorMetadata;
+    error?: unknown;
 }): WorkerErrorLogContext {
-    const serialized = getSerializedErrorRecord(error);
-    const metadata = buildPublicErrorMetadata({
-        error,
-        fallbackMessage,
-        requestId: requestId ?? errorMetadata?.requestId,
-    });
-    const errorStatus = resolveStatusCode(error, serialized);
-
     return {
         stage,
-        error: metadata.error,
-        ...(metadata.errorCode || errorMetadata?.errorCode
-            ? { errorCode: metadata.errorCode ?? errorMetadata?.errorCode }
-            : {}),
-        ...(metadata.requestId || errorMetadata?.requestId
-            ? { requestId: metadata.requestId ?? errorMetadata?.requestId }
-            : {}),
-        ...(chatId ? { chatId } : {}),
-        ...(agentMessageId ? { agentMessageId } : {}),
-        ...(typeof errorStatus === 'number' ? { errorStatus } : {}),
+        code: classification.code,
+        retryable: classification.retryable,
+        ...(classification.kind && { kind: classification.kind }),
+        ...(requestId && { referenceId: requestId }),
+        ...(chatId && { chatId }),
+        ...(agentMessageId && { agentMessageId }),
+        ...(error !== undefined && { errorDetail: extractRawErrorMessage(error) }),
     };
 }
 
 export function logWorkerError(label: string, context: WorkerErrorLogContext, error: unknown) {
-    const serialized = getSerializedErrorRecord(error);
-    const stack = readString(serialized.stack);
+    const serialized = serializeException(error);
+    const stack = isRecord(serialized) ? readString(serialized.stack) : undefined;
 
     console.error(
         `[${label}] error:`,
         JSON.stringify(context),
-        stack ?? (Object.keys(serialized).length > 0 ? serialized : error),
+        stack ?? (isRecord(serialized) && Object.keys(serialized).length > 0 ? serialized : error),
     );
 }
