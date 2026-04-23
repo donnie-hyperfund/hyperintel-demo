@@ -309,7 +309,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                 onKeyDown={handleKeyDown}
                                 onPaste={handlePaste}
                                 placeholder="Type your message..."
-                                className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                                className="w-full bg-transparent leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
                                 maxHeight={384}
                                 minHeight={24}
                                 disabled={isAwaitingStream}
