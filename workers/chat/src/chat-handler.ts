@@ -238,11 +238,16 @@ export async function chatActionHandler(
     const userMessageId = crypto.randomUUID();
     const agentMessageId = crypto.randomUUID();
 
-    // Validate ownership
-    const chat = await em!.findOneOrFail(ChatEntity, {
-        id: chatId,
-        project: { user: { clerkId: ctx.user.userId } },
-    });
+    // Validate ownership. Populate `project` so downstream analytics events can
+    // include `project_name` without an extra round trip.
+    const chat = await em!.findOneOrFail(
+        ChatEntity,
+        {
+            id: chatId,
+            project: { user: { clerkId: ctx.user.userId } },
+        },
+        { populate: ['project'] },
+    );
 
     const isNudge = message === null;
 
@@ -697,7 +702,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         ctx.eCtx?.waitUntil(
                             captureWorkerPostHogEvent(ctx, 'worker_chat_turn_persisted', ctx.user.userId, {
                                 project_id: chat.project?.id ?? null,
+                                project_name: chat.project?.name ?? null,
                                 chat_id: chatId,
+                                chat_name: chat.name ?? null,
                                 agent_message_id: agentMessageId,
                                 outcome: isError ? 'error' : isAborted ? 'aborted' : 'done',
                                 model: msgMetadata.inference?.model as string | undefined,
