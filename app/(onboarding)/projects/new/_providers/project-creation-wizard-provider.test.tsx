@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { ProjectCreationWizardProvider, useProjectCreationWizard } from './project-creation-wizard-provider';
 
@@ -141,10 +141,7 @@ describe('ProjectCreationWizardProvider', () => {
         expect(toastMock).toHaveBeenCalledWith({ title: 'Project created successfully!' });
         expect(setCurrentProjectCookieMock).toHaveBeenCalledWith('user-1', 'project-123');
         expect(pushMock).toHaveBeenCalledWith('/project-123');
-
-        await waitFor(() => {
-            expect(result.current.isSubmitting).toBe(false);
-        });
+        expect(result.current.isSubmitting).toBe(true);
     });
 
     it('creates project without import step when no resources are selected', async () => {
@@ -188,5 +185,25 @@ describe('ProjectCreationWizardProvider', () => {
             variant: 'destructive',
         });
         expect(pushMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps submission locked after success until the onboarding page unmounts', async () => {
+        createProjectMock.mockResolvedValue({ id: 'project-navigation-lock' });
+
+        const { result } = renderHook(() => useProjectCreationWizard(), { wrapper });
+
+        await act(async () => {
+            await result.current.submitProject({ name: 'Navigation Lock Project' });
+        });
+
+        expect(createProjectMock).toHaveBeenCalledTimes(1);
+        expect(result.current.isSubmitting).toBe(true);
+
+        await act(async () => {
+            await result.current.submitProject({ name: 'Navigation Lock Project' });
+        });
+
+        expect(createProjectMock).toHaveBeenCalledTimes(1);
+        expect(pushMock).toHaveBeenCalledWith('/project-navigation-lock');
     });
 });

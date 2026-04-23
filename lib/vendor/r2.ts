@@ -1,4 +1,5 @@
 import { S3Client } from '@aws-sdk/client-s3';
+import { PublicError } from '@common/common/error.helpers';
 
 interface R2Credentials {
     accountId: string;
@@ -48,4 +49,23 @@ export async function getR2CredentialsFromWorkerEnv(env: {
     ]);
     if (!accountId || !accessKeyId || !secretAccessKey) return null;
     return { accountId, accessKeyId, secretAccessKey };
+}
+
+/**
+ * Create an S3-compatible client from CF Worker env bindings.
+ * Combines credential fetching + client creation + error handling.
+ */
+export async function createWorkerS3Client(env: {
+    CF_ACCOUNT_ID: { get(): Promise<string> };
+    R2_ACCESS_KEY_ID: { get(): Promise<string> };
+    R2_SECRET_ACCESS_KEY: { get(): Promise<string> };
+}): Promise<S3Client> {
+    const creds = await getR2CredentialsFromWorkerEnv(env);
+    if (!creds) {
+        throw new PublicError(500, {
+            message: 'R2 credentials not configured (CF_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)',
+            code: 'R2_NOT_CONFIGURED',
+        });
+    }
+    return createR2Client(creds);
 }

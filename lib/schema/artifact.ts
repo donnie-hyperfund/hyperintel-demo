@@ -189,6 +189,15 @@ export function isImageExtension(ext: string): boolean {
     return (IMAGE_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
 }
 
+export type ImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+
+/** Infer MIME type from a filename or R2 key. Defaults to `image/png`. */
+export function inferImageMimeType(key: string): ImageMimeType {
+    const dot = key.lastIndexOf('.');
+    if (dot === -1) return 'image/png';
+    return (IMAGE_MIME_TYPES[key.slice(dot).toLowerCase()] as ImageMimeType) ?? 'image/png';
+}
+
 export function isBinaryArtifactExtension(ext: string): boolean {
     return (BINARY_ARTIFACT_EXTENSIONS as readonly string[]).includes(ext.toLowerCase());
 }
@@ -264,12 +273,22 @@ export const ConfirmUploadResponseSchema = z.object({
 });
 export type ConfirmUploadResponseDto = z.infer<typeof ConfirmUploadResponseSchema>;
 
-export const AssociateArtifactsSchema = z.object({
+export const AssociateUploadsSchema = z
+    .object({
+        artifactIds: z.array(z.string().uuid()).max(50).optional(),
+        imageFileIds: z.array(z.string().uuid()).max(50).optional(),
+        chatId: z.string().uuid().optional(),
+        projectId: z.string().uuid().optional(),
+    })
+    .refine((d) => (d.artifactIds?.length ?? 0) > 0 || (d.imageFileIds?.length ?? 0) > 0, {
+        message: 'At least one of artifactIds or imageFileIds is required',
+    });
+export type AssociateUploadsDto = z.infer<typeof AssociateUploadsSchema>;
+
+export const ClearDraftsSchema = z.object({
     artifactIds: z.array(z.string().uuid()).min(1).max(50),
-    chatId: z.string().uuid().optional(),
-    projectId: z.string().uuid().optional(),
 });
-export type AssociateArtifactsDto = z.infer<typeof AssociateArtifactsSchema>;
+export type ClearDraftsDto = z.infer<typeof ClearDraftsSchema>;
 
 export const EXPORT_FORMATS = ['docx'] as const;
 export const ExportFormatSchema = z.enum(EXPORT_FORMATS);

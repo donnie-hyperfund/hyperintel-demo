@@ -16,9 +16,10 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
-import type { EmbeddingQueueAdapter } from '@common/queue/embedding-queue.adapter';
+import type { QueueAdapter } from '@common/common/queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
+import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -57,7 +58,7 @@ export interface DocumentToolsContext {
     /** Draft manager instance */
     draftManager: DraftManager;
     /** Embedding queue adapter for async indexing (optional) */
-    embeddingQueue?: EmbeddingQueueAdapter;
+    embeddingQueue?: QueueAdapter;
     /** Preview branch alias for queue messages (so downstream workers connect to the correct DB branch) */
     previewAlias?: string | null;
     /** Version IDs created during this turn - will be linked to assistant message after persist */
@@ -234,6 +235,7 @@ const ReadDocumentParams = z.object({
         .describe('Which version to read: "approved" (live), "proposed" (pending approval), "latest" (most recent).'),
     startLine: z.number().int().positive().optional().nullable().describe('First line to return (1-indexed).'),
     endLine: z.number().int().positive().optional().nullable().describe('Last line to return (inclusive).'),
+    skipImages: z.boolean().optional().default(false).describe('Skip embedded images and return text only.'),
 });
 
 const ListDocumentsParams = z.object({
@@ -720,16 +722,18 @@ Otherwise returns the requested version from the database.
 Version options:
 - "approved": The live version (what users see)
 - "proposed": The pending version awaiting approval
-- "latest": The most recent version regardless of status (default)`,
+- "latest": The most recent version regardless of status (default)
+
+Embedded images are included by default. Pass skipImages: true for text-only output.`,
             parameters: ReadDocumentParams,
-            executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext) => {
-                const { name, version: versionMode, startLine, endLine } = input;
+            executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
+                const { name, version: versionMode, startLine, endLine, skipImages } = input;
                 const { em, draftManager } = ctx;
                 const scope = getScope(ctx);
 
                 const normalizedName = normalizeArtifactKey(name);
 
-                // Check for active editing draft first
+                // Check for active editing draft first — no image resolution for drafts
                 const draft = draftManager.getCurrent();
                 if (draft && draft.name === normalizedName) {
                     const viewport = extractViewport(draft.content, startLine ?? undefined, endLine ?? undefined);
@@ -833,6 +837,22 @@ Version options:
                 if (source === 'proposed' && doc.currentVersion !== null) {
                     response.hasApproved = true;
                     response.approvedVersion = doc.currentVersion;
+                }
+
+                // Resolve artifact images — sign refs and return multimodal content.
+                // Refs stay in toolOutput text (stable for DB, needed by Chat Completions replacement).
+                if (!skipImages && rCtx) {
+                    const hydrated = await hydrateArtifactImages(viewport.content, rCtx.env, {
+                        projectId: ctx.projectId,
+                        chatId: ctx.chatId,
+                    });
+                    if (hydrated) {
+                        return {
+                            result: response,
+                            imageRefs: hydrated.imageRefs,
+                            contentParts: hydrated.contentParts,
+                        };
+                    }
                 }
 
                 return response;

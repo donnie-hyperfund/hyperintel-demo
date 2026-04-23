@@ -3,7 +3,6 @@
 import { type ReactNode, Suspense } from 'react';
 import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
 import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
-import { PendingUploadsProvider } from '../../file-uploads/providers/pending-uploads-provider';
 import type { Message } from '../types';
 import { ActivePanelProvider } from './active-panel-provider';
 import { ChatProvider } from './chat-provider';
@@ -39,21 +38,19 @@ export function ChatModule({
     return (
         <ActivePanelProvider>
             <ArtifactProvider>
-                <PendingUploadsProvider>
-                    <ModelSelectionProvider projectId={projectId}>
-                        <ChatProvider
-                            projectId={projectId}
-                            chatType={chatType}
-                            initialChatId={initialChatId}
-                            initialMessages={initialMessages}
-                            chatRouteBuilder={chatRouteBuilder}
-                        >
-                            <Suspense>
-                                <ScrollTargetProvider>{children}</ScrollTargetProvider>
-                            </Suspense>
-                        </ChatProvider>
-                    </ModelSelectionProvider>
-                </PendingUploadsProvider>
+                <ModelSelectionProvider projectId={projectId}>
+                    <ChatProvider
+                        projectId={projectId}
+                        chatType={chatType}
+                        initialChatId={initialChatId}
+                        initialMessages={initialMessages}
+                        chatRouteBuilder={chatRouteBuilder}
+                    >
+                        <Suspense>
+                            <ScrollTargetProvider>{children}</ScrollTargetProvider>
+                        </Suspense>
+                    </ChatProvider>
+                </ModelSelectionProvider>
             </ArtifactProvider>
         </ActivePanelProvider>
     );

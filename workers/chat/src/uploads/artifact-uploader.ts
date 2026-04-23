@@ -1,30 +1,80 @@
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PublicError } from '@common/common/error.helpers';
-import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
-import { ExtractionQueueAdapter } from '@common/queue/extraction-queue.adapter';
 import { raw } from '@mikro-orm/core';
+import { ExtractionQueueAdapter } from '@/lib/api/client/queue/extraction-queue.adapter';
 import { normalizeUploadedFileKey, UPLOAD_ERROR_CODES, validateArtifactFile } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
-import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import {
-    type AssociateArtifactsDto,
     type ConfirmUploadDto,
+    IMAGE_MIME_TYPES,
     isBinaryArtifactExtension,
+    isImageExtension,
     type PresignUploadDto,
     type UploadArtifactDto,
 } from '@/lib/schema/artifact';
 import { type ProjectResourceUploadUpdatedPayload, UserEventType } from '@/lib/schema/user-events';
-import { createR2Client, getR2CredentialsFromWorkerEnv } from '@/lib/vendor/r2';
-import type { Ctx } from './context';
-import { broadcastUserEvent } from './utils/broadcast';
+import { createWorkerS3Client } from '@/lib/vendor/r2';
+import type { Ctx } from '../context';
+import { broadcastUserEvent } from '../utils/broadcast';
+import { resolveScope } from './scope';
 
 function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
+}
+
+function escapeLikePattern(value: string): string {
+    return value.replace(/[\\%_]/g, '\\$&');
+}
+
+type UniqueKeyScope = { projectId: string } | { chatId: string } | { userId: string } | { stagedUserId: string };
+
+/**
+ * Resolve filename collisions by appending `(1)`, `(2)` ... before the extension.
+ * Scope must match the DB unique index that would fire at flush:
+ *   - projectId     → `(project_id, key) WHERE project_id IS NOT NULL`
+ *   - userId        → `(user_id, key) WHERE project_id IS NULL` (associated chat-only artifacts)
+ *   - chatId        → cosmetic dedup within a chat (user_id is null at upload time, no index fires)
+ *   - stagedUserId  → rename across a user's pre-association staged artifacts
+ */
+async function findUniqueArtifactKey(em: Ctx['em'], normalizedKey: string, scope: UniqueKeyScope): Promise<string> {
+    const dotIdx = normalizedKey.lastIndexOf('.');
+    const base = dotIdx > 0 ? normalizedKey.slice(0, dotIdx) : normalizedKey;
+    const ext = dotIdx > 0 ? normalizedKey.slice(dotIdx) : '';
+
+    const scopeFilter: Record<string, unknown> =
+        'projectId' in scope
+            ? { project: scope.projectId }
+            : 'userId' in scope
+              ? { user: scope.userId, project: null }
+              : 'chatId' in scope
+                ? { chat: scope.chatId, project: null, user: null }
+                : {
+                      project: null,
+                      chat: null,
+                      user: null,
+                      [raw("metadata->>'stagedBy'")]: scope.stagedUserId,
+                  };
+
+    const likePattern = `${escapeLikePattern(base)}%${escapeLikePattern(ext)}`;
+    const existing = await em.find(ArtifactEntity, { ...scopeFilter, key: { $like: likePattern } });
+    const taken = new Set(existing.map((a) => a.key));
+
+    if (!taken.has(normalizedKey)) return normalizedKey;
+
+    for (let i = 1; i < 10000; i++) {
+        const candidate = `${base}(${i})${ext}`;
+        if (!taken.has(candidate)) return candidate;
+    }
+    // Extreme fallback — 10k collisions on one base name is not a realistic case
+    return `${base}(${Date.now()})${ext}`;
+}
+
+function stripKeyExtension(key: string): string {
+    const dotIdx = key.lastIndexOf('.');
+    return dotIdx > 0 ? key.slice(0, dotIdx) : key;
 }
 
 function buildStorageKey(
@@ -45,6 +95,7 @@ const MIME_TYPES: Record<string, string> = {
     '.pdf': 'application/pdf',
     '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ...IMAGE_MIME_TYPES,
 };
 
 const PRESIGN_EXPIRY_SECONDS = 60 * 10;
@@ -81,17 +132,6 @@ function getBucketName(env: Env): string {
     return env.ENV === 'dev' ? 'hi-artifacts-dev' : 'hi-artifacts';
 }
 
-async function createS3Client(env: Env) {
-    const creds = await getR2CredentialsFromWorkerEnv(env);
-    if (!creds) {
-        throw new PublicError(500, {
-            message: 'R2 credentials not configured',
-            code: 'R2_NOT_CONFIGURED',
-        });
-    }
-    return createR2Client(creds);
-}
-
 interface UpsertInput {
     normalizedKey: string;
     title: string;
@@ -100,6 +140,7 @@ interface UpsertInput {
     projectId?: string;
     chatId?: string;
     userId?: string;
+    isDraft?: boolean;
 }
 
 interface UpsertResult {
@@ -110,55 +151,8 @@ interface UpsertResult {
     supersededVersion?: number;
 }
 
-interface ResolvedScope {
-    project?: InstanceType<typeof ProjectEntity> | null;
-    dbUserId: string;
-}
-
-async function resolveScope(
-    em: Ctx['em'],
-    user: Ctx['user'],
-    projectId?: string,
-    chatId?: string,
-): Promise<ResolvedScope> {
-    let project: InstanceType<typeof ProjectEntity> | null = null;
-
-    if (projectId) {
-        project = await em.findOneOrFail(
-            ProjectEntity,
-            {
-                id: projectId,
-                user: { clerkId: user.userId },
-                archived_at: null,
-            },
-            { populate: ['user'] },
-        );
-        if (chatId) {
-            await em.findOneOrFail(ChatEntity, { id: chatId, project: projectId });
-        }
-        return { project, dbUserId: project.user.id };
-    }
-
-    if (chatId) {
-        const chat = await em.findOneOrFail(
-            ChatEntity,
-            {
-                id: chatId,
-                type: 'intake',
-                user: { clerkId: user.userId },
-            },
-            { populate: ['user'] },
-        );
-        return { dbUserId: chat.user!.id };
-    }
-
-    // Staged upload — no project or chat, resolve user directly
-    const dbUser = await em.findOneOrFail(UserEntity, { clerkId: user.userId });
-    return { dbUserId: dbUser.id };
-}
-
 async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise<UpsertResult> {
-    const { normalizedKey, title, status, content, projectId, chatId, userId } = input;
+    const { normalizedKey, title, status, content, projectId, chatId, userId, isDraft = false } = input;
     const statusChangedBy = projectId ?? chatId;
     const isStaged = !projectId && !chatId;
 
@@ -220,6 +214,7 @@ async function upsertArtifactVersion(em: Ctx['em'], input: UpsertInput): Promise
         artifact.key = normalizedKey;
         artifact.title = title;
         artifact.version = 1;
+        artifact.is_draft = isDraft;
         if (projectId) artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
         if (chatId) artifact.chat = txEm.getReference('ChatEntity', chatId) as any;
         if (isStaged) {
@@ -289,28 +284,36 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         });
     }
 
-    const title = titleInput || file.name.replace(/\.[^.]+$/, '');
     const normalizedKey = normalizeUploadedFileKey(file.name);
     const isStaged = !projectId && !chatId;
 
     const { dbUserId } = await resolveScope(em, user, projectId, chatId);
 
-    const result = await upsertArtifactVersion(em, {
+    const uniqueKey = await findUniqueArtifactKey(
+        em,
         normalizedKey,
+        projectId ? { projectId } : chatId ? { chatId } : { stagedUserId: dbUserId },
+    );
+    const title =
+        titleInput || (uniqueKey === normalizedKey ? file.name.replace(/\.[^.]+$/, '') : stripKeyExtension(uniqueKey));
+
+    const result = await upsertArtifactVersion(em, {
+        normalizedKey: uniqueKey,
         title,
         status: 'approved',
         content,
         projectId,
         chatId,
         userId: isStaged ? dbUserId : undefined,
+        isDraft: source === 'chat-input',
     });
 
     // Only queue embedding when we have a scope — staged uploads defer embedding until association
     if (!isStaged) {
-        await queueEmbedding(ctx, result.versionId, content, normalizedKey, projectId, chatId);
+        await queueEmbedding(ctx, result.versionId, content, uniqueKey, projectId, chatId);
     }
 
-    broadcastArtifactCreated(ctx, result, normalizedKey);
+    broadcastArtifactCreated(ctx, result, uniqueKey);
     if (projectId && source === 'project-resources') {
         broadcastProjectResourceUploadUpdated(ctx, {
             projectId,
@@ -322,7 +325,7 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         });
     }
 
-    return { success: true, ...result, key: normalizedKey };
+    return { success: true, ...result, key: uniqueKey };
 }
 
 export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
@@ -330,27 +333,36 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     const { em, user } = ctx;
 
     const ext = getExtension(filename);
-    if (!isBinaryArtifactExtension(ext)) {
+    if (!isBinaryArtifactExtension(ext) && !isImageExtension(ext)) {
         throw new PublicError(400, {
-            message: 'Only binary files (.pdf, .docx, .pptx) use the presign flow. Text files use /artifacts/upload.',
+            message:
+                'Only binary files (.pdf, .docx, .pptx) and images (.png, .jpg, .gif, .webp) use the presign flow. Text files use /artifacts/upload.',
             code: 'TEXT_FILE_NOT_ALLOWED',
         });
     }
 
     const mimeType = MIME_TYPES[ext] ?? 'application/octet-stream';
-    const title = titleInput || filename.replace(/\.[^.]+$/, '');
     const normalizedKey = normalizeUploadedFileKey(filename);
     const isStaged = !projectId && !chatId;
 
     const { dbUserId } = await resolveScope(em, user, projectId, chatId);
 
-    const result = await upsertArtifactVersion(em, {
+    const uniqueKey = await findUniqueArtifactKey(
+        em,
         normalizedKey,
+        projectId ? { projectId } : chatId ? { chatId } : { stagedUserId: dbUserId },
+    );
+    const title =
+        titleInput || (uniqueKey === normalizedKey ? filename.replace(/\.[^.]+$/, '') : stripKeyExtension(uniqueKey));
+
+    const result = await upsertArtifactVersion(em, {
+        normalizedKey: uniqueKey,
         title,
         status: 'proposed',
         projectId,
         chatId,
         userId: isStaged ? dbUserId : undefined,
+        isDraft: source === 'chat-input',
     });
 
     // Create artifact_file record
@@ -368,7 +380,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
     await em.flush();
 
     // Generate presigned PUT URL
-    const s3 = await createS3Client(ctx.env);
+    const s3 = await createWorkerS3Client(ctx.env);
     const command = new PutObjectCommand({
         Bucket: getBucketName(ctx.env),
         Key: storageKey,
@@ -378,7 +390,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
 
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: PRESIGN_EXPIRY_SECONDS });
 
-    broadcastArtifactCreated(ctx, result, normalizedKey);
+    broadcastArtifactCreated(ctx, result, uniqueKey);
     if (projectId && source === 'project-resources') {
         broadcastProjectResourceUploadUpdated(ctx, {
             projectId,
@@ -395,7 +407,7 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
         uploadUrl,
         storageKey,
         fileId: artifactFile.id,
-        key: normalizedKey,
+        key: uniqueKey,
         ...result,
     };
 }
@@ -444,23 +456,21 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
         });
     }
 
-    if (ctx.env.EXTRACTION_QUEUE) {
-        try {
-            const extractionQueue = new ExtractionQueueAdapter(ctx.env.EXTRACTION_QUEUE);
-            await extractionQueue.send({
-                type: 'extract_file_content',
-                fileId: artifactFile.id,
-                versionId,
-                storageKey: artifactFile.storage_key,
-                originalName: artifactFile.original_name,
-                mimeType: artifactFile.mime_type,
-                projectId: version.artifact.project?.id ?? null,
-                chatId: version.artifact.chat?.id ?? null,
-                previewAlias: ctx.previewAlias,
-            });
-        } catch (error) {
-            console.error('[artifact-uploader] Failed to queue extraction:', error);
-        }
+    // Defer extraction for staged uploads — embedded images from extraction are stored under
+    // `uploads/{project|chat}/{scopeId}/{artifactId}/images/`, which requires a real scope.
+    // associateArtifactsInternal queues extraction once the artifact has a project/chat.
+    const isScoped = !!(version.artifact.project?.id || version.artifact.chat?.id);
+    if (isScoped) {
+        await queueExtraction(ctx, {
+            fileId: artifactFile.id,
+            artifactId: version.artifact.id,
+            versionId,
+            storageKey: artifactFile.storage_key,
+            originalName: artifactFile.original_name,
+            mimeType: artifactFile.mime_type,
+            projectId: version.artifact.project?.id ?? null,
+            chatId: version.artifact.chat?.id ?? null,
+        });
     }
 
     return {
@@ -472,16 +482,20 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
     };
 }
 
-export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx: Ctx) {
-    const { artifactIds, chatId, projectId } = data;
-    const { em, user } = ctx;
-
-    if (!chatId && !projectId) {
-        throw new PublicError(400, { message: 'Either chatId or projectId is required', code: 'MISSING_SCOPE' });
-    }
-
-    // Validate ownership of the target scope + resolve internal user ID
-    const { dbUserId } = await resolveScope(em, user, projectId, chatId);
+/**
+ * Associate staged artifacts (uploaded without a scope) with a chat and/or project.
+ * Caller is responsible for having already verified the scope belongs to `dbUserId`.
+ * Returns the number of artifacts that were successfully associated.
+ */
+export async function associateArtifactsInternal(
+    ctx: Ctx,
+    dbUserId: string,
+    scope: { chatId?: string; projectId?: string },
+    artifactIds: string[],
+): Promise<number> {
+    const { em } = ctx;
+    const { chatId, projectId } = scope;
+    if (artifactIds.length === 0) return 0;
 
     // Load staged artifacts owned by this user (identified via metadata.stagedBy)
     const artifacts = await em.find(
@@ -496,12 +510,23 @@ export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx
         { populate: ['current_version', 'versions'] },
     );
 
-    if (artifacts.length === 0) {
-        return { success: true, associated: 0 };
-    }
+    if (artifacts.length === 0) return 0;
 
-    // Associate each artifact with the target scope and clear staged metadata
+    // Associate each artifact with the target scope and clear staged metadata.
+    // Rename on collision to preserve the (project_id, key) / (user_id, key) unique index —
+    // two staged uploads named "foo.pdf" landing in the same project become "foo.pdf" + "foo(1).pdf".
+    // Chat-only association sets user_id but leaves project_id NULL, so the active index is
+    // (user_id, key) — must check against all of the user's non-project artifacts, not just this chat.
+    const renameScope: UniqueKeyScope | null = projectId ? { projectId } : chatId ? { userId: dbUserId } : null;
+
     for (const artifact of artifacts) {
+        if (renameScope) {
+            const uniqueKey = await findUniqueArtifactKey(em, artifact.key, renameScope);
+            if (uniqueKey !== artifact.key) {
+                artifact.key = uniqueKey;
+                artifact.title = stripKeyExtension(uniqueKey);
+            }
+        }
         if (projectId) artifact.project = em.getReference('ProjectEntity', projectId) as any;
         if (chatId) artifact.chat = em.getReference('ChatEntity', chatId) as any;
         artifact.user = em.getReference('UserEntity', dbUserId) as any;
@@ -510,16 +535,74 @@ export async function associateArtifactsHandler(data: AssociateArtifactsDto, ctx
 
     await em.flush();
 
-    // Queue embeddings for versions that have content (extraction already completed)
+    // Resume deferred pipelines now that scope is known:
+    //   - Files still awaiting extraction (binary presign path): queue extraction. The extraction
+    //     worker writes embedded images under `uploads/{scope}/{artifactId}/images/` and queues
+    //     embedding itself once content is written.
+    //   - Versions that already have content (text upload path — no extraction step): queue
+    //     embedding directly.
+    const versionIds = artifacts.flatMap((a) => a.versions.getItems().map((v) => v.id));
+    const pendingFiles = versionIds.length
+        ? await em.find(
+              ArtifactFileEntity,
+              {
+                  artifact_version: { $in: versionIds },
+                  status: 'uploaded',
+                  extracted_content: null,
+              },
+              { populate: ['artifact_version.artifact'] },
+          )
+        : [];
+    const versionIdsWithPendingExtraction = new Set(pendingFiles.map((f) => f.artifact_version.id));
+
+    for (const file of pendingFiles) {
+        await queueExtraction(ctx, {
+            fileId: file.id,
+            artifactId: file.artifact_version.artifact.id,
+            versionId: file.artifact_version.id,
+            storageKey: file.storage_key,
+            originalName: file.original_name,
+            mimeType: file.mime_type,
+            projectId: projectId ?? null,
+            chatId: chatId ?? null,
+        });
+    }
+
     for (const artifact of artifacts) {
         for (const version of artifact.versions.getItems()) {
-            if (version.content && version.status === 'approved') {
+            if (version.content && version.status === 'approved' && !versionIdsWithPendingExtraction.has(version.id)) {
                 await queueEmbedding(ctx, version.id, version.content, artifact.key, projectId, chatId);
             }
         }
     }
 
-    return { success: true, associated: artifacts.length };
+    return artifacts.length;
+}
+
+async function queueExtraction(
+    ctx: Ctx,
+    msg: {
+        fileId: string;
+        artifactId: string;
+        versionId: string;
+        storageKey: string;
+        originalName: string;
+        mimeType: string;
+        projectId: string | null;
+        chatId: string | null;
+    },
+) {
+    if (!ctx.env.EXTRACTION_QUEUE) return;
+    try {
+        const extractionQueue = new ExtractionQueueAdapter(ctx.env.EXTRACTION_QUEUE);
+        await extractionQueue.send({
+            type: 'extract_file_content',
+            ...msg,
+            previewAlias: ctx.previewAlias,
+        });
+    } catch (error) {
+        console.error('[artifact-uploader] Failed to queue extraction:', error);
+    }
 }
 
 async function queueEmbedding(
@@ -533,8 +616,7 @@ async function queueEmbedding(
     if (!ctx.env.EMBEDDING_QUEUE) return;
 
     try {
-        const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
-        await embeddingQueue.send({
+        await ctx.env.EMBEDDING_QUEUE.send({
             type: 'index_artifact_version',
             projectId: projectId ?? null,
             chatId: chatId ?? null,

@@ -46,6 +46,18 @@ const nextConfig = {
             config.externals = config.externals || [];
             config.externals.push(/^cloudflare:/);
         }
+        // Stub the local-dev mock module when NEXT_PUBLIC_LOCAL_WORKERS is not set.
+        // The file is deleted on Vercel; without this alias, webpack fails to resolve the
+        // static `import('@/lib/local/cf-env-secret-mock')` calls in queue adapters and
+        // broadcast helpers — even though those branches are dead at runtime (DCE happens
+        // after module resolution). Setting the alias to `false` makes webpack treat it as
+        // an empty module, which is safe because the code path is never executed in prod.
+        if (process.env.NEXT_PUBLIC_LOCAL_WORKERS !== 'true') {
+            config.resolve.alias = {
+                ...(config.resolve.alias || {}),
+                '@/lib/local/cf-env-secret-mock': false,
+            };
+        }
         config.module.rules.push({
             test: /\.svg$/,
             use: ['@svgr/webpack'],

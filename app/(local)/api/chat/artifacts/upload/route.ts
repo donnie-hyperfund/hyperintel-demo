@@ -3,7 +3,7 @@ import { BadRequestError, PublicError } from '@/common/common/error.helpers';
 import { assertAuth } from '@/lib/api/auth-guard';
 import { initNextjsWorkerContext } from '@/lib/local/context';
 import { UploadArtifactSchema } from '@/lib/schema/artifact';
-import { uploadArtifactHandler } from '@/workers/chat/src/artifact-uploader';
+import { uploadArtifactHandler } from '@/workers/chat/src/uploads/artifact-uploader';
 
 export async function POST(req: NextRequest) {
     await assertAuth();

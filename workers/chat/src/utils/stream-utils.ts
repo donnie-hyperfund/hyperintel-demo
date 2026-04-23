@@ -9,12 +9,15 @@
 import type { AgentStreamEvent } from '@common/ai/agent';
 import type { ContentPart, ImageContentPart } from '@common/ai/inference/types';
 import { serializeException, stringifyError } from '@/common/ai/utils';
+import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
+import { buildArtifactImageContentParts } from '@/lib/markdown/artifact-images';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
-import { generateSignedImageUrls } from '../image-uploader';
+import { generateSignedImageUrls } from '../uploads/image-uploader';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
+import { buildWorkerErrorLogContext, logWorkerError, type PublicErrorMetadata } from './error-metadata';
 
 // ============================================================================
 // DO LIFECYCLE HELPERS
@@ -214,14 +217,23 @@ export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher 
  * Used by chat-handler and intake-handler catch blocks.
  * Summarizer skips this (no agent message to persist on error).
  */
-export async function persistErrorMessage(
-    em: any,
-    chatId: string,
-    agentMessageId: string,
-    chat: { active_agent_message_id: string | null },
-    error: any,
-    label: string,
-) {
+export async function persistErrorMessage({
+    em,
+    chatId,
+    agentMessageId,
+    chat,
+    error,
+    errorMetadata,
+    label,
+}: {
+    em: any;
+    chatId: string;
+    agentMessageId: string;
+    chat: { active_agent_message_id: string | null };
+    error: any;
+    errorMetadata: PublicErrorMetadata;
+    label: string;
+}) {
     try {
         const existing = await em.findOne(ChatMessageEntity, { id: agentMessageId });
         if (!existing) {
@@ -231,7 +243,7 @@ export async function persistErrorMessage(
                 role: 'assistant',
                 content: '',
                 is_error: true,
-                metadata: { error: error?.message || 'Unknown error' },
+                metadata: errorMetadata,
                 debug_data: { error: serializeException(error) },
             });
             em.persist(errorMsg);
@@ -239,7 +251,17 @@ export async function persistErrorMessage(
         chat.active_agent_message_id = null;
         await em.flush();
     } catch (saveErr) {
-        console.error(`[${label}] failed to save error state:`, saveErr);
+        logWorkerError(
+            label,
+            buildWorkerErrorLogContext({
+                error: saveErr,
+                stage: 'persist_error_state',
+                chatId,
+                agentMessageId,
+                errorMetadata,
+            }),
+            saveErr,
+        );
     }
 }
 
@@ -247,16 +269,35 @@ export async function persistErrorMessage(
  * Error epilogue: drain inflight pushes, push error event, done+finalize, clearStream.
  * Shared by all three handlers' catch blocks.
  */
-export async function cleanupStreamDO(
-    pusher: Pusher,
-    streamDO: ChatStreamDOStub,
-    ugStub: UserGatewayStub,
-    topic: string,
-    error: any,
-) {
+export async function cleanupStreamDO({
+    pusher,
+    streamDO,
+    ugStub,
+    topic,
+    error,
+    errorMetadata,
+}: {
+    pusher: Pusher;
+    streamDO: ChatStreamDOStub;
+    ugStub: UserGatewayStub;
+    topic: string;
+    error: any;
+    errorMetadata?: PublicErrorMetadata;
+}) {
     try {
         await pusher.waitAll();
-        await streamDO.push([{ type: 'error', error: error?.message || 'Unknown error' }], pusher.seq);
+        const errorMessage = errorMetadata?.error ?? error?.message ?? 'Unknown error';
+        await streamDO.push(
+            [
+                { type: 'error', error: errorMessage },
+                {
+                    type: 'done',
+                    error: errorMessage,
+                    ...(errorMetadata && { messageMetadata: errorMetadata }),
+                },
+            ],
+            pusher.seq,
+        );
         await streamDO.done();
         await streamDO.finalize();
     } catch {
@@ -333,6 +374,40 @@ export async function loadChatHistory(em: any, chatId: string, env?: Env) {
         env && imageFiles.length > 0
             ? await generateSignedImageUrls(env, imageFiles as ChatMessageFileEntity[])
             : new Map<string, string>();
+
+    // Reconstruct toolContentParts for tool blocks with toolImageRefs.
+    // toolContentParts is ephemeral (stripped before DB save), so we rebuild
+    // it from the stable toolImageRefs + freshly signed URLs.
+    if (env) {
+        // Collect all unique R2 keys across all tool blocks in history
+        const artifactImageKeys = new Set<string>();
+        const SCHEME = 'artifact-image://';
+        for (const m of dbMessages as ChatMessageEntity[]) {
+            if (!m.blocks) continue;
+            for (const b of m.blocks as any[]) {
+                if (b.type === 'tool_call' && b.toolImageRefs?.length) {
+                    for (const ref of b.toolImageRefs as string[]) {
+                        if (ref.startsWith(SCHEME)) {
+                            artifactImageKeys.add(ref.slice(SCHEME.length));
+                        }
+                    }
+                }
+            }
+        }
+
+        if (artifactImageKeys.size > 0) {
+            const artifactSignedUrls = await signArtifactImageKeys(env, [...artifactImageKeys]);
+
+            for (const m of dbMessages as ChatMessageEntity[]) {
+                if (!m.blocks) continue;
+                for (const b of m.blocks as any[]) {
+                    if (b.type !== 'tool_call' || !b.toolImageRefs?.length) continue;
+
+                    b.toolContentParts = buildArtifactImageContentParts(b.toolOutput ?? '', artifactSignedUrls);
+                }
+            }
+        }
+    }
 
     return dbMessages.map((m: ChatMessageEntity) => {
         if (m.is_error || m.is_aborted) {

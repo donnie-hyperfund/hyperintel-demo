@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus } from 'lucide-react';
+import { MessageSquareDashed, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { ListPageHeader } from '@/components/layouts/list-wrapper/list-page-header';
@@ -17,14 +17,22 @@ export default function StakeholdersPage() {
                 <ListPageHeader
                     title="Stakeholder personas"
                     ActionComponent={
-                        isEmpty ? undefined : (
-                            <Button asChild size="sm">
-                                <Link href="/stakeholders/new">
-                                    <Plus className="size-4 opacity-75" />
-                                    New persona
+                        <div className="flex items-center gap-2">
+                            <Button asChild variant="outline" size="sm">
+                                <Link href="/stakeholders/incomplete">
+                                    <MessageSquareDashed className="size-4 opacity-75" />
+                                    Incomplete
                                 </Link>
                             </Button>
-                        )
+                            {!isEmpty && (
+                                <Button asChild size="sm">
+                                    <Link href="/stakeholders/new">
+                                        <Plus className="size-4 opacity-75" />
+                                        New persona
+                                    </Link>
+                                </Button>
+                            )}
+                        </div>
                     }
                 />
             }

@@ -69,7 +69,7 @@ export default function LinkResourcesPage() {
                     </Button>
                     <button
                         type="button"
-                        className="w-full max-w-[24rem] text-neutral-500 hover:text-neutral-300 text-sm underline-offset-4 hover:underline transition-colors cursor-pointer"
+                        className="w-full max-w-[24rem] text-neutral-500 hover:text-neutral-300 text-sm underline-offset-4 hover:underline transition-colors cursor-pointer disabled:pointer-events-none disabled:opacity-50"
                         disabled={isSubmitting}
                         onClick={onSkip}
                     >

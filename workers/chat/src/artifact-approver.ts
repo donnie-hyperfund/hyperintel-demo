@@ -1,7 +1,6 @@
 import { AIParamsType, runInferenceNoStream } from '@common/ai/inference/run-inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types/models';
 import { PublicError } from '@common/common/error.helpers';
-import { CloudflareQueueAdapter } from '@common/queue/embedding-queue.adapter';
 import { publishArtifactToUserScope } from '@/lib/artifacts/publish';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -196,11 +195,9 @@ export async function approveArtifactHandler(
 
     if (ctx.env.EMBEDDING_QUEUE && project) {
         try {
-            const embeddingQueue = new CloudflareQueueAdapter(ctx.env.EMBEDDING_QUEUE);
-
             // For internal documents: index AI-readable YAML
             // For client deliverables: index original content (no AI-readable version)
-            await embeddingQueue.send({
+            await ctx.env.EMBEDDING_QUEUE.send({
                 type: 'index_artifact_version',
                 projectId: project.id,
                 versionId: version.id,
