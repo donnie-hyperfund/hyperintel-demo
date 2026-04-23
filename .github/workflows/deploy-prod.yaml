@@ -15,6 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     steps:
+      - name: Verify branch
+        run: |
+          if [[ "${{ github.ref }}" != "refs/heads/prod" ]]; then
+            echo "::error::Must be run from the prod branch"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: ./.github/actions/init
@@ -41,7 +48,7 @@ jobs:
             [[ "$name" == _common || "$name" == node_modules || "$name" == objects ]] && continue
             [[ ! -f "$dir/wrangler.jsonc" ]] && continue
             echo "::group::Deploying $name"
-            if ! npx wrangler deploy --env=prod --config "$dir/wrangler.jsonc"; then
+            if ! npx wrangler deploy --config "$dir/wrangler.jsonc"; then
               echo "::error::Failed to deploy $name"
               failed=1
             fi
