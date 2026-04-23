@@ -1,23 +1,22 @@
 import { formatDistanceToNow } from 'date-fns';
 import { MessageSquare } from 'lucide-react';
 import Link from 'next/link';
+import { memo } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { CamelCaseDto } from '@/lib/api/client/types';
 import type { ChatDto } from '@/lib/schema/message';
+import { stripMarkdownDirectives } from '@/lib/utils';
 
 type IncompleteChatItemProps = {
     chat: CamelCaseDto<ChatDto>;
     basePath: string;
 };
 
-export function IncompleteChatItem({ chat, basePath }: IncompleteChatItemProps) {
+export const IncompleteChatItem = memo(function IncompleteChatItem({ chat, basePath }: IncompleteChatItemProps) {
     const createdAt = chat.createdAt ? new Date(chat.createdAt as string) : null;
     const timeAgo = createdAt ? formatDistanceToNow(createdAt, { addSuffix: true }) : null;
-    const preview = chat.firstMessageContent
-        ? chat.firstMessageContent.length > 120
-            ? `${chat.firstMessageContent.slice(0, 120)}...`
-            : chat.firstMessageContent
-        : 'No messages yet';
+
+    const preview = chat.firstMessageContent ? stripMarkdownDirectives(chat.firstMessageContent) : 'No messages yet';
 
     return (
         <Link
@@ -39,7 +38,7 @@ export function IncompleteChatItem({ chat, basePath }: IncompleteChatItemProps) 
             </div>
         </Link>
     );
-}
+});
 
 export function IncompleteChatItemSkeleton() {
     return (

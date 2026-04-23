@@ -18,9 +18,11 @@ type IncompleteChatsProps = {
 };
 
 export function IncompleteChats({ framework, basePath, emptyIcon, emptyTitle }: IncompleteChatsProps) {
-    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchIncompleteChatsInfinite(framework, {
-        limit: PAGE_SIZE,
-    });
+    const { data, error, isLoading, size, setSize, hasNextPage } = useFetchIncompleteChatsInfinite(
+        framework,
+        { limit: PAGE_SIZE },
+        { revalidateFirstPage: true },
+    );
 
     const chats = useMemo(() => data?.flatMap((page) => page.data) ?? [], [data]);
 
