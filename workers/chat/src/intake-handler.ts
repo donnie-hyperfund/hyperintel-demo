@@ -6,7 +6,9 @@
  */
 
 import { runAgentStream } from '@common/ai/agent';
+import { buildMessageUsage } from '@common/ai/agent/usage-builder';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
+import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
 import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -24,7 +26,9 @@ import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
+import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
+import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
@@ -320,6 +324,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
 
+        // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
+        if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
+
         const presetId = data.model ?? getDefaultPresetId(ctx.env);
         const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
         if (!resolved) {
@@ -399,6 +406,41 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         const isAborted = !!event.aborted;
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
+                        const errorMetadata = isError
+                            ? buildPublicErrorMetadata({
+                                  error: event.error!.raw,
+                                  fallbackMessage: event.error!.message,
+                                  requestId: ctx.requestId,
+                              })
+                            : null;
+                        if (isError && errorMetadata) {
+                            logWorkerError(
+                                'intake-handler',
+                                buildWorkerErrorLogContext({
+                                    error: event.error!.raw,
+                                    stage: 'done_ext',
+                                    chatId,
+                                    agentMessageId,
+                                    fallbackMessage: event.error!.message,
+                                    errorMetadata,
+                                }),
+                                event.error!.raw,
+                            );
+                        }
+
+                        // --- Cost calculation from apiUsage ---
+                        const apiUsage = event.apiUsage;
+                        let messageUsage: ReturnType<typeof buildMessageUsage> = null;
+                        if (apiUsage) {
+                            const pricing = await resolvePricing({
+                                apiUsage,
+                                modelId: inferenceParams.params?.model as string | undefined,
+                                presetId,
+                                allowed: ctx.env.ALLOWED_PRESETS,
+                                blocked: ctx.env.BLOCKED_PRESETS,
+                            });
+                            messageUsage = buildMessageUsage({ apiUsage, pricing });
+                        }
 
                         // --- Persist agent message to DB (using pre-generated ID) ---
                         let assistantMsg: ChatMessageEntity | null = null;
@@ -420,7 +462,8 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                                 metadata: {
                                     preset: presetId,
                                     inference: extractInferenceMetadata(inferenceParams),
-                                    ...(isError && { error: event.error!.message }),
+                                    ...(errorMetadata ?? {}),
+                                    ...(messageUsage && { usage: messageUsage }),
                                 },
                                 ...(isError && { is_error: true }),
                                 ...(isAborted && { is_aborted: true }),
@@ -431,6 +474,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
                         // Flush assistant message before linking versions (FK requires row to exist)
                         chat.active_agent_message_id = null;
+                        if (messageUsage?.cost != null) {
+                            chat.total_cost = Number(chat.total_cost ?? 0) + messageUsage.cost;
+                        }
                         await em!.flush();
 
                         // Link created document versions to the assistant message
@@ -442,10 +488,13 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                                 .execute();
                         }
 
-                        // Push terminal done event
+                        // Push terminal done event (totalCost is dev-only — matches chat-handler contract)
+                        const isDev = ctx.env.ENV === 'dev';
                         const doneEvent: StreamEvent = {
                             type: 'done',
+                            ...(isDev && chat.total_cost != null && { totalCost: Number(chat.total_cost) }),
                             ...(isError && { error: event.error!.message }),
+                            ...(errorMetadata && { messageMetadata: errorMetadata }),
                             ...(pendingDoneEvent?.outputType === 'tool' &&
                                 pendingDoneEvent.outputTool && {
                                     outputType: 'tool' as const,
@@ -472,8 +521,34 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
     } catch (error: any) {
-        console.error('[intake-handler] generation error:', error?.message ?? error, error?.stack);
-        await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'intake-handler');
-        await cleanupStreamDO(pusher, streamDO, ugStub, `intake:${chatId}`, error);
+        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        logWorkerError(
+            'intake-handler',
+            buildWorkerErrorLogContext({
+                error,
+                stage: 'catch',
+                chatId,
+                agentMessageId,
+                errorMetadata,
+            }),
+            error,
+        );
+        await persistErrorMessage({
+            em: em!,
+            chatId,
+            agentMessageId,
+            chat,
+            error,
+            errorMetadata,
+            label: 'intake-handler',
+        });
+        await cleanupStreamDO({
+            pusher,
+            streamDO,
+            ugStub,
+            topic: `intake:${chatId}`,
+            error,
+            errorMetadata,
+        });
     }
 }

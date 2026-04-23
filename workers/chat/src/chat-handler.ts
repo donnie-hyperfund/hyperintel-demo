@@ -1,7 +1,7 @@
 import { runAgentStream } from '@common/ai/agent';
-import type { MessageUsage } from '@common/ai/agent/usage-types';
+import { buildMessageUsage } from '@common/ai/agent/usage-builder';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
-import { calculateCost, ensurePricingCache, getModelPricing } from '@common/ai/inference/openrouter-pricing';
+import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
 import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
@@ -24,7 +24,9 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
+import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
+import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
 import { captureWorkerPostHogEvent } from './utils/posthog';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
@@ -562,59 +564,46 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
                         // --- Cost calculation from apiUsage ---
                         const apiUsage = event.apiUsage;
-                        let messageUsage: MessageUsage | null = null;
+                        let messageUsage: ReturnType<typeof buildMessageUsage> = null;
 
-                        if (apiUsage && (apiUsage.totalInputTokens > 0 || apiUsage.totalOutputTokens > 0)) {
-                            let totalCost: number | undefined;
-
-                            if (apiUsage.providerCost != null) {
-                                totalCost = apiUsage.providerCost;
-                            } else {
-                                // Try OpenRouter cached pricing (accurate, per-model from API)
-                                const modelId = inferenceParams.params?.model as string | undefined;
-                                const orPricing = modelId ? await getModelPricing(modelId) : undefined;
-                                if (orPricing) {
-                                    totalCost = calculateCost(orPricing, {
-                                        inputTokens: apiUsage.totalInputTokens,
-                                        outputTokens: apiUsage.totalOutputTokens,
-                                        reasoningTokens: apiUsage.totalReasoningTokens,
-                                        cacheReadTokens: apiUsage.cacheReadTokens,
-                                        cacheWriteTokens: apiUsage.cacheWriteTokens,
-                                    });
-                                } else {
-                                    // Fallback to preset-defined pricing
-                                    const preset = getAvailablePresets(
-                                        ctx.env.ALLOWED_PRESETS,
-                                        ctx.env.BLOCKED_PRESETS,
-                                    ).find((p) => p.id === presetId);
-                                    if (preset?.pricing) {
-                                        totalCost =
-                                            (apiUsage.totalInputTokens * preset.pricing.inputPer1M) / 1_000_000 +
-                                            (apiUsage.totalOutputTokens * preset.pricing.outputPer1M) / 1_000_000;
-                                    }
-                                }
-                            }
-
-                            messageUsage = {
-                                inputTokens: apiUsage.totalInputTokens,
-                                outputTokens: apiUsage.totalOutputTokens,
-                                ...(apiUsage.totalReasoningTokens && {
-                                    reasoningTokens: apiUsage.totalReasoningTokens,
-                                }),
-                                ...(apiUsage.cacheReadTokens && { cacheReadTokens: apiUsage.cacheReadTokens }),
-                                ...(apiUsage.cacheWriteTokens && { cacheWriteTokens: apiUsage.cacheWriteTokens }),
-                                ...(totalCost != null && { cost: totalCost }),
-                                segments: apiUsage.segments,
-                                providerIds: apiUsage.providerIds,
-                            };
+                        if (apiUsage) {
+                            const pricing = await resolvePricing({
+                                apiUsage,
+                                modelId: inferenceParams.params?.model as string | undefined,
+                                presetId,
+                                allowed: ctx.env.ALLOWED_PRESETS,
+                                blocked: ctx.env.BLOCKED_PRESETS,
+                            });
+                            messageUsage = buildMessageUsage({ apiUsage, pricing });
                         }
 
                         // --- Persist agent message to DB (using pre-generated ID) ---
                         let assistantMsg: ChatMessageEntity | null = null;
+                        const errorMetadata = isError
+                            ? buildPublicErrorMetadata({
+                                  error: event.error!.raw,
+                                  fallbackMessage: event.error!.message,
+                                  requestId: ctx.requestId,
+                              })
+                            : null;
+                        if (isError && errorMetadata) {
+                            logWorkerError(
+                                'chat-handler',
+                                buildWorkerErrorLogContext({
+                                    error: event.error!.raw,
+                                    stage: 'done_ext',
+                                    chatId,
+                                    agentMessageId,
+                                    fallbackMessage: event.error!.message,
+                                    errorMetadata,
+                                }),
+                                event.error!.raw,
+                            );
+                        }
                         const msgMetadata = {
                             preset: presetId,
                             inference: extractInferenceMetadata(inferenceParams),
-                            ...(isError && { error: event.error!.message }),
+                            ...(errorMetadata ?? {}),
                             ...(messageUsage && { usage: messageUsage }),
                         };
 
@@ -762,8 +751,15 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                   ...(msgMetadata.preset && { preset: msgMetadata.preset }),
                                   ...(msgMetadata.inference && { inference: msgMetadata.inference }),
                                   ...(msgMetadata.usage && { usage: msgMetadata.usage }),
+                                  ...(msgMetadata.error && { error: msgMetadata.error }),
+                                  ...(msgMetadata.errorCode && { errorCode: msgMetadata.errorCode }),
+                                  ...(msgMetadata.requestId && { requestId: msgMetadata.requestId }),
                               }
-                            : undefined;
+                            : {
+                                  ...(msgMetadata.error && { error: msgMetadata.error }),
+                                  ...(msgMetadata.errorCode && { errorCode: msgMetadata.errorCode }),
+                                  ...(msgMetadata.requestId && { requestId: msgMetadata.requestId }),
+                              };
 
                         const doneEvent: StreamEvent = {
                             type: 'done',
@@ -801,8 +797,27 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
-        console.error('[chat-handler] generation error:', error?.message ?? error, error?.stack);
-        await persistErrorMessage(em!, chatId, agentMessageId, chat, error, 'chat-handler');
+        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        logWorkerError(
+            'chat-handler',
+            buildWorkerErrorLogContext({
+                error,
+                stage: 'catch',
+                chatId,
+                agentMessageId,
+                errorMetadata,
+            }),
+            error,
+        );
+        await persistErrorMessage({
+            em: em!,
+            chatId,
+            agentMessageId,
+            chat,
+            error,
+            errorMetadata,
+            label: 'chat-handler',
+        });
         ctx.eCtx?.waitUntil(
             captureWorkerPostHogEvent(ctx, 'worker_chat_turn_failed', ctx.user.userId, {
                 project_id: chat.project?.id ?? null,
@@ -812,6 +827,13 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                 error_message: error?.message ?? 'Unknown error',
             }).catch((captureError) => console.error('[posthog] failed to capture chat failure:', captureError)),
         );
-        await cleanupStreamDO(pusher, streamDO, ugStub, `chat:${chatId}`, error);
+        await cleanupStreamDO({
+            pusher,
+            streamDO,
+            ugStub,
+            topic: `chat:${chatId}`,
+            error,
+            errorMetadata,
+        });
     }
 }

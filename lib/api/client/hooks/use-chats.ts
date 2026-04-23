@@ -63,6 +63,28 @@ export function useFetchChat(
     );
 }
 
+export function useFetchIncompleteChatsInfinite(
+    framework: string | undefined,
+    params: InfinitePaginationParams = { limit: 20 },
+    config?: SWRInfiniteConfiguration<PaginatedResponse<CamelCaseDto<ChatDto>>>,
+) {
+    const { getToken } = useAuth();
+
+    return useSWRInfinitePaginated<CamelCaseDto<ChatDto>>(
+        (pageIndex, previousPageData) => {
+            if (!framework) return null;
+            if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
+            return chatKeys.incompleteList(framework, { page: pageIndex + 1, limit: params.limit });
+        },
+        (key) => {
+            if (!framework) throw new Error('Framework is required');
+            const pageParams = key[key.length - 1] as PaginationParams;
+            return createChatApi(getToken).listIncomplete(framework, pageParams);
+        },
+        { revalidateOnFocus: false, revalidateFirstPage: false, ...config },
+    );
+}
+
 export function useUpdateChatName(chatId: string) {
     const { getToken } = useAuth();
 

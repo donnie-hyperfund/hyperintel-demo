@@ -4,6 +4,7 @@ import { frontendEnv } from '@/lib/env';
 import {
     ApproveArtifactActionDto,
     type AssociateUploadsDto,
+    type ClearDraftsDto,
     type ConfirmUploadDto,
     type DeleteArtifactDto,
     type ExportFormat,
@@ -282,6 +283,25 @@ export const associateUploads = (data: AssociateUploadsDto, accessToken: string)
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.AssociateAction, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    });
+};
+
+export const clearDrafts = (data: ClearDraftsDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ClearDraftsAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.ClearDraftsAction, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),

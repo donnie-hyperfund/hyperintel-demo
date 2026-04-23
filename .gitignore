@@ -21,3 +21,4 @@ tests/pw/.results/
 tests/pw/.auth/
 playwright-report/
 blob-report/
+.claude/worktrees

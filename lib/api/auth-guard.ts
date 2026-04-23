@@ -2,6 +2,7 @@ import { auth, currentUser } from '@clerk/nextjs/server';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { redirect } from 'next/navigation';
 import { type NextRequest, NextResponse } from 'next/server';
+import { getOrCreateRequestId, withRequestIdHeader } from '@/lib/api/request-id';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
 import type { ClerkUser } from '@/lib/types/clerk';
@@ -78,15 +79,19 @@ export async function assertAuthPage(): Promise<UserEntity> {
 
 export function withAuth(handler: AuthenticatedHandler) {
     return async (req: NextRequest): Promise<NextResponse> => {
+        const requestId = getOrCreateRequestId(req.headers);
         const { userId } = await auth();
 
         if (!userId) {
-            return NextResponse.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
+            return withRequestIdHeader(
+                NextResponse.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 }),
+                requestId,
+            );
         }
 
         const { em } = await getOrm();
         const user = await ensureUser(userId, em);
 
-        return handler(req, user);
+        return withRequestIdHeader(await handler(req, user), requestId);
     };
 }
