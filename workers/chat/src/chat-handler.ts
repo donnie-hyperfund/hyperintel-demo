@@ -705,6 +705,11 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                 project_name: chat.project?.name ?? null,
                                 chat_id: chatId,
                                 chat_name: chat.name ?? null,
+                                // chat.name is user-set and frequently null; chat_phase / chat_phase_index
+                                // are always populated and let the deploy-safety dashboard show e.g.
+                                // "Crystal — HIAI LinkedIn Page — Phase 3" when chat_name is missing.
+                                chat_phase: chat.phase,
+                                chat_phase_index: chat.phase_index,
                                 agent_message_id: agentMessageId,
                                 outcome: isError ? 'error' : isAborted ? 'aborted' : 'done',
                                 model: msgMetadata.inference?.model as string | undefined,
@@ -825,7 +830,11 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         ctx.eCtx?.waitUntil(
             captureWorkerPostHogEvent(ctx, 'worker_chat_turn_failed', ctx.user.userId, {
                 project_id: chat.project?.id ?? null,
+                project_name: chat.project?.name ?? null,
                 chat_id: chatId,
+                chat_name: chat.name ?? null,
+                chat_phase: chat.phase,
+                chat_phase_index: chat.phase_index,
                 agent_message_id: agentMessageId,
                 outcome: 'error',
                 error_message: error?.message ?? 'Unknown error',
