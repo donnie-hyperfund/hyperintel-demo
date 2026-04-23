@@ -46,7 +46,7 @@ const BASE_PRESETS: ModelPreset[] = [
     },
     {
         id: 'sonnet',
-        label: 'Sonnet 4.6',
+        label: 'Sonnet 4.5',
         description: 'Balanced',
         inference: {
             paramsType: AIParamsType.Anthropic,
