@@ -524,6 +524,22 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 const doc = s.streamingDocs.get(payload.name);
                 if (!doc) break;
 
+                if (payload.action === 'aborted' || payload.status === 'aborted') {
+                    ac?.updateArtifact(
+                        doc.artifactId,
+                        {
+                            isStreaming: false,
+                            isUpdating: false,
+                            progress: 0,
+                        },
+                        doc.version,
+                    );
+
+                    s.streamingDocs.delete(payload.name);
+                    flushActiveDocuments();
+                    break;
+                }
+
                 // For internal docs, the auto-generated summary is produced *inside*
                 // finalize_document BEFORE the tool returns — so the SSE order on the
                 // wire is: summary_start, summary_delta..., summary_complete, then this

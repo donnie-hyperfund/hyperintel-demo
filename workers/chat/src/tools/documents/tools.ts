@@ -113,6 +113,7 @@ export const DocumentToolGroup: AgentToolGroup = {
 ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '- For `patch_document` edits, provide `startLine`, `oldContent`, and `newContent`; `endLine` is optional and only narrows the search window.' : '- For `patch_document` edits, provide exactly `startLine`, `oldContent`, and `newContent`. The replacement span is inferred from `oldContent`.'}
 - Batch independent pending edits into a single \`patch_document\` call. If an edit heavily changes line counts above later edits, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors.
 - If you need to rewrite most of a document (>50% changing), use \`begin_document(mode="edit")\` and then \`write_document\` with \`behavior="replace"\` and the full replacement content instead of many patches.
+- If you decide to abandon the active draft without saving, call \`finalize_document({ action: "abort" })\`.
 - The pattern \`read → patch → read → patch\` is a wasteful anti-pattern. Read once, patch once (with all edits), finalize.
 
 ## Document Statuses
@@ -247,7 +248,13 @@ const PatchDocumentParams = z.object({
         .describe('List of edit operations to apply atomically.'),
 });
 
-const FinalizeDocumentParams = z.object({});
+const FinalizeDocumentParams = z.object({
+    action: z
+        .enum(['save', 'abort'])
+        .optional()
+        .default('save')
+        .describe('Finalize behavior: "save" persists the draft as a proposed version; "abort" discards the active draft without saving.'),
+});
 
 const ReadDocumentParams = z.object({
     name: z.string().min(1).describe('Document name to read.'),
@@ -550,22 +557,39 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
         },
 
         // ----------------------------------------------------------------
-        // finalize_document - Save as proposed version
+        // finalize_document - Save as proposed version or abort draft
         // ----------------------------------------------------------------
         {
             name: 'finalize_document' as const,
-            description: `Save the current editing draft as a proposed version.
+            description: `Finish the current editing draft.
 
 You MUST call this after begin_document or the content will be lost.
-The version is saved with status "proposed" - it will NOT be live until a user approves it.
-If a proposed version already exists, it will be marked as "superseded".`,
+Use action="save" to persist the draft as a proposed version.
+The saved version will NOT be live until a user approves it.
+If a proposed version already exists, it will be marked as "superseded".
+Use action="abort" to discard the active draft without saving.`,
             parameters: FinalizeDocumentParams,
-            executor: async (_input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
+            executor: async (input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
                 const { em, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
                 const scope = getScope(ctx);
 
                 try {
                     const draft = draftManager.requireCurrent();
+                    const action = input?.action ?? 'save';
+
+                    if (action === 'abort') {
+                        const discardedLines = countLines(draft.content);
+                        draftManager.discard();
+                        return {
+                            result: {
+                                action: 'aborted',
+                                name: draft.name,
+                                lines: discardedLines,
+                                status: 'aborted',
+                            },
+                            message: `Aborted draft "${draft.name}" without saving.`,
+                        };
+                    }
 
                     // Persist to database as proposed
                     const result = await upsertDocument(

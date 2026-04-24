@@ -239,11 +239,22 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
 
     const finalizeDoc: AgentTool<'finalize_document', any, TestToolCtx> = {
         name: 'finalize_document',
-        description: 'Save the current editing draft as a proposed version. MUST call after begin_document.',
-        parameters: z.object({}),
-        executor: () => {
+        description:
+            'Finish the current editing draft. Use action="save" to persist it or action="abort" to discard it.',
+        parameters: z.object({
+            action: z.enum(['save', 'abort']).optional().default('save'),
+        }),
+        executor: (input) => {
             try {
                 const draft = draftManager.requireCurrent();
+                if ((input.action ?? 'save') === 'abort') {
+                    const lines = countLines(draft.content);
+                    draftManager.discard();
+                    return {
+                        result: { action: 'aborted', name: draft.name, status: 'aborted', lines },
+                        message: `Aborted draft "${draft.name}" without saving.`,
+                    };
+                }
                 const result = store.upsert(
                     draft.name,
                     draft.title,
@@ -435,6 +446,37 @@ describe('Document tool contract (no inference)', () => {
 		) as any;
 		expect(replaceResult.error).toBeUndefined();
 		expect(draftManager.requireCurrent().content).toBe('Replacement only\n');
+	});
+
+	it('finalize_document action="abort" discards the draft without saving', () => {
+		const store = new InMemoryDocumentStore();
+		store.upsert('report.md', 'Report', 'Original content\n', false, 'Other');
+		const draftManager = new DraftManager();
+		const tools = createTestDocumentTools(store, draftManager);
+
+		const beginDoc = tools.find(t => t.name === 'begin_document')!;
+		const writeDoc = tools.find(t => t.name === 'write_document')!;
+		const finalizeDoc = tools.find(t => t.name === 'finalize_document')!;
+
+		beginDoc.executor!(
+			{ mode: 'edit', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
+			{ store, draftManager },
+		);
+		writeDoc.executor!(
+			{ content: 'Temporary replacement\n', behavior: 'replace' },
+			{ store, draftManager },
+		);
+
+		const abortResult = finalizeDoc.executor!(
+			{ action: 'abort' },
+			{ store, draftManager },
+		) as any;
+
+		expect(abortResult.error).toBeUndefined();
+		expect(abortResult.result.action).toBe('aborted');
+		expect(draftManager.hasActive()).toBe(false);
+		expect(store.find('report.md')?.content).toBe('Original content\n');
+		expect(store.find('report.md')?.version).toBe(1);
 	});
 });
 

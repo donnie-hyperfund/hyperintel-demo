@@ -48,10 +48,10 @@ export type DocumentEvent =
     | {
           type: 'document_complete';
           name: string;
-          version: number;
+          version?: number;
           lines: number;
           action: string;
-          status: 'proposed';
+          status: 'proposed' | 'aborted';
           supersededVersion?: number;
           summaryPending?: boolean;
       };
@@ -190,7 +190,23 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                 }
 
                 // finalize_document: emit document_complete and clear state
-                if (result.version !== undefined && result.lines !== undefined) {
+                if (result.action === 'aborted' && result.lines !== undefined) {
+                    const name = result.name || activeDoc?.name;
+                    if (name) {
+                        emit({
+                            type: 'document_complete',
+                            name,
+                            lines: result.lines,
+                            action: 'aborted',
+                            status: 'aborted',
+                        });
+                    }
+                    activeDoc = null;
+                    writeParser = null;
+                    accumulatedChars = 0;
+                    estimatedChars = 0;
+                    lastEmittedProgress = 0;
+                } else if (result.version !== undefined && result.lines !== undefined) {
                     const name = result.name || activeDoc?.name;
                     if (name) {
                         const completeEvent: DocumentEvent = {
