@@ -62,9 +62,7 @@ export function PendingDecisionBar() {
                 role="group"
                 aria-label="Assistant decision prompt"
             >
-                {active.context && (
-                    <p className="text-xs text-muted-foreground leading-snug">{active.context}</p>
-                )}
+                {active.context && <p className="text-xs text-muted-foreground leading-snug">{active.context}</p>}
                 <p className="text-sm font-medium text-foreground leading-snug">{active.question}</p>
 
                 {!otherMode && (

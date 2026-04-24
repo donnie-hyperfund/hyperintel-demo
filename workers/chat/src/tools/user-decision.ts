@@ -70,7 +70,11 @@ The user's click is returned to you as \`{ chosen: "<value>", label: "<label>" }
 // ============================================================================
 
 const DecisionOptionSchema = z.object({
-    value: z.string().min(1).max(64).describe('Short machine token returned to the agent when chosen (e.g. "edit_existing").'),
+    value: z
+        .string()
+        .min(1)
+        .max(64)
+        .describe('Short machine token returned to the agent when chosen (e.g. "edit_existing").'),
     label: z.string().min(1).max(120).describe('Human-readable button label shown to the user.'),
     description: z
         .string()

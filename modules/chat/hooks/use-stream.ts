@@ -435,11 +435,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         const rangeStart = Math.max(0, edit.startLine - 1);
                         const rangeEnd = Math.min(lines.length, edit.endLine);
                         const replacement = edit.newContent.split('\n');
-                        lines = [
-                            ...lines.slice(0, rangeStart),
-                            ...replacement,
-                            ...lines.slice(rangeEnd),
-                        ];
+                        lines = [...lines.slice(0, rangeStart), ...replacement, ...lines.slice(rangeEnd)];
                     }
                     doc.content = lines.join('\n');
 
