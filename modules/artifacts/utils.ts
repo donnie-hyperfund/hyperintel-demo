@@ -6,6 +6,10 @@ export const getLatestArtifactVersion = (artifact: Artifact) => {
     return artifact.proposedVersion ?? artifact.currentVersion;
 };
 
+export const getLatestArtifactVersionTitle = (artifact: Artifact): string => {
+    return getLatestArtifactVersion(artifact)?.title ?? '';
+};
+
 export const getLatestArtifactContent = (artifact: Artifact) => {
     return getLatestArtifactVersion(artifact)?.content ?? '';
 };

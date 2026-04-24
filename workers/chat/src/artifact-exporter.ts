@@ -29,7 +29,7 @@ export async function exportArtifactHandler(data: ExportArtifactQueryDto, ctx: C
     }
 
     if (format === 'docx') {
-        return await convertToDocx(version.content, version.artifact.title);
+        return await convertToDocx(version.content, version.title);
     }
 
     throw new PublicError(400, { message: `Unsupported format: ${format}`, code: 'UNSUPPORTED_FORMAT' });

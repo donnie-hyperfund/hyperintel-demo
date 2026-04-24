@@ -11,9 +11,6 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text' })
     key!: string;
 
-    @Property({ type: 'text' })
-    title!: string;
-
     @Property({ type: 'int', default: 1 })
     version!: number & Opt;
 

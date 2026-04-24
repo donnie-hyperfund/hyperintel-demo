@@ -127,7 +127,6 @@ export async function importArtifactsToProject(
             // Phase 1: Create artifact
             const artifact = new ArtifactEntity();
             artifact.key = source.key;
-            artifact.title = source.title;
             artifact.version = 1;
             artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
             const metadata: Record<string, unknown> = { importedFrom: artifactId };
@@ -146,6 +145,7 @@ export async function importArtifactsToProject(
             const version = new ArtifactVersionEntity();
             version.artifact = artifact;
             version.version = 1;
+            version.title = bestVersion.title;
             version.content = bestVersion.content;
             version.document_type = bestVersion.document_type;
             version.is_internal = bestVersion.is_internal;
@@ -234,7 +234,6 @@ export async function importPublicArtifactsToProject(em: EntityManager, projectI
             // Phase 1: Create project-scoped artifact
             const artifact = new ArtifactEntity();
             artifact.key = source.key;
-            artifact.title = source.title;
             artifact.version = 1;
             artifact.project = txEm.getReference('ProjectEntity', projectId) as any;
             artifact.metadata = { importedFrom: source.id, importedFromPublic: true };
@@ -246,6 +245,7 @@ export async function importPublicArtifactsToProject(em: EntityManager, projectI
             const version = new ArtifactVersionEntity();
             version.artifact = artifact;
             version.version = 1;
+            version.title = bestVersion.title;
             version.content = bestVersion.content;
             version.document_type = bestVersion.document_type;
             version.is_internal = bestVersion.is_internal;

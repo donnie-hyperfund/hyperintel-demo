@@ -9,13 +9,14 @@
  */
 
 import { NextRequest } from 'next/server';
-import { getTestEm, clearDatabase, closeTestOrm } from '@/tests/helpers/db';
-import { mockClerkNextjs, setMockClerkUser } from '@/tests/helpers/clerk-mock';
-import { UserEntity } from '@/lib/orm/entities/users/user.entity';
-import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
-import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
+import { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import { mockClerkNextjs, setMockClerkUser } from '@/tests/helpers/clerk-mock';
+import { clearDatabase, closeTestOrm, getTestEm } from '@/tests/helpers/db';
 
 mockClerkNextjs();
 
@@ -43,10 +44,16 @@ beforeAll(async () => {
     const chat = em.create(ChatEntity, { phase: 'chat', phase_index: 0, project });
 
     // Internal artifact — content must be redacted
-    const internalArtifact = em.create(ArtifactEntity, { key: 'secret-doc.md', title: 'Secret', version: 2, project });
+    const internalArtifact = em.create(ArtifactEntity, {
+        key: 'secret-doc.md',
+        version: 2,
+        project,
+        current_version: null!,
+    });
     const iv1 = em.create(ArtifactVersionEntity, {
         artifact: internalArtifact,
         version: 1,
+        title: 'Secret',
         content: SECRET,
         ai_content: AI_SECRET,
         status: 'approved',
@@ -55,6 +62,7 @@ beforeAll(async () => {
     const iv2 = em.create(ArtifactVersionEntity, {
         artifact: internalArtifact,
         version: 2,
+        title: 'Secret',
         content: SECRET + '\nv2',
         ai_content: AI_SECRET + '\nv2',
         status: 'proposed',
@@ -65,13 +73,14 @@ beforeAll(async () => {
     // Non-internal artifact — content must be exposed
     const publicArtifact = em.create(ArtifactEntity, {
         key: 'deliverable.md',
-        title: 'Deliverable',
         version: 2,
         project,
+        current_version: null!,
     });
     const pv1 = em.create(ArtifactVersionEntity, {
         artifact: publicArtifact,
         version: 1,
+        title: 'Deliverable',
         content: PUBLIC_CONTENT,
         ai_content: PUBLIC_AI,
         status: 'approved',
@@ -81,6 +90,7 @@ beforeAll(async () => {
     const pv2 = em.create(ArtifactVersionEntity, {
         artifact: publicArtifact,
         version: 2,
+        title: 'Deliverable',
         content: PUBLIC_CONTENT + '\nv2',
         ai_content: PUBLIC_AI + '\nv2',
         status: 'proposed',

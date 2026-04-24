@@ -148,7 +148,6 @@ export type PaginationState = {
 export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     id: string;
     key: string;
-    title: string;
     isLoading?: boolean;
     isStreaming?: boolean;
     isUpdating?: boolean;

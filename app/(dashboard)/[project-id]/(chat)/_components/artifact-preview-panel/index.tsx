@@ -2,7 +2,11 @@
 
 import { FileText, Loader2 } from 'lucide-react';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
-import { getLatestArtifactContent, getLatestArtifactVersion } from '@/modules/artifacts/utils';
+import {
+    getLatestArtifactContent,
+    getLatestArtifactVersion,
+    getLatestArtifactVersionTitle,
+} from '@/modules/artifacts/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
 type ArtifactPreviewPanelProps = {
@@ -31,7 +35,8 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
                         <Loader2 className="size-12 mx-auto animate-spin text-primary" />
                         <div className="space-y-1">
                             <p className="text-sm font-medium text-foreground">
-                                {currentArtifact?.title ?? 'Loading document...'}
+                                {(currentArtifact && getLatestArtifactVersionTitle(currentArtifact)) ||
+                                    'Loading document...'}
                             </p>
                             <p className="text-xs text-muted-foreground">Fetching content</p>
                         </div>

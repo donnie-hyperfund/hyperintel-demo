@@ -95,9 +95,9 @@ interface TestToolCtx {
 	draftManager: DraftManager;
 }
 
-function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: DraftManager) {
-	const ctx: TestToolCtx = { store, draftManager };
+const TEST_ALLOW_EXPLICIT_PATCH_END_LINE = false;
 
+function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: DraftManager) {
 	const beginDoc: AgentTool<'begin_document', any, TestToolCtx> = {
 		name: 'begin_document',
 		description: 'Start a document editing draft session. Modes: "create" (new doc), "edit" (modify existing). MUST call finalize_document when done.',
@@ -159,21 +159,38 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
 		parameters: z.object({
 			edits: z.array(z.object({
 				startLine: z.number().int().positive(),
-				endLine: z.number().int().positive(),
+				...(TEST_ALLOW_EXPLICIT_PATCH_END_LINE
+					? { endLine: z.number().int().positive().optional().nullable() }
+					: {}),
 				oldContent: z.string(),
 				newContent: z.string(),
 			})).min(1),
 		}),
-		executor: (input) => {
+		executor: (input, _ctx, _eCtx, _history, toolCallId) => {
 			try {
 				const draft = draftManager.requireCurrent();
-				const editOps: EditOperation[] = input.edits.map(e => ({
-					startLine: e.startLine, endLine: e.endLine, oldContent: e.oldContent, newContent: e.newContent,
+				const editOps: EditOperation[] = input.edits.map((e: {
+					startLine: number;
+					endLine?: number | null;
+					oldContent: string;
+					newContent: string;
+				}) => ({
+					startLine: e.startLine,
+					endLine: TEST_ALLOW_EXPLICIT_PATCH_END_LINE ? e.endLine : undefined,
+					oldContent: e.oldContent,
+					newContent: e.newContent,
 				}));
 				const result = applyEdits(draft.content, editOps);
 				if (!result.success) return { error: result.error };
 				draftManager.setContent(result.newContent!);
-				return { status: 'edited', editsApplied: input.edits.length, linesNow: result.linesNow };
+				if (toolCallId && result.appliedEdits) {
+					draftManager.setAppliedEdits(toolCallId, result.appliedEdits);
+				}
+				return {
+					status: 'edited',
+					editsApplied: input.edits.length,
+					linesNow: result.linesNow,
+				};
 			} catch (err: any) {
 				return { error: err.message };
 			}
@@ -513,7 +530,7 @@ describe.skipIf(!API_KEY || process.env.TEST_LLM !== 'true')('Agent document too
 		expect(getDoneEvent(events)).toBeDefined();
 
 		// All called tools should be from our defined set
-		const validToolNames = new Set(tools.map(t => t.name));
+		const validToolNames = new Set<string>(tools.map(t => t.name));
 		for (const tc of toolCalls) {
 			expect(validToolNames.has(tc.tool)).toBe(true);
 		}

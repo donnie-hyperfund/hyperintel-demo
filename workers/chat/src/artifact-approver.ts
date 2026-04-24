@@ -130,7 +130,7 @@ export async function approveArtifactHandler(
     });
 
     // Classify document to determine if AI-readable YAML should be generated
-    const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.artifact.title);
+    const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.title);
 
     console.log('[approveArtifact] Document classification:', {
         documentKey: version.artifact.key,

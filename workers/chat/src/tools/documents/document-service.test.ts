@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyEdits, type EditOperation } from './document-service';
+import { applyEdits, countLines, type EditOperation } from './document-service';
 
 const DOC = [
 	'# Title',
@@ -20,7 +20,7 @@ const DOC = [
 	'',
 ].join('\n');
 
-function edit(partial: Partial<EditOperation> & Pick<EditOperation, 'startLine' | 'endLine' | 'oldContent' | 'newContent'>): EditOperation {
+function edit(partial: Pick<EditOperation, 'startLine' | 'oldContent' | 'newContent'> & Partial<EditOperation>): EditOperation {
 	return partial;
 }
 
@@ -69,6 +69,94 @@ describe('applyEdits', () => {
 			expect(result.newContent).toContain('## Section 1');
 			expect(result.newContent).toContain('## Section 2 (Updated)');
 			expect(result.newContent).toContain('*Sources: Some source (2026)*');
+		});
+	});
+
+	describe('patch normalization', () => {
+		it('matches oldContent with CRLF line endings against LF document content', () => {
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 5,
+					endLine: 6,
+					oldContent: 'Paragraph one content.\r\nMore text here.',
+					newContent: 'Replacement A.\r\nReplacement B.',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.newContent).toContain('Replacement A.\nReplacement B.');
+			expect(result.newContent).not.toContain('\r\n');
+		});
+
+		it('normalizes CRLF document content before matching and writing output', () => {
+			const crlfDoc = DOC.replace(/\n/g, '\r\n');
+			const result = applyEdits(crlfDoc, [
+				edit({
+					startLine: 5,
+					endLine: 6,
+					oldContent: 'Paragraph one content.\nMore text here.',
+					newContent: 'Normalized replacement.',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.newContent).toContain('Normalized replacement.');
+			expect(result.newContent).not.toContain('\r\n');
+		});
+
+		it('infers endLine from oldContent when omitted', () => {
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 5,
+					oldContent: 'Paragraph one content.\nMore text here.',
+					newContent: 'Inferred range replacement.',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.newContent).toContain('Inferred range replacement.');
+			expect(result.linesNow).toBe(countLines(DOC) - 1);
+		});
+
+		it('tolerates a single trailing newline in oldContent', () => {
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 5,
+					oldContent: 'Paragraph one content.\n',
+					newContent: 'Trailing newline tolerated.',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.newContent).toContain('Trailing newline tolerated.');
+		});
+
+		it('strips read_document line-number prefixes when every copied line is numbered', () => {
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 5,
+					oldContent: '5: Paragraph one content.\n6: More text here.',
+					newContent: 'Copied viewport replacement.',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.newContent).toContain('Copied viewport replacement.');
+			expect(result.newContent).not.toContain('Paragraph one content.');
+		});
+
+		it('does not strip numbered prefixes unless they look like the copied viewport', () => {
+			const content = ['1: Actual content', '3: Non-sequential content'].join('\n');
+			const result = applyEdits(content, [
+				edit({
+					startLine: 1,
+					oldContent: '1: Actual content\n3: Non-sequential content',
+					newContent: 'Preserved literal prefixes.',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.newContent).toBe('Preserved literal prefixes.');
 		});
 	});
 
@@ -377,6 +465,121 @@ describe('applyEdits', () => {
 			const result = applyEdits(DOC, []);
 			expect(result.success).toBe(true);
 			expect(result.newContent).toBe(DOC);
+		});
+	});
+
+	describe('appliedEdits — canonical output for stream replay', () => {
+		it('returns resolved line range, full-range oldContent, and full-range newContent', () => {
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 5,
+					endLine: 6,
+					oldContent: 'Paragraph one content.\nMore text here.',
+					newContent: 'Replaced.',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.appliedEdits).toHaveLength(1);
+			const [applied] = result.appliedEdits!;
+			expect(applied.startLine).toBe(5);
+			expect(applied.endLine).toBe(6);
+			// oldContent is the FULL range text, not just the matched substring
+			expect(applied.oldContent).toBe('Paragraph one content.\nMore text here.');
+			expect(applied.newContent).toBe('Replaced.');
+		});
+
+		it('reports the resolved startLine after wiggle correction', () => {
+			// Section 2 is at line 8, model points to line 10 (off by 2)
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 10,
+					endLine: 10,
+					oldContent: '## Section 2',
+					newContent: '## Section 2 (fixed)',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			const [applied] = result.appliedEdits!;
+			expect(applied.startLine).toBe(8);
+			expect(applied.endLine).toBe(8);
+			expect(applied.oldContent).toBe('## Section 2');
+		});
+
+		it('reports normalized (LF) oldContent even when input was CRLF', () => {
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 5,
+					endLine: 6,
+					oldContent: 'Paragraph one content.\r\nMore text here.',
+					newContent: 'Replaced.\r\n',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			const [applied] = result.appliedEdits!;
+			expect(applied.oldContent).not.toContain('\r');
+			expect(applied.newContent).not.toContain('\r');
+		});
+
+		it('reports oldContent with viewport prefixes stripped when the backend stripped them', () => {
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 5,
+					oldContent: '5: Paragraph one content.\n6: More text here.',
+					newContent: 'Replaced.',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			const [applied] = result.appliedEdits!;
+			// Emitted oldContent is the actual range text — no "N: " prefixes
+			expect(applied.oldContent).toBe('Paragraph one content.\nMore text here.');
+		});
+
+		it('coordinates reflect content state AFTER previous edits (multi-edit replay invariant)', () => {
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 1,
+					endLine: 1,
+					oldContent: '# Title',
+					newContent: '# New',
+				}),
+				edit({
+					startLine: 8,
+					endLine: 8,
+					oldContent: '## Section 2',
+					newContent: '## Updated Section 2',
+				}),
+			]);
+
+			expect(result.success).toBe(true);
+			expect(result.appliedEdits).toHaveLength(2);
+			// Forward replay of appliedEdits must reproduce newContent.
+			let replayed = DOC.replace(/\r\n?/g, '\n').split('\n');
+			for (const e of result.appliedEdits!) {
+				replayed = [
+					...replayed.slice(0, e.startLine - 1),
+					...e.newContent.split('\n'),
+					...replayed.slice(e.endLine),
+				];
+			}
+			expect(replayed.join('\n')).toBe(result.newContent);
+		});
+
+		it('omits appliedEdits on failure', () => {
+			const result = applyEdits(DOC, [
+				edit({
+					startLine: 1,
+					endLine: 1,
+					oldContent: 'DOES NOT EXIST',
+					newContent: 'X',
+				}),
+			]);
+
+			expect(result.success).toBe(false);
+			expect(result.appliedEdits).toBeUndefined();
 		});
 	});
 });

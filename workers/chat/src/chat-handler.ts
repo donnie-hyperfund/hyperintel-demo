@@ -244,11 +244,16 @@ export async function chatActionHandler(
     const userMessageId = crypto.randomUUID();
     const agentMessageId = crypto.randomUUID();
 
-    // Validate ownership
-    const chat = await em!.findOneOrFail(ChatEntity, {
-        id: chatId,
-        project: { user: { clerkId: ctx.user.userId } },
-    });
+    // Validate ownership. Populate `project` so downstream analytics events can
+    // include `project_name` without an extra round trip.
+    const chat = await em!.findOneOrFail(
+        ChatEntity,
+        {
+            id: chatId,
+            project: { user: { clerkId: ctx.user.userId } },
+        },
+        { populate: ['project'] },
+    );
 
     const isNudge = message === null;
 
@@ -540,7 +545,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         await runStreamLoop({
             stream,
             push: pusher.push,
-            docEventsCtx: { em: em!, projectId: agentCtx.projectId },
+            docEventsCtx: { em: em!, projectId: agentCtx.projectId, draftManager: agentCtx.draftManager },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
@@ -702,7 +707,14 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         ctx.eCtx?.waitUntil(
                             captureWorkerPostHogEvent(ctx, 'worker_chat_turn_persisted', ctx.user.userId, {
                                 project_id: chat.project?.id ?? null,
+                                project_name: chat.project?.name ?? null,
                                 chat_id: chatId,
+                                chat_name: chat.name ?? null,
+                                // chat.name is user-set and frequently null; chat_phase / chat_phase_index
+                                // are always populated and let the deploy-safety dashboard show e.g.
+                                // "Crystal — HIAI LinkedIn Page — Phase 3" when chat_name is missing.
+                                chat_phase: chat.phase,
+                                chat_phase_index: chat.phase_index,
                                 agent_message_id: agentMessageId,
                                 outcome: isError ? 'error' : isAborted ? 'aborted' : 'done',
                                 model: msgMetadata.inference?.model as string | undefined,
@@ -824,7 +836,11 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         ctx.eCtx?.waitUntil(
             captureWorkerPostHogEvent(ctx, 'worker_chat_turn_failed', ctx.user.userId, {
                 project_id: chat.project?.id ?? null,
+                project_name: chat.project?.name ?? null,
                 chat_id: chatId,
+                chat_name: chat.name ?? null,
+                chat_phase: chat.phase,
+                chat_phase_index: chat.phase_index,
                 agent_message_id: agentMessageId,
                 outcome: 'error',
                 error_message: error?.message ?? 'Unknown error',
