@@ -12,6 +12,7 @@ import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
 import {
     ApproveArtifactActionSchema,
     AssociateUploadsSchema,
+    ClearDraftsSchema,
     ConfirmUploadSchema,
     DeleteArtifactSchema,
     ExportArtifactQuerySchema,
@@ -40,6 +41,7 @@ import { summarizeActionHandler } from './summarizer';
 import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './uploads/artifact-uploader';
 import { associateUploadsHandler } from './uploads/associate-handler';
 import { cleanupStaleUploads } from './uploads/cleanup';
+import { clearDraftsHandler } from './uploads/draft-clear-handler';
 import {
     ConfirmImageUploadSchema,
     confirmImageUploadHandler,
@@ -241,6 +243,12 @@ app.post('/artifacts/import', zValidator('json', ImportArtifactsActionSchema), a
 app.post('/uploads/associate', zValidator('json', AssociateUploadsSchema), async (c) => {
     return wrapWorker(async () => {
         return await associateUploadsHandler(c.req.valid('json'), ctxWithAlias(c));
+    });
+});
+
+app.post('/uploads/drafts/clear', zValidator('json', ClearDraftsSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await clearDraftsHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 

@@ -115,6 +115,7 @@ export const ArtifactVersionDtoSchema = z.object({
         .nullable()
         .optional(),
     version: z.number().int(),
+    title: z.string(),
     content: z.string(),
     status: VersionStatusSchema,
     is_uploaded: z.boolean().optional(),
@@ -131,7 +132,6 @@ export type ArtifactVersionDto = z.infer<typeof ArtifactVersionDtoSchema>;
 export const ArtifactDtoSchema = z.object({
     id: z.string().uuid(),
     key: z.string(),
-    title: z.string(),
     version: z.number().int(),
     project: z
         .union([z.string().uuid(), z.object({}).passthrough()])
@@ -325,6 +325,11 @@ export const AssociateUploadsSchema = z
         message: 'At least one of artifactIds or imageFileIds is required',
     });
 export type AssociateUploadsDto = z.infer<typeof AssociateUploadsSchema>;
+
+export const ClearDraftsSchema = z.object({
+    artifactIds: z.array(z.string().uuid()).min(1).max(50),
+});
+export type ClearDraftsDto = z.infer<typeof ClearDraftsSchema>;
 
 export const EXPORT_FORMATS = ['docx'] as const;
 export const ExportFormatSchema = z.enum(EXPORT_FORMATS);

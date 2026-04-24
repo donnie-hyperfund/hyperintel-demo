@@ -11,9 +11,6 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'text' })
     key!: string;
 
-    @Property({ type: 'text' })
-    title!: string;
-
     @Property({ type: 'int', default: 1 })
     version!: number & Opt;
 
@@ -43,6 +40,10 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     /** PECP artifacts are public summaries of internal documents, excluded from list endpoints */
     @Property({ type: 'boolean', default: false })
     is_pecp!: boolean & Opt;
+
+    /** Chat-input uploads start as drafts and are hidden from the project resources list until the send flow clears the flag. */
+    @Property({ type: 'boolean', default: false })
+    is_draft!: boolean & Opt;
 
     @Property({ type: 'json', nullable: true })
     metadata?: Nullable<Record<string, unknown>>;

@@ -175,7 +175,16 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const documents = extractDocuments(messages);
         const basePrompt = await getSummarizerPrompt(ctx);
 
-        let instructions = `${basePrompt}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
+        // Reinforcement — the summary text must NOT contain Section 13 / the Next-Phase
+        // Initialization Blurb. The blurb is delivered separately via the `generate_blurb`
+        // terminal tool call.
+        const BLURB_REINFORCEMENT = `## Summary Content Rule
+
+The summary text (Output 1) MUST NOT contain the Next-Phase Initialization Blurb (Section 13 of the Completion Brief). Do NOT paste it, rephrase it, quote it, or include a "Next-Phase Initialization Blurb" heading followed by its content anywhere in the summary.
+
+The blurb is delivered separately via the \`generate_blurb\` tool. After finishing the summary text, call \`generate_blurb\` EXACTLY ONCE with Section 13 copied VERBATIM as the \`blurb\` parameter — raw content only (no header, no intro phrase, no surrounding commentary). This is a TERMINAL action and ends the run.`;
+
+        let instructions = `${basePrompt}\n\n---\n\n${BLURB_REINFORCEMENT}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
 
         if (documents.length > 0) {
             instructions += `\n\n## Documents Created During This Conversation\n\n`;
@@ -212,7 +221,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             );
             const cbContent = cbArtifact?.current_version?.content;
             if (cbContent) {
-                instructions += `\n\n## Approved Completion Brief (reference)\n\nThe following is the approved Completion Brief for this phase. It contains a "Next-Phase Initialization Blurb" (Section 13).\n\n**CRITICAL OUTPUT RULES:**\n1. Your text response is the summary ONLY. Do NOT include Section 13 / the Next-Phase Initialization Blurb anywhere in the summary text.\n2. After finishing the summary text, you MUST call the \`generate_blurb\` tool EXACTLY ONCE, passing Section 13 verbatim as the \`blurb\` parameter (raw content only — no header, no intro phrase, no surrounding commentary).\n3. Calling \`generate_blurb\` is a TERMINAL action and ends the summarization.\n\n${cbContent}`;
+                instructions += `\n\n## Approved Completion Brief (reference)\n\nThe following is the approved Completion Brief for this phase. Section 13 is the "Next-Phase Initialization Blurb" — use it verbatim as the \`blurb\` parameter when you call the \`generate_blurb\` tool (per the OUTPUT CONTRACT above). Do not echo it in the summary text.\n\n${cbContent}`;
             }
         }
 
@@ -381,7 +390,8 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             }
         }
 
-        // Broadcast chat_created to all user WS connections (fire-and-forget)
+        // Broadcast chat_created to all user WS connections (fire-and-forget) — frontend uses this
+        // to navigate to the new chat as soon as it exists.
         ugStub
             .broadcastToAll({
                 type: 'user_event',
@@ -390,30 +400,31 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
             })
             .catch(console.error);
 
-        // Send the initiation blurb as a user message on the new chat via the normal chat handler —
-        // it persists the user message, broadcasts messageCreated on `chat:${newChat.id}`, and runs
-        // the next-phase agent generation streaming to that same topic. Extend Worker lifetime via
-        // ctx.waitUntil so the generation outlives this SSE response.
-        if (blurbContent) {
-            const initPromise = (async () => {
-                try {
-                    const result = await chatActionHandler({ chatId: newChat.id, message: blurbContent }, ctx, {
-                        onEvent: () => {},
-                    });
-                    const generation = (result as ChatActionResult).generation;
-                    if (generation) await generation;
-                } catch (err) {
-                    console.error('[summarizer] next-phase initiation failed:', err);
-                }
-            })();
-            if (ctx.eCtx) {
-                ctx.eCtx.waitUntil(initPromise);
-            }
-        }
-
-        // Push terminal done event with newChatId
+        // Push the summarizer's terminal done event now so the frontend can close the summary UI
+        // and finalize navigation. The SSE stream is NOT closed yet — we keep it open (heartbeats
+        // flow via the keepalive in summarizeActionHandler) so the Worker stays alive while the
+        // next-phase generation runs below.
         await pusher.waitAll();
         await streamDO.push([{ type: 'done', newChatId: newChat.id }], pusher.seq);
+
+        // Send the initiation blurb as a user message on the new chat via the normal chat handler.
+        // It persists the user message, broadcasts messageCreated on `chat:${newChat.id}`, and runs
+        // the next-phase agent generation streaming to that same topic.
+        //
+        // Run INLINE (not in ctx.waitUntil) — waitUntil has a ~30s grace after the Worker invocation
+        // ends, which isn't enough for a full LLM generation. Inline, the summarizer's own SSE stream
+        // keeps the Worker alive via the GenerationProxyDO that holds its fetch open.
+        if (blurbContent) {
+            try {
+                const result = await chatActionHandler({ chatId: newChat.id, message: blurbContent }, ctx, {
+                    onEvent: () => {},
+                });
+                const generation = (result as ChatActionResult).generation;
+                if (generation) await generation;
+            } catch (err) {
+                console.error('[summarizer] next-phase initiation failed:', err);
+            }
+        }
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {

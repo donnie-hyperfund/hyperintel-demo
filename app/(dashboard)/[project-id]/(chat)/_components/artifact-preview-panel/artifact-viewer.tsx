@@ -7,7 +7,11 @@ import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdow
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { IS_DEV } from '@/lib/config';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
-import { getLatestArtifactVersion, getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
+import {
+    getLatestArtifactVersionContent,
+    getLatestArtifactVersion,
+    getLatestArtifactVersionTitle,
+} from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import type { Artifact } from '@/modules/chat/types';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
@@ -60,7 +64,8 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         suppressVersion,
     } = useArtifactProcessing();
 
-    const { title, id: artifactId, key: artifactKey, progress } = artifact;
+    const { id: artifactId, key: artifactKey, progress } = artifact;
+    const title = getLatestArtifactVersionTitle(artifact);
     const isStreaming = !!artifact.isStreaming;
     const isUpdating = !!artifact.isUpdating;
 

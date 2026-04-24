@@ -37,16 +37,6 @@ vi.mock('../hooks/use-project-resource-upload-sync', () => ({
     useProjectResourceUploadSync: vi.fn(),
 }));
 
-vi.mock('../providers/pending-uploads-provider', () => ({
-    usePendingUploads: () => ({
-        pendingArtifactIds: [],
-        addPendingArtifactId: vi.fn(),
-        removePendingArtifactId: vi.fn(),
-        replacePendingArtifactIds: vi.fn(),
-        clearPendingArtifactIds: vi.fn(),
-    }),
-}));
-
 vi.mock('@/hooks/use-toast', () => ({
     toast: vi.fn(),
 }));
@@ -232,5 +222,97 @@ describe('FileUploadProvider image routing', () => {
             projectId: '22222222-2222-2222-2222-222222222222',
             source: 'project-resources',
         });
+    });
+});
+
+describe('FileUploadProvider draft tracking', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        presignUploadMock.mockResolvedValue({
+            ok: true,
+            json: async () => ({
+                uploadUrl: 'https://upload.test/object',
+                artifactId: 'artifact-1',
+                versionId: 'version-1',
+                fileId: 'file-1',
+                key: 'doc.pdf',
+            }),
+        });
+        confirmUploadMock.mockResolvedValue({
+            ok: true,
+            json: async () => ({ success: true }),
+        });
+        // Scoped chat-input uploads enter 'processing' after confirm and start polling the status
+        // endpoint; respond with 'processed' so the poll resolves instead of retrying in the background.
+        vi.stubGlobal(
+            'fetch',
+            vi.fn((input: string | URL | Request) => {
+                const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+                if (url.includes('/api/artifacts/files/status')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: async () => ({ files: [{ fileId: 'file-1', status: 'processed' }] }),
+                    } as Response);
+                }
+                return Promise.resolve({ ok: true } as Response);
+            }),
+        );
+    });
+
+    it('tracks chat-input drafts even when a chatId is already present at upload', async () => {
+        const { result } = renderHook(() => useFileUploadContext(), {
+            wrapper: makeWrapper({
+                projectId: '22222222-2222-2222-2222-222222222222',
+                chatId: '11111111-1111-1111-1111-111111111111',
+                trackAsPending: true,
+            }),
+        });
+
+        const file = new File(['pdf-bytes'], 'doc.pdf', { type: 'application/pdf' });
+
+        act(() => {
+            result.current.addFiles([file]);
+        });
+
+        await waitFor(() => expect(result.current.files[0]?.artifactId).toBe('artifact-1'));
+
+        // Draft list contains the artifact regardless of scope.
+        expect(result.current.consumeDraftArtifactIds()).toEqual(['artifact-1']);
+        // Staged list stays empty because the upload had full scope at upload time.
+        expect(result.current.consumeStagedArtifactIds()).toEqual([]);
+    });
+
+    it('tracks the same id on both draft and staged lists for intake-pre-chat uploads', async () => {
+        const { result } = renderHook(() => useFileUploadContext(), {
+            wrapper: makeWrapper({ trackAsPending: true }),
+        });
+
+        const file = new File(['pdf-bytes'], 'doc.pdf', { type: 'application/pdf' });
+
+        act(() => {
+            result.current.addFiles([file]);
+        });
+
+        await waitFor(() => expect(result.current.files[0]?.artifactId).toBe('artifact-1'));
+
+        expect(result.current.consumeDraftArtifactIds()).toEqual(['artifact-1']);
+        expect(result.current.consumeStagedArtifactIds()).toEqual(['artifact-1']);
+    });
+
+    it('does not track project-resources uploads as drafts', async () => {
+        const { result } = renderHook(() => useFileUploadContext(), {
+            wrapper: makeWrapper({ projectId: '22222222-2222-2222-2222-222222222222', trackAsPending: false }),
+        });
+
+        const file = new File(['pdf-bytes'], 'doc.pdf', { type: 'application/pdf' });
+
+        act(() => {
+            result.current.addFiles([file]);
+        });
+
+        await waitFor(() => expect(result.current.files[0]?.artifactId).toBe('artifact-1'));
+
+        expect(result.current.consumeDraftArtifactIds()).toEqual([]);
+        expect(result.current.consumeStagedArtifactIds()).toEqual([]);
     });
 });

@@ -133,6 +133,40 @@ function buildOwnershipConditions(
     return sharedCondition ? [ownCondition, sharedCondition] : [ownCondition];
 }
 
+function latestVersionTitleMatches(artifactAlias: string, search: string) {
+    return raw(
+        `exists (
+            select 1
+            from artifact_versions lv
+            where lv.artifact_id = ${artifactAlias}.id
+              and lv.version = (
+                  select max(lv2.version)
+                  from artifact_versions lv2
+                  where lv2.artifact_id = ${artifactAlias}.id
+              )
+              and lv.title ILIKE ?
+        )`,
+        [`%${escapeIlike(search)}%`],
+    );
+}
+
+function visibleResourceTitleMatches(artifactAlias: string, currentVersionAlias: string, search: string) {
+    const pattern = `%${escapeIlike(search)}%`;
+    return raw(
+        `(
+            exists (
+                select 1
+                from artifact_versions pv_title
+                where pv_title.artifact_id = ${artifactAlias}.id
+                  and pv_title.status = 'proposed'
+                  and pv_title.title ILIKE ?
+            )
+            or ${currentVersionAlias}.title ILIKE ?
+        )`,
+        [pattern, pattern],
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Project artifact handlers
 // ---------------------------------------------------------------------------
@@ -352,7 +386,7 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
         .orderBy({ 'a.created_at': 'DESC' });
 
     if (queryData.search) {
-        query.andWhere(raw('a.title ILIKE ?', [`%${escapeIlike(queryData.search)}%`]));
+        query.andWhere(latestVersionTitleMatches('a', queryData.search));
     }
 
     // Filter by document_type through versions (an artifact may have the type on any version)
@@ -574,7 +608,8 @@ export async function handleListResources(
     const query = em.createQueryBuilder(ArtifactEntity, 'a').select('a.*');
 
     if (projectId) {
-        // Project-scoped: imported resources + uploaded files
+        // Project-scoped: imported resources + uploaded files. Chat-input drafts are hidden until
+        // the message is sent (the send flow flips is_draft=false).
         query
             .leftJoin('a.project', 'p')
             .leftJoinAndSelect('a.current_version', 'cv')
@@ -583,6 +618,7 @@ export async function handleListResources(
                 'p.user': user.id,
                 'p.archived_at': null,
                 'a.is_pecp': false,
+                'a.is_draft': false,
                 $or: [{ [raw("a.metadata->>'importedFrom'")]: { $ne: null } }, { 'cv.is_uploaded': true }],
                 $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
             });
@@ -621,7 +657,7 @@ export async function handleListResources(
         }
 
         if (search) {
-            query.andWhere(raw('a.title ILIKE ?', [`%${escapeIlike(search)}%`]));
+            query.andWhere(visibleResourceTitleMatches('a', 'cv', search));
         }
 
         // Exclude artifacts published from a specific project
@@ -652,9 +688,10 @@ export async function handleListResources(
 
     const data = nodes.map((a: ArtifactEntity) => {
         const ownerId = typeof a.user === 'object' && a.user ? a.user.id : a.user;
+        const proposed = proposedMap.get(a.id);
         return {
             ...wrap(a).toJSON(),
-            proposed_version: proposedMap.get(a.id) ? wrap(proposedMap.get(a.id)!).toJSON() : undefined,
+            proposed_version: proposed ? wrap(proposed).toJSON() : undefined,
             is_own: ownerId === user.id,
         };
     });

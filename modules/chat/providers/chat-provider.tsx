@@ -13,7 +13,14 @@ import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
 import type { CamelCaseDto } from '@/lib/api/client/types';
-import { abort, associateUploads, sendAction, sendIntakeAction, summarize } from '@/lib/api/requests/worker/chat';
+import {
+    abort,
+    associateUploads,
+    clearDrafts,
+    sendAction,
+    sendIntakeAction,
+    summarize,
+} from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
 import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
@@ -51,6 +58,7 @@ export type BaseChatContextValue = {
         content: string,
         opts?: {
             stagedArtifactIds?: string[];
+            draftArtifactIds?: string[];
             imageFileIds?: string[];
             onUploadsAssociated?: () => Promise<void>;
         },
@@ -175,12 +183,19 @@ export function ChatProvider({
         useModelSelection();
     const skipNextLoad = useRef(false);
 
+    // Track latest chat_name in a ref so analytics capture always sees the
+    // freshest value without invalidating callbacks that use captureChatAnalytics.
+    // Used by the "deploy safety" PostHog dashboard to show what an in-flight
+    // user is currently working on without needing to deep-link into the app.
+    const chatNameRef = useRef<string | null>(null);
+
     const captureChatAnalytics = useCallback(
         (event: string, properties: Record<string, string | number | boolean | null | undefined> = {}) => {
             capturePostHogEvent(event, {
                 chat_type: chatType,
                 project_id: projectId ?? null,
                 chat_id: chatId ?? null,
+                chat_name: chatNameRef.current,
                 model: selectedModel ?? null,
                 ...properties,
             });
@@ -213,6 +228,9 @@ export function ChatProvider({
             completionBriefStatus: cached?.completionBriefStatus ?? null,
         };
     });
+
+    // Mirror state.phaseName into the analytics ref so capture sees fresh value.
+    chatNameRef.current = state.phaseName;
 
     const buildChatRoute = useCallback(
         (nextChatId: string) => {
@@ -668,11 +686,7 @@ export function ChatProvider({
             }
             setState((prev) => {
                 const next = { ...prev, completionBriefStatus };
-                if (
-                    status === 'idle' &&
-                    !sendInFlightRef.current &&
-                    (prev.isGenerating || prev.isSummarizing)
-                ) {
+                if (status === 'idle' && !sendInFlightRef.current && (prev.isGenerating || prev.isSummarizing)) {
                     summarizeInFlightRef.current = false;
                     next.isGenerating = false;
                     next.isSummarizing = false;
@@ -1065,6 +1079,7 @@ export function ChatProvider({
             content: string,
             opts?: {
                 stagedArtifactIds?: string[];
+                draftArtifactIds?: string[];
                 imageFileIds?: string[];
                 onUploadsAssociated?: () => Promise<void>;
                 // When true, the optimistic user-message push is delayed until after
@@ -1129,6 +1144,21 @@ export function ChatProvider({
                     if (!associationResponse.ok) {
                         const errorText = await associationResponse.text().catch(() => 'Unknown error');
                         throw new Error(`Associate uploads failed: ${associationResponse.status} — ${errorText}`);
+                    }
+                }
+
+                // Flip is_draft=false so chat-input uploads surface in the project resources list.
+                // Separate from associate: associate sets scope, clear-drafts sets visibility. Both
+                // touch overlapping rows for staged uploads — sequential ordering keeps invariants
+                // simple (user_id is set before ownership is checked on the draft flip).
+                if (opts?.draftArtifactIds?.length) {
+                    const clearResponse = await clearDrafts(
+                        { artifactIds: opts.draftArtifactIds },
+                        (await getToken()) ?? '',
+                    );
+                    if (!clearResponse.ok) {
+                        const errorText = await clearResponse.text().catch(() => 'Unknown error');
+                        throw new Error(`Clear drafts failed: ${clearResponse.status} — ${errorText}`);
                     }
                 }
 
@@ -1264,8 +1294,8 @@ export function ChatProvider({
     // SUMMARIZE
     // ========================================================================
 
-    // Ref guard: prevents duplicate POST when multiple NextPhaseButton
-    // instances (desktop + mobile) react to pendingPhaseTransition simultaneously.
+    // Ref guard: prevents duplicate POST if pill click and pendingPhaseTransition
+    // effect race on the same tick.
     const summarizeInFlightRef = useRef(false);
     const summaryCancelledRef = useRef(false);
     // Guards against onSubscribeResponse('idle') clobbering client-optimistic isGenerating
