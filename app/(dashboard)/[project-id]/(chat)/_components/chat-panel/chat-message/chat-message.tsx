@@ -1,7 +1,6 @@
 'use client';
 
 import { memo } from 'react';
-import { ErrorReferenceList } from '@/components/ui/error-reference-list';
 import { MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-renderer/citations';
 import { DevSlot } from '@/lib/dev-slots';
@@ -10,6 +9,7 @@ import type { Message } from '@/modules/chat/types';
 import { TypingIndicator } from '../chat-conversation/typing-indicator';
 import { ActiveInternalDocs } from './active-internal-docs';
 import { DocumentDirective } from './document-directive';
+import { ErrorBanner } from './error-banner';
 import { UploadDirective } from './file-directive';
 import { MessageThinkingBlock } from './message-thinking-block';
 
@@ -26,17 +26,6 @@ const chatDirectives = {
 export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessageProps) => {
     const { chatId } = useChatContext();
     const { blocks, role, isStreaming } = message;
-    const errorReferenceItems = [
-        { label: 'Request ID', value: message.metadata?.requestId },
-        { label: 'Error Code', value: message.metadata?.errorCode },
-    ];
-    const visibleErrorReferenceItems = errorReferenceItems.filter((item) => !!item.value?.trim());
-    const hasRequestId = !!message.metadata?.requestId?.trim();
-    const errorTracingHint = hasRequestId
-        ? 'Copy the request ID if you need help tracing this failure.'
-        : visibleErrorReferenceItems.length > 0
-          ? 'Copy the reference below if you need help tracing this failure.'
-          : 'This older error does not include trace identifiers.';
 
     if (role === 'user') {
         const text = blocks
@@ -113,20 +102,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
 
                 {isStreaming && <ActiveInternalDocs />}
 
-                {message.isError && (
-                    <div className="mt-3 rounded-2xl border border-red-500/22 bg-red-500/[0.08] p-4">
-                        <div className="space-y-2">
-                            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-red-200/72">
-                                Request Failed
-                            </p>
-                            <p className="text-sm font-medium text-red-100">
-                                {message.metadata?.error ?? 'We could not complete this request.'}
-                            </p>
-                            <p className="text-sm leading-6 text-red-100/68">{errorTracingHint}</p>
-                        </div>
-                        <ErrorReferenceList className="mt-3" items={errorReferenceItems} variant="compact" />
-                    </div>
-                )}
+                {message.isError && <ErrorBanner metadata={message.metadata} />}
 
                 {message.isAborted && (
                     <div className="mt-3 rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-2.5 text-sm text-blue-400/80">

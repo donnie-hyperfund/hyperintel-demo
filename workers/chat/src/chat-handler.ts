@@ -26,7 +26,13 @@ import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
-import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
+import {
+    buildStoredErrorMetadata,
+    buildWorkerErrorLogContext,
+    classifyWorkerError,
+    extractRawErrorMessage,
+    logWorkerError,
+} from './utils/error-metadata';
 import { captureWorkerPostHogEvent } from './utils/posthog';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
@@ -582,22 +588,21 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         // --- Persist agent message to DB (using pre-generated ID) ---
                         let assistantMsg: ChatMessageEntity | null = null;
                         const errorMetadata = isError
-                            ? buildPublicErrorMetadata({
-                                  error: event.error!.raw,
-                                  fallbackMessage: event.error!.message,
+                            ? buildStoredErrorMetadata({
+                                  classification: event.error!.classification,
                                   requestId: ctx.requestId,
                               })
                             : null;
-                        if (isError && errorMetadata) {
+                        if (isError) {
                             logWorkerError(
                                 'chat-handler',
                                 buildWorkerErrorLogContext({
-                                    error: event.error!.raw,
+                                    classification: event.error!.classification,
                                     stage: 'done_ext',
                                     chatId,
                                     agentMessageId,
-                                    fallbackMessage: event.error!.message,
-                                    errorMetadata,
+                                    requestId: ctx.requestId,
+                                    error: event.error!.raw,
                                 }),
                                 event.error!.raw,
                             );
@@ -605,7 +610,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         const msgMetadata = {
                             preset: presetId,
                             inference: extractInferenceMetadata(inferenceParams),
-                            ...(errorMetadata ?? {}),
+                            ...(errorMetadata && { error: errorMetadata }),
                             ...(messageUsage && { usage: messageUsage }),
                         };
 
@@ -753,22 +758,21 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         // Push terminal done event to DO (subscriber gets it via broadcast)
                         const isDev = ctx.env.ENV === 'dev';
 
-                        // Build safe message metadata for WS delivery (no error, safetyAnalysis, etc.)
-                        // Only include dev-only fields (preset, inference, usage) in dev mode
+                        // `detail` is dev-only and never persisted, so API fetches can't leak it.
+                        const devErrorDetail = isDev && isError ? extractRawErrorMessage(event.error!.raw) : undefined;
+                        const wsError = errorMetadata
+                            ? { ...errorMetadata, ...(devErrorDetail && { detail: devErrorDetail }) }
+                            : undefined;
                         const safeMessageMetadata: Record<string, unknown> | undefined = isDev
                             ? {
                                   ...(msgMetadata.preset && { preset: msgMetadata.preset }),
                                   ...(msgMetadata.inference && { inference: msgMetadata.inference }),
                                   ...(msgMetadata.usage && { usage: msgMetadata.usage }),
-                                  ...(msgMetadata.error && { error: msgMetadata.error }),
-                                  ...(msgMetadata.errorCode && { errorCode: msgMetadata.errorCode }),
-                                  ...(msgMetadata.requestId && { requestId: msgMetadata.requestId }),
+                                  ...(wsError && { error: wsError }),
                               }
-                            : {
-                                  ...(msgMetadata.error && { error: msgMetadata.error }),
-                                  ...(msgMetadata.errorCode && { errorCode: msgMetadata.errorCode }),
-                                  ...(msgMetadata.requestId && { requestId: msgMetadata.requestId }),
-                              };
+                            : wsError
+                              ? { error: wsError }
+                              : undefined;
 
                         const doneEvent: StreamEvent = {
                             type: 'done',
@@ -780,7 +784,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                 }),
                             hasPendingChanges,
                             phaseIndex,
-                            ...(isError && { error: event.error!.message }),
+                            ...(isError && { error: errorMetadata?.code ?? 'UNKNOWN' }),
                             ...(pendingDoneEvent?.outputType === 'tool' &&
                                 pendingDoneEvent.outputTool && {
                                     outputType: 'tool' as const,
@@ -806,15 +810,17 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
-        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        const classification = classifyWorkerError(error);
+        const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(
             'chat-handler',
             buildWorkerErrorLogContext({
-                error,
+                classification,
                 stage: 'catch',
                 chatId,
                 agentMessageId,
-                errorMetadata,
+                requestId: ctx.requestId,
+                error,
             }),
             error,
         );

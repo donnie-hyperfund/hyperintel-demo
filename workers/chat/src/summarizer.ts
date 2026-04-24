@@ -13,7 +13,12 @@ import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
 import type { UserGatewayStub } from './utils/do-stubs';
-import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
+import {
+    buildStoredErrorMetadata,
+    buildWorkerErrorLogContext,
+    classifyWorkerError,
+    logWorkerError,
+} from './utils/error-metadata';
 import { extractDocuments } from './utils/extract-documents';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
@@ -313,8 +318,8 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 ugStub,
                 topic: `chat:${chatId}`,
                 error: cancellationError,
-                errorMetadata: buildPublicErrorMetadata({
-                    error: cancellationError,
+                errorMetadata: buildStoredErrorMetadata({
+                    classification: classifyWorkerError(cancellationError),
                     requestId: ctx.requestId,
                 }),
             });
@@ -428,15 +433,17 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
-        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        const classification = classifyWorkerError(error);
+        const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(
             'summarizer',
             buildWorkerErrorLogContext({
-                error,
+                classification,
                 stage: 'catch',
                 chatId,
                 agentMessageId,
-                errorMetadata,
+                requestId: ctx.requestId,
+                error,
             }),
             error,
         );
@@ -449,11 +456,12 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             logWorkerError(
                 'summarizer',
                 buildWorkerErrorLogContext({
-                    error: saveErr,
+                    classification: classifyWorkerError(saveErr),
                     stage: 'clear_active_agent_message_id',
                     chatId,
                     agentMessageId,
                     requestId: ctx.requestId,
+                    error: saveErr,
                 }),
                 saveErr,
             );
