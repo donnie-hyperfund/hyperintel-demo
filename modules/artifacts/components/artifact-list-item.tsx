@@ -69,13 +69,14 @@ export const ArtifactListItem = ({
     searchQuery,
 }: ArtifactListItemProps) => {
     const artifactVersion = getLatestArtifactVersion(artifact);
+    const title = artifactVersion?.title ?? '';
     const Icon = icon ?? getDocumentTypeIcon(artifactVersion?.documentType);
 
     return (
         <ArtifactListItemContainer
             href={href}
             onClick={onClick}
-            title={artifact.title}
+            title={title}
             className={cn(
                 containerVariants({ size }),
                 isSelected ? 'bg-neutral-900 border-primary/50' : 'border-border',
@@ -86,7 +87,7 @@ export const ArtifactListItem = ({
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                     <span className="line-clamp-1 text-sm font-medium">
-                        <HighlightText text={artifact.title} query={searchQuery ?? ''} />
+                        <HighlightText text={title} query={searchQuery ?? ''} />
                     </span>
                     {isShared && <Badge variant="secondary">Shared</Badge>}
                     {badge}

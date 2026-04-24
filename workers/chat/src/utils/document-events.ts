@@ -12,16 +12,11 @@ import { createStreamFieldParser } from '@common/ai/agent';
 import type { AgentStreamEvent } from '@common/ai/agent/types';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { DOCUMENT_CHAR_ESTIMATES, type DocumentType } from '@/lib/schema/artifact';
+import type { AppliedEdit, DraftManager } from '../tools/documents';
 
 export type DocumentEventEmitter = (event: DocumentEvent) => void;
 
-/** Edit operation as sent by patch_document tool */
-export interface EditOperation {
-    startLine: number;
-    endLine: number;
-    oldContent: string;
-    newContent: string;
-}
+type EmittedEdit = AppliedEdit;
 
 export type DocumentEvent =
     | {
@@ -42,7 +37,7 @@ export type DocumentEvent =
     | {
           type: 'document_edit';
           name: string;
-          edits: EditOperation[];
+          edits: EmittedEdit[];
           editsApplied: number;
           linesNow: number;
       }
@@ -59,6 +54,8 @@ export type DocumentEvent =
 export interface DocumentContext {
     em: EntityManager;
     projectId?: string;
+    /** Required for patch_document replay — canonical edits are stashed here by the executor and consumed on tool_result. */
+    draftManager?: DraftManager;
 }
 
 /**
@@ -84,9 +81,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
 
     // Parser for write_document content streaming
     let writeParser: ReturnType<typeof createStreamFieldParser> | null = null;
-
-    // Accumulator for patch_document input (to capture the edits array)
-    let editBuffer = '';
 
     // Progress tracking state
     let accumulatedChars = 0;
@@ -120,22 +114,15 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
     function handle(event: AgentStreamEvent): void {
         switch (event.type) {
             case 'tool_result': {
-                if (!event.success) {
-                    editBuffer = '';
-                    return;
-                }
+                if (!event.success) return;
 
                 let result: any = null;
                 try {
                     result = typeof event.result === 'string' ? JSON.parse(event.result) : event.result;
                 } catch {
-                    editBuffer = '';
                     return;
                 }
-                if (!result) {
-                    editBuffer = '';
-                    return;
-                }
+                if (!result) return;
 
                 // begin_document: set active doc and emit document_start (or pecp_start for PECP)
                 if (result.status === 'editing' && result.name) {
@@ -187,20 +174,13 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     emit(startEvent);
                 }
 
-                // patch_document: emit document_edit with the captured edits
-                if (result.status === 'edited' && activeDoc) {
-                    // Parse the accumulated input to get the edits array
-                    let edits: EditOperation[] = [];
-                    try {
-                        const parsed = JSON.parse(editBuffer);
-                        if (Array.isArray(parsed.edits)) {
-                            edits = parsed.edits;
-                        }
-                    } catch {
-                        // Fallback: empty edits if parsing failed
-                    }
+                // patch_document: canonical edits live on draftManager side channel (keyed by tool_call_id)
+                if (event.tool === 'patch_document' && result.status === 'edited' && activeDoc) {
+                    const edits: EmittedEdit[] = event.id
+                        ? (ctx.draftManager?.takeAppliedEdits(event.id) ?? [])
+                        : [];
 
-                    if (!activeDoc.isInternal) {
+                    if (!activeDoc.isInternal && edits.length) {
                         emit({
                             type: 'document_edit',
                             name: activeDoc.name,
@@ -209,7 +189,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             linesNow: result.linesNow ?? 0,
                         });
                     }
-                    editBuffer = '';
                 }
 
                 // finalize_document: emit document_complete and clear state
@@ -237,7 +216,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     }
                     activeDoc = null;
                     writeParser = null;
-                    editBuffer = '';
                     accumulatedChars = 0;
                     estimatedChars = 0;
                     lastEmittedProgress = 0;
@@ -284,11 +262,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     }
                     writeParser.feed(event);
                 }
-
-                // patch_document: accumulate args to capture the edits array
-                if (event.tool === 'patch_document') {
-                    editBuffer += event.delta;
-                }
                 break;
             }
 
@@ -296,10 +269,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                 // Reset parser when a new write_document starts
                 if (event.tool === 'write_document') {
                     writeParser = null;
-                }
-                // Reset edit state on new patch_document
-                if (event.tool === 'patch_document') {
-                    editBuffer = '';
                 }
                 break;
             }

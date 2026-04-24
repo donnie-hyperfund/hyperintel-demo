@@ -62,7 +62,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
             const localId = artifact.key;
             const version = artifact.version;
 
-            addArtifact({ id: localId, key: artifact.key, title: artifact.title, isLoading: true }, version);
+            addArtifact({ id: localId, key: artifact.key, isLoading: true }, version);
             openPanel({ panel: 'artifact-preview', artifactId: localId, version });
 
             try {

@@ -68,7 +68,7 @@ async function searchKnowledge(
             ae.chunk_content,
             ae.chunk_index,
             av.artifact_id,
-            a.title,
+            av.title,
             a.key,
             1 - (ae.embedding <=> '${embeddingStr}'::vector) as similarity
         FROM artifact_embeddings ae
@@ -144,9 +144,11 @@ export const KnowledgeSearchToolGroup: AgentToolGroup = {
 2. If no relevant results, use \`list_documents\` to browse all available documents and find the correct name.
 3. Then use \`read_document\` with the exact name to view the full content.
 Never guess document names — always discover them via search or listing first.
-${SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT
+${
+    SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT
         ? '\nsearch_knowledge includes embedded images by default. Set `includeImages: false` for text-only results.'
-        : '\nsearch_knowledge is text-only by default. Use `read_document` if embedded images matter.'}`,
+        : '\nsearch_knowledge is text-only by default. Use `read_document` if embedded images matter.'
+}`,
     tools: ['search_knowledge', 'list_documents'],
 };
 

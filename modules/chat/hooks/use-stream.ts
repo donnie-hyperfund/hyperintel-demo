@@ -429,21 +429,19 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 docDripRef.current.drain();
                 const doc = s.streamingDocs.get(payload.name);
                 if (doc && payload.edits) {
-                    let content = doc.content;
+                    // Forward iteration: AppliedEdit coords are post-prev-edits.
+                    let lines = doc.content.split('\n');
                     for (const edit of payload.edits) {
-                        const lines = content.split('\n');
                         const rangeStart = Math.max(0, edit.startLine - 1);
                         const rangeEnd = Math.min(lines.length, edit.endLine);
-                        const rangeContent = lines.slice(rangeStart, rangeEnd).join('\n');
-                        const newRangeContent = rangeContent.replace(edit.oldContent, edit.newContent);
-                        const newLines = [
+                        const replacement = edit.newContent.split('\n');
+                        lines = [
                             ...lines.slice(0, rangeStart),
-                            ...newRangeContent.split('\n'),
+                            ...replacement,
                             ...lines.slice(rangeEnd),
                         ];
-                        content = newLines.join('\n');
                     }
-                    doc.content = content;
+                    doc.content = lines.join('\n');
 
                     ac?.updateArtifact(
                         doc.artifactId,

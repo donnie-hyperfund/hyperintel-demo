@@ -1,15 +1,15 @@
 'use client';
 
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Download, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Download, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-	type WsLogEntry,
 	clearWsLog,
 	downloadWsLog,
 	getSnapshot,
 	getWsLog,
 	subscribe,
+	type WsLogEntry,
 } from '../features/ws-logger';
 
 // ---------------------------------------------------------------------------
@@ -24,6 +24,8 @@ type StreamGroup = {
 	children: WsLogEntry[];
 	agentMessageId: string;
 	status?: string;
+	/** Number of children appended after endEntry was first set — highlights "late" events */
+	lateCount: number;
 };
 
 type StandaloneEntry = {
@@ -31,7 +33,16 @@ type StandaloneEntry = {
 	entry: WsLogEntry;
 };
 
+type CollapsedStandalone = {
+	kind: 'collapsed_standalone';
+	id: number;
+	event: string;
+	direction: 'send' | 'recv';
+	entries: WsLogEntry[];
+};
+
 type GroupedLogEntry = StreamGroup | StandaloneEntry;
+type RenderRow = GroupedLogEntry | CollapsedStandalone;
 
 type CollapsedDelta = {
 	kind: 'collapsed_deltas';
@@ -44,6 +55,10 @@ type CollapsedDelta = {
 };
 
 type ChildRow = { kind: 'entry'; entry: WsLogEntry } | CollapsedDelta;
+
+/** Noisy events hidden by default — user can reveal via toolbar toggle. */
+const NOISY_EVENTS = new Set(['update-session']);
+const NOISY_STORAGE_KEY = 'dev:ws-log:show-noisy';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,6 +93,28 @@ const statusColors: Record<string, string> = {
 
 function truncate(s: string, max: number): string {
 	return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+/** Deterministic JSON stringify — sorts object keys so property order doesn't affect equality. */
+function stableStringify(v: unknown): string {
+	if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
+	if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+	const obj = v as Record<string, unknown>;
+	const keys = Object.keys(obj).sort();
+	return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
+}
+
+const entrySigCache = new WeakMap<object, string>();
+function entrySignature(entry: WsLogEntry): string {
+	const d = entry.data;
+	if (d !== null && typeof d === 'object') {
+		const cached = entrySigCache.get(d as object);
+		if (cached !== undefined) return cached;
+		const sig = stableStringify(d);
+		entrySigCache.set(d as object, sig);
+		return sig;
+	}
+	return stableStringify(d);
 }
 
 function getEventSummary(entry: WsLogEntry): { label: string; summary?: string } | null {
@@ -315,6 +352,11 @@ function StreamGroupRow({ group }: { group: StreamGroup }) {
 				)}
 				<span className="truncate text-neutral-400">
 					Stream · {group.children.length} events
+					{group.lateCount > 0 && (
+						<span className="ml-1 rounded bg-amber-900/40 px-1 py-0.5 text-[10px] font-medium text-amber-400">
+							+{group.lateCount} late
+						</span>
+					)}
 				</span>
 			</button>
 			{expanded && (
@@ -333,6 +375,49 @@ function StreamGroupRow({ group }: { group: StreamGroup }) {
 }
 
 // ---------------------------------------------------------------------------
+// Collapsed standalone run (consecutive identical top-level events)
+// ---------------------------------------------------------------------------
+
+function CollapsedStandaloneRow({ row }: { row: CollapsedStandalone }) {
+	const [expanded, setExpanded] = useState(false);
+
+	return (
+		<div className="border-b border-neutral-800/60 text-[11px] last:border-b-0">
+			<button
+				type="button"
+				className="flex w-full items-center gap-1.5 px-2 py-1 text-left transition-colors hover:bg-neutral-800/40"
+				onClick={() => setExpanded((v) => !v)}
+			>
+				{expanded ? (
+					<ChevronDown className="size-3 shrink-0 text-neutral-500" />
+				) : (
+					<ChevronRight className="size-3 shrink-0 text-neutral-500" />
+				)}
+				{directionIcon(row.direction)}
+				<span
+					className={cn(
+						'shrink-0 font-medium',
+						row.direction === 'send' ? 'text-blue-300' : 'text-green-300',
+					)}
+				>
+					{row.event}
+				</span>
+				<span className="shrink-0 rounded bg-neutral-800 px-1 py-0.5 text-[10px] tabular-nums text-neutral-400">
+					×{row.entries.length}
+				</span>
+			</button>
+			{expanded && (
+				<div className="border-t border-neutral-800/40">
+					{row.entries.map((e) => (
+						<LogEntry key={e.id} entry={e} indented />
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Main tab component
 // ---------------------------------------------------------------------------
 
@@ -341,83 +426,100 @@ export function WsLogTab() {
 	const log = getWsLog();
 
 	const [filter, setFilter] = useState('');
+	const [showNoisy, setShowNoisy] = useState(() => {
+		if (typeof window === 'undefined') return false;
+		try {
+			return localStorage.getItem(NOISY_STORAGE_KEY) === '1';
+		} catch {
+			return false;
+		}
+	});
 	const listRef = useRef<HTMLDivElement>(null);
 	const pinRef = useRef(true);
 
-	const filtered = useMemo(() => {
-		if (!filter) return log;
-		const lc = filter.toLowerCase();
-		return log.filter(
-			(e) =>
-				e.event.toLowerCase().includes(lc) ||
-				e.direction.includes(lc),
-		);
+	useEffect(() => {
+		try {
+			localStorage.setItem(NOISY_STORAGE_KEY, showNoisy ? '1' : '0');
+		} catch {}
+	}, [showNoisy]);
+
+	const hiddenNoisyCount = useMemo(() => {
+		if (showNoisy) return 0;
+		return log.reduce((n, e) => (NOISY_EVENTS.has(e.event) ? n + 1 : n), 0);
 	// eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot triggers recompute since log is mutated in place
-	}, [snapshot, filter]);
+	}, [snapshot, showNoisy]);
+
+	const filtered = useMemo(() => {
+		let out: WsLogEntry[] = log;
+		if (!showNoisy) out = out.filter((e) => !NOISY_EVENTS.has(e.event));
+		if (filter) {
+			const lc = filter.toLowerCase();
+			out = out.filter(
+				(e) =>
+					e.event.toLowerCase().includes(lc) ||
+					e.direction.includes(lc),
+			);
+		}
+		return out;
+	// eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot triggers recompute since log is mutated in place
+	}, [snapshot, filter, showNoisy]);
 
 	const grouped = useMemo(() => {
 		const result: GroupedLogEntry[] = [];
-		const openStreams = new Map<string, StreamGroup>();
+		// Persistent map by agentMessageId — entries are never removed, so late events
+		// (arriving after stream_status) attach to the existing group instead of
+		// spawning a new invalid one.
+		const groupsById = new Map<string, StreamGroup>();
 
-		const ensureOpenStream = (agentMessageId: string, entry: WsLogEntry): StreamGroup => {
-			const existing = openStreams.get(agentMessageId);
+		const ensureGroup = (agentMessageId: string, entry: WsLogEntry): StreamGroup => {
+			const existing = groupsById.get(agentMessageId);
 			if (existing) return existing;
 
 			const group: StreamGroup = {
 				kind: 'stream',
 				id: entry.id,
 				startEntry: entry,
-				children: [entry],
+				children: [],
 				agentMessageId,
+				lateCount: 0,
 			};
-			openStreams.set(agentMessageId, group);
+			groupsById.set(agentMessageId, group);
 			result.push(group);
 			return group;
 		};
 
+		const appendChild = (group: StreamGroup, entry: WsLogEntry) => {
+			if (group.children[group.children.length - 1]?.id === entry.id) return;
+			group.children.push(entry);
+			if (group.endEntry) group.lateCount++;
+		};
+
 		for (const entry of filtered) {
 			const data = entry.data as any;
+			const id: string | undefined =
+				typeof data?.agentMessageId === 'string' ? data.agentMessageId : undefined;
 
-			// Primary stream start signal
-			if (entry.event === 'stream_started' && data?.agentMessageId) {
-				const group = ensureOpenStream(data.agentMessageId, entry);
-				if (group.children[group.children.length - 1]?.id !== entry.id) {
-					group.children.push(entry);
-				}
+			if (entry.event === 'stream_started' && id) {
+				appendChild(ensureGroup(id, entry), entry);
 				continue;
 			}
 
 			// Mid-stream recovery: subscribe_response can attach to an already running stream
-			if (
-				entry.event === 'subscribe_response' &&
-				data?.status === 'streaming' &&
-				typeof data?.agentMessageId === 'string'
-			) {
-				const group = ensureOpenStream(data.agentMessageId, entry);
-				if (group.children[group.children.length - 1]?.id !== entry.id) {
-					group.children.push(entry);
-				}
+			if (entry.event === 'subscribe_response' && data?.status === 'streaming' && id) {
+				appendChild(ensureGroup(id, entry), entry);
 				continue;
 			}
 
-			// Stream events/status can arrive without a visible stream_started in this log window.
-			// Create an implicit group so logs remain grouped by stream.
-			if (entry.event === 'stream_event' && data?.agentMessageId) {
-				const group = ensureOpenStream(data.agentMessageId, entry);
-				if (group.children[group.children.length - 1]?.id !== entry.id) {
-					group.children.push(entry);
-				}
+			if (entry.event === 'stream_event' && id) {
+				appendChild(ensureGroup(id, entry), entry);
 				continue;
 			}
 
-			if (entry.event === 'stream_status' && data?.agentMessageId) {
-				const group = ensureOpenStream(data.agentMessageId, entry);
-				if (group.children[group.children.length - 1]?.id !== entry.id) {
-					group.children.push(entry);
-				}
+			if (entry.event === 'stream_status' && id) {
+				const group = ensureGroup(id, entry);
+				appendChild(group, entry);
 				group.endEntry = entry;
 				group.status = data.status;
-				openStreams.delete(data.agentMessageId);
 				continue;
 			}
 
@@ -426,7 +528,51 @@ export function WsLogTab() {
 
 		return result;
 	// eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot needed: when filter is empty, filtered === log (stable ref)
-	}, [snapshot, filter]);
+	}, [snapshot, filter, showNoisy]);
+
+	// Collapse consecutive runs of identical standalone events (same event + direction).
+	const renderRows = useMemo<RenderRow[]>(() => {
+		const out: RenderRow[] = [];
+		let i = 0;
+		while (i < grouped.length) {
+			const item = grouped[i];
+			if (item.kind !== 'standalone') {
+				out.push(item);
+				i++;
+				continue;
+			}
+
+			const { event: evt, direction } = item.entry;
+			const sig = entrySignature(item.entry);
+			const runStart = i;
+			while (i < grouped.length) {
+				const g = grouped[i];
+				if (
+					g.kind === 'standalone' &&
+					g.entry.event === evt &&
+					g.entry.direction === direction &&
+					entrySignature(g.entry) === sig
+				) {
+					i++;
+				} else {
+					break;
+				}
+			}
+			const run = grouped.slice(runStart, i) as StandaloneEntry[];
+			if (run.length >= 2) {
+				out.push({
+					kind: 'collapsed_standalone',
+					id: run[0].entry.id,
+					event: evt,
+					direction,
+					entries: run.map((r) => r.entry),
+				});
+			} else {
+				out.push(run[0]);
+			}
+		}
+		return out;
+	}, [grouped]);
 
 	// Auto-scroll when pinned to bottom
 	const scrollToBottom = useCallback(() => {
@@ -463,6 +609,26 @@ export function WsLogTab() {
 				</span>
 				<button
 					type="button"
+					onClick={() => setShowNoisy((v) => !v)}
+					title={
+						showNoisy
+							? 'Hide noisy events (update-session, etc.)'
+							: `Show noisy events${hiddenNoisyCount ? ` (${hiddenNoisyCount} hidden)` : ''}`
+					}
+					className={cn(
+						'relative flex size-7 items-center justify-center rounded transition-colors hover:bg-neutral-800',
+						showNoisy ? 'text-neutral-300' : 'text-neutral-500 hover:text-neutral-300',
+					)}
+				>
+					{showNoisy ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+					{!showNoisy && hiddenNoisyCount > 0 && (
+						<span className="absolute -top-1 -right-1 min-w-3.5 rounded-full bg-amber-500/80 px-1 text-center text-[9px] leading-[14px] font-medium text-neutral-950">
+							{hiddenNoisyCount > 99 ? '99+' : hiddenNoisyCount}
+						</span>
+					)}
+				</button>
+				<button
+					type="button"
 					onClick={downloadWsLog}
 					title="Download log as JSON"
 					className="flex size-7 items-center justify-center rounded text-neutral-500 transition-colors hover:bg-neutral-800 hover:text-neutral-300"
@@ -485,18 +651,17 @@ export function WsLogTab() {
 				onScroll={handleScroll}
 				className="min-h-0 flex-1 overflow-y-auto rounded border border-neutral-800 bg-neutral-950"
 			>
-				{grouped.length === 0 ? (
+				{renderRows.length === 0 ? (
 					<p className="p-4 text-center text-xs text-neutral-600">
 						{log.length === 0 ? 'No WebSocket events captured yet.' : 'No events match the filter.'}
 					</p>
 				) : (
-					grouped.map((item) =>
-						item.kind === 'stream' ? (
-							<StreamGroupRow key={item.id} group={item} />
-						) : (
-							<LogEntry key={item.entry.id} entry={item.entry} />
-						),
-					)
+					renderRows.map((item) => {
+						if (item.kind === 'stream') return <StreamGroupRow key={item.id} group={item} />;
+						if (item.kind === 'collapsed_standalone')
+							return <CollapsedStandaloneRow key={`run-${item.id}`} row={item} />;
+						return <LogEntry key={item.entry.id} entry={item.entry} />;
+					})
 				)}
 			</div>
 		</div>

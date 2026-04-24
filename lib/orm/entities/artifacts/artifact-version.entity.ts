@@ -36,6 +36,9 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'int' })
     version!: number;
 
+    @Property({ type: 'text' })
+    title!: string;
+
     @Property({ type: 'text', nullable: true })
     content?: string;
 

@@ -190,12 +190,19 @@ export function ChatProvider({
         useModelSelection();
     const skipNextLoad = useRef(false);
 
+    // Track latest chat_name in a ref so analytics capture always sees the
+    // freshest value without invalidating callbacks that use captureChatAnalytics.
+    // Used by the "deploy safety" PostHog dashboard to show what an in-flight
+    // user is currently working on without needing to deep-link into the app.
+    const chatNameRef = useRef<string | null>(null);
+
     const captureChatAnalytics = useCallback(
         (event: string, properties: Record<string, string | number | boolean | null | undefined> = {}) => {
             capturePostHogEvent(event, {
                 chat_type: chatType,
                 project_id: projectId ?? null,
                 chat_id: chatId ?? null,
+                chat_name: chatNameRef.current,
                 model: selectedModel ?? null,
                 ...properties,
             });
@@ -228,6 +235,9 @@ export function ChatProvider({
             completionBriefStatus: cached?.completionBriefStatus ?? null,
         };
     });
+
+    // Mirror state.phaseName into the analytics ref so capture sees fresh value.
+    chatNameRef.current = state.phaseName;
 
     const buildChatRoute = useCallback(
         (nextChatId: string) => {

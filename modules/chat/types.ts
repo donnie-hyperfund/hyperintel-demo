@@ -1,6 +1,7 @@
 // Re-export StreamBlock from common for use in chat module
 export type { StreamBlock } from '@/common/ai/agent/types';
 
+import type { PublicErrorCode } from '@/common/ai';
 import type { StreamBlock } from '@/common/ai/agent/types';
 import type { CamelCaseDto } from '@/lib/api/client/types';
 import type { ArtifactDto } from '@/lib/schema/artifact';
@@ -20,11 +21,17 @@ export type MessageArtifactRef = {
     title: string;
 };
 
+export type MessageErrorMetadata = {
+    code: PublicErrorCode;
+    retryable: boolean;
+    referenceId?: string;
+    /** Raw provider/internal text. Dev-only — never persisted, only on live WS when ENV === 'dev'. */
+    detail?: string;
+};
+
 export type MessageMetadata = {
     preset?: string;
-    error?: string;
-    errorCode?: string;
-    requestId?: string;
+    error?: MessageErrorMetadata;
     inference?: {
         paramsType?: string;
         model?: string;
@@ -141,7 +148,6 @@ export type PaginationState = {
 export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     id: string;
     key: string;
-    title: string;
     isLoading?: boolean;
     isStreaming?: boolean;
     isUpdating?: boolean;

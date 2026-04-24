@@ -304,15 +304,15 @@ export class ChatStreamDO extends DurableObject<Env> {
             }
 
             case 'document_edit': {
+                // Forward iteration: AppliedEdit coords are post-prev-edits.
                 const doc = this.activeDocuments.get(event.name);
                 if (doc) {
-                    const lines = doc.content.split('\n');
-                    for (const edit of [...event.edits].reverse()) {
+                    let lines = doc.content.split('\n');
+                    for (const edit of event.edits) {
                         const before = lines.slice(0, Math.max(0, edit.startLine - 1));
                         const after = lines.slice(edit.endLine);
-                        const replacement = edit.newContent ? edit.newContent.split('\n') : [];
-                        lines.length = 0;
-                        lines.push(...before, ...replacement, ...after);
+                        const replacement = edit.newContent.split('\n');
+                        lines = [...before, ...replacement, ...after];
                     }
                     doc.content = lines.join('\n');
                 }
