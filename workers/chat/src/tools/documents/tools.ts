@@ -86,6 +86,8 @@ function getScope(ctx: DocumentToolsContext): DocumentScope {
 // TOOL GROUP
 // ============================================================================
 
+const PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE = false;
+
 export const DocumentToolGroup: AgentToolGroup = {
     name: 'Document Management',
     slug: 'document_',
@@ -96,10 +98,14 @@ export const DocumentToolGroup: AgentToolGroup = {
 3. \`finalize_document\` - Save (MUST call or content is lost)
 
 ## Editing Strategy
-- When editing an existing document you did NOT just create in this turn, ALWAYS \`read_document\` first to see the current content and line numbers before patching.
+- For existing-document patch edits, use this sequence: \`begin_document(mode="edit")\` → \`read_document\` if you need exact current lines → \`patch_document\` → \`finalize_document\`.
+- If you authored or patched this document earlier in the same conversation, skip \`read_document\` and patch directly — your own content is authoritative.
+- Never call \`patch_document\` before \`begin_document\`; patches edit only the active draft.
 - \`patch_document\` edits are **atomic and verified** — the tool confirms success. Do NOT re-read a document after patching to check your work.
 - when using \`patch_document\` make sure the fields in your JSON output are properly escaped. JSON does not allow plain newlines for example - the tool call will fail to parse.
-- Batch ALL pending edits into a single \`patch_document\` call. Multiple small patches waste tool calls.
+- \`read_document\` output prefixes each line with \`N: \` (e.g. \`5: some text\`) for orientation. This prefix is DISPLAY ONLY — do NOT include it in \`oldContent\` when patching. Copy only the actual line text that comes after \`N: \`.
+${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '- For `patch_document` edits, provide `startLine`, `oldContent`, and `newContent`; `endLine` is optional and only narrows the search window.' : '- For `patch_document` edits, provide exactly `startLine`, `oldContent`, and `newContent`. The replacement span is inferred from `oldContent`.'}
+- Batch independent pending edits into a single \`patch_document\` call. If an edit heavily changes line counts above later edits, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors.
 - If you need to rewrite most of a document (>50% changing), use \`write_document\` to replace the entire content instead of many patches.
 - The pattern \`read → patch → read → patch\` is a wasteful anti-pattern. Read once, patch once (with all edits), finalize.
 
@@ -168,8 +174,7 @@ After the PECP is finalized, STOP and wait for the user.
 - Call any document tools (begin_document, write_document, finalize_document, etc.) unless the user explicitly asks
 - Mention "Phase 2", "next step", or suggest what comes next — let the user drive the workflow
 Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
-    behavioralGuidance:
-        'NEVER re-read a document after patching — patches are atomic and confirmed. Batch ALL edits into a single patch_document call. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving a document, STOP and wait for the user\'s next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval.',
+    behavioralGuidance: `NEVER re-read a document after patching — patches are atomic and confirmed. If you authored or patched this document earlier in the same conversation, skip read_document and patch directly — your own content is authoritative. Before patching an existing document, call begin_document(mode="edit") so there is an active draft. ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? 'Patch edits may include optional endLine only to narrow the search window.' : 'Patch edits have exactly three fields: startLine, oldContent, and newContent.'} When copying text from read_document into oldContent, strip the leading "N: " line-number prefix — it is display-only and must not appear in oldContent. Batch independent edits into a single patch_document call. When an earlier edit heavily shifts later line numbers, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving a document, STOP and wait for the user's next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval.`,
     tools: [
         'begin_document',
         'write_document',
@@ -215,9 +220,21 @@ const PatchDocumentParams = z.object({
     edits: z
         .array(
             z.object({
-                startLine: z.number().int().positive().describe('Start of search range (1-indexed).'),
-                endLine: z.number().int().positive().describe('End of search range (inclusive).'),
-                oldContent: z.string().describe('Exact content to find and replace within the line range.'),
+                startLine: z.number().int().positive().describe('Starting line anchor (1-indexed).'),
+                ...(PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE
+                    ? {
+                          endLine: z
+                              .number()
+                              .int()
+                              .positive()
+                              .optional()
+                              .nullable()
+                              .describe(
+                                  'End of search range (inclusive). Optional; inferred from oldContent line count when omitted.',
+                              ),
+                      }
+                    : {}),
+                oldContent: z.string().describe('Exact content to find and replace near startLine.'),
                 newContent: z.string().describe('Replacement content.'),
             }),
         )
@@ -513,10 +530,18 @@ Content streams to the UI in real-time.`,
             name: 'patch_document' as const,
             description: `Make precise edits to the current draft. Batch multiple edits into one call when possible.
 
-Each edit: line range + exact oldContent to find + newContent replacement.
+Each edit: startLine anchor + exact oldContent to find + newContent replacement.
+${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '`endLine` is optional; use it only to narrow the search window.' : 'Provide exactly `startLine`, `oldContent`, and `newContent`; the replacement span is inferred from `oldContent`.'}
+IMPORTANT: \`read_document\` shows lines prefixed with \`N: \` (e.g. \`5: some text\`) — that prefix is display-only. Do NOT include it in \`oldContent\`; copy only the line text after \`N: \`.
 Edits are atomic - all succeed or none apply. No need to read_document between patches.`,
             parameters: PatchDocumentParams,
-            executor: (input: z.infer<typeof PatchDocumentParams>, ctx: DocumentToolsContext) => {
+            executor: (
+                input: z.infer<typeof PatchDocumentParams>,
+                ctx: DocumentToolsContext,
+                _eCtx?: unknown,
+                _history?: unknown,
+                toolCallId?: string,
+            ) => {
                 const { edits } = input ?? {};
                 const { draftManager } = ctx;
 
@@ -530,7 +555,9 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                     // Convert to EditOperation format
                     const editOps: EditOperation[] = edits.map((e) => ({
                         startLine: e.startLine,
-                        endLine: e.endLine,
+                        endLine: PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE
+                            ? (e as { endLine?: number | null }).endLine
+                            : undefined,
                         oldContent: e.oldContent,
                         newContent: e.newContent,
                     }));
@@ -544,6 +571,11 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
 
                     // Update draft with new content
                     draftManager.setContent(result.newContent!);
+
+                    // Stash canonical edits for document-events (side channel — keeps full-range content out of the model-facing tool result).
+                    if (toolCallId && result.appliedEdits) {
+                        draftManager.setAppliedEdits(toolCallId, result.appliedEdits);
+                    }
 
                     return {
                         status: 'edited',
@@ -719,6 +751,8 @@ If a proposed version already exists, it will be marked as "superseded".`,
 If you have an active editing draft for this document, returns the draft content.
 Otherwise returns the requested version from the database.
 
+Skip this call if you authored or patched the document earlier in the same conversation — your own content is authoritative and re-reading wastes tokens.
+
 Version options:
 - "approved": The live version (what users see)
 - "proposed": The pending version awaiting approval
@@ -809,6 +843,8 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                 }
 
                 const viewport = extractViewport(content, startLine ?? undefined, endLine ?? undefined);
+                // TODO: Return a structured line payload alongside/instead of numbered text so patch callers
+                // do not need to strip display-only "N: " prefixes before using oldContent.
 
                 // Resolve documentType from the version source
                 const documentType =

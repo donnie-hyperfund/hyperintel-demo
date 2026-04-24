@@ -389,7 +389,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         await runStreamLoop({
             stream,
             push: pusher.push,
-            docEventsCtx: { em: em! },
+            docEventsCtx: { em: em!, draftManager: agentCtx.draftManager },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
