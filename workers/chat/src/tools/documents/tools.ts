@@ -105,12 +105,14 @@ export const DocumentToolGroup: AgentToolGroup = {
 - For existing-document patch edits, use this sequence: \`begin_document(mode="edit")\` → \`read_document\` if you need exact current lines → \`patch_document\` → \`finalize_document\`.
 - If you authored or patched this document earlier in the same conversation, skip \`read_document\` and patch directly — your own content is authoritative.
 - Never call \`patch_document\` before \`begin_document\`; patches edit only the active draft.
+- \`write_document\` requires explicit \`behavior\`: use \`"append"\` for incremental drafting and \`"replace"\` to overwrite the current draft content.
+- In \`edit\` mode, use \`patch_document\` for normal edits to an existing document. Use \`write_document\` with \`behavior="replace"\` only when rewriting most of the draft from scratch.
 - \`patch_document\` edits are **atomic and verified** — the tool confirms success. Do NOT re-read a document after patching to check your work.
 - when using \`patch_document\` make sure the fields in your JSON output are properly escaped. JSON does not allow plain newlines for example - the tool call will fail to parse.
 - \`read_document\` output prefixes each line with \`N: \` (e.g. \`5: some text\`) for orientation. This prefix is DISPLAY ONLY — do NOT include it in \`oldContent\` when patching. Copy only the actual line text that comes after \`N: \`.
 ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '- For `patch_document` edits, provide `startLine`, `oldContent`, and `newContent`; `endLine` is optional and only narrows the search window.' : '- For `patch_document` edits, provide exactly `startLine`, `oldContent`, and `newContent`. The replacement span is inferred from `oldContent`.'}
 - Batch independent pending edits into a single \`patch_document\` call. If an edit heavily changes line counts above later edits, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors.
-- If you need to rewrite most of a document (>50% changing), use \`write_document\` to replace the entire content instead of many patches.
+- If you need to rewrite most of a document (>50% changing), use \`begin_document(mode="edit")\` and then \`write_document\` with \`behavior="replace"\` and the full replacement content instead of many patches.
 - The pattern \`read → patch → read → patch\` is a wasteful anti-pattern. Read once, patch once (with all edits), finalize.
 
 ## Document Statuses
@@ -203,7 +205,7 @@ const BeginDocumentParams = z.object({
     mode: z
         .enum(['create', 'edit'])
         .describe(
-            'Operation mode: "create" (new document, fails if exists), "edit" (modify existing, loads best version to edit)',
+            'Operation mode: "create" (new document, fails if exists), "edit" (modify an existing document in place)',
         ),
     name: z.string().min(1).describe('Document name (e.g., "analysis.md"). Extension auto-appended if missing.'),
     title: z.string().optional().nullable().describe('Display title for the document (required for create).'),
@@ -213,7 +215,10 @@ const BeginDocumentParams = z.object({
 });
 
 const WriteDocumentParams = z.object({
-    content: z.string().describe('Content to append to the current editing draft.'),
+    content: z.string().describe('Content to write to the current editing draft.'),
+    behavior: z
+        .enum(['append', 'replace'])
+        .describe('Write behavior: "append" adds to the current draft, "replace" replaces the current draft content entirely.'),
 });
 
 const PatchDocumentParams = z.object({
@@ -301,7 +306,10 @@ Document Type (also controls visibility):
 - All other types (Research Report, Executive Summary, Other) are client-visible deliverables.
 - In edit mode, you should generally keep the same document_type as the existing version.
 
-After calling this, use write_document to add content or patch_document for precise edits.
+After calling this:
+- use write_document with behavior="append" to add content in create mode
+- use patch_document for precise edits in edit mode
+- use write_document with behavior="replace" only when rewriting most of the active draft from scratch
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
@@ -338,7 +346,6 @@ You MUST call finalize_document when done or content will be lost.`,
                         error: `Document "${normalizedName}" does not exist. Call request_user_decision with options create ("Create a new document with this name") and pick_existing ("Show existing documents and let me pick"). Do NOT decide on your own.`,
                     };
                 }
-
                 // Handle CREATE mode
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
@@ -421,7 +428,7 @@ You MUST call finalize_document when done or content will be lost.`,
                     const nextVersion = existing!.latestVersion + 1;
                     return {
                         status: 'editing',
-                        mode: 'edit',
+                        mode,
                         name: normalizedName,
                         title: draft.title,
                         is_internal: draft.is_internal,
@@ -443,28 +450,31 @@ You MUST call finalize_document when done or content will be lost.`,
         },
 
         // ----------------------------------------------------------------
-        // write_document - Append to editing draft
+        // write_document - Write to editing draft
         // ----------------------------------------------------------------
         {
             name: 'write_document' as const,
-            description: `Append content to the current editing draft.
+            description: `Write content to the current editing draft.
 
 Requires an active draft started with begin_document.
-Can be called multiple times to add content in chunks.
+Use behavior="append" to add content in chunks.
+Use behavior="replace" to replace the entire current draft content.
 Content streams to the UI in real-time.`,
             parameters: WriteDocumentParams,
             executor: (input: z.infer<typeof WriteDocumentParams>, ctx: DocumentToolsContext) => {
-                const { content } = input;
+                const { content, behavior } = input;
                 const { draftManager } = ctx;
 
                 try {
-                    const draft = draftManager.append(content);
+                    const draft = behavior === 'replace' ? draftManager.setContent(content) : draftManager.append(content);
                     const addedLines = countLines(content);
                     const totalLines = countLines(draft.content);
 
                     return {
                         status: 'written',
-                        charsAdded: content.length,
+                        behavior,
+                        charsAdded: behavior === 'append' ? content.length : undefined,
+                        charsWritten: content.length,
                         linesAdded: addedLines,
                         totalLines,
                     };
