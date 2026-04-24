@@ -300,12 +300,20 @@ describe('project deletion cascades related records', () => {
         const project = em.create(ProjectEntity, { name: 'Project With Data', user });
         const chat = em.create(ChatEntity, { phase: 'active', phase_index: 0, project, user });
         const message = em.create(ChatMessageEntity, { role: 'user', content: 'hello', chat });
-        const artifact = em.create(ArtifactEntity, { key: 'deck', title: 'Deck', version: 1, project, chat, user });
+        const artifact = em.create(ArtifactEntity, {
+            key: 'deck',
+            version: 1,
+            project,
+            chat,
+            user,
+            current_version: null!,
+        });
         const version = em.create(ArtifactVersionEntity, {
             artifact,
             chat,
             chat_message: message,
             version: 1,
+            title: 'Deck',
             content: '# Deck',
             status: 'approved',
             is_internal: false,

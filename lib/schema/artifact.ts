@@ -107,6 +107,7 @@ export const ArtifactVersionDtoSchema = z.object({
         .nullable()
         .optional(),
     version: z.number().int(),
+    title: z.string(),
     content: z.string(),
     status: VersionStatusSchema,
     is_uploaded: z.boolean().optional(),
@@ -123,7 +124,6 @@ export type ArtifactVersionDto = z.infer<typeof ArtifactVersionDtoSchema>;
 export const ArtifactDtoSchema = z.object({
     id: z.string().uuid(),
     key: z.string(),
-    title: z.string(),
     version: z.number().int(),
     project: z
         .union([z.string().uuid(), z.object({}).passthrough()])

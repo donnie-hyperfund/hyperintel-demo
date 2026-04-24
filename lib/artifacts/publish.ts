@@ -67,6 +67,7 @@ export async function publishArtifactToUserScope(
             const newVersion = new ArtifactVersionEntity();
             newVersion.artifact = existing;
             newVersion.version = newVersionNum;
+            newVersion.title = sourceVersion.title;
             newVersion.content = sourceVersion.content;
             newVersion.ai_content = sourceVersion.ai_content;
             newVersion.is_internal = sourceVersion.is_internal;
@@ -78,7 +79,6 @@ export async function publishArtifactToUserScope(
             em.persist(newVersion);
 
             existing.version = newVersionNum;
-            existing.title = sourceArtifact.title;
             existing.current_version = newVersion;
             existing.metadata = {
                 ...existing.metadata,
@@ -99,7 +99,6 @@ export async function publishArtifactToUserScope(
             // Phase 1: Create artifact
             const artifact = new ArtifactEntity();
             artifact.key = key;
-            artifact.title = sourceArtifact.title;
             artifact.version = 1;
             artifact.user = txEm.getReference('UserEntity', userId) as any;
             artifact.metadata = {
@@ -114,6 +113,7 @@ export async function publishArtifactToUserScope(
             const version = new ArtifactVersionEntity();
             version.artifact = artifact;
             version.version = 1;
+            version.title = sourceVersion.title;
             version.content = sourceVersion.content;
             version.ai_content = sourceVersion.ai_content;
             version.is_internal = sourceVersion.is_internal;
