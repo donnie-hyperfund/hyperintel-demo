@@ -48,7 +48,7 @@ function resolveEvent(event: NonNullable<Message['systemEvent']>): EventDisplay 
                 label: (
                     <>
                         {name}
-                        {fromVersion} restored as{version}
+                        {fromVersion} restored as proposed{version}
                     </>
                 ),
             };

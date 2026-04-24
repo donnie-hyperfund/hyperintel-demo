@@ -16,11 +16,7 @@ import { injectSystemEvent } from './utils/system-events';
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
 
-export async function generateYAMLForArtifact(
-    content: string,
-    messages: ChatMessageEntity[],
-    ctx: Ctx,
-): Promise<string> {
+async function generateYAMLForArtifact(content: string, messages: ChatMessageEntity[], ctx: Ctx): Promise<string> {
     const localPath = resolveLocalPromptPath();
     const systemPrompt = await getPromptContent(ctx, YAML_PROMPT_SLUG, localPath);
     if (!systemPrompt) {
@@ -57,63 +53,6 @@ export async function generateYAMLForArtifact(
     yamlContent = yamlContent.replace(/^```ya?ml\s*\n?/i, '').replace(/\n?```\s*$/i, '');
 
     return yamlContent;
-}
-
-/**
- * Best-effort post-flush effects shared by approve and restore flows.
- * Publishes to user scope (for cross-project availability) and indexes in embedding queue.
- *
- * Expects version.artifact (with .project and .project.user) to be populated.
- */
-export async function publishToUserScopeAndIndexVersion(
-    version: ArtifactVersionEntity,
-    ctx: Ctx,
-    embedding: { content: string; isAiContent: boolean },
-): Promise<void> {
-    const { em } = ctx;
-
-    if (!em) {
-        throw new PublicError(500, {
-            message: 'Database connection not available',
-            code: 'DATABASE_UNAVAILABLE',
-        });
-    }
-
-    const project = version.artifact.project;
-    const projectUser = project?.user;
-
-    // Publish publishable document types to user scope for cross-project availability.
-    if (PUBLISHABLE_DOCUMENT_TYPES.includes(version.document_type) && project && projectUser) {
-        try {
-            const publishResult = await publishArtifactToUserScope(em, {
-                sourceVersion: version,
-                userId: projectUser.id,
-                projectId: project.id,
-                projectName: project.name,
-            });
-            console.log('[publishToUserScopeAndIndexVersion] Published to user scope:', publishResult);
-        } catch (err) {
-            console.error('[publishToUserScopeAndIndexVersion] Publish to user scope failed (non-fatal):', err);
-        }
-    }
-
-    if (ctx.env.EMBEDDING_QUEUE && project) {
-        try {
-            // For internal documents: index the AI-readable YAML
-            // For client deliverables: index original content (no AI-readable version)
-            await ctx.env.EMBEDDING_QUEUE.send({
-                type: 'index_artifact_version',
-                projectId: project.id,
-                versionId: version.id,
-                content: embedding.content,
-                documentName: version.artifact.key,
-                is_ai_content: embedding.isAiContent,
-                previewAlias: ctx.previewAlias,
-            });
-        } catch (err) {
-            console.error('[publishToUserScopeAndIndexVersion] Embedding queue failed:', err);
-        }
-    }
 }
 
 export async function approveArtifactHandler(
@@ -239,11 +178,38 @@ export async function approveArtifactHandler(
 
     await em.flush();
 
-    // Post-flush best-effort: publish to user scope + index embeddings.
-    await publishToUserScopeAndIndexVersion(version, ctx, {
-        content: isInternalDocument && yamlContent ? yamlContent : version.content,
-        isAiContent: isInternalDocument,
-    });
+    // Publish publishable document types to user scope for cross-project availability
+    if (PUBLISHABLE_DOCUMENT_TYPES.includes(version.document_type) && project && projectUser) {
+        try {
+            const publishResult = await publishArtifactToUserScope(em, {
+                sourceVersion: version,
+                userId: projectUser.id,
+                projectId: project.id,
+                projectName: project.name,
+            });
+            console.log('[approveArtifact] Published to user scope:', publishResult);
+        } catch (err) {
+            console.error('[approveArtifact] Publish to user scope failed (non-fatal):', err);
+        }
+    }
+
+    if (ctx.env.EMBEDDING_QUEUE && project) {
+        try {
+            // For internal documents: index AI-readable YAML
+            // For client deliverables: index original content (no AI-readable version)
+            await ctx.env.EMBEDDING_QUEUE.send({
+                type: 'index_artifact_version',
+                projectId: project.id,
+                versionId: version.id,
+                content: isInternalDocument && yamlContent ? yamlContent : version.content,
+                documentName: version.artifact.key,
+                is_ai_content: isInternalDocument,
+                previewAlias: ctx.previewAlias,
+            });
+        } catch (err) {
+            console.error('[approveArtifact] Embedding queue failed:', err);
+        }
+    }
 
     await broadcastUserEvent(ctx, 'artifact_version_updated', {
         artifactId: version.artifact.id,

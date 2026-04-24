@@ -9,9 +9,7 @@ import {
     type RestoreArtifactResponseDto,
     TERMINAL_VERSION_STATUSES,
 } from '@/lib/schema/artifact';
-import { generateYAMLForArtifact, publishToUserScopeAndIndexVersion } from './artifact-approver';
 import type { Ctx } from './context';
-import { shouldGenerateAiContent } from './tools/documents/document-classifier';
 import { broadcastUserEvent } from './utils/broadcast';
 import { injectSystemEvent } from './utils/system-events';
 
@@ -128,12 +126,12 @@ export async function restoreArtifactHandler(
 
     await broadcastUserEvent(ctx, 'artifact_version_update_started', {
         ...broadcastBase,
-        nextStatus: 'approved',
+        nextStatus: 'proposed',
     });
 
-    let txResult: { restoredVersion: ArtifactVersionEntity; meta: RestoreMeta };
+    let meta: RestoreMeta;
     try {
-        txResult = await em.transactional(async (txEm) => {
+        meta = await em.transactional(async (txEm) => {
             const sourceVersion = await loadAndValidateSource({
                 em: txEm,
                 sourceVersionId,
@@ -223,9 +221,9 @@ export async function restoreArtifactHandler(
             // Intake: the source version's own chat (single chat per artifact lifecycle).
             restored.chat = targetChat ?? undefined;
             restored.version = newVersionNumber;
+            restored.title = sourceVersion.title;
             restored.content = sourceVersion.content;
-            restored.ai_content = sourceVersion.ai_content;
-            restored.status = 'approved';
+            restored.status = 'proposed';
             restored.is_uploaded = sourceVersion.is_uploaded;
             restored.is_internal = sourceVersion.is_internal;
             restored.document_type = sourceVersion.document_type;
@@ -234,7 +232,6 @@ export async function restoreArtifactHandler(
 
             txEm.persist(restored);
             artifact.version = newVersionNumber;
-            artifact.current_version = restored;
             await txEm.flush();
 
             if (sourcePecpVersion) {
@@ -262,6 +259,7 @@ export async function restoreArtifactHandler(
                 restoredPecp.chat = targetChat ?? undefined;
                 restoredPecp.parent_version = restored;
                 restoredPecp.version = newPecpVersionNumber;
+                restoredPecp.title = sourcePecpVersion.title;
                 restoredPecp.content = sourcePecpVersion.content;
                 restoredPecp.ai_content = sourcePecpVersion.ai_content;
                 restoredPecp.status = 'approved';
@@ -279,18 +277,15 @@ export async function restoreArtifactHandler(
             }
 
             return {
-                restoredVersion: restored,
-                meta: {
-                    artifactId: artifact.id,
-                    key: artifact.key,
-                    sourceVersionNumber: sourceVersion.version,
-                    sourceStatus: sourceVersion.status,
-                    restoredVersionNumber: newVersionNumber,
-                    restoredVersionId: restored.id,
-                    supersededVersions: supersededVersions.sort((a, b) => a - b),
-                    chatId: targetChat?.id,
-                    chatType: (targetChat?.type as string) ?? 'phase',
-                },
+                artifactId: artifact.id,
+                key: artifact.key,
+                sourceVersionNumber: sourceVersion.version,
+                sourceStatus: sourceVersion.status,
+                restoredVersionNumber: newVersionNumber,
+                restoredVersionId: restored.id,
+                supersededVersions: supersededVersions.sort((a, b) => a - b),
+                chatId: targetChat?.id,
+                chatType: (targetChat?.type as string) ?? 'phase',
             };
         });
     } catch (err) {
@@ -300,64 +295,22 @@ export async function restoreArtifactHandler(
         });
         throw err;
     }
-    const { restoredVersion, meta } = txResult;
 
-    // Best-effort post-transaction: generate YAML if needed, then publish + index.
-    // The version is already approved and current — failures here don't affect the restore.
-    try {
-        if (!restoredVersion.is_uploaded) {
-            const isInternalDocument = await shouldGenerateAiContent(
-                ctx,
-                restoredVersion.artifact.key,
-                restoredVersion.artifact.title,
-            );
-
-            console.log('[restoreArtifact] Document classification:', {
-                documentKey: restoredVersion.artifact.key,
-                isInternalDocument,
-            });
-
-            let yamlContent = restoredVersion.ai_content;
-
-            // Source versions that were never approved (rejected, superseded) won't have ai_content.
-            // Generate it now for internal documents so they get proper YAML and embeddings.
-            if (isInternalDocument && !yamlContent) {
-                try {
-                    // Generate YAML from content alone (no chat messages — the original conversation
-                    // context belongs to a different phase and isn't relevant for the restored version's summary).
-                    yamlContent = await generateYAMLForArtifact(restoredVersion.content, [], ctx);
-                } catch (error) {
-                    console.error('[restoreArtifact] YAML generation failed:', error);
-                    yamlContent = `# YAML generation failed\n# Error: ${error instanceof Error ? error.message : String(error)}\n\n${restoredVersion.content}`;
-                }
-
-                restoredVersion.ai_content = yamlContent;
-                await em.flush();
-            }
-
-            await publishToUserScopeAndIndexVersion(restoredVersion, ctx, {
-                content: isInternalDocument && yamlContent ? yamlContent : restoredVersion.content,
-                isAiContent: isInternalDocument,
-            });
-        }
-    } catch (err) {
-        console.error('[restoreArtifact] Post-restore processing failed (non-fatal):', err);
-    }
-
-    // Notify other tabs / users that the version changed (after all processing, same as approver).
     await broadcastUserEvent(ctx, 'artifact_version_updated', {
         ...broadcastBase,
         restoredVersionNumber: meta.restoredVersionNumber,
-        status: 'approved',
+        status: 'proposed',
     });
 
-    // Inject system event so the agent knows the user restored via UI.
+    // Inject system event so the agent knows the user proposed a restore via UI.
     if (meta.chatId) {
         await injectSystemEvent(ctx, em, {
             chatId: meta.chatId,
             chatType: meta.chatType,
             event: 'artifact_restored',
-            description: `User has restored artifact [${meta.key}] from v${meta.sourceVersionNumber} as v${meta.restoredVersionNumber}`,
+            description:
+                `User has restored artifact [${meta.key}] v${meta.sourceVersionNumber} ` +
+                `as proposed v${meta.restoredVersionNumber} (awaiting approval).`,
             extra: {
                 artifactId: meta.artifactId,
                 artifactKey: meta.key,
@@ -375,7 +328,7 @@ export async function restoreArtifactHandler(
         sourceVersion: meta.sourceVersionNumber,
         restoredVersion: meta.restoredVersionNumber,
         restoredVersionId: meta.restoredVersionId,
-        status: 'approved',
+        status: 'proposed',
         supersededVersions: meta.supersededVersions,
         chatId: meta.chatId,
         chatType: meta.chatType,

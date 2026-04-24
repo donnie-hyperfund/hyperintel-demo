@@ -81,7 +81,9 @@ export function useArtifactRestore({ artifactKey, artifactId }: UseArtifactResto
                 );
                 openPanel({ panel: 'artifact-preview', artifactId: artifactKey, version: restoredVersion });
 
-                toast({ title: `Restored v${opts.sourceVersionNumber} as v${restoredVersion}` });
+                toast({
+                    title: `Restored v${opts.sourceVersionNumber} as proposed v${restoredVersion} — awaiting approval`,
+                });
 
                 const targetChatId = updatedArtifact.chatId;
                 if (targetChatId && targetChatId !== chatId) {

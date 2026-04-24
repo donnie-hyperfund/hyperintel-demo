@@ -140,10 +140,10 @@ export function ArtifactVersionHistoryDialog({
                     onEscapeKeyDown={(e) => e.preventDefault()}
                 >
                     <DialogHeader>
-                        <DialogTitle>Version restored successfully</DialogTitle>
+                        <DialogTitle>Restored as proposed — awaiting your approval</DialogTitle>
                         <DialogDescription>
-                            The restored version was linked to the latest phase. You&apos;ll be redirected there so the
-                            agent can review and respond.
+                            The selected content has been saved as a new proposed version in the latest phase.
+                            You&apos;ll be redirected there to review it, then approve or reject.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
@@ -172,9 +172,9 @@ export function ArtifactVersionHistoryDialog({
                         </DialogTitle>
                         <DialogDescription className="max-w-prose">
                             Browse and restore previous versions of{' '}
-                            <strong>{history?.artifact.title ?? artifactKey}</strong>. Restoring creates a new approved
-                            version and notifies the agent
-                            {projectId ? ' in the latest phase' : ''}.
+                            <strong>{history?.artifact.title ?? artifactKey}</strong>. Restoring creates a new{' '}
+                            <strong>proposed</strong> version{projectId ? ' in the latest phase' : ''} — you can then
+                            approve or reject it like any other pending revision.
                         </DialogDescription>
                     </DialogHeader>
 

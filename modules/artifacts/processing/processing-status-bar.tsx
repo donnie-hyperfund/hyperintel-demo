@@ -21,16 +21,17 @@ const LABEL_BUILDERS: Record<ProcessingAction, LabelSet> = {
         failed: (entry, suffix) => `Failed to reject ${entry.artifactName}${suffix}`,
     },
     restore: {
-        processing: (entry, suffix) => `Restoring ${entry.artifactName}${restoreVersions(entry)}${suffix}`,
-        completed: (entry, suffix) => `Restored ${entry.artifactName}${restoreVersions(entry)}${suffix}`,
-        failed: (entry, suffix) => `Failed to restore ${entry.artifactName}${restoreVersions(entry)}${suffix}`,
+        processing: (entry, suffix) => `Restoring ${entry.artifactName}${restoreVersions(entry, 'as')}${suffix}`,
+        completed: (entry, suffix) =>
+            `Restored ${entry.artifactName}${restoreVersions(entry, 'as proposed')}${suffix} — awaiting approval`,
+        failed: (entry, suffix) => `Failed to restore ${entry.artifactName}${restoreVersions(entry, 'as')}${suffix}`,
     },
 };
 
-function restoreVersions(entry: ProcessingEntry): string {
+function restoreVersions(entry: ProcessingEntry, targetLabel: string): string {
     if (entry.action !== 'restore') return '';
     const source = ` v${entry.sourceVersionNumber}`;
-    const target = entry.restoredVersionNumber != null ? ` as v${entry.restoredVersionNumber}` : '';
+    const target = entry.restoredVersionNumber != null ? ` ${targetLabel} v${entry.restoredVersionNumber}` : '';
     return `${source}${target}`;
 }
 

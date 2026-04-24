@@ -200,7 +200,7 @@ export const RestoreArtifactResponseSchema = z.object({
     sourceVersion: z.number().int().positive(),
     restoredVersion: z.number().int().positive(),
     restoredVersionId: z.string().uuid(),
-    status: z.literal('approved'),
+    status: z.literal('proposed'),
     supersededVersions: z.array(z.number().int().positive()),
     chatId: z.string().uuid().optional(),
     chatType: z.string().optional(),

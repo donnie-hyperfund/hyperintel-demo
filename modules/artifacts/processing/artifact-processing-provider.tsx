@@ -15,6 +15,12 @@ import type { ProcessingAction, ProcessingEntry, ProcessingEntryInput, Processin
 const AUTO_DISMISS_MS = 3000;
 const STALE_THRESHOLD_MS = 60_000;
 
+const ACTION_SUCCESS_STATUS: Record<ProcessingAction, string> = {
+    approve: 'approved',
+    reject: 'rejected',
+    restore: 'proposed',
+};
+
 type ArtifactProcessingContextValue = {
     startProcessing: (entry: ProcessingEntryInput) => void;
     failProcessing: (versionId: string) => void;
@@ -226,7 +232,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                     return;
                 }
 
-                const status = event.status === 'approved' || event.status === 'rejected' ? 'completed' : 'failed';
+                const status = event.status === ACTION_SUCCESS_STATUS[event.action] ? 'completed' : 'failed';
                 const patch =
                     event.restoredVersionNumber != null
                         ? { restoredVersionNumber: event.restoredVersionNumber }
