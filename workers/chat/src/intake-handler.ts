@@ -28,7 +28,13 @@ import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, Draf
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
-import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
+import {
+    buildStoredErrorMetadata,
+    buildWorkerErrorLogContext,
+    classifyWorkerError,
+    extractRawErrorMessage,
+    logWorkerError,
+} from './utils/error-metadata';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
@@ -389,7 +395,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         await runStreamLoop({
             stream,
             push: pusher.push,
-            docEventsCtx: { em: em! },
+            docEventsCtx: { em: em!, draftManager: agentCtx.draftManager },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
@@ -407,22 +413,21 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
                         const errorMetadata = isError
-                            ? buildPublicErrorMetadata({
-                                  error: event.error!.raw,
-                                  fallbackMessage: event.error!.message,
+                            ? buildStoredErrorMetadata({
+                                  classification: event.error!.classification,
                                   requestId: ctx.requestId,
                               })
                             : null;
-                        if (isError && errorMetadata) {
+                        if (isError) {
                             logWorkerError(
                                 'intake-handler',
                                 buildWorkerErrorLogContext({
-                                    error: event.error!.raw,
+                                    classification: event.error!.classification,
                                     stage: 'done_ext',
                                     chatId,
                                     agentMessageId,
-                                    fallbackMessage: event.error!.message,
-                                    errorMetadata,
+                                    requestId: ctx.requestId,
+                                    error: event.error!.raw,
                                 }),
                                 event.error!.raw,
                             );
@@ -462,7 +467,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                                 metadata: {
                                     preset: presetId,
                                     inference: extractInferenceMetadata(inferenceParams),
-                                    ...(errorMetadata ?? {}),
+                                    ...(errorMetadata && { error: errorMetadata }),
                                     ...(messageUsage && { usage: messageUsage }),
                                 },
                                 ...(isError && { is_error: true }),
@@ -490,11 +495,16 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
                         // Push terminal done event (totalCost is dev-only — matches chat-handler contract)
                         const isDev = ctx.env.ENV === 'dev';
+                        // `detail` is dev-only and never persisted.
+                        const devErrorDetail = isDev && isError ? extractRawErrorMessage(event.error!.raw) : undefined;
+                        const wsError = errorMetadata
+                            ? { ...errorMetadata, ...(devErrorDetail && { detail: devErrorDetail }) }
+                            : undefined;
                         const doneEvent: StreamEvent = {
                             type: 'done',
                             ...(isDev && chat.total_cost != null && { totalCost: Number(chat.total_cost) }),
-                            ...(isError && { error: event.error!.message }),
-                            ...(errorMetadata && { messageMetadata: errorMetadata }),
+                            ...(isError && { error: errorMetadata?.code ?? 'UNKNOWN' }),
+                            ...(wsError && { messageMetadata: { error: wsError } }),
                             ...(pendingDoneEvent?.outputType === 'tool' &&
                                 pendingDoneEvent.outputTool && {
                                     outputType: 'tool' as const,
@@ -521,15 +531,17 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
     } catch (error: any) {
-        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        const classification = classifyWorkerError(error);
+        const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(
             'intake-handler',
             buildWorkerErrorLogContext({
-                error,
+                classification,
                 stage: 'catch',
                 chatId,
                 agentMessageId,
-                errorMetadata,
+                requestId: ctx.requestId,
+                error,
             }),
             error,
         );

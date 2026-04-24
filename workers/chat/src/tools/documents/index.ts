@@ -3,6 +3,7 @@
  */
 
 export {
+    type AppliedEdit,
     applyEdits,
     approveVersion,
     countLines,
@@ -16,6 +17,7 @@ export {
     findDocumentByName,
     findVersionByStatus,
     formatWithLineNumbers,
+    inferEndLine,
     listDocuments,
     rejectVersion,
     supersedeProposedVersion,
