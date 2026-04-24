@@ -107,6 +107,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         isGenerating || isSummarizing || isLoading || isSubmitting || hasBlockingFiles || isProcessingArtifactAction;
     const isAwaitingStream = isGenerating && !activeResponseId;
     const isSubmitDisabled = !hasContent || isBusy;
+    const isSending = isGenerating || isSubmitting;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
         if (!data.message.trim() && files.length === 0) return;
@@ -283,6 +284,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                                 status={entry.status}
                                                 file={entry.file}
                                                 onRemove={() => removeFile(i)}
+                                                disabled={isSending}
                                             />
                                         ))}
                                     </div>

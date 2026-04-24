@@ -18,7 +18,7 @@ import { ServerMsg } from '@/lib/schema/ws-protocol';
 import { chunkText, TokenDrip } from '@/lib/token-drip';
 import { useWebsocket } from '@/lib/websocket/provider';
 import type { ArtifactContextValue } from '@/modules/artifacts/providers/artifact-provider';
-import { getLatestArtifactVersionContent } from '@/modules/artifacts/utils';
+import { getLatestArtifactVersionContent, getLatestArtifactVersionTitle } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
 
 // ============================================================================
@@ -322,11 +322,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         {
                             id: artifactId,
                             key: payload.name,
-                            title: payload.title,
                             version: 1,
                             proposedVersion: {
                                 id: '',
                                 version: 1,
+                                title: payload.title,
                                 content: '',
                                 status: 'proposed',
                                 documentType: payload.documentType,
@@ -356,7 +356,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     }
 
                     const newVersion = payload.nextVersion ?? loadedVersion + 1;
-                    const loadedContent = existingArtifact ? (getLatestArtifactVersionContent(existingArtifact) ?? '') : '';
+                    const loadedContent = existingArtifact
+                        ? (getLatestArtifactVersionContent(existingArtifact) ?? '')
+                        : '';
+                    const existingTitle = existingArtifact ? getLatestArtifactVersionTitle(existingArtifact) : '';
 
                     s.streamingDocs.set(artifactId, { artifactId, content: loadedContent, version: newVersion });
 
@@ -364,12 +367,12 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         {
                             id: artifactId,
                             key: payload.name,
-                            title: payload.title,
                             version: newVersion,
                             currentVersion: loadedContent
                                 ? {
                                       id: '',
                                       version: loadedVersion,
+                                      title: existingTitle,
                                       content: loadedContent,
                                       status: 'approved',
                                       createdAt: now,
@@ -379,6 +382,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             proposedVersion: {
                                 id: '',
                                 version: newVersion,
+                                title: payload.title,
                                 content: loadedContent,
                                 status: 'proposed',
                                 documentType: payload.documentType,
@@ -427,11 +431,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         const rangeStart = Math.max(0, edit.startLine - 1);
                         const rangeEnd = Math.min(lines.length, edit.endLine);
                         const replacement = edit.newContent.split('\n');
-                        lines = [
-                            ...lines.slice(0, rangeStart),
-                            ...replacement,
-                            ...lines.slice(rangeEnd),
-                        ];
+                        lines = [...lines.slice(0, rangeStart), ...replacement, ...lines.slice(rangeEnd)];
                     }
                     doc.content = lines.join('\n');
 
@@ -576,11 +576,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                     {
                                         id: doc.name,
                                         key: doc.name,
-                                        title: doc.title,
                                         version: doc.pendingVersion,
                                         proposedVersion: {
                                             id: '',
                                             version: doc.pendingVersion,
+                                            title: doc.title,
                                             content: doc.content,
                                             status: 'proposed',
                                             documentType: doc.documentType,
@@ -593,6 +593,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                                   currentVersion: {
                                                       id: '',
                                                       version: doc.loadedVersion,
+                                                      title: doc.title,
                                                       content: '',
                                                       status: 'approved',
                                                       createdAt: now,
