@@ -23,6 +23,7 @@ import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, Draf
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
+import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
@@ -399,7 +400,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         const createdVersionIds: string[] = [];
 
         // Create combined agent context
-        const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
+        const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             loadedPrompts: new Set<string>(savedPrompts),
             em: em!,
             projectId: chat.project!.id,
@@ -408,6 +409,8 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             embeddingQueue: ctx.env.EMBEDDING_QUEUE,
             previewAlias: ctx.previewAlias,
             createdVersionIds,
+            pusher,
+            streamDO,
             onVersionCreated: (event) => {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
@@ -466,6 +469,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             ...createKnowledgeTools(),
             ...createWebScrapeTools(),
             ...createPhaseTransitionTools(),
+            ...createUserDecisionTools(),
         ];
         const toolGroups = [
             PromptManagementToolGroup,
@@ -474,6 +478,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             KnowledgeSearchToolGroup,
             WebScrapeToolGroup,
             PhaseTransitionToolGroup,
+            UserDecisionToolGroup,
         ];
 
         // Run the agent with streaming
@@ -501,7 +506,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                             WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
                         ),
                     behavioralGuidance: [
-                        'DECISION ESCALATION: When you encounter an ambiguous situation where multiple valid actions are possible (e.g., a tool call fails with recoverable options, a name conflict, missing resource, unclear user intent), NEVER silently pick one option yourself. Instead: (1) explain the situation clearly to the user, (2) present the available options, (3) wait for their choice. The user controls the workflow — you execute their decisions. Examples: document name taken, requested resource not found, unclear which version to use, conflicting instructions.',
+                        'DECISION ESCALATION: When a tool call fails with recoverable options or the path forward is ambiguous between 2-4 concrete named choices (e.g., name conflict, missing resource, unclear which version/resource to use), call `request_user_decision` with a clear question and the concrete options — do NOT silently pick one yourself, and do NOT ask the user in plain text. For free-text questions or anything requiring a written answer, just ask in chat. After the user clicks, act on their choice immediately without re-confirming.',
                     ],
                     statusUpdates: { enabled: true },
                     preprocessContext,

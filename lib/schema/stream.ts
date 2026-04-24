@@ -23,7 +23,39 @@ export interface DocumentEdit {
     newContent: string;
 }
 
-export type StreamStatus = 'streaming' | 'done' | 'aborted' | 'error' | 'pending_approval';
+/** One choice offered to the user by a decision_prompt. */
+export interface DecisionOption {
+    /** Machine value returned to the agent when the user picks this option. */
+    value: string;
+    /** Human-readable button label shown in the UI. */
+    label: string;
+    /** Optional longer description rendered under the button. */
+    description?: string;
+}
+
+/** A pending user-decision card currently awaiting the user's click. */
+export interface PendingDecision {
+    toolCallId: string;
+    question: string;
+    options: DecisionOption[];
+    /** Optional extra context to show to the user above the options (no tool output / prompt leakage). */
+    context?: string;
+}
+
+/**
+ * Result of a resolved decision prompt.
+ * - Option click: `value` is the chosen option, `freeText` is undefined.
+ * - "Other" (free-text) path: `freeText` is the typed answer and `value` is the UI sentinel (e.g. `__other__`).
+ */
+export interface DecisionResult {
+    value: string;
+    freeText?: string;
+}
+
+/** Sentinel `value` the UI sends on the Other/free-text path. */
+export const DECISION_OTHER_SENTINEL = '__other__';
+
+export type StreamStatus = 'streaming' | 'done' | 'aborted' | 'error' | 'pending_approval' | 'pending_decision';
 
 export type StreamEventType =
     | 'delta'
@@ -43,6 +75,8 @@ export type StreamEventType =
     | 'document_edit'
     | 'document_progress'
     | 'document_complete'
+    | 'decision_prompt'
+    | 'decision_resolved'
     | 'status_update'
     | 'error'
     | 'done'
@@ -119,6 +153,15 @@ export type StreamEvent =
           isPECP?: boolean;
           parentDocument?: string;
       }
+    // User decision prompts
+    | {
+          type: 'decision_prompt';
+          toolCallId: string;
+          question: string;
+          options: DecisionOption[];
+          context?: string;
+      }
+    | { type: 'decision_resolved'; toolCallId: string; value: string; freeText?: string }
     // Status & control
     | { type: 'status_update'; status: string }
     | { type: 'error'; error: string; soft?: boolean }
@@ -161,6 +204,7 @@ export type ActiveDocument = {
 export type StreamSnapshot = {
     blocks: StreamBlock[];
     activeDocuments: ActiveDocument[];
+    pendingDecisions: PendingDecision[];
     status: StreamStatus;
     displayStatus?: string | null;
 };

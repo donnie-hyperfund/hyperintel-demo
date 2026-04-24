@@ -22,7 +22,7 @@ import {
     summarize,
 } from '@/lib/api/requests/worker/chat';
 import type { ChatMessageDto } from '@/lib/schema/message';
-import type { StreamEvent, StreamStatus } from '@/lib/schema/stream';
+import type { PendingDecision, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
 import { getDraftBaseKey } from '@/lib/storage/storage-keys';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
@@ -89,6 +89,13 @@ export type BaseChatContextValue = {
     dismissInvalidModelAlert: () => void;
     /** Lazily create the chat if it doesn't exist yet, returns the chatId */
     ensureChatId: () => Promise<string>;
+    /** Pending `request_user_decision` cards awaiting the user's click. */
+    pendingDecisions: PendingDecision[];
+    /**
+     * Resolve a pending decision card. Pass `freeText` when the user typed a
+     * custom "Other" answer (in that case `value` should be the Other sentinel).
+     */
+    selectDecision: (toolCallId: string, value: string, freeText?: string) => void;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -1446,6 +1453,8 @@ export function ChatProvider({
                 changeModel,
                 dismissInvalidModelAlert,
                 ensureChatId,
+                pendingDecisions: stream.pendingDecisions,
+                selectDecision: stream.selectDecision,
             })}
         >
             {children}

@@ -1,10 +1,25 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { StreamBlock } from '@common/ai/agent/types';
-import type { ActiveDocument, StreamEvent, StreamSnapshot, StreamStatus } from '@/lib/schema/stream';
+import type {
+    ActiveDocument,
+    DecisionResult,
+    PendingDecision,
+    StreamEvent,
+    StreamSnapshot,
+    StreamStatus,
+} from '@/lib/schema/stream';
 import createNeonSql from '@/workers/_common/vendor/neon';
 
 // Re-export shared types for consumers that imported from here
-export type { ActiveDocument, DocumentEdit, StreamEvent, StreamSnapshot, StreamStatus } from '@/lib/schema/stream';
+export type {
+    ActiveDocument,
+    DecisionResult,
+    DocumentEdit,
+    PendingDecision,
+    StreamEvent,
+    StreamSnapshot,
+    StreamStatus,
+} from '@/lib/schema/stream';
 
 // ============================================================================
 // CONSTANTS
@@ -13,6 +28,7 @@ export type { ActiveDocument, DocumentEdit, StreamEvent, StreamSnapshot, StreamS
 const DEAD_MAN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const ABORT_WAIT_TIMEOUT_MS = 60_000; // 60 seconds
 const TOOL_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const USER_DECISION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 /** How often to flush state to storage during streaming (crash-recovery only). */
 const PERSIST_INTERVAL_MS = 1_000;
 /** If a sequence gap isn't filled within this window, skip ahead and drain what we have. */
@@ -21,6 +37,7 @@ const REORDER_GAP_TIMEOUT_MS = 5_000;
 // Storage keys
 const SK_BLOCKS = 'blocks';
 const SK_ACTIVE_DOCS = 'activeDocuments';
+const SK_PENDING_DECISIONS = 'pendingDecisions';
 const SK_STATUS = 'status';
 const SK_SUBSCRIBERS = 'subscribers';
 const SK_CHAT_ID = 'chatId';
@@ -50,6 +67,7 @@ export class ChatStreamDO extends DurableObject<Env> {
     // --- Persisted state (survives hibernation via ctx.storage) ---
     private blocks: StreamBlock[] = [];
     private activeDocuments = new Map<string, ActiveDocument>();
+    private pendingDecisions = new Map<string, PendingDecision>();
     private status: StreamStatus | 'idle' = 'idle';
     private subscribers = new Map<string, string>(); // userId → UG DO name
     private chatId = '';
@@ -66,6 +84,7 @@ export class ChatStreamDO extends DurableObject<Env> {
     // --- In-memory state (lost on hibernation) ---
     private abortResolve: ((value: 'abort' | 'done') => void) | null = null;
     private approvalResolvers = new Map<string, (approved: boolean) => void>();
+    private decisionResolvers = new Map<string, (result: DecisionResult | null) => void>();
     private initialized = false;
     private lastPersistTime = 0;
 
@@ -89,6 +108,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         const [
             blocks,
             activeDocs,
+            pendingDecs,
             status,
             subscribers,
             chatId,
@@ -102,6 +122,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         ] = await Promise.all([
             this.ctx.storage.get<StreamBlock[]>(SK_BLOCKS),
             this.ctx.storage.get<[string, ActiveDocument][]>(SK_ACTIVE_DOCS),
+            this.ctx.storage.get<[string, PendingDecision][]>(SK_PENDING_DECISIONS),
             this.ctx.storage.get<StreamStatus | 'idle'>(SK_STATUS),
             this.ctx.storage.get<[string, string][]>(SK_SUBSCRIBERS),
             this.ctx.storage.get<string>(SK_CHAT_ID),
@@ -116,6 +137,7 @@ export class ChatStreamDO extends DurableObject<Env> {
 
         if (blocks) this.blocks = blocks;
         if (activeDocs) this.activeDocuments = new Map(activeDocs);
+        if (pendingDecs) this.pendingDecisions = new Map(pendingDecs);
         if (status) this.status = status;
         if (subscribers) this.subscribers = new Map(subscribers);
         if (chatId) this.chatId = chatId;
@@ -133,6 +155,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         await this.ctx.storage.put({
             [SK_BLOCKS]: this.blocks,
             [SK_ACTIVE_DOCS]: [...this.activeDocuments.entries()],
+            [SK_PENDING_DECISIONS]: [...this.pendingDecisions.entries()],
             [SK_STATUS]: this.status,
             [SK_SUBSCRIBERS]: [...this.subscribers.entries()],
             [SK_CHAT_ID]: this.chatId,
@@ -304,6 +327,22 @@ export class ChatStreamDO extends DurableObject<Env> {
 
             case 'document_complete': {
                 this.activeDocuments.delete(event.name);
+                break;
+            }
+
+            // --- User decision prompts ---
+            case 'decision_prompt': {
+                this.pendingDecisions.set(event.toolCallId, {
+                    toolCallId: event.toolCallId,
+                    question: event.question,
+                    options: event.options,
+                    context: event.context,
+                });
+                break;
+            }
+
+            case 'decision_resolved': {
+                this.pendingDecisions.delete(event.toolCallId);
                 break;
             }
 
@@ -607,6 +646,7 @@ export class ChatStreamDO extends DurableObject<Env> {
         return {
             blocks: this.blocks,
             activeDocuments: [...this.activeDocuments.values()],
+            pendingDecisions: [...this.pendingDecisions.values()],
             status: this.status === 'idle' ? 'streaming' : this.status,
             displayStatus: this.displayStatus,
         };
@@ -626,9 +666,17 @@ export class ChatStreamDO extends DurableObject<Env> {
      * Called by Worker after DB persistence.
      */
     async finalize() {
+        // Resolve any pending decision long-polls with null so the agent side
+        // doesn't hang waiting on a DO that's about to die.
+        for (const resolver of this.decisionResolvers.values()) {
+            resolver(null);
+        }
+        this.decisionResolvers.clear();
+
         // Clear in-memory
         this.blocks = [];
         this.activeDocuments.clear();
+        this.pendingDecisions.clear();
         this.subscribers.clear();
         this.abortResolve = null;
         this.approvalResolvers.clear();
@@ -703,6 +751,85 @@ export class ChatStreamDO extends DurableObject<Env> {
                 }
             }, TOOL_APPROVAL_TIMEOUT_MS);
         });
+    }
+
+    // ========================================================================
+    // USER DECISION LONG-POLL
+    // ========================================================================
+
+    /**
+     * Long-poll for the user's choice on a `request_user_decision` tool call.
+     * Resolves to a `{ value, freeText? }` object, or `null` if the user
+     * dismissed / timed out. `freeText` is set when the user picked "Other"
+     * and typed a custom answer.
+     */
+    async decisionWait(toolCallId: string): Promise<DecisionResult | null> {
+        await this.ensureLoaded();
+
+        return new Promise<DecisionResult | null>((resolve) => {
+            this.decisionResolvers.set(toolCallId, resolve);
+            setTimeout(() => {
+                if (this.decisionResolvers.has(toolCallId)) {
+                    this.decisionResolvers.delete(toolCallId);
+                    // Drop the stale prompt from state so the UI card disappears.
+                    this.pendingDecisions.delete(toolCallId);
+                    resolve(null);
+                }
+            }, USER_DECISION_TIMEOUT_MS);
+        });
+    }
+
+    /**
+     * Resolve a user-decision long-poll with the user's click (option value or free text).
+     * Called by the topic handler when the frontend sends `decision_select`.
+     *
+     * - Option click: `freeText` absent → validate value against pending options.
+     * - "Other" path: `freeText` is the typed answer → value validation is skipped
+     *   (the UI passes a sentinel value like "__other__").
+     */
+    async decisionSelect(toolCallId: string, value: string, freeText?: string) {
+        await this.ensureLoaded();
+        const pending = this.pendingDecisions.get(toolCallId);
+        // Reject clicks on unknown toolCallIds — prevents stale-card double-submit.
+        if (!pending) return;
+
+        const trimmedText = freeText?.trim();
+        if (trimmedText) {
+            // Free-text path: any value is accepted, the text is the answer.
+            // No option-validation needed.
+        } else if (!pending.options.some((o) => o.value === value)) {
+            // Option path: must match one of the offered values exactly.
+            return;
+        }
+
+        const result: DecisionResult = trimmedText ? { value, freeText: trimmedText } : { value };
+
+        const resolver = this.decisionResolvers.get(toolCallId);
+        if (resolver) {
+            resolver(result);
+            this.decisionResolvers.delete(toolCallId);
+        }
+        this.pendingDecisions.delete(toolCallId);
+        await this.persistState();
+
+        // Broadcast a `decision_resolved` event so any other subscribers (multi-tab)
+        // also drop the card from their UI. Use a fresh seq outside the pusher
+        // stream; the event is self-contained and order vs. agent output doesn't matter.
+        this.queueBroadcast([
+            {
+                topic: this.topic,
+                type: 'stream_event',
+                agentMessageId: this.agentMessageId,
+                event: {
+                    type: 'decision_resolved',
+                    toolCallId,
+                    value,
+                    ...(trimmedText ? { freeText: trimmedText } : {}),
+                } as StreamEvent,
+                _seq: this.broadcastSeq++,
+            },
+        ]);
+        await this.drainBroadcastQueue();
     }
 
     // ========================================================================

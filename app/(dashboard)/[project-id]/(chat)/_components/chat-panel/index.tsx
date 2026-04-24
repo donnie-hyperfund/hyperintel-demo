@@ -6,6 +6,7 @@ import { FileUploadProvider } from '@/modules/file-uploads/providers/file-upload
 import ChatConversation from './chat-conversation/chat-conversation';
 import { ChatEmptyTitle } from './chat-conversation/chat-empty-title';
 import ChatMessageForm from './chat-message-form';
+import { PendingDecisionBar } from './pending-decision-bar';
 import { PhaseTransitionController } from './phase-transition-controller';
 import { ChatStatusPill } from './status-pill';
 
@@ -75,6 +76,7 @@ function ChatPanelContent({
                     <div className="pointer-events-none absolute inset-x-0 bottom-full z-20">
                         <ChatStatusPill className="pointer-events-auto mb-3" />
                     </div>
+                    <PendingDecisionBar />
 
                     <ChatMessageForm />
                 </div>

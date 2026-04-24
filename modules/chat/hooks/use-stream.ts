@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
-import type { ActiveDocument, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
+import type { ActiveDocument, PendingDecision, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import type {
     CbStatusChangedMessage,
     ChatMessageCreatedMessage,
@@ -87,6 +87,8 @@ export type UseStreamOptions = {
 export type UseStreamReturn = {
     blocks: StreamBlock[];
     activeDocuments: ActiveDocument[];
+    /** User-decision prompts currently awaiting the user's click. */
+    pendingDecisions: PendingDecision[];
     status: StreamStatus | 'idle';
     displayStatus: string | null;
     agentMessageId: string | null;
@@ -97,6 +99,11 @@ export type UseStreamReturn = {
     isRetracted: boolean;
     abort: () => void;
     sendAction: (type: string, payload?: unknown) => void;
+    /**
+     * Resolve a pending decision card. Pass `freeText` when the user typed a
+     * custom "Other" answer (in that case `value` should be the Other sentinel).
+     */
+    selectDecision: (toolCallId: string, value: string, freeText?: string) => void;
 };
 
 // ============================================================================
@@ -157,6 +164,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     // Stream state
     const [blocks, setBlocks] = useState<StreamBlock[]>([]);
     const [activeDocuments, setActiveDocuments] = useState<ActiveDocument[]>([]);
+    const [pendingDecisions, setPendingDecisions] = useState<PendingDecision[]>([]);
     const [status, setStatus] = useState<StreamStatus | 'idle'>('idle');
     const [displayStatus, setDisplayStatus] = useState<string | null>(null);
     const [agentMessageId, setAgentMessageId] = useState<string | null>(null);
@@ -507,6 +515,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         documentQueueRef.current = new AsyncEventQueue(handleDocumentEvent);
         setBlocks([]);
         setActiveDocuments([]);
+        setPendingDecisions([]);
         setStatus('idle');
         setDisplayStatus(null);
         setAgentMessageId(null);
@@ -565,6 +574,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         stateRef.current = initFromSnapshot(sr.snapshot);
                         setBlocks([...sr.snapshot.blocks]);
                         setActiveDocuments(sr.snapshot.activeDocuments);
+                        setPendingDecisions(sr.snapshot.pendingDecisions ?? []);
                         setStatus(sr.snapshot.status);
                         setAgentMessageId(sr.agentMessageId);
                         setStreamType(sr.streamType ?? null);
@@ -669,6 +679,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     documentQueueRef.current = new AsyncEventQueue(handleDocumentEvent);
                     setBlocks([]);
                     setActiveDocuments([]);
+                    setPendingDecisions([]);
                     setStatus('streaming');
                     setDisplayStatus(null);
                     setError(null);
@@ -852,6 +863,26 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             documentQueueRef.current?.push({ type: event.type, payload: event });
                             break;
 
+                        // ----- User decision prompts -----
+                        case 'decision_prompt': {
+                            setPendingDecisions((prev) => {
+                                if (prev.some((d) => d.toolCallId === event.toolCallId)) return prev;
+                                return [
+                                    ...prev,
+                                    {
+                                        toolCallId: event.toolCallId,
+                                        question: event.question,
+                                        options: event.options,
+                                        context: event.context,
+                                    },
+                                ];
+                            });
+                            break;
+                        }
+                        case 'decision_resolved':
+                            setPendingDecisions((prev) => prev.filter((d) => d.toolCallId !== event.toolCallId));
+                            break;
+
                         // ----- Status & terminal -----
                         case 'status_update':
                             setDisplayStatus(event.status);
@@ -919,6 +950,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     if (isTerminal) {
                         ownedAgentMessageIdRef.current = null;
                         setDisplayStatus(null);
+                        setPendingDecisions([]);
                         o.onDone?.(sm.status, undefined, sm.agentMessageId);
                     }
                     break;
@@ -967,9 +999,20 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         ws.sendAction(`${domain}:${id}`, type, payload);
     };
 
+    const selectDecision = (toolCallId: string, value: string, freeText?: string) => {
+        if (!id) return;
+        // Optimistic: drop the card immediately so the user sees their click land.
+        // The backend will also broadcast `decision_resolved` which is idempotent.
+        setPendingDecisions((prev) => prev.filter((d) => d.toolCallId !== toolCallId));
+        const payload: { toolCallId: string; value: string; freeText?: string } = { toolCallId, value };
+        if (freeText) payload.freeText = freeText;
+        ws.sendAction(`${domain}:${id}`, 'decision_select', payload);
+    };
+
     return {
         blocks,
         activeDocuments,
+        pendingDecisions,
         status,
         displayStatus,
         agentMessageId,
@@ -978,5 +1021,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         isRetracted,
         abort,
         sendAction,
+        selectDecision,
     };
 }
