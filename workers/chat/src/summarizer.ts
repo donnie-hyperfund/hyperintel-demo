@@ -12,6 +12,7 @@ import { type ChatActionResult, chatActionHandler, preprocessContext } from './c
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
+import { isPECPKey } from './tools/documents/pecp-service';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -177,7 +178,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const phaseNumber = chat.phase_index + 1;
         const today = new Date().toISOString().split('T')[0];
 
-        const documents = extractDocuments(messages);
+        const documents = extractDocuments(messages).filter((d) => !isPECPKey(d.name));
         const basePrompt = await getSummarizerPrompt(ctx);
 
         // Reinforcement — the summary text must NOT contain Section 13 / the Next-Phase
@@ -189,7 +190,15 @@ The summary text (Output 1) MUST NOT contain the Next-Phase Initialization Blurb
 
 The blurb is delivered separately via the \`generate_blurb\` tool. After finishing the summary text, call \`generate_blurb\` EXACTLY ONCE with Section 13 copied VERBATIM as the \`blurb\` parameter — raw content only (no header, no intro phrase, no surrounding commentary). This is a TERMINAL action and ends the run.`;
 
-        let instructions = `${basePrompt}\n\n---\n\n${BLURB_REINFORCEMENT}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
+        // PECPs (PE Communication Protocol artifacts, keys ending in \`-pecp.md\`) are an internal
+        // implementation detail of the document pipeline — they must never surface in user-facing
+        // summaries. The summarizer may still see PECP tool calls in the raw conversation history,
+        // hence the explicit rule.
+        const PECP_REINFORCEMENT = `## PECP Redaction Rule
+
+The summary text MUST NOT mention PECP, "PE Communication Protocol", "-pecp.md" files, or the fact that a PECP was generated for any document. Do NOT list, reference, describe, or allude to PECPs in any form — not in headings, bullet points, document lists, or prose. Treat PECPs as invisible implementation detail. If a document has an associated PECP, mention only the parent document.`;
+
+        let instructions = `${basePrompt}\n\n---\n\n${BLURB_REINFORCEMENT}\n\n---\n\n${PECP_REINFORCEMENT}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
 
         if (documents.length > 0) {
             instructions += `\n\n## Documents Created During This Conversation\n\n`;
@@ -338,7 +347,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             metadata: {
                 summarizedFrom: chatId,
                 summarizedAt: new Date().toISOString(),
-                documents: extractDocuments(messages),
+                documents,
             },
         });
         em!.persist(newChat);
@@ -363,9 +372,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         // Auto-generate a short name for the source chat if it doesn't have one
         if (!chat.name && summaryContent) {
             try {
-                const docs = extractDocuments(messages).filter(
-                    (d) => !d.name.toLowerCase().includes('completion brief'),
-                );
+                const docs = documents.filter((d) => !d.name.toLowerCase().includes('completion brief'));
                 const docContext =
                     docs.length > 0
                         ? `\n\nDocuments generated during this phase:\n${docs.map((d) => `- ${d.name}`).join('\n')}`
