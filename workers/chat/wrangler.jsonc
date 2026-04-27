@@ -52,7 +52,7 @@
 		{
 			"binding": "ANTHROPIC_API_KEY",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
-			"secret_name": "ANTHROPIC_API_KEY"
+			"secret_name": "HI_ANTHROPIC_API_KEY_PROD"
 		},
 		{
 			"binding": "OPENROUTER_API_KEY",
@@ -174,7 +174,7 @@
 				{
 					"binding": "ANTHROPIC_API_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "ANTHROPIC_API_KEY"
+					"secret_name": "HI_ANTHROPIC_API_KEY_DEV"
 				},
 				{
 					"binding": "OPENROUTER_API_KEY",
@@ -297,7 +297,7 @@
 				{
 					"binding": "ANTHROPIC_API_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "ANTHROPIC_API_KEY"
+					"secret_name": "HI_ANTHROPIC_API_KEY_DEV"
 				},
 				{
 					"binding": "OPENROUTER_API_KEY",
