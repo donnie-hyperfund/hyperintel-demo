@@ -9,7 +9,7 @@ import NextTopLoader from 'nextjs-toploader';
 import { PostHogBootstrap } from '@/components/analytics/posthog-bootstrap';
 import { Toaster } from '@/components/ui/toaster';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
     title: 'HYPERINTEL™',
@@ -28,7 +28,7 @@ export default function RootLayout({
     return (
         <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up" afterSignOutUrl="/sign-in">
             <html lang="en" className="dark">
-                <body className={`${inter.className} antialiased`}>
+                <body className={`${inter.variable} font-sans antialiased`}>
                     <NextTopLoader color="oklch(0.69 0.19 145)" showSpinner={false} shadow={false} zIndex={100} />
                     <PostHogBootstrap />
                     {children}
