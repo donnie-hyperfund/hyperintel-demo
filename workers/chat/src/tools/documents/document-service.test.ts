@@ -256,10 +256,7 @@ describe('applyEdits', () => {
 	});
 
 	describe('multi-edit', () => {
-		// When the first edit removes enough lines, subsequent edits' line numbers become stale
-		// beyond the ±2 wiggle. Currently unhandled — would need cumulative offset tracking.
-		// Large structural changes should use a single edit with a big oldContent/newContent range.
-		it.skip('handles large line-shifting across multiple edits', () => {
+		it('handles large line-shifting across multiple edits by applying bottom-up', () => {
 			const result = applyEdits(DOC, [
 				edit({
 					// Remove lines 3-7 (5 lines become 1) — shifts everything below by -4
@@ -538,13 +535,19 @@ describe('applyEdits', () => {
 			expect(applied.oldContent).toBe('Paragraph one content.\nMore text here.');
 		});
 
-		it('coordinates reflect content state AFTER previous edits (multi-edit replay invariant)', () => {
+		it('returns multi-edit appliedEdits in replay-safe bottom-up order', () => {
 			const result = applyEdits(DOC, [
 				edit({
 					startLine: 1,
 					endLine: 1,
 					oldContent: '# Title',
 					newContent: '# New',
+				}),
+				edit({
+					startLine: 5,
+					endLine: 6,
+					oldContent: 'Paragraph one content.\nMore text here.',
+					newContent: 'Collapsed paragraph.',
 				}),
 				edit({
 					startLine: 8,
@@ -555,8 +558,10 @@ describe('applyEdits', () => {
 			]);
 
 			expect(result.success).toBe(true);
-			expect(result.appliedEdits).toHaveLength(2);
-			// Forward replay of appliedEdits must reproduce newContent.
+			expect(result.appliedEdits).toHaveLength(3);
+			expect(result.appliedEdits!.map((e) => e.startLine)).toEqual([8, 5, 1]);
+
+			// Forward replay works because the payload itself is bottom-up.
 			let replayed = DOC.replace(/\r\n?/g, '\n').split('\n');
 			for (const e of result.appliedEdits!) {
 				replayed = [

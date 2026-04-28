@@ -490,7 +490,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 docDripRef.current.drain();
                 const doc = s.streamingDocs.get(payload.name);
                 if (doc && payload.edits) {
-                    // Forward iteration: AppliedEdit coords are post-prev-edits.
+                    // Applied edits are emitted in replay-safe order.
                     let lines = doc.content.split('\n');
                     for (const edit of payload.edits) {
                         const rangeStart = Math.max(0, edit.startLine - 1);

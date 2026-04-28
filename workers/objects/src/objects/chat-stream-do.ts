@@ -305,7 +305,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             }
 
             case 'document_edit': {
-                // Forward iteration: AppliedEdit coords are post-prev-edits.
+                // Applied edits are emitted in replay-safe order.
                 const doc = this.activeDocuments.get(event.name);
                 if (doc) {
                     let lines = doc.content.split('\n');

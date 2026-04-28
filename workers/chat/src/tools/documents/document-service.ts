@@ -98,7 +98,7 @@ export interface EditOperation {
     newContent: string;
 }
 
-/** Resolved edit — coords reflect state after prior edits in the batch; content is full-range. */
+/** Resolved edit — coords are resolved against the original content and emitted in replay-safe order. */
 export interface AppliedEdit {
     startLine: number;
     endLine: number;
@@ -126,6 +126,13 @@ interface PreparedEdit {
     oldContent: string;
     newContent: string;
     oldContentCandidates: string[];
+}
+
+interface ResolvedEdit {
+    actualStart: number;
+    actualEnd: number;
+    rangeContent: string;
+    newRangeContent: string;
 }
 
 function normalizePatchNewlines(content: string): string {
@@ -253,45 +260,58 @@ function findOldContent(
     };
 }
 
-/** Atomic multi-edit: all validate first, then apply. Large earlier edits can shift later inputs past LINE_WIGGLE — prefer one big edit over several small ones across a collapsing region. */
+/** Atomic multi-edit: resolve all ranges against the original content, then apply bottom-up so line shifts never stale later edits. */
 export function applyEdits(content: string, edits: EditOperation[]): EditResult {
-    let currentContent = normalizePatchNewlines(content);
+    const originalContent = normalizePatchNewlines(content);
     const preparedEdits = edits.map(prepareEdit);
-    const appliedEdits: AppliedEdit[] = [];
+    const resolvedEdits: ResolvedEdit[] = [];
 
-    // Validate all edits first (atomic)
     for (const edit of preparedEdits) {
-        const match = findOldContent(currentContent, edit, LINE_WIGGLE);
+        const match = findOldContent(originalContent, edit, LINE_WIGGLE);
         if (!match.success) {
             return { success: false, error: match.error };
+        }
+
+        const lines = originalContent.split('\n');
+        const rangeLines = lines.slice(match.actualStart - 1, match.actualEnd);
+        const rangeContent = rangeLines.join('\n');
+        const newRangeContent = rangeContent.replace(match.matchedOldContent, edit.newContent);
+
+        resolvedEdits.push({
+            actualStart: match.actualStart,
+            actualEnd: match.actualEnd,
+            rangeContent,
+            newRangeContent,
+        });
+    }
+
+    const sortedEdits = [...resolvedEdits].sort((a, b) => b.actualStart - a.actualStart);
+    for (let i = 1; i < sortedEdits.length; i++) {
+        const previous = sortedEdits[i - 1];
+        const current = sortedEdits[i];
+        if (current.actualEnd >= previous.actualStart) {
+            return {
+                success: false,
+                error: `Overlapping edits in lines ${current.actualStart}-${current.actualEnd} and ${previous.actualStart}-${previous.actualEnd}.`,
+            };
         }
     }
 
-    // Apply all edits (now that validation passed)
-    for (const edit of preparedEdits) {
-        const match = findOldContent(currentContent, edit, LINE_WIGGLE);
-        if (!match.success) {
-            return { success: false, error: match.error };
-        }
+    let currentContent = originalContent;
+    const appliedEdits: AppliedEdit[] = [];
 
+    for (const resolved of sortedEdits) {
         const lines = currentContent.split('\n');
-        const rangeLines = lines.slice(match.actualStart - 1, match.actualEnd);
-        const rangeContent = rangeLines.join('\n');
-
-        // Apply replacement
-        const newRangeContent = rangeContent.replace(match.matchedOldContent, edit.newContent);
+        const before = lines.slice(0, resolved.actualStart - 1);
+        const after = lines.slice(resolved.actualEnd);
+        currentContent = [...before, ...resolved.newRangeContent.split('\n'), ...after].join('\n');
 
         appliedEdits.push({
-            startLine: match.actualStart,
-            endLine: match.actualEnd,
-            oldContent: rangeContent,
-            newContent: newRangeContent,
+            startLine: resolved.actualStart,
+            endLine: resolved.actualEnd,
+            oldContent: resolved.rangeContent,
+            newContent: resolved.newRangeContent,
         });
-
-        // Rebuild content
-        const before = lines.slice(0, match.actualStart - 1);
-        const after = lines.slice(match.actualEnd);
-        currentContent = [...before, ...newRangeContent.split('\n'), ...after].join('\n');
     }
 
     return {
