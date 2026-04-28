@@ -12,20 +12,13 @@ import { useRotatingText } from './use-rotating-text';
 type ArtifactApprovalProgressProps = {
     entry?: ProcessingEntry;
     documentType?: DocumentType;
-    isInternal?: boolean;
     contentLength: number;
 };
 
-export function ArtifactApprovalProgress({
-    entry,
-    documentType,
-    isInternal,
-    contentLength,
-}: ArtifactApprovalProgressProps) {
+export function ArtifactApprovalProgress({ entry, documentType, contentLength }: ArtifactApprovalProgressProps) {
     const { stage, progress, progressLabel, detailLabel } = useApprovalProgress({
         entry,
         documentType,
-        isInternal,
         contentLength,
     });
     const copy = APPROVAL_STAGE_COPY[stage];

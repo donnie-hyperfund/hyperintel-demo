@@ -17,9 +17,12 @@ export const APPROVAL_STAGE_COPY: Record<ProcessingStage, StageCopy> = {
     'generating-ai-content': {
         headline: 'Preparing approved version',
         details: [
-            'Organizing the document for the workspace...',
-            'Keeping the important context available...',
-            'Preparing the final approved state...',
+            'Reading through the document...',
+            'Organizing the important details...',
+            'Getting the approved version ready...',
+            'Checking the document structure...',
+            'Preserving the key points...',
+            'Preparing the details for later use...',
         ],
     },
     saving: {

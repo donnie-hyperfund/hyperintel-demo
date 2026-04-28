@@ -219,7 +219,6 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                             <ArtifactApprovalProgress
                                 entry={processingEntry}
                                 documentType={activeVersion?.documentType}
-                                isInternal={activeVersion?.isInternal}
                                 contentLength={content.length}
                             />
                         ) : (

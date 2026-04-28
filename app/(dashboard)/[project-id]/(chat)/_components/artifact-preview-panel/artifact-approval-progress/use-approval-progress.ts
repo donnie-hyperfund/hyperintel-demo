@@ -11,7 +11,6 @@ import { useTicker } from './use-ticker';
 type UseApprovalProgressOptions = {
     entry?: ProcessingEntry;
     documentType?: DocumentType;
-    isInternal?: boolean;
     contentLength: number;
 };
 
@@ -25,7 +24,6 @@ type ApprovalProgressState = {
 export function useApprovalProgress({
     entry,
     documentType,
-    isInternal,
     contentLength,
 }: UseApprovalProgressOptions): ApprovalProgressState {
     const fallbackStartedAtRef = useRef(Date.now());
@@ -33,6 +31,7 @@ export function useApprovalProgress({
     const previousStageRef = useRef<ProcessingStage | null>(null);
     const previousOperationKeyRef = useRef<string | null>(null);
     const maxProgressRef = useRef(0);
+    const hasObservedAiContentStageRef = useRef(false);
     const now = useTicker();
 
     const startedAt = entry?.startedAt ?? fallbackStartedAtRef.current;
@@ -45,16 +44,29 @@ export function useApprovalProgress({
         previousStageRef.current = null;
         stageStartedAtRef.current = now;
         maxProgressRef.current = 0;
+        hasObservedAiContentStageRef.current = false;
     }
 
     const stage = useMemo<ProcessingStage>(() => {
         if (isConfirmed) return 'finalizing';
-        return entry?.stage ?? getFallbackApprovalStage({ elapsedMs, isInternal });
-    }, [elapsedMs, entry?.stage, isConfirmed, isInternal]);
+        return (
+            entry?.stage ??
+            getFallbackApprovalStage({
+                elapsedMs,
+                hasObservedAiContentStage: hasObservedAiContentStageRef.current,
+                contentLength,
+                documentType,
+            })
+        );
+    }, [elapsedMs, entry?.stage, isConfirmed, contentLength, documentType]);
 
     if (previousStageRef.current !== stage) {
         previousStageRef.current = stage;
         stageStartedAtRef.current = now;
+    }
+
+    if (entry?.stage === 'generating-ai-content') {
+        hasObservedAiContentStageRef.current = true;
     }
 
     const stageElapsedMs = Math.max(0, now - stageStartedAtRef.current);
@@ -64,7 +76,6 @@ export function useApprovalProgress({
               stage,
               stageElapsedMs,
               backendProgress: entry?.progress,
-              isInternal,
               contentLength,
               documentType,
               operationKey,
@@ -75,7 +86,14 @@ export function useApprovalProgress({
     return {
         stage,
         progress,
-        detailLabel: getApprovalExpectationLabel({ elapsedMs, isConfirmed, stage, isInternal }),
+        detailLabel: getApprovalExpectationLabel({
+            elapsedMs,
+            isConfirmed,
+            stage,
+            hasObservedAiContentStage: hasObservedAiContentStageRef.current,
+            contentLength,
+            documentType,
+        }),
         progressLabel: isConfirmed ? `${progress}% confirmed` : `${progress}% estimated`,
     };
 }
