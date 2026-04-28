@@ -30,6 +30,7 @@ export type DocumentEvent =
           estimatedChars?: number;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           loadedVersion?: number;
+          nextVersion?: number;
           rejectionReason?: string;
       }
     | { type: 'document_delta'; name: string; content: string }
@@ -49,6 +50,11 @@ export type DocumentEvent =
           action: string;
           status: 'proposed';
           supersededVersion?: number;
+          pecpRequired?: {
+              parentDocument: string;
+              parentDocumentType: string;
+              pecpKey: string;
+          };
       };
 
 export interface DocumentContext {
@@ -142,7 +148,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES.Other)
                         : DOCUMENT_CHAR_ESTIMATES.Other;
 
-                    const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
+                    const pendingVersion = result.nextVersion ?? (result.loadedVersion ? result.loadedVersion + 1 : 1);
 
                     const startEvent: DocumentEvent = {
                         type: 'document_start',
@@ -167,6 +173,9 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     if (result.loadedVersion !== undefined) {
                         startEvent.loadedVersion = result.loadedVersion;
                     }
+                    if (result.nextVersion !== undefined) {
+                        startEvent.nextVersion = result.nextVersion;
+                    }
                     if (result.rejectionReason) {
                         startEvent.rejectionReason = result.rejectionReason;
                     }
@@ -176,9 +185,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
 
                 // patch_document: canonical edits live on draftManager side channel (keyed by tool_call_id)
                 if (event.tool === 'patch_document' && result.status === 'edited' && activeDoc) {
-                    const edits: EmittedEdit[] = event.id
-                        ? (ctx.draftManager?.takeAppliedEdits(event.id) ?? [])
-                        : [];
+                    const edits: EmittedEdit[] = event.id ? (ctx.draftManager?.takeAppliedEdits(event.id) ?? []) : [];
 
                     if (!activeDoc.isInternal && edits.length) {
                         emit({
@@ -210,6 +217,9 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         }
                         if (result.supersededVersion !== undefined) {
                             completeEvent.supersededVersion = result.supersededVersion;
+                        }
+                        if (result.pecpRequired) {
+                            completeEvent.pecpRequired = result.pecpRequired;
                         }
 
                         emit(completeEvent);

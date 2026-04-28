@@ -18,6 +18,7 @@ import {
     ExportArtifactQuerySchema,
     PresignUploadSchema,
     RejectArtifactActionSchema,
+    RestoreArtifactActionSchema,
     UploadArtifactSchema,
 } from '@/lib/schema/artifact';
 import {
@@ -32,6 +33,7 @@ import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approv
 import { deleteArtifactHandler } from './artifact-deleter';
 import { exportArtifactHandler } from './artifact-exporter';
 import { importArtifactsHandler } from './artifact-importer';
+import { restoreArtifactHandler } from './artifact-restorer';
 import { chatActionHandler } from './chat-handler';
 import type { Ctx } from './context';
 import { intakeActionHandler } from './intake-handler';
@@ -223,6 +225,12 @@ app.post('/artifacts/reject', zValidator('json', RejectArtifactActionSchema), as
 app.post('/artifacts/delete', zValidator('json', DeleteArtifactSchema), async (c) => {
     return wrapWorker(async () => {
         return await deleteArtifactHandler(c.req.valid('json'), ctxWithAlias(c));
+    });
+});
+
+app.post('/artifacts/restore', zValidator('json', RestoreArtifactActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await restoreArtifactHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 

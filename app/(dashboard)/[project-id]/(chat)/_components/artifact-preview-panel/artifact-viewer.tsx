@@ -5,9 +5,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { IS_DEV } from '@/lib/config';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import {
-    getLatestArtifactContent,
+    getLatestArtifactVersionContent,
     getLatestArtifactVersion,
     getLatestArtifactVersionTitle,
 } from '@/modules/artifacts/utils';
@@ -18,6 +19,7 @@ import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-ori
 import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
+import { ArtifactVersionHistoryDialog } from './artifact-version-history-dialog';
 import { DiffControlBar } from './diff-control-bar';
 import { InternalDocumentActions } from './internal-document-actions';
 import { InternalDocumentContent } from './internal-document-content';
@@ -68,7 +70,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const isUpdating = !!artifact.isUpdating;
 
     const activeVersion = getLatestArtifactVersion(artifact);
-    const content = getLatestArtifactContent(artifact);
+    const content = getLatestArtifactVersionContent(artifact);
 
     const pecpContent = artifact.pecpContent ?? artifact.pecp?.content ?? '';
     const hasPecp = artifact.pecpContent !== undefined || !!artifact.pecp;
@@ -122,6 +124,26 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
+    const headerActions = (
+        <>
+            {IS_DEV && artifactKey && artifactId && (
+                <ArtifactVersionHistoryDialog
+                    artifactKey={artifactKey}
+                    artifactId={artifactId}
+                    currentVersion={version}
+                />
+            )}
+            {canDelete && !!projectId && (
+                <ArtifactDeleteDocument
+                    artifactKey={artifactKey!}
+                    title={title}
+                    onProcessingChange={setIsProcessingDelete}
+                    onDeleted={onCloseAction}
+                />
+            )}
+        </>
+    );
+
     const renderContent = () => {
         if (activeVersion?.isInternal && !hasPecp) {
             return (
@@ -158,16 +180,6 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         );
     };
 
-    // TODO: Remove the !!projectId when backend is updated and we can use a unified artifact API
-    const deleteAction = canDelete && !!projectId && (
-        <ArtifactDeleteDocument
-            artifactKey={artifactKey!}
-            title={title}
-            onProcessingChange={setIsProcessingDelete}
-            onDeleted={onCloseAction}
-        />
-    );
-
     return (
         <div className="flex flex-col h-full bg-neutral-975">
             <ArtifactHeader
@@ -183,7 +195,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                 updatedAt={updatedAt}
                 backHref={backHref}
                 onCloseAction={onCloseAction}
-                actions={deleteAction}
+                actions={headerActions}
                 isStreaming={isStreaming}
             />
 

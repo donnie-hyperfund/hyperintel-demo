@@ -3,7 +3,7 @@
 import { FileText, Loader2 } from 'lucide-react';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import {
-    getLatestArtifactContent,
+    getLatestArtifactVersionContent,
     getLatestArtifactVersion,
     getLatestArtifactVersionTitle,
 } from '@/modules/artifacts/utils';
@@ -20,7 +20,7 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
 
     const { isLoading, isStreaming } = currentArtifact ?? {};
 
-    const content = currentArtifact ? getLatestArtifactContent(currentArtifact) : '';
+    const content = currentArtifact ? getLatestArtifactVersionContent(currentArtifact) : '';
     const activeVersion = currentArtifact ? getLatestArtifactVersion(currentArtifact) : undefined;
     const isInternal = activeVersion?.isInternal;
 

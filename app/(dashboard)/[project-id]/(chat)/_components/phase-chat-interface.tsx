@@ -39,7 +39,11 @@ export default function PhaseChatInterface() {
 
         const currentChatEntry = initialEntries.find((entry) => entry.chatId === initialChatId);
         if (currentChatEntry) {
-            scrollTo({ key: currentChatEntry.artifactName, version: currentChatEntry.artifactVersion });
+            const version =
+                currentChatEntry.action === 'restore'
+                    ? currentChatEntry.sourceVersionNumber
+                    : currentChatEntry.artifactVersion;
+            scrollTo({ key: currentChatEntry.artifactName, version });
             return;
         }
 

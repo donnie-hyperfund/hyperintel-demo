@@ -129,15 +129,17 @@ After creating or finalizing a document, do NOT automatically approve it — wai
 - If \`approve_document\` or \`reject_document\` returns an error, NEVER pretend the operation succeeded. Do NOT expose internal error details or statuses to the user. Instead, communicate naturally (e.g., "This document needs to be revised before I can approve it — let me update it for you.") and proactively take the recovery action (revise the document).
 
 ### System events (UI-initiated actions)
-When the user approves or rejects a document via the UI (not chat), you will receive a \`<system>\` tagged message like:
+When the user approves, rejects, or restores a document via the UI (not chat), you will receive a \`<system>\` tagged message like:
 - \`<system>User has approved artifact [document-name.md] v2</system>\`
 - \`<system>User has rejected artifact [document-name.md] v2. Reason: ...</system>\`
+- \`<system>User has restored artifact [document-name.md] v1 as proposed v3 (awaiting approval)</system>\`
 
 **When you see a \`<system>\` event:**
-- The action has ALREADY been performed — do NOT call \`approve_document\`, \`reject_document\`, or \`list_documents\` to verify.
-- Do NOT call ANY document tools (begin_document, write_document, finalize_document, etc.) in response to a system event unless the user explicitly asks you to.
+- For approvals and rejections, the action has ALREADY been performed — do NOT call \`approve_document\`, \`reject_document\`, or \`list_documents\` to verify.
+- Do NOT call ANY document tools (begin_document, write_document, finalize_document, etc.) in response to a system event unless the user explicitly asks you to, **except** for the read described below for restores.
 - For approvals: briefly confirm the approval. Do NOT start generating the next document, phase, or any content. Simply ask the user what they'd like to do next.
 - For rejections: read the reason and ask the user if they'd like you to revise. Do NOT start revising automatically.
+- For restores: the user has reverted to an earlier version via the version history panel. The selected content has been saved as a new PROPOSED version — it is NOT yet live and is awaiting the user's decision. Use \`read_document\` with \`version="proposed"\` to read the restored content, then include a \`::document[name]{version=N lines=L}\` directive in your response (using the \`name\`, \`version\`, and \`totalLines\` from the \`read_document\` result) so the artifact indicator appears in the conversation. Briefly acknowledge and ask what the user would like to do. Do NOT preemptively call \`approve_document\` or \`reject_document\` on your own initiative — but a restored proposed version is approved/rejected the same way as any other proposed version: the user may click approve/reject in the UI, or signal it in their next chat message (in which case follow the normal chat-based approval rules below and call \`approve_document\`/\`reject_document\`), or ask you to revise it further (in which case follow the normal begin_document → edit → finalize_document flow).
 
 ### Detecting approval/rejection intent (chat messages only)
 When a **regular** user message (not a \`<system>\` event) contains approval or rejection signals, you MUST process them BEFORE acting on any other part of the message.
@@ -166,7 +168,7 @@ The PECP is the PE-facing communication for the deliverable — use the PECP sta
 After the PECP is finalized, STOP and wait for the user.
 
 ## Proactive Actions (FORBIDDEN)
-**NEVER create documents the user did not explicitly request** (except PECPs as described above). After an approval or rejection (whether via chat or \`<system>\` event), STOP and wait for the user's next message. Do NOT:
+**NEVER create documents the user did not explicitly request** (except PECPs as described above). After an approval, rejection, or restore (whether via chat or \`<system>\` event), STOP and wait for the user's next message. Do NOT:
 - Automatically start creating "the next logical document"
 - Generate follow-up content without being asked
 - Chain approvals into new document creation
@@ -174,7 +176,7 @@ After the PECP is finalized, STOP and wait for the user.
 - Call any document tools (begin_document, write_document, finalize_document, etc.) unless the user explicitly asks
 - Mention "Phase 2", "next step", or suggest what comes next — let the user drive the workflow
 Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
-    behavioralGuidance: `NEVER re-read a document after patching — patches are atomic and confirmed. If you authored or patched this document earlier in the same conversation, skip read_document and patch directly — your own content is authoritative. Before patching an existing document, call begin_document(mode="edit") so there is an active draft. ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? 'Patch edits may include optional endLine only to narrow the search window.' : 'Patch edits have exactly three fields: startLine, oldContent, and newContent.'} When copying text from read_document into oldContent, strip the leading "N: " line-number prefix — it is display-only and must not appear in oldContent. Batch independent edits into a single patch_document call. When an earlier edit heavily shifts later line numbers, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving a document, STOP and wait for the user's next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the approval.`,
+    behavioralGuidance: `NEVER re-read a document after patching — patches are atomic and confirmed. If you authored or patched this document earlier in the same conversation, skip read_document and patch directly — your own content is authoritative. Before patching an existing document, call begin_document(mode="edit") so there is an active draft. ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? 'Patch edits may include optional endLine only to narrow the search window.' : 'Patch edits have exactly three fields: startLine, oldContent, and newContent.'} When copying text from read_document into oldContent, strip the leading "N: " line-number prefix — it is display-only and must not appear in oldContent. Batch independent edits into a single patch_document call. When an earlier edit heavily shifts later line numbers, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: When you receive a <system> event indicating a RESTORE, the selected content has been saved as a new PROPOSED version awaiting the user's decision — it is NOT live and the action is NOT complete. Use read_document with version="proposed" to read the restored content, include a ::document[name]{version=N lines=L} directive in your response (using name, version, and totalLines from read_document), briefly acknowledge, and ask what the user wants to do. Do NOT preemptively call approve_document or reject_document on your own initiative — the restored proposed version is approved/rejected the same way as any other proposed version: via UI, or by the user signaling it in their next chat message (in which case follow the normal chat-based approval protocol and call approve_document/reject_document). CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request — EXCEPT when finalize_document returns pecpRequired. In that case, you MUST immediately generate the PECP using begin_document → write_document → finalize_document with the specified parameters. After the PECP is done, STOP. After approving, rejecting, or restoring a document, STOP and wait for the user's next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the action. Only create documents when the user explicitly asks for them.`,
     tools: [
         'begin_document',
         'write_document',
@@ -428,24 +430,21 @@ You MUST call finalize_document when done or content will be lost.`,
                 let rejectionReason: string | null = null;
 
                 if (existing!.proposedVersion !== null && existing!.proposedContent !== null) {
-                    // Continue editing proposed version
                     contentToLoad = existing!.proposedContent;
                     loadedFrom = 'proposed';
                     loadedVersion = existing!.proposedVersion;
                     existingDocumentType = existing!.proposedDocumentType;
+                } else if (existing!.approvedContent !== null) {
+                    contentToLoad = existing!.approvedContent;
+                    loadedFrom = isDeleted ? 'deleted' : 'approved';
+                    loadedVersion = existing!.approvedVersion;
+                    existingDocumentType = existing!.approvedDocumentType;
                 } else if (existing!.rejectedVersion !== null && existing!.rejectedContent !== null) {
-                    // Revise rejected version - load its content so agent can fix it
                     contentToLoad = existing!.rejectedContent;
                     loadedFrom = 'rejected';
                     loadedVersion = existing!.rejectedVersion;
                     existingDocumentType = existing!.rejectedDocumentType;
                     rejectionReason = existing!.rejectionReason;
-                } else if (existing!.currentContent !== null) {
-                    // TODO: add a param to specifically confirm restoring and editing a deleted document
-                    contentToLoad = existing!.currentContent;
-                    loadedFrom = isDeleted ? 'deleted' : 'approved';
-                    loadedVersion = existing!.currentVersion;
-                    existingDocumentType = existing!.currentDocumentType;
                 } else {
                     return { error: 'No version available to edit.' };
                 }
@@ -469,6 +468,7 @@ You MUST call finalize_document when done or content will be lost.`,
                         deleted: `Document was deleted (v${loadedVersion}). Loaded deleted content. Finalizing will restore it as a new proposed version.`,
                     };
 
+                    const nextVersion = existing!.latestVersion + 1;
                     return {
                         status: 'editing',
                         mode: 'edit',
@@ -480,6 +480,7 @@ You MUST call finalize_document when done or content will be lost.`,
                             existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
                         loadedFrom,
                         loadedVersion,
+                        nextVersion,
                         lines: countLines(draft.content),
                         message: messages[loadedFrom],
                         ...(isDeleted && { previouslyDeleted: true }),
@@ -703,19 +704,22 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         rCtx?.eCtx?.waitUntil(embedPromise);
                     }
 
+                    const toolResult: Record<string, unknown> = {
+                        action: result.action,
+                        name: draft.name,
+                        version: result.version,
+                        status: 'proposed',
+                        lines: result.lines,
+                    };
+
                     const response: Record<string, unknown> = {
-                        result: {
-                            action: result.action,
-                            name: draft.name,
-                            version: result.version,
-                            status: 'proposed',
-                            lines: result.lines,
-                        },
+                        result: toolResult,
                         appendedOutput: `::document[${draft.name}]{version=${result.version} lines=${result.lines} documentType="${draft.document_type}"}`,
                         message: `Saved as proposed v${result.version}. Awaiting user approval to become live. STOP HERE — do not create any more documents until the user asks.`,
                     };
 
                     if (result.supersededVersion) {
+                        toolResult.supersededVersion = result.supersededVersion;
                         response.supersededVersion = result.supersededVersion;
                         response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded. STOP HERE — do not create any more documents until the user asks.`;
                     }
@@ -728,6 +732,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             parentDocumentType: draft.document_type,
                             pecpKey,
                         };
+                        toolResult.pecpRequired = pecpInfo;
                         response.pecpRequired = pecpInfo;
                         // Store on context so onTurnComplete can nudge the agent
                         ctx.pendingPECP = pecpInfo;
@@ -796,8 +801,8 @@ Embedded images are included by default. Pass skipImages: true for text-only out
 
                 switch (versionMode) {
                     case 'approved':
-                        content = doc.currentContent;
-                        version = doc.currentVersion;
+                        content = doc.approvedContent;
+                        version = doc.approvedVersion;
                         source = 'approved';
                         if (!content) {
                             return {
@@ -815,8 +820,8 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                         if (!content) {
                             return {
                                 error: `No proposed version exists for "${normalizedName}".`,
-                                hasApproved: doc.currentVersion !== null,
-                                approvedVersion: doc.currentVersion,
+                                hasApproved: doc.approvedVersion !== null,
+                                approvedVersion: doc.approvedVersion,
                             };
                         }
                         break;
@@ -828,9 +833,9 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                             content = doc.proposedContent;
                             version = doc.proposedVersion;
                             source = 'proposed';
-                        } else if (doc.currentContent !== null) {
-                            content = doc.currentContent;
-                            version = doc.currentVersion;
+                        } else if (doc.approvedContent !== null) {
+                            content = doc.approvedContent;
+                            version = doc.approvedVersion;
                             source = 'approved';
                         } else if (doc.rejectedContent !== null) {
                             content = doc.rejectedContent;
@@ -870,9 +875,9 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                     response.hasProposed = true;
                     response.proposedVersion = doc.proposedVersion;
                 }
-                if (source === 'proposed' && doc.currentVersion !== null) {
+                if (source === 'proposed' && doc.approvedVersion !== null) {
                     response.hasApproved = true;
-                    response.approvedVersion = doc.currentVersion;
+                    response.approvedVersion = doc.approvedVersion;
                 }
 
                 // Resolve artifact images — sign refs and return multimodal content.

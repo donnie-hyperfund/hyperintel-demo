@@ -10,6 +10,7 @@ import {
     type ExportFormat,
     type PresignUploadDto,
     RejectArtifactActionDto,
+    RestoreArtifactActionDto,
 } from '@/lib/schema/artifact';
 import { AbortActionDto, SendChatActionDto, SummarizeActionDto } from '@/lib/schema/chat';
 
@@ -134,6 +135,29 @@ export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: strin
         });
     }
     return fetch(WORKERS_LOCAL_ENDPOINTS.RejectAction, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+        keepalive: true,
+    });
+};
+
+export const restoreArtifact = (data: RestoreArtifactActionDto, accessToken: string) => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.RestoreAction);
+        return fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+            keepalive: true,
+        });
+    }
+    return fetch(WORKERS_LOCAL_ENDPOINTS.RestoreAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

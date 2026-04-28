@@ -91,6 +91,7 @@ export type Message = {
         type: string;
         artifactKey?: string;
         versionNumber?: number;
+        sourceVersionNumber?: number;
         reason?: string;
     };
     status?: string;
