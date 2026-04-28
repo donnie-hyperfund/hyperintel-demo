@@ -285,13 +285,18 @@ export class ChatStreamDO extends DurableObject<Env> {
 
             // --- Documents/artifacts ---
             case 'document_start': {
+                // Defense-in-depth: only honor loadedContent for non-internal edit mode, regardless of what the producer sent. Guards against future producers/refactors leaking content into DO state for internal docs or non-edit modes.
+                const allowLoadedContent = event.mode === 'edit' && event.isInternal !== true;
+                const baseContent = allowLoadedContent ? (event.loadedContent ?? '') : '';
                 this.activeDocuments.set(event.name, {
                     name: event.name,
                     title: event.title ?? event.name,
                     mode: event.mode ?? 'create',
                     pendingVersion: event.pendingVersion,
                     loadedVersion: event.loadedVersion,
-                    content: '',
+                    // content mutates with deltas/edits; loadedContent preserved separately for reconnect diff UI.
+                    content: baseContent,
+                    loadedContent: allowLoadedContent ? baseContent : undefined,
                     documentType: event.documentType,
                     isInternal: event.isInternal,
                 });

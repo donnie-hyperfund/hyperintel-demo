@@ -70,19 +70,28 @@ export class ChatMessageEntity extends IdCreatedColumns {
     }
 
     /**
-     * Redact write_document/edit_document tool call blocks from chat messages.
-     * Always unconditional — the real content lives on ArtifactVersionEntity
-     * which handles is_internal visibility via its own toJSON().
+     * Redact content-bearing document tool_call blocks from chat messages.
+     *
+     * write/patch_document: input + output both contain content the model wrote — redact all three fields.
+     * read_document: public reads may remain visible; internal/legacy reads fail closed and redact output.
      */
     private redactBlocks(blocks: StreamBlock[]): StreamBlock[] {
         return blocks.map((b) => {
-            if (b.type === 'tool_call' && ['write_document', 'edit_document', 'patch_document'].includes(b.toolName)) {
+            if (b.type !== 'tool_call') return b;
+            if (['write_document', 'edit_document', 'patch_document'].includes(b.toolName)) {
                 return {
                     ...b,
                     content: 'REDACTED',
                     toolInput: 'REDACTED',
                     toolOutput: 'REDACTED',
                 };
+            }
+            if (b.toolName === 'read_document') {
+                if ((b as any).metadata?.internal === false) return b;
+                const wiped: any = { ...b, content: 'REDACTED', toolOutput: 'REDACTED' };
+                delete wiped.toolImageRefs;
+                delete wiped.toolContentParts;
+                return wiped;
             }
             return b;
         });

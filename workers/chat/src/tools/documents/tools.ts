@@ -734,12 +734,15 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                 if (draft && draft.name === normalizedName) {
                     const viewport = extractViewport(draft.content, startLine ?? undefined, endLine ?? undefined);
                     return {
-                        source: 'editing_draft',
-                        name: normalizedName,
-                        totalLines: viewport.totalLines,
-                        viewport: { startLine: viewport.startLine, endLine: viewport.endLine },
-                        content: viewport.content,
-                        message: 'Reading from your current editing session (not yet saved).',
+                        result: {
+                            source: 'editing_draft',
+                            name: normalizedName,
+                            totalLines: viewport.totalLines,
+                            viewport: { startLine: viewport.startLine, endLine: viewport.endLine },
+                            content: viewport.content,
+                            message: 'Reading from your current editing session (not yet saved).',
+                        },
+                        metadata: { internal: draft.is_internal },
                     };
                 }
 
@@ -755,12 +758,14 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                 let content: string | null = null;
                 let source: string;
                 let version: number | null = null;
+                let isInternal = true;
 
                 switch (versionMode) {
                     case 'approved':
                         content = doc.approvedContent;
                         version = doc.approvedVersion;
                         source = 'approved';
+                        isInternal = doc.approvedIsInternal ?? true;
                         if (!content) {
                             return {
                                 error: `No approved version exists for "${normalizedName}". Document may be pending first approval.`,
@@ -774,6 +779,7 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                         content = doc.proposedContent;
                         version = doc.proposedVersion;
                         source = 'proposed';
+                        isInternal = doc.proposedIsInternal ?? true;
                         if (!content) {
                             return {
                                 error: `No proposed version exists for "${normalizedName}".`,
@@ -790,14 +796,17 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                             content = doc.proposedContent;
                             version = doc.proposedVersion;
                             source = 'proposed';
+                            isInternal = doc.proposedIsInternal ?? true;
                         } else if (doc.approvedContent !== null) {
                             content = doc.approvedContent;
                             version = doc.approvedVersion;
                             source = 'approved';
+                            isInternal = doc.approvedIsInternal ?? true;
                         } else if (doc.rejectedContent !== null) {
                             content = doc.rejectedContent;
                             version = doc.rejectedVersion;
                             source = 'rejected';
+                            isInternal = doc.rejectedIsInternal ?? true;
                         } else {
                             return { error: `No content available for "${normalizedName}".` };
                         }
@@ -814,7 +823,7 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                         ? doc.proposedDocumentType
                         : source === 'rejected'
                           ? doc.rejectedDocumentType
-                          : (doc.currentDocumentType ?? 'Other');
+                          : (doc.approvedDocumentType ?? 'Other');
 
                 const response: Record<string, unknown> = {
                     source,
@@ -847,13 +856,14 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                     if (hydrated) {
                         return {
                             result: response,
+                            metadata: { internal: isInternal },
                             imageRefs: hydrated.imageRefs,
                             contentParts: hydrated.contentParts,
                         };
                     }
                 }
 
-                return response;
+                return { result: response, metadata: { internal: isInternal } };
             },
         },
 

@@ -35,6 +35,7 @@ export type DocumentEvent =
           loadedVersion?: number;
           nextVersion?: number;
           rejectionReason?: string;
+          loadedContent?: string;
       }
     | { type: 'document_delta'; name: string; content: string }
     | { type: 'document_progress'; name: string; progress: number }
@@ -169,6 +170,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     }
                     if (result.rejectionReason) {
                         startEvent.rejectionReason = result.rejectionReason;
+                    }
+
+                    // For non-internal edit-mode starts, include the loaded base content so the DO snapshot can replay subsequent edits correctly on reconnect. Skipped for internal docs (would store internal content in DO state) and for create/replace (draft starts empty anyway).
+                    if (!activeDoc.isInternal && startEvent.mode === 'edit') {
+                        const loaded = ctx.draftManager?.getCurrent()?.content;
+                        if (typeof loaded === 'string') {
+                            startEvent.loadedContent = loaded;
+                        }
                     }
 
                     emit(startEvent);

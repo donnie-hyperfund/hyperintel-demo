@@ -30,8 +30,13 @@ type StreamingDoc = {
     artifactId: string;
     content: string;
     version: number;
+    title?: string;
+    mode?: ActiveDocument['mode'];
+    loadedVersion?: number;
+    documentType?: ActiveDocument['documentType'];
     isInternal?: boolean;
     sourceVersion?: number;
+    progress?: number;
 };
 
 type StreamingSummary = {
@@ -160,8 +165,13 @@ function initFromSnapshot(snapshot: SubscribeResponseStreaming['snapshot']): Str
             artifactId: doc.name,
             content: doc.content,
             version: doc.pendingVersion,
+            title: doc.title,
+            mode: doc.mode,
+            loadedVersion: doc.loadedVersion,
+            documentType: doc.documentType,
             isInternal: doc.isInternal,
             sourceVersion: doc.loadedVersion,
+            progress: doc.progress,
         });
         if (doc.summaryVersionId && doc.summaryInternal !== undefined) {
             state.streamingSummaries.set(doc.summaryVersionId, {
@@ -289,10 +299,14 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 for (const [name, doc] of stateRef.current.streamingDocs) {
                     docs.push({
                         name,
-                        title: name,
-                        mode: 'create',
+                        title: doc.title ?? name,
+                        mode: doc.mode ?? 'create',
                         pendingVersion: doc.version,
+                        loadedVersion: doc.loadedVersion,
                         content: doc.content,
+                        documentType: doc.documentType,
+                        isInternal: doc.isInternal,
+                        progress: doc.progress,
                     });
                 }
                 setActiveDocuments(docs);
@@ -325,10 +339,14 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         for (const [name, doc] of stateRef.current.streamingDocs) {
             docs.push({
                 name,
-                title: name,
-                mode: 'create',
+                title: doc.title ?? name,
+                mode: doc.mode ?? 'create',
                 pendingVersion: doc.version,
+                loadedVersion: doc.loadedVersion,
                 content: doc.content,
+                documentType: doc.documentType,
+                isInternal: doc.isInternal,
+                progress: doc.progress,
             });
         }
         setActiveDocuments(docs);
@@ -368,6 +386,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         artifactId,
                         content: '',
                         version: 1,
+                        title: payload.title,
+                        mode: 'create',
+                        documentType: payload.documentType,
                         isInternal: payload.isInternal,
                     });
 
@@ -421,8 +442,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         artifactId,
                         content: draftContent,
                         version: newVersion,
+                        title: payload.title,
+                        mode: payload.mode,
+                        loadedVersion,
+                        documentType: payload.documentType,
                         isInternal,
-                        sourceVersion: loadedVersion,
                     });
 
                     if (isInternal) {
@@ -515,6 +539,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             case 'document_progress': {
                 const doc = s.streamingDocs.get(payload.name);
                 if (doc) {
+                    doc.progress = payload.progress;
                     ac?.updateArtifact(doc.artifactId, { progress: payload.progress }, doc.version);
                 }
                 break;
@@ -561,8 +586,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                 ac?.updateArtifact(doc.artifactId, completionUpdates, doc.version);
 
-                if (doc.sourceVersion !== undefined && doc.sourceVersion !== doc.version) {
-                    ac?.updateArtifact(doc.artifactId, { isUpdating: false }, doc.sourceVersion);
+                if (doc.loadedVersion !== undefined && doc.loadedVersion !== doc.version) {
+                    ac?.updateArtifact(doc.artifactId, { isUpdating: false }, doc.loadedVersion);
                 }
 
                 s.streamingDocs.delete(payload.name);
@@ -724,9 +749,25 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         if (o.artifactContext && sr.snapshot.activeDocuments.length > 0) {
                             const now = new Date().toISOString();
                             for (const doc of sr.snapshot.activeDocuments) {
-                                const snapshotContent = doc.isInternal ? '' : doc.content;
+                                // Fail-closed: only show content when isInternal is explicitly false.
+                                const snapshotContent = doc.isInternal === false ? doc.content : '';
                                 if (doc.isInternal && doc.mode === 'edit' && doc.loadedVersion !== undefined) {
                                     o.artifactContext.updateArtifact(doc.name, { isUpdating: true }, doc.loadedVersion);
+                                }
+                                // Diff base for non-internal edit/replace reconnects.
+                                // Edit: DO carries loadedContent on the snapshot (also needed for replay correctness).
+                                // Replace: DO doesn't carry loadedContent (no replay correctness need); fall back to cached artifact (e.g., user was viewing it pre-disconnect) and async-fetch only if uncached.
+                                let baseContent = doc.loadedContent ?? '';
+                                if (
+                                    !baseContent &&
+                                    doc.mode === 'replace' &&
+                                    doc.loadedVersion &&
+                                    doc.isInternal === false
+                                ) {
+                                    const cached = o.artifactContext.getArtifact(doc.name, doc.loadedVersion);
+                                    if (cached) {
+                                        baseContent = getLatestArtifactVersionContent(cached) ?? '';
+                                    }
                                 }
 
                                 o.artifactContext.addArtifact(
@@ -745,13 +786,13 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                             createdAt: now,
                                             updatedAt: now,
                                         },
-                                        ...(doc.loadedVersion && doc.mode === 'edit'
+                                        ...(doc.loadedVersion && (doc.mode === 'edit' || doc.mode === 'replace')
                                             ? {
                                                   currentVersion: {
                                                       id: '',
                                                       version: doc.loadedVersion,
                                                       title: doc.title,
-                                                      content: '',
+                                                      content: baseContent,
                                                       status: 'approved',
                                                       createdAt: now,
                                                       updatedAt: now,
@@ -761,12 +802,45 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         createdAt: now,
                                         updatedAt: now,
                                         isStreaming: true,
-                                        isUpdating: doc.mode === 'edit',
+                                        isUpdating: doc.mode === 'edit' || doc.mode === 'replace',
                                         isLoading: false,
                                         progress: doc.progress ?? 0,
                                     },
                                     doc.pendingVersion,
                                 );
+
+                                // Replace cold-reconnect: no DO loadedContent and not in cache → fetch the version being replaced for diff UI. Skipped for internal (API redacts anyway, and we trust producer-side suppression).
+                                if (
+                                    !baseContent &&
+                                    doc.mode === 'replace' &&
+                                    doc.loadedVersion &&
+                                    doc.isInternal === false &&
+                                    o.fetchArtifact
+                                ) {
+                                    const loadedVersion = doc.loadedVersion;
+                                    const docName = doc.name;
+                                    const pendingVersion = doc.pendingVersion;
+                                    void o.fetchArtifact(docName, loadedVersion).then((artifact) => {
+                                        if (!artifact) return;
+                                        const fetched = getLatestArtifactVersionContent(artifact);
+                                        if (typeof fetched !== 'string') return;
+                                        const updatedAt = new Date().toISOString();
+                                        o.artifactContext?.updateArtifact(
+                                            docName,
+                                            {
+                                                currentVersion: {
+                                                    id: '',
+                                                    version: loadedVersion,
+                                                    content: fetched,
+                                                    status: 'approved',
+                                                    createdAt: now,
+                                                    updatedAt,
+                                                },
+                                            },
+                                            pendingVersion,
+                                        );
+                                    });
+                                }
                             }
                         }
 

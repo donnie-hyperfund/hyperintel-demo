@@ -103,17 +103,20 @@ export function handleCommonStreamEvent(
             enqueue({ type: 'tool_start', tool: event.tool, id: event.id, offsetMs: event.offsetMs });
             return true;
 
-        case 'tool_result':
+        case 'tool_result': {
+            const result =
+                event.tool === 'read_document' && event.metadata?.internal !== false ? 'REDACTED' : event.result;
             enqueue({
                 type: 'tool_result',
                 tool: event.tool,
                 id: event.id,
                 success: event.success,
-                result: event.result,
+                result,
                 offsetMs: event.offsetMs,
                 durationMs: event.durationMs,
             });
             return true;
+        }
 
         case 'done':
             // Caller needs to capture this for pendingDoneEvent — but we can still handle the common case

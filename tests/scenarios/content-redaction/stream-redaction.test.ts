@@ -214,6 +214,58 @@ describe("stream document content redaction", () => {
 		});
 	});
 
+	describe("document_start.loadedContent for DO reconnect snapshot", () => {
+		// On non-internal edit-mode starts, document-events reads the active draft's
+		// loaded content from DraftManager and includes it on document_start so the
+		// Stream DO can seed activeDocuments[].content. Reconnect mid-edit-stream
+		// then has the correct base for replaying subsequent patches.
+		// Internal docs and create/replace modes must NOT include loadedContent.
+
+		function simulateBegin(
+			handle: (e: AgentStreamEvent) => void,
+			draftManager: DraftManager,
+			opts: { mode: "create" | "edit" | "replace"; is_internal: boolean },
+		) {
+			// Mirror what the real executor does: seed the draft with content for edit mode.
+			const initialContent = opts.mode === "edit" ? "loaded base content\n" : "";
+			draftManager.begin("scope", "doc.md", "Doc", opts.mode, initialContent, 1, opts.is_internal, "Other");
+			handle({ type: "tool_start", tool: "begin_document", id: "tc1" });
+			handle({ type: "tool_result", tool: "begin_document", id: "tc1", success: true,
+				result: JSON.stringify({
+					status: "editing", name: "doc", title: "Doc", mode: opts.mode,
+					is_internal: opts.is_internal, loadedFrom: "approved", loadedVersion: 1,
+				}) });
+		}
+
+		it("non-internal edit: loadedContent set to draft base content", () => {
+			const { events, handle, draftManager } = collect();
+			simulateBegin(handle, draftManager, { mode: "edit", is_internal: false });
+			const start = events.find((e) => e.type === "document_start") as any;
+			expect(start.loadedContent).toBe("loaded base content\n");
+		});
+
+		it("internal edit: loadedContent omitted (no DO leak)", () => {
+			const { events, handle, draftManager } = collect();
+			simulateBegin(handle, draftManager, { mode: "edit", is_internal: true });
+			const start = events.find((e) => e.type === "document_start") as any;
+			expect(start.loadedContent).toBeUndefined();
+		});
+
+		it("non-internal create: loadedContent omitted (draft starts empty)", () => {
+			const { events, handle, draftManager } = collect();
+			simulateBegin(handle, draftManager, { mode: "create", is_internal: false });
+			const start = events.find((e) => e.type === "document_start") as any;
+			expect(start.loadedContent).toBeUndefined();
+		});
+
+		it("non-internal replace: loadedContent omitted (draft starts empty)", () => {
+			const { events, handle, draftManager } = collect();
+			simulateBegin(handle, draftManager, { mode: "replace", is_internal: false });
+			const start = events.find((e) => e.type === "document_start") as any;
+			expect(start.loadedContent).toBeUndefined();
+		});
+	});
+
 	describe("isInternal defaults to true when not in result", () => {
 		it("document_start defaults isInternal=true when begin_document omits is_internal", () => {
 			const { events, handle } = collect();

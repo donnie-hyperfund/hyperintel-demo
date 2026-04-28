@@ -399,18 +399,22 @@ export interface DocumentInfo {
     currentContent: string | null;
     currentStatus: VersionStatus | null;
     currentDocumentType: string | null;
+    currentIsInternal: boolean | null;
     /** The most recent version with status 'approved'. May differ from current_version if a rejection happened after. */
     approvedVersion: number | null;
     approvedContent: string | null;
     approvedDocumentType: string | null;
+    approvedIsInternal: boolean | null;
     /** The highest version number across all versions (artifact.version). */
     latestVersion: number;
     proposedVersion: number | null;
     proposedContent: string | null;
     proposedDocumentType: string | null;
+    proposedIsInternal: boolean | null;
     rejectedVersion: number | null;
     rejectedContent: string | null;
     rejectedDocumentType: string | null;
+    rejectedIsInternal: boolean | null;
     rejectionReason: string | null;
     lineCount: number;
     /** Whether this artifact is a read-only public resource (or imported from one) */
@@ -455,16 +459,20 @@ export async function findDocumentByName(
         currentContent: artifact.current_version?.content ?? null,
         currentStatus: artifact.current_version?.status ?? null,
         currentDocumentType: artifact.current_version?.document_type ?? null,
+        currentIsInternal: artifact.current_version?.is_internal ?? null,
         approvedVersion: lastApproved?.version ?? null,
         approvedContent,
         approvedDocumentType: lastApproved?.document_type ?? null,
+        approvedIsInternal: lastApproved?.is_internal ?? null,
         latestVersion: artifact.version,
         proposedVersion: proposed?.version ?? null,
         proposedContent,
         proposedDocumentType: proposed?.document_type ?? null,
+        proposedIsInternal: proposed?.is_internal ?? null,
         rejectedVersion: rejected?.version ?? null,
         rejectedContent: rejected?.content ?? null,
         rejectedDocumentType: rejected?.document_type ?? null,
+        rejectedIsInternal: rejected?.is_internal ?? null,
         rejectionReason: rejected?.rejection_reason ?? null,
         lineCount: countLines(proposedContent ?? approvedContent ?? ''),
         isReadOnly,

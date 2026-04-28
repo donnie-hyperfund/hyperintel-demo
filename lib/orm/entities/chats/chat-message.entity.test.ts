@@ -210,6 +210,58 @@ describe('ChatMessageEntity — block redaction in toJSON', () => {
 		expect((blocks[2] as ToolCallStreamBlock).content).toBe('raw content');
 	});
 
+	it('redacts patch_document blocks (regression guard)', () => {
+		setDeploymentGroups(orm, ['dev']);
+		const em = orm.em.fork() as ScopedEntityManager;
+		const msg = createMessage(em, {
+			blocks: [toolBlock('patch_document')],
+		});
+
+		const json = msg.toJSON();
+		const blocks = json.blocks as StreamBlock[];
+		const block = blocks[0] as ToolCallStreamBlock;
+
+		expect(block.content).toBe('REDACTED');
+		expect(block.toolInput).toBe('REDACTED');
+		expect(block.toolOutput).toBe('REDACTED');
+	});
+
+	it('redacts read_document output but preserves input (name/range metadata)', () => {
+		setDeploymentGroups(orm, ['dev']);
+		const em = orm.em.fork() as ScopedEntityManager;
+		const readBlock: ToolCallStreamBlock = {
+			id: 'block_r',
+			type: 'tool_call',
+			toolName: 'read_document',
+			toolCallId: 'tc_r',
+			content: 'INTERNAL DOC FULL TEXT',
+			toolInput: { name: 'internal-strategy.md', startLine: 1, endLine: 50 },
+			toolOutput: '1: Confidential\n2: details\n...',
+		};
+		const msg = createMessage(em, { blocks: [readBlock] });
+
+		const json = msg.toJSON();
+		const blocks = json.blocks as StreamBlock[];
+		const block = blocks[0] as ToolCallStreamBlock;
+
+		expect(block.content).toBe('REDACTED');
+		expect(block.toolOutput).toBe('REDACTED');
+		// Input preserved — just metadata, no leak.
+		expect(block.toolInput).toEqual({ name: 'internal-strategy.md', startLine: 1, endLine: 50 });
+	});
+
+	it('does not redact non-document tool blocks (e.g. web_search)', () => {
+		setDeploymentGroups(orm, ['dev']);
+		const em = orm.em.fork() as ScopedEntityManager;
+		const msg = createMessage(em, { blocks: [toolBlock('web_search')] });
+
+		const json = msg.toJSON();
+		const block = (json.blocks as StreamBlock[])[0] as ToolCallStreamBlock;
+
+		expect(block.content).toBe('raw content');
+		expect(block.toolOutput).toBe('Written successfully');
+	});
+
 	it('handles messages without blocks', () => {
 		setDeploymentGroups(orm, []);
 		const em = orm.em.fork() as ScopedEntityManager;
