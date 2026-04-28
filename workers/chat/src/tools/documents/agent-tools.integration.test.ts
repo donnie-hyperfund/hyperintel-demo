@@ -115,9 +115,9 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
     const beginDoc: AgentTool<'begin_document', any, TestToolCtx> = {
         name: 'begin_document',
         description:
-            'Start a document editing draft session. Modes: "create" (new doc), "edit" (modify existing in place). MUST call finalize_document when done.',
+            'Start a document editing draft session. Modes: "create" (new doc), "edit" (modify existing in place), "replace" (rewrite existing from scratch). MUST call finalize_document when done.',
         parameters: z.object({
-            mode: z.enum(['create', 'edit']),
+            mode: z.enum(['create', 'edit', 'replace']),
             name: z.string().min(1).describe('Document name'),
             title: z.string().optional().nullable().describe('Display title'),
             is_internal: z.boolean().default(true),
@@ -130,7 +130,7 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
             if (input.mode === 'create' && existing && existing.status !== 'deleted') {
                 return { error: `Document "${name}" already exists. Use mode="edit".` };
             }
-            if (input.mode === 'edit' && !existing) {
+            if ((input.mode === 'edit' || input.mode === 'replace') && !existing) {
                 return { error: `Document "${name}" does not exist. Use mode="create".` };
             }
 
@@ -167,22 +167,16 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
 
     const writeDoc: AgentTool<'write_document', any, TestToolCtx> = {
         name: 'write_document',
-        description:
-            'Write content to the current editing draft. Use behavior="append" to add content and behavior="replace" to overwrite the draft.',
+        description: 'Write content to the current editing draft.',
         parameters: z.object({
             content: z.string(),
-            behavior: z.enum(['append', 'replace']),
         }),
         executor: (input) => {
             try {
-                const draft =
-                    input.behavior === 'replace'
-                        ? draftManager.setContent(input.content)
-                        : draftManager.append(input.content);
+                const draft = draftManager.append(input.content);
                 return {
                     status: 'written',
-                    behavior: input.behavior,
-                    charsAdded: input.behavior === 'append' ? input.content.length : undefined,
+                    charsAdded: input.content.length,
                     charsWritten: input.content.length,
                     totalLines: countLines(draft.content),
                 };
@@ -379,9 +373,9 @@ function baseInput(userMessage: string) {
         instructions: `You are a document management assistant. You have tools to create, edit, read, list, delete, and search documents.
 Always use the tools to complete document tasks. Be concise in your responses.
 When creating documents, use document_type "Other" unless told otherwise.
-When asked to create a document, use begin_document → write_document(behavior="append") → finalize_document.
+When asked to create a document, use begin_document(mode="create") → write_document → finalize_document.
 When asked to edit part of an existing document, use begin_document(mode="edit") → patch_document → finalize_document.
-When asked to rewrite most of an existing document, use begin_document(mode="edit") → write_document(behavior="replace") → finalize_document.`,
+When asked to rewrite most of an existing document, use begin_document(mode="replace") → write_document → finalize_document.`,
         context: [{ role: 'user' as const, content: userMessage }],
         maxTokens: 4096,
         contentThreshold: 0,
@@ -417,7 +411,7 @@ function getDoneEvent(events: AgentStreamEvent[]) {
 // ============================================================================
 
 describe('Document tool contract (no inference)', () => {
-	it('write_document behavior="append" appends and behavior="replace" overwrites', () => {
+	it('write_document appends to create/edit drafts, while begin_document mode="replace" starts an empty replacement draft', () => {
 		const store = new InMemoryDocumentStore();
 		store.upsert('report.md', 'Report', 'Original content\n', false, 'Other');
 		const draftManager = new DraftManager();
@@ -434,17 +428,26 @@ describe('Document tool contract (no inference)', () => {
 		expect(draftManager.requireCurrent().content).toBe('Original content\n');
 
 		const appendResult = writeDoc.executor!(
-			{ content: 'Appended line\n', behavior: 'append' },
+			{ content: 'Appended line\n' },
 			{ store, draftManager },
 		) as any;
 		expect(appendResult.error).toBeUndefined();
 		expect(draftManager.requireCurrent().content).toBe('Original content\nAppended line\n');
 
-		const replaceResult = writeDoc.executor!(
-			{ content: 'Replacement only\n', behavior: 'replace' },
+		draftManager.discard();
+
+		const replaceBeginResult = beginDoc.executor!(
+			{ mode: 'replace', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
 			{ store, draftManager },
 		) as any;
-		expect(replaceResult.error).toBeUndefined();
+		expect(replaceBeginResult.error).toBeUndefined();
+		expect(draftManager.requireCurrent().content).toBe('');
+
+		const replacementWriteResult = writeDoc.executor!(
+			{ content: 'Replacement only\n' },
+			{ store, draftManager },
+		) as any;
+		expect(replacementWriteResult.error).toBeUndefined();
 		expect(draftManager.requireCurrent().content).toBe('Replacement only\n');
 	});
 
@@ -463,7 +466,7 @@ describe('Document tool contract (no inference)', () => {
 			{ store, draftManager },
 		);
 		writeDoc.executor!(
-			{ content: 'Temporary replacement\n', behavior: 'replace' },
+			{ content: 'Temporary change\n' },
 			{ store, draftManager },
 		);
 

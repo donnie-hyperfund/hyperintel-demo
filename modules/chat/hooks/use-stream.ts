@@ -400,7 +400,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     if (!payload.isInternal) {
                         o.onArtifactOpen?.(artifactId, 1);
                     }
-                } else if (payload.mode === 'edit') {
+                } else if (payload.mode === 'edit' || payload.mode === 'replace') {
                     const isInternal = !!payload.isInternal;
                     const loadedVersion = payload.loadedVersion ?? 1;
                     let existingArtifact = ac?.getArtifact(artifactId, loadedVersion) ?? null;
@@ -415,10 +415,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             ? (getLatestArtifactVersionContent(existingArtifact) ?? '')
                             : '';
                     const existingTitle = existingArtifact ? getLatestArtifactVersionTitle(existingArtifact) : '';
+                    const draftContent = payload.mode === 'replace' ? '' : loadedContent;
 
                     s.streamingDocs.set(artifactId, {
                         artifactId,
-                        content: loadedContent,
+                        content: draftContent,
                         version: newVersion,
                         isInternal,
                         sourceVersion: loadedVersion,
@@ -448,7 +449,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                 id: '',
                                 version: newVersion,
                                 title: payload.title,
-                                content: loadedContent,
+                                content: draftContent,
                                 status: 'proposed',
                                 documentType: payload.documentType,
                                 isInternal: payload.isInternal,

@@ -125,8 +125,10 @@ export type StreamEvent =
           name: string;
           title?: string;
           pendingVersion: number;
-          mode?: 'create' | 'edit';
+          mode?: 'create' | 'edit' | 'replace';
           loadedVersion?: number;
+          /** Authoritative next version slot from backend (artifact.latestVersion + 1). FE prefers this over loadedVersion + 1 to avoid collisions when user is viewing an older version via version-history. */
+          nextVersion?: number;
           /** document_type from begin_document tool result */
           documentType?: DocumentType;
           /** Estimated content size in characters for progress tracking */
@@ -216,7 +218,7 @@ export type StreamEvent =
 export type ActiveDocument = {
     name: string;
     title: string;
-    mode: 'create' | 'edit';
+    mode: 'create' | 'edit' | 'replace';
     pendingVersion: number;
     loadedVersion?: number;
     content: string;

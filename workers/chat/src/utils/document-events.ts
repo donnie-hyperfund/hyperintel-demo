@@ -26,7 +26,7 @@ export type DocumentEvent =
           type: 'document_start';
           name: string;
           title: string;
-          mode: 'create' | 'edit';
+          mode: 'create' | 'edit' | 'replace';
           isInternal: boolean;
           pendingVersion: number;
           documentType?: DocumentType;
@@ -237,7 +237,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
             }
 
             case 'tool_call_delta': {
-                // write_document: stream the content field
+                // write_document: stream the content field. Replacement semantics are known from begin_document(mode="replace").
                 if (event.tool === 'write_document' && activeDoc) {
                     if (!writeParser) {
                         writeParser = createStreamFieldParser({
