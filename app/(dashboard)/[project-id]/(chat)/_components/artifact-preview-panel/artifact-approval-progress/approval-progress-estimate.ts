@@ -83,6 +83,11 @@ type ExpectationInput = ApprovalWorkInput & {
     hasObservedAiContentStage?: boolean;
 };
 
+type ApprovalTimingLabels = {
+    expectationLabel: string;
+    paceLabel?: string;
+};
+
 function clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
 }
@@ -249,15 +254,15 @@ function getInitialExpectationLabel(expectedDurationMs: number): string {
     return 'Can take a minute or two';
 }
 
-export function getApprovalExpectationLabel({
+export function getApprovalTimingLabels({
     elapsedMs,
     isConfirmed,
     stage,
     hasObservedAiContentStage,
     contentLength,
     documentType,
-}: ExpectationInput): string {
-    if (isConfirmed) return 'Confirmed';
+}: ExpectationInput): ApprovalTimingLabels {
+    if (isConfirmed) return { expectationLabel: 'Confirmed' };
 
     const expectedDurationMs = getExpectedApprovalDurationMs({
         stage,
@@ -265,11 +270,12 @@ export function getApprovalExpectationLabel({
         contentLength,
         documentType,
     });
+    const expectationLabel = getInitialExpectationLabel(expectedDurationMs);
 
-    if (elapsedMs < 8000) return getInitialExpectationLabel(expectedDurationMs);
+    if (elapsedMs < 8000) return { expectationLabel };
 
     const elapsedRatio = elapsedMs / expectedDurationMs;
-    if (elapsedRatio < 0.75) return 'On track';
-    if (elapsedRatio < 1.25) return 'Still within estimate';
-    return 'Taking longer than expected';
+    if (elapsedRatio < 0.75) return { expectationLabel, paceLabel: 'On track' };
+    if (elapsedRatio < 1.25) return { expectationLabel, paceLabel: 'Still within estimate' };
+    return { expectationLabel, paceLabel: 'Taking longer than expected' };
 }

@@ -1,11 +1,7 @@
 import { useMemo, useRef } from 'react';
 import type { DocumentType } from '@/lib/schema/artifact';
 import type { ProcessingEntry, ProcessingStage } from '@/modules/artifacts/processing/types';
-import {
-    getApprovalExpectationLabel,
-    getApprovalProgress,
-    getFallbackApprovalStage,
-} from './approval-progress-estimate';
+import { getApprovalProgress, getApprovalTimingLabels, getFallbackApprovalStage } from './approval-progress-estimate';
 import { useTicker } from './use-ticker';
 
 type UseApprovalProgressOptions = {
@@ -16,7 +12,8 @@ type UseApprovalProgressOptions = {
 
 type ApprovalProgressState = {
     stage: ProcessingStage;
-    detailLabel: string;
+    expectationLabel: string;
+    paceLabel?: string;
     progress: number;
     progressLabel: string;
 };
@@ -82,18 +79,20 @@ export function useApprovalProgress({
           });
     const progress = Math.max(maxProgressRef.current, estimatedProgress);
     maxProgressRef.current = progress;
+    const timingLabels = getApprovalTimingLabels({
+        elapsedMs,
+        isConfirmed,
+        stage,
+        hasObservedAiContentStage: hasObservedAiContentStageRef.current,
+        contentLength,
+        documentType,
+    });
 
     return {
         stage,
         progress,
-        detailLabel: getApprovalExpectationLabel({
-            elapsedMs,
-            isConfirmed,
-            stage,
-            hasObservedAiContentStage: hasObservedAiContentStageRef.current,
-            contentLength,
-            documentType,
-        }),
+        expectationLabel: timingLabels.expectationLabel,
+        paceLabel: timingLabels.paceLabel,
         progressLabel: isConfirmed ? `${progress}% confirmed` : `${progress}% estimated`,
     };
 }
