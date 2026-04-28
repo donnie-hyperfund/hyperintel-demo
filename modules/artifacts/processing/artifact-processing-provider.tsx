@@ -10,7 +10,13 @@ import {
 } from '@/lib/storage/session-storage';
 import { ARTIFACT_PROCESSING_KEY, NUDGE_PENDING_KEY } from '@/lib/storage/storage-keys';
 import { useUserEvents } from '@/modules/chat/hooks/use-user-events';
-import type { ProcessingAction, ProcessingEntry, ProcessingEntryInput, ProcessingStatus } from './types';
+import type {
+    ProcessingAction,
+    ProcessingEntry,
+    ProcessingEntryInput,
+    ProcessingStage,
+    ProcessingStatus,
+} from './types';
 
 const AUTO_DISMISS_MS = 3000;
 const STALE_THRESHOLD_MS = 60_000;
@@ -26,6 +32,7 @@ type ArtifactProcessingContextValue = {
     failProcessing: (versionId: string) => void;
     isProcessing: (versionId: string) => boolean;
     hasEntry: (versionId: string) => boolean;
+    getEntry: (versionId: string) => ProcessingEntry | undefined;
     activeEntries: ProcessingEntry[];
     visibleEntries: ProcessingEntry[];
     isAnyActionProcessing: (action: ProcessingAction) => boolean;
@@ -66,7 +73,25 @@ function savePendingNudges(ids: Set<string>) {
     }
 }
 
+function clampProgress(progress: number | undefined): number | undefined {
+    if (progress == null || Number.isNaN(progress)) return undefined;
+    return Math.max(0, Math.min(99, Math.round(progress)));
+}
+
+function getProgressPatch(event: WsEventPayload): Partial<ProcessingEntry> {
+    const patch: Partial<ProcessingEntry> = {};
+    const progress = clampProgress(event.progress);
+    if (progress != null) {
+        patch.progress = progress;
+    }
+    if (event.stage) {
+        patch.stage = event.stage;
+    }
+    return patch;
+}
+
 function buildEntryFromEvent(event: WsEventPayload): ProcessingEntry | null {
+    const progressPatch = getProgressPatch(event);
     const base = {
         versionId: event.versionId!,
         artifactId: event.artifactId ?? '',
@@ -78,6 +103,7 @@ function buildEntryFromEvent(event: WsEventPayload): ProcessingEntry | null {
         phaseIndex: event.phaseIndex,
         chatId: event.chatId,
         startedAt: Date.now(),
+        ...progressPatch,
         initiatedLocally: false,
     };
 
@@ -101,6 +127,8 @@ type WsEventPayload = {
     previousStatus?: string;
     status?: string;
     nextStatus?: string;
+    progress?: number;
+    stage?: ProcessingStage;
     projectId?: string;
     projectName?: string;
     phaseName?: string;
@@ -199,7 +227,13 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
     useUserEvents(
         useCallback(
             (eventType: string, payload: unknown) => {
-                if (eventType !== 'artifact_version_update_started' && eventType !== 'artifact_version_updated') return;
+                if (
+                    eventType !== 'artifact_version_update_started' &&
+                    eventType !== 'artifact_version_update_progress' &&
+                    eventType !== 'artifact_version_updated'
+                ) {
+                    return;
+                }
                 if (!payload || typeof payload !== 'object') return;
 
                 const event = payload as WsEventPayload;
@@ -222,6 +256,8 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                                 projectName: incoming.projectName ?? existing.projectName,
                                 phaseName: incoming.phaseName ?? existing.phaseName,
                                 phaseIndex: incoming.phaseIndex ?? existing.phaseIndex,
+                                progress: Math.max(existing.progress ?? 0, incoming.progress ?? 0) || undefined,
+                                stage: incoming.stage ?? existing.stage,
                             } as ProcessingEntry);
                         } else {
                             next.set(versionId, incoming);
@@ -232,11 +268,39 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                     return;
                 }
 
+                if (eventType === 'artifact_version_update_progress') {
+                    setEntries((prev) => {
+                        const existing = prev.get(versionId);
+                        const progressPatch = getProgressPatch(event);
+                        const incoming = existing ? null : buildEntryFromEvent(event);
+                        if (!existing && !incoming) return prev;
+
+                        const next = new Map(prev);
+                        if (existing) {
+                            next.set(versionId, {
+                                ...existing,
+                                ...progressPatch,
+                                progress:
+                                    progressPatch.progress != null
+                                        ? Math.max(existing.progress ?? 0, progressPatch.progress)
+                                        : existing.progress,
+                            } as ProcessingEntry);
+                        } else if (incoming) {
+                            next.set(versionId, incoming);
+                        }
+                        saveToStorage(next);
+                        return next;
+                    });
+                    return;
+                }
+
                 const status = event.status === ACTION_SUCCESS_STATUS[event.action] ? 'completed' : 'failed';
-                const patch =
-                    event.restoredVersionNumber != null
+                const patch = {
+                    ...(event.restoredVersionNumber != null
                         ? { restoredVersionNumber: event.restoredVersionNumber }
-                        : undefined;
+                        : {}),
+                    ...(status === 'completed' ? { progress: 100, stage: 'finalizing' as const } : {}),
+                };
                 updateEntryStatus({ versionId, status, patch });
             },
             [updateEntryStatus],
@@ -305,6 +369,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
     );
 
     const hasEntry = useCallback((versionId: string) => entries.has(versionId), [entries]);
+    const getEntry = useCallback((versionId: string) => entries.get(versionId), [entries]);
 
     const hasPendingNudge = useCallback((chatId: string) => pendingNudgeChatIds.has(chatId), [pendingNudgeChatIds]);
 
@@ -345,6 +410,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
             failProcessing,
             isProcessing,
             hasEntry,
+            getEntry,
             activeEntries,
             visibleEntries,
             isAnyActionProcessing,
@@ -358,6 +424,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
             failProcessing,
             isProcessing,
             hasEntry,
+            getEntry,
             activeEntries,
             visibleEntries,
             isAnyActionProcessing,

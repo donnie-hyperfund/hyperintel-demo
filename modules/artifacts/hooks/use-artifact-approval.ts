@@ -68,6 +68,8 @@ export function useArtifactApproval({
             phaseName: chat?.name ?? undefined,
             phaseIndex: state.phaseIndex ?? undefined,
             chatId: chatId ?? undefined,
+            progress: action === 'approve' ? 4 : undefined,
+            stage: action === 'approve' ? 'queued' : undefined,
         });
     };
 
