@@ -57,11 +57,14 @@ export async function handleGetVersions(req: NextRequest, projectId: string, use
 
     const versions = await em.find(ArtifactVersionEntity, { artifact: artifact.id }, { orderBy: { version: 'DESC' } });
 
+    const proposedVersion = versions.find((v) => v.status === 'proposed');
+    const title = proposedVersion?.title ?? artifact.current_version?.title ?? '';
+
     return NextResponse.json({
         artifact: {
             id: artifact.id,
             key: artifact.key,
-            title: artifact.title,
+            title,
             latestVersion: artifact.version,
             currentVersion: artifact.current_version?.version ?? null,
         },
@@ -97,11 +100,14 @@ export async function handleGetUserVersions(req: NextRequest, userId: string): P
 
     const versions = await em.find(ArtifactVersionEntity, { artifact: artifact.id }, { orderBy: { version: 'DESC' } });
 
+    const proposedVersion = versions.find((v) => v.status === 'proposed');
+    const title = proposedVersion?.title ?? artifact.current_version?.title ?? '';
+
     return NextResponse.json({
         artifact: {
             id: artifact.id,
             key: artifact.key,
-            title: artifact.title,
+            title,
             latestVersion: artifact.version,
             currentVersion: artifact.current_version?.version ?? null,
         },
