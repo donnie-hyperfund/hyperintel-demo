@@ -9,8 +9,8 @@ type ProgressRange = readonly [number, number];
 const STAGE_CAP_RANGES: Record<ProcessingStage, ProgressRange> = {
     queued: [7, 10],
     classifying: [20, 24],
-    'generating-ai-content': [70, 76],
-    saving: [80, 84],
+    'generating-ai-content': [82, 86],
+    saving: [86, 89],
     publishing: [87, 90],
     indexing: [91, 94],
     finalizing: [96, MAX_UNCONFIRMED_PROGRESS],
@@ -27,6 +27,13 @@ const STAGE_START_RANGES: Record<ProcessingStage, ProgressRange> = {
 };
 
 const INTERNAL_SAVING_START_RANGE: ProgressRange = [74, 80];
+
+// UX pacing hints: document-specific sizing comes from DOCUMENT_CHAR_ESTIMATES,
+// while these constants model fixed approval overhead plus per-1k-char preparation cost.
+const INTERNAL_GENERATION_BASE_MS = 18_000;
+const INTERNAL_GENERATION_MS_PER_1K_CHARS = 4200;
+const INTERNAL_GENERATION_MIN_MS = 45_000;
+const INTERNAL_GENERATION_MAX_MS = 180_000;
 
 type StageProgressInput = {
     stage: ProcessingStage;
@@ -54,20 +61,22 @@ type StageFallbackInput = {
 
 type StageDurationInput = ApprovalWorkInput & {
     stage: ProcessingStage;
+    isInternal?: boolean;
 };
 
 type ExpectationInput = {
     elapsedMs: number;
     isConfirmed: boolean;
     stage: ProcessingStage;
+    isInternal?: boolean;
 };
 
 function clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
 }
 
-function easeOutCubic(ratio: number): number {
-    return 1 - (1 - ratio) ** 3;
+function easeOutQuad(ratio: number): number {
+    return 1 - (1 - ratio) ** 2;
 }
 
 function getHashRatio(input: string): number {
@@ -88,7 +97,7 @@ function getApprovalWorkSize({ contentLength, documentType }: ApprovalWorkInput)
     if (contentLength > 0) return clamp(contentLength, 1000, 60_000);
 
     const typeEstimate = documentType ? DOCUMENT_CHAR_ESTIMATES[documentType] : DEFAULT_CONTENT_LENGTH;
-    return clamp(Math.round(typeEstimate * 0.35), 1000, 20_000);
+    return clamp(typeEstimate, 1000, 60_000);
 }
 
 function getStageStart({ stage, isInternal, operationKey }: StageProgressInput): number {
@@ -100,10 +109,20 @@ function getStageCap({ stage, operationKey }: StageProgressInput): number {
     return getStableRangeValue(STAGE_CAP_RANGES[stage], `${operationKey}:${stage}:cap`);
 }
 
-function getStageDurationMs({ stage, contentLength, documentType }: StageDurationInput): number {
+function getInternalGenerationDurationMs({ contentLength, documentType }: ApprovalWorkInput): number {
+    const workSize = getApprovalWorkSize({ contentLength, documentType });
+    const sizeBasedDuration = INTERNAL_GENERATION_BASE_MS + (workSize / 1000) * INTERNAL_GENERATION_MS_PER_1K_CHARS;
+    return clamp(sizeBasedDuration, INTERNAL_GENERATION_MIN_MS, INTERNAL_GENERATION_MAX_MS);
+}
+
+function getStageDurationMs({ stage, contentLength, documentType, isInternal }: StageDurationInput): number {
     if (stage === 'generating-ai-content') {
+        if (isInternal) {
+            return getInternalGenerationDurationMs({ contentLength, documentType });
+        }
+
         const workSize = getApprovalWorkSize({ contentLength, documentType });
-        return clamp(6000 + workSize * 0.35, 8000, 45_000);
+        return clamp(6000 + workSize * 0.25, 8000, 24_000);
     }
 
     if (stage === 'queued') return 1200;
@@ -124,8 +143,8 @@ export function getApprovalProgress({
     const stageStart = getStageStart({ stage, isInternal, operationKey });
     const floor = Math.max(stageStart, backendProgress ?? 0);
     const cap = Math.max(floor, getStageCap({ stage, isInternal, operationKey }));
-    const ratio = clamp(stageElapsedMs / getStageDurationMs({ stage, contentLength, documentType }), 0, 1);
-    const estimatedProgress = floor + easeOutCubic(ratio) * (cap - floor);
+    const ratio = clamp(stageElapsedMs / getStageDurationMs({ stage, contentLength, documentType, isInternal }), 0, 1);
+    const estimatedProgress = floor + easeOutQuad(ratio) * (cap - floor);
 
     return clamp(Math.round(estimatedProgress), 4, MAX_UNCONFIRMED_PROGRESS);
 }
@@ -146,9 +165,16 @@ export function getFallbackApprovalStage({ elapsedMs, isInternal }: StageFallbac
     return 'finalizing';
 }
 
-export function getApprovalExpectationLabel({ elapsedMs, isConfirmed, stage }: ExpectationInput): string {
+export function getApprovalExpectationLabel({ elapsedMs, isConfirmed, stage, isInternal }: ExpectationInput): string {
     if (isConfirmed) return 'Confirmed';
     if (elapsedMs < 8000) return 'Usually a few seconds';
+
+    if (stage === 'generating-ai-content' && isInternal) {
+        if (elapsedMs < 90_000) return 'Preparing workspace context';
+        if (elapsedMs < 150_000) return 'May take a little longer';
+        return 'Taking longer than usual';
+    }
+
     if (stage === 'generating-ai-content' && elapsedMs < 45_000) return 'May take a little longer';
     if (elapsedMs < 30_000) return 'Still working';
     return 'Taking longer than usual';

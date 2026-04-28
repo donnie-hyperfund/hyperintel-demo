@@ -29,7 +29,7 @@ export function ArtifactApprovalProgress({
         contentLength,
     });
     const copy = APPROVAL_STAGE_COPY[stage];
-    const detail = useRotatingText(copy.details, 7000, stage);
+    const detail = useRotatingText(copy.details, stage === 'generating-ai-content' ? 14_000 : 7000, stage);
 
     return (
         <div className="w-full max-w-sm space-y-4 px-6 text-center">
