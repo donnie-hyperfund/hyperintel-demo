@@ -419,6 +419,14 @@ The summary text MUST NOT mention PECP, "PE Communication Protocol", "-pecp.md" 
         await pusher.waitAll();
         await streamDO.push([{ type: 'done', newChatId: newChat.id }], pusher.seq);
 
+        // Finalize chat:${chatId} now — pushing a 'done' event broadcasts to live subscribers but
+        // does NOT change streamDO.status, so a fresh subscribe (e.g. user navigating back to this
+        // phase via breadcrumbs while the next-phase response is being prepared) would otherwise
+        // see a stale 'streaming' snapshot with streamType:'summary' and re-open the overlay.
+        // Safe to finalize here: the SSE keepalive is independent of this DO, and the next-phase
+        // generation runs against chat:${newChat.id} — a different stream DO.
+        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
+
         // Send the initiation blurb as a user message on the new chat via the normal chat handler.
         // It persists the user message, broadcasts messageCreated on `chat:${newChat.id}`, and runs
         // the next-phase agent generation streaming to that same topic.
@@ -437,8 +445,6 @@ The summary text MUST NOT mention PECP, "PE Communication Protocol", "-pecp.md" 
                 console.error('[summarizer] next-phase initiation failed:', err);
             }
         }
-
-        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
         const classification = classifyWorkerError(error);
         const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
