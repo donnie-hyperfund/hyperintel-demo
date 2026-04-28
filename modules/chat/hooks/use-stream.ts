@@ -17,7 +17,7 @@ import type {
 import { ServerMsg } from '@/lib/schema/ws-protocol';
 import { chunkText, TokenDrip } from '@/lib/token-drip';
 import { useWebsocket } from '@/lib/websocket/provider';
-import type { ArtifactContextValue } from '@/modules/artifacts/providers/artifact-provider';
+import type { ArtifactContextValue, ArtifactUpdate } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersionContent, getLatestArtifactVersionTitle } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
 
@@ -25,13 +25,21 @@ import type { Artifact } from '@/modules/chat/types';
 // TYPES
 // ============================================================================
 
-type StreamingDoc = { artifactId: string; content: string; version: number; isPECP?: boolean };
+type StreamingDoc = {
+    artifactId: string;
+    content: string;
+    version: number;
+    isInternal?: boolean;
+    isPECP?: boolean;
+    sourceVersion?: number;
+};
 
 type StreamingState = {
     blocks: StreamBlock[];
     currentTextBlockId: string | null;
     currentReasoningBlockId: string | null;
     streamingDocs: Map<string, StreamingDoc>;
+    pendingPecpArtifacts: Map<string, number>;
 };
 
 export type ToolDocumentDecision = {
@@ -118,6 +126,7 @@ function createStreamingState(): StreamingState {
         currentTextBlockId: null,
         currentReasoningBlockId: null,
         streamingDocs: new Map(),
+        pendingPecpArtifacts: new Map(),
     };
 }
 
@@ -137,6 +146,8 @@ function initFromSnapshot(snapshot: SubscribeResponseStreaming['snapshot']): Str
             artifactId: doc.name,
             content: doc.content,
             version: doc.pendingVersion,
+            isInternal: doc.isInternal,
+            sourceVersion: doc.loadedVersion,
         });
     }
 
@@ -169,6 +180,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const stateRef = useRef<StreamingState>(createStreamingState());
     const documentQueueRef = useRef<AsyncEventQueue<{ type: string; payload: any }> | null>(null);
     const pendingDocumentDecisionsRef = useRef<Map<string, ToolDocumentDecision>>(new Map());
+    const streamTerminalRef = useRef(false);
 
     const flushDocumentDecisions = (callback: NonNullable<UseStreamOptions['onToolDocumentDecision']>) => {
         if (pendingDocumentDecisionsRef.current.size === 0) return;
@@ -283,6 +295,27 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         setActiveDocuments(docs);
     };
 
+    const clearPecpLoadingArtifacts = () => {
+        const pendingPecpArtifacts = stateRef.current.pendingPecpArtifacts;
+        const ac = optsRef.current.artifactContext;
+        if (!ac) {
+            pendingPecpArtifacts.clear();
+            return;
+        }
+
+        for (const [artifactId, version] of pendingPecpArtifacts) {
+            ac.updateArtifact(artifactId, { isStreaming: false }, version);
+        }
+
+        for (const doc of stateRef.current.streamingDocs.values()) {
+            if (doc.isPECP) {
+                ac.updateArtifact(doc.artifactId, { isStreaming: false }, doc.version);
+            }
+        }
+
+        pendingPecpArtifacts.clear();
+    };
+
     // ========================================================================
     // DOCUMENT EVENT HANDLER (async, sequential via queue)
     // ========================================================================
@@ -299,13 +332,24 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     const parentId = payload.parentDocument;
                     const ver = resolveParentVersion(ac, parentId);
                     if (ver != null) {
+                        s.pendingPecpArtifacts.delete(parentId);
                         s.streamingDocs.set(payload.name, {
                             artifactId: parentId,
                             content: '',
                             version: ver as number,
+                            isInternal: true,
                             isPECP: true,
                         });
-                        ac.updateArtifact(parentId, { pecpContent: '', isStreaming: true }, ver);
+                        ac.updateArtifact(
+                            parentId,
+                            {
+                                pecpContent: '',
+                                isStreaming: true,
+                                isUpdating: false,
+                                proposedVersion: { content: '' },
+                            },
+                            ver,
+                        );
                         o.onArtifactOpen?.(parentId, typeof ver === 'number' ? ver : 1);
                     }
                     break;
@@ -316,7 +360,12 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 o.onDocumentStart?.();
 
                 if (payload.mode === 'create') {
-                    s.streamingDocs.set(artifactId, { artifactId, content: '', version: 1 });
+                    s.streamingDocs.set(artifactId, {
+                        artifactId,
+                        content: '',
+                        version: 1,
+                        isInternal: payload.isInternal,
+                    });
 
                     ac?.addArtifact(
                         {
@@ -348,6 +397,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         o.onArtifactOpen?.(artifactId, 1);
                     }
                 } else if (payload.mode === 'edit') {
+                    const isInternal = !!payload.isInternal;
                     const loadedVersion = payload.loadedVersion ?? 1;
                     let existingArtifact = ac?.getArtifact(artifactId, loadedVersion) ?? null;
 
@@ -356,12 +406,23 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     }
 
                     const newVersion = payload.nextVersion ?? loadedVersion + 1;
-                    const loadedContent = existingArtifact
-                        ? (getLatestArtifactVersionContent(existingArtifact) ?? '')
-                        : '';
+                    const loadedContent =
+                        !isInternal && existingArtifact
+                            ? (getLatestArtifactVersionContent(existingArtifact) ?? '')
+                            : '';
                     const existingTitle = existingArtifact ? getLatestArtifactVersionTitle(existingArtifact) : '';
 
-                    s.streamingDocs.set(artifactId, { artifactId, content: loadedContent, version: newVersion });
+                    s.streamingDocs.set(artifactId, {
+                        artifactId,
+                        content: loadedContent,
+                        version: newVersion,
+                        isInternal,
+                        sourceVersion: loadedVersion,
+                    });
+
+                    if (isInternal) {
+                        ac?.updateArtifact(artifactId, { isUpdating: true }, loadedVersion);
+                    }
 
                     ac?.addArtifact(
                         {
@@ -466,26 +527,45 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     break;
                 }
 
-                ac?.updateArtifact(
-                    doc.artifactId,
-                    {
-                        isStreaming: false,
-                        isUpdating: false,
-                        progress: 100,
+                const shouldWaitForPecp = !!payload.pecpRequired;
+                if (shouldWaitForPecp) {
+                    s.pendingPecpArtifacts.set(doc.artifactId, doc.version);
+                }
+
+                const completionUpdates: ArtifactUpdate = {
+                    isStreaming: shouldWaitForPecp,
+                    isUpdating: false,
+                    progress: 100,
+                    version: doc.version,
+                    proposedVersion: {
                         version: doc.version,
-                        proposedVersion: { version: doc.version, status: 'proposed' },
+                        status: 'proposed',
+                        ...(shouldWaitForPecp ? { content: '' } : {}),
                     },
-                    doc.version,
-                );
+                    ...(shouldWaitForPecp ? { pecpContent: '' } : {}),
+                };
+
+                ac?.updateArtifact(doc.artifactId, completionUpdates, doc.version);
+
+                if (doc.sourceVersion !== undefined && doc.sourceVersion !== doc.version) {
+                    ac?.updateArtifact(doc.artifactId, { isUpdating: false }, doc.sourceVersion);
+                }
 
                 s.streamingDocs.delete(payload.name);
                 o.revalidateArtifact?.(doc.artifactId, doc.version);
+                if (shouldWaitForPecp) {
+                    o.onArtifactOpen?.(doc.artifactId, doc.version);
+                }
                 flushActiveDocuments();
                 break;
             }
             default:
                 // TODO log?
                 break;
+        }
+
+        if (streamTerminalRef.current) {
+            clearPecpLoadingArtifacts();
         }
     };
 
@@ -512,6 +592,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         setError(null);
         setIsRetracted(false);
         ownedAgentMessageIdRef.current = null;
+        streamTerminalRef.current = false;
 
         // Subscribe (ref-counted in WS client)
         const unsub = ws.subscribe(topic);
@@ -572,6 +653,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         if (o.artifactContext && sr.snapshot.activeDocuments.length > 0) {
                             const now = new Date().toISOString();
                             for (const doc of sr.snapshot.activeDocuments) {
+                                const snapshotContent = doc.isInternal ? '' : doc.content;
+                                if (doc.isInternal && doc.mode === 'edit' && doc.loadedVersion !== undefined) {
+                                    o.artifactContext.updateArtifact(doc.name, { isUpdating: true }, doc.loadedVersion);
+                                }
+
                                 o.artifactContext.addArtifact(
                                     {
                                         id: doc.name,
@@ -581,7 +667,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                             id: '',
                                             version: doc.pendingVersion,
                                             title: doc.title,
-                                            content: doc.content,
+                                            content: snapshotContent,
                                             status: 'proposed',
                                             documentType: doc.documentType,
                                             isInternal: doc.isInternal,
@@ -674,6 +760,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     setIsRetracted(false);
                     setAgentMessageId(started.agentMessageId);
                     setStreamType(started.streamType ?? null);
+                    streamTerminalRef.current = false;
                     o.onStreamStarted?.(
                         started.agentMessageId,
                         started.userMessageId ?? '',
@@ -858,7 +945,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                         case 'error':
                             if (!event.soft) {
+                                streamTerminalRef.current = true;
                                 flushSync();
+                                clearPecpLoadingArtifacts();
                                 setError(event.error);
                             }
                             break;
@@ -866,7 +955,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         case 'done':
                             // Synchronous flush so setBlocks + setStatus('done') land
                             // in the same React batch — prevents stale-blocks-on-done.
+                            streamTerminalRef.current = true;
                             flushSync();
+                            clearPecpLoadingArtifacts();
                             if (event.error) setError(event.error);
                             if (event.outputType === 'tool' && event.outputTool) o.onTerminalTool?.(event.outputTool);
                             setDisplayStatus(null);
@@ -887,7 +978,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             stateRef.current.blocks = [];
                             dripRef.current.dispose();
                             docDripRef.current.dispose();
+                            streamTerminalRef.current = true;
                             flushSync();
+                            clearPecpLoadingArtifacts();
                             setIsRetracted(true);
                             break;
 
@@ -910,7 +1003,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         break;
                     }
                     const isTerminal = sm.status === 'done' || sm.status === 'aborted' || sm.status === 'error';
-                    if (isTerminal) flushSync();
+                    if (isTerminal) {
+                        streamTerminalRef.current = true;
+                        flushSync();
+                        clearPecpLoadingArtifacts();
+                    }
 
                     setStatus(sm.status);
                     setAgentMessageId(sm.agentMessageId);

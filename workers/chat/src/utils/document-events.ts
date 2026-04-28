@@ -50,6 +50,11 @@ export type DocumentEvent =
           action: string;
           status: 'proposed';
           supersededVersion?: number;
+          pecpRequired?: {
+              parentDocument: string;
+              parentDocumentType: string;
+              pecpKey: string;
+          };
       };
 
 export interface DocumentContext {
@@ -180,9 +185,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
 
                 // patch_document: canonical edits live on draftManager side channel (keyed by tool_call_id)
                 if (event.tool === 'patch_document' && result.status === 'edited' && activeDoc) {
-                    const edits: EmittedEdit[] = event.id
-                        ? (ctx.draftManager?.takeAppliedEdits(event.id) ?? [])
-                        : [];
+                    const edits: EmittedEdit[] = event.id ? (ctx.draftManager?.takeAppliedEdits(event.id) ?? []) : [];
 
                     if (!activeDoc.isInternal && edits.length) {
                         emit({
@@ -214,6 +217,9 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         }
                         if (result.supersededVersion !== undefined) {
                             completeEvent.supersededVersion = result.supersededVersion;
+                        }
+                        if (result.pecpRequired) {
+                            completeEvent.pecpRequired = result.pecpRequired;
                         }
 
                         emit(completeEvent);

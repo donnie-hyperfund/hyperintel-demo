@@ -704,19 +704,22 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         rCtx?.eCtx?.waitUntil(embedPromise);
                     }
 
+                    const toolResult: Record<string, unknown> = {
+                        action: result.action,
+                        name: draft.name,
+                        version: result.version,
+                        status: 'proposed',
+                        lines: result.lines,
+                    };
+
                     const response: Record<string, unknown> = {
-                        result: {
-                            action: result.action,
-                            name: draft.name,
-                            version: result.version,
-                            status: 'proposed',
-                            lines: result.lines,
-                        },
+                        result: toolResult,
                         appendedOutput: `::document[${draft.name}]{version=${result.version} lines=${result.lines} documentType="${draft.document_type}"}`,
                         message: `Saved as proposed v${result.version}. Awaiting user approval to become live. STOP HERE — do not create any more documents until the user asks.`,
                     };
 
                     if (result.supersededVersion) {
+                        toolResult.supersededVersion = result.supersededVersion;
                         response.supersededVersion = result.supersededVersion;
                         response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded. STOP HERE — do not create any more documents until the user asks.`;
                     }
@@ -729,6 +732,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                             parentDocumentType: draft.document_type,
                             pecpKey,
                         };
+                        toolResult.pecpRequired = pecpInfo;
                         response.pecpRequired = pecpInfo;
                         // Store on context so onTurnComplete can nudge the agent
                         ctx.pendingPECP = pecpInfo;

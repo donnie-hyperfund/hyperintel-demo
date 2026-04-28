@@ -118,6 +118,11 @@ export type StreamEvent =
           action?: string;
           isPECP?: boolean;
           parentDocument?: string;
+          pecpRequired?: {
+              parentDocument: string;
+              parentDocumentType: string;
+              pecpKey: string;
+          };
       }
     // Status & control
     | { type: 'status_update'; status: string }
