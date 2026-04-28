@@ -229,6 +229,16 @@ export async function restoreArtifactHandler(
             restored.document_type = sourceVersion.document_type;
             restored.status_changed_at = now;
             restored.status_changed_by = ownerId;
+            restored.metadata = {
+                restoredFrom: {
+                    versionId: sourceVersion.id,
+                    versionNumber: sourceVersion.version,
+                    sourceStatus: sourceVersion.status,
+                    supersededVersions: [...supersededVersions].sort((a, b) => a - b),
+                    at: now.toISOString(),
+                    by: ownerId,
+                },
+            };
 
             txEm.persist(restored);
             artifact.version = newVersionNumber;
@@ -268,6 +278,16 @@ export async function restoreArtifactHandler(
                 restoredPecp.document_type = sourcePecpVersion.document_type;
                 restoredPecp.status_changed_at = now;
                 restoredPecp.status_changed_by = pecpOwnerId;
+                restoredPecp.metadata = {
+                    restoredFrom: {
+                        versionId: sourcePecpVersion.id,
+                        versionNumber: sourcePecpVersion.version,
+                        sourceStatus: sourcePecpVersion.status,
+                        supersededVersions: [],
+                        at: now.toISOString(),
+                        by: pecpOwnerId,
+                    },
+                };
 
                 txEm.persist(restoredPecp);
                 pecpArtifact.is_pecp = true;

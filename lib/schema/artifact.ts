@@ -124,6 +124,7 @@ export const ArtifactVersionDtoSchema = z.object({
     status_changed_by: z.string().uuid().nullable().optional(),
     is_internal: z.boolean().optional(),
     document_type: DocumentTypeSchema.optional(),
+    metadata: z.record(z.unknown()).nullable().optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]).nullable().optional(),
 });

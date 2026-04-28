@@ -1,4 +1,5 @@
 import { Entity, Index, ManyToOne, Opt, Property, wrap } from '@mikro-orm/core';
+import type { Nullable } from '@/common/orm/utils';
 import type { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
@@ -78,6 +79,10 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
         serializer: (value) => value?.toISOString(),
     })
     updated_at?: Date & Opt;
+
+    /** Free-form provenance bag. Known keys: `restoredFrom` (set by the restore flow). Open for future provenance types. */
+    @Property({ type: 'json', nullable: true })
+    metadata?: Nullable<Record<string, unknown>>;
 
     /**
      * Custom serialization: ai_content always redacted, content conditional on is_internal.
