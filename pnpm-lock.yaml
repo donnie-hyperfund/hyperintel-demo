@@ -412,6 +412,9 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.2.3(@types/react@19.2.7)
+      '@types/source-map-support':
+        specifier: ^0.5.10
+        version: 0.5.10
       '@types/underscore':
         specifier: ^1.13.0
         version: 1.13.0
@@ -436,6 +439,9 @@ importers:
       postcss:
         specifier: ^8.5
         version: 8.5.6
+      source-map-support:
+        specifier: ^0.5.21
+        version: 0.5.21
       tailwindcss:
         specifier: ^4.1.9
         version: 4.1.18
@@ -3476,6 +3482,9 @@ packages:
 
   '@types/react@19.2.7':
     resolution: {integrity: sha512-MWtvHrGZLFttgeEj28VXHxpmwYbor/ATPYbBfSFZEIRK0ecCFLl2Qo55z52Hss+UV9CRN7trSeq1zbgx7YDWWg==}
+
+  '@types/source-map-support@0.5.10':
+    resolution: {integrity: sha512-tgVP2H469x9zq34Z0m/fgPewGhg/MLClalNOiPIzQlXrSS2YrKu/xCdSCKnEDwkFha51VKEKB6A9wW26/ZNwzA==}
 
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
@@ -10248,6 +10257,10 @@ snapshots:
   '@types/react@19.2.7':
     dependencies:
       csstype: 3.2.3
+
+  '@types/source-map-support@0.5.10':
+    dependencies:
+      source-map: 0.6.1
 
   '@types/trusted-types@2.0.7':
     optional: true
