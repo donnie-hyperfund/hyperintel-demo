@@ -7,6 +7,7 @@ import { useTicker } from './use-ticker';
 type UseApprovalProgressOptions = {
     entry?: ProcessingEntry;
     documentType?: DocumentType;
+    isInternal?: boolean;
     contentLength: number;
 };
 
@@ -21,6 +22,7 @@ type ApprovalProgressState = {
 export function useApprovalProgress({
     entry,
     documentType,
+    isInternal,
     contentLength,
 }: UseApprovalProgressOptions): ApprovalProgressState {
     const fallbackStartedAtRef = useRef(Date.now());
@@ -67,6 +69,7 @@ export function useApprovalProgress({
               backendProgress: entry?.progress,
               contentLength,
               documentType,
+              isInternal,
               operationKey,
           });
     const progress = Math.max(maxProgressRef.current, estimatedProgress);
@@ -78,6 +81,7 @@ export function useApprovalProgress({
         hasObservedAiContentStage: hasObservedAiContentStageRef.current,
         contentLength,
         documentType,
+        isInternal,
     });
 
     return {

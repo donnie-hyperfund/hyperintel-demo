@@ -27,6 +27,16 @@ const ACTION_SUCCESS_STATUS: Record<ProcessingAction, string> = {
     restore: 'proposed',
 };
 
+const STAGE_ORDER: Record<ProcessingStage, number> = {
+    queued: 0,
+    classifying: 1,
+    'generating-ai-content': 2,
+    saving: 3,
+    publishing: 4,
+    indexing: 5,
+    finalizing: 6,
+};
+
 type ArtifactProcessingContextValue = {
     startProcessing: (entry: ProcessingEntryInput) => void;
     failProcessing: (versionId: string) => void;
@@ -88,6 +98,29 @@ function getProgressPatch(event: WsEventPayload): Partial<ProcessingEntry> {
         patch.stage = event.stage;
     }
     return patch;
+}
+
+function getLatestStage(
+    existingStage: ProcessingStage | undefined,
+    incomingStage: ProcessingStage | undefined,
+): ProcessingStage | undefined {
+    if (!incomingStage) return existingStage;
+    if (!existingStage) return incomingStage;
+    return STAGE_ORDER[incomingStage] >= STAGE_ORDER[existingStage] ? incomingStage : existingStage;
+}
+
+function mergeProgressPatch(
+    existing: ProcessingEntry,
+    progressPatch: Partial<ProcessingEntry>,
+): Partial<ProcessingEntry> {
+    return {
+        ...progressPatch,
+        progress:
+            progressPatch.progress != null
+                ? Math.max(existing.progress ?? 0, progressPatch.progress)
+                : existing.progress,
+        stage: getLatestStage(existing.stage, progressPatch.stage),
+    };
 }
 
 function buildEntryFromEvent(event: WsEventPayload): ProcessingEntry | null {
@@ -166,15 +199,17 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
             versionId,
             status,
             patch,
+            fallbackEntry,
         }: {
             versionId: string;
             status: ProcessingStatus;
             patch?: Partial<ProcessingEntry>;
+            fallbackEntry?: ProcessingEntry | null;
         }) => {
             let nudgeChatId: string | undefined;
 
             setEntries((prev) => {
-                const entry = prev.get(versionId);
+                const entry = prev.get(versionId) ?? fallbackEntry;
                 if (!entry) return prev;
                 const updated = { ...entry, ...patch, status } as ProcessingEntry;
                 if (status === 'completed' && entry.initiatedLocally && entry.chatId) {
@@ -250,14 +285,17 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                             // Local optimistic entry — merge worker-authoritative target context
                             // (chatId/phase) so cross-phase restore enrolls the nudge for the
                             // correct target chat, not the user's current chat.
+                            const progressPatch = mergeProgressPatch(existing, {
+                                progress: incoming.progress,
+                                stage: incoming.stage,
+                            });
                             next.set(versionId, {
                                 ...existing,
                                 chatId: incoming.chatId ?? existing.chatId,
                                 projectName: incoming.projectName ?? existing.projectName,
                                 phaseName: incoming.phaseName ?? existing.phaseName,
                                 phaseIndex: incoming.phaseIndex ?? existing.phaseIndex,
-                                progress: Math.max(existing.progress ?? 0, incoming.progress ?? 0) || undefined,
-                                stage: incoming.stage ?? existing.stage,
+                                ...progressPatch,
                             } as ProcessingEntry);
                         } else {
                             next.set(versionId, incoming);
@@ -274,16 +312,13 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                         const progressPatch = getProgressPatch(event);
                         const incoming = existing ? null : buildEntryFromEvent(event);
                         if (!existing && !incoming) return prev;
+                        if (existing && existing.status !== 'processing') return prev;
 
                         const next = new Map(prev);
                         if (existing) {
                             next.set(versionId, {
                                 ...existing,
-                                ...progressPatch,
-                                progress:
-                                    progressPatch.progress != null
-                                        ? Math.max(existing.progress ?? 0, progressPatch.progress)
-                                        : existing.progress,
+                                ...mergeProgressPatch(existing, progressPatch),
                             } as ProcessingEntry);
                         } else if (incoming) {
                             next.set(versionId, incoming);
@@ -301,7 +336,7 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                         : {}),
                     ...(status === 'completed' ? { progress: 100, stage: 'finalizing' as const } : {}),
                 };
-                updateEntryStatus({ versionId, status, patch });
+                updateEntryStatus({ versionId, status, patch, fallbackEntry: buildEntryFromEvent(event) });
             },
             [updateEntryStatus],
         ),

@@ -58,6 +58,7 @@ type StageProgressInput = {
 type ApprovalWorkInput = {
     contentLength: number;
     documentType?: DocumentType;
+    isInternal?: boolean;
 };
 
 type ApprovalProgressInput = ApprovalWorkInput & {
@@ -173,14 +174,17 @@ function shouldIncludeAiContentPreparation({
     stage,
     hasObservedAiContentStage,
     documentType,
+    isInternal,
 }: {
     stage: ProcessingStage;
     hasObservedAiContentStage?: boolean;
     documentType?: DocumentType;
+    isInternal?: boolean;
 }): boolean {
     return (
         stage === 'generating-ai-content' ||
         !!hasObservedAiContentStage ||
+        isInternal === true ||
         (!!documentType && AI_CONTENT_DOCUMENT_TYPES.has(documentType))
     );
 }
@@ -190,10 +194,11 @@ function getExpectedApprovalDurationMs({
     hasObservedAiContentStage,
     contentLength,
     documentType,
+    isInternal,
 }: ApprovalWorkInput & { stage: ProcessingStage; hasObservedAiContentStage?: boolean }): number {
     const baseDuration = getBaseApprovalDurationMs();
 
-    if (!shouldIncludeAiContentPreparation({ stage, hasObservedAiContentStage, documentType })) {
+    if (!shouldIncludeAiContentPreparation({ stage, hasObservedAiContentStage, documentType, isInternal })) {
         return baseDuration;
     }
 
@@ -239,6 +244,7 @@ export function getApprovalTimingLabels({
     hasObservedAiContentStage,
     contentLength,
     documentType,
+    isInternal,
 }: ExpectationInput): ApprovalTimingLabels {
     if (isConfirmed) return { expectationLabel: 'Confirmed' };
 
@@ -247,6 +253,7 @@ export function getApprovalTimingLabels({
         hasObservedAiContentStage,
         contentLength,
         documentType,
+        isInternal,
     });
     const expectationLabel = getInitialExpectationLabel(expectedDurationMs);
 
