@@ -27,14 +27,14 @@ export function ArtifactApprovalProgress({
     contentLength,
 }: ArtifactApprovalProgressProps) {
     const { updateProgressSnapshot } = useArtifactProcessing();
-    const { stage, progress, progressLabel, expectationLabel, paceLabel } = useApprovalProgress({
+    const { stage, stageElapsedMs, progress, progressLabel, expectationLabel, paceLabel } = useApprovalProgress({
         entry,
         documentType,
         isInternal,
         contentLength,
     });
     const copy = APPROVAL_STAGE_COPY[stage];
-    const detail = useRotatingText(copy.details, stage === 'generating-ai-content' ? 18_000 : 7000, stage);
+    const detail = useRotatingText(copy.details, stage === 'generating-ai-content' ? 14_000 : 7000, stageElapsedMs);
     const expectation = usePulsedText({
         primaryText: expectationLabel,
         pulseText: paceLabel,

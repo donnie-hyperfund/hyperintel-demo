@@ -13,6 +13,7 @@ type UseApprovalProgressOptions = {
 
 type ApprovalProgressState = {
     stage: ProcessingStage;
+    stageElapsedMs: number;
     expectationLabel: string;
     paceLabel?: string;
     progress: number;
@@ -88,6 +89,7 @@ export function useApprovalProgress({
 
     return {
         stage,
+        stageElapsedMs,
         progress,
         expectationLabel: timingLabels.expectationLabel,
         paceLabel: timingLabels.paceLabel,
