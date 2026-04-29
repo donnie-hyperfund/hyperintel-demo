@@ -33,11 +33,7 @@ export class GenerationProxyDO extends DurableObject<Env> {
 
         if (!response.ok || !response.body) {
             const text = await response.text().catch(() => '');
-            return createProxyError(
-                response.status,
-                text,
-                response.headers.get('content-type') ?? 'application/json',
-            );
+            return createProxyError(response.status, text, response.headers.get('content-type') ?? 'application/json');
         }
 
         const reader = response.body.getReader();

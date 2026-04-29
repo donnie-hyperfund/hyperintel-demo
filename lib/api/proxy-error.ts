@@ -19,9 +19,7 @@ export function createProxyError(status: number, body: string, contentType?: str
 
 export function isGenerationProxyError(value: unknown): value is GenerationProxyError {
     return (
-        typeof value === 'object' &&
-        value !== null &&
-        (value as Record<string, unknown>)[PROXY_ERROR_MARKER] === true
+        typeof value === 'object' && value !== null && (value as Record<string, unknown>)[PROXY_ERROR_MARKER] === true
     );
 }
 

@@ -380,8 +380,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             );
         }
 
-        const historyMessages =
-            preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
+        const historyMessages = preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
         // TODO: maybe early reject with error here if safetyVerdict.blocked
         const safetyVerdict = await safetyPromise;
 

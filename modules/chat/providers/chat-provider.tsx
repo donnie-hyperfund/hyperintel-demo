@@ -133,7 +133,6 @@ function buildContextValue(
     return chatType === 'phase' ? { ...base, chatType, projectId: projectId! } : { ...base, chatType };
 }
 
-
 /** Create a user message with a single text block */
 function createUserMessage(content: string): Message {
     const id = uuidv4();
@@ -1236,11 +1235,7 @@ export function ChatProvider({
                     ...prev,
                     messages: prev.messages.filter((m) => m.id !== userMessage.id),
                     isGenerating: false,
-                    error: isContextLimit
-                        ? null
-                        : error instanceof Error
-                          ? error
-                          : new Error('Failed to send message'),
+                    error: isContextLimit ? null : error instanceof Error ? error : new Error('Failed to send message'),
                 }));
                 // Re-throw so the caller can keep the user's text/files intact (no submitFiles,
                 // no silent wipe) and surface the failure.

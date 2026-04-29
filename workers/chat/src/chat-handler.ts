@@ -451,7 +451,17 @@ export async function chatActionHandler(
 
         // Run generation inline — Worker stays alive because the DO reads this stream
         try {
-            await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub, preparedInput, safetyPromise });
+            await runGeneration({
+                data,
+                ctx,
+                options,
+                chat,
+                agentMessageId,
+                requestStartedAt,
+                ugStub,
+                preparedInput,
+                safetyPromise,
+            });
         } finally {
             clearInterval(heartbeat);
         }
@@ -494,8 +504,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             );
         }
 
-        const historyMessages =
-            preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
+        const historyMessages = preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
         // TODO: maybe early reject with error here if safetyVerdict.blocked
         const safetyVerdict = await safetyPromise;
 

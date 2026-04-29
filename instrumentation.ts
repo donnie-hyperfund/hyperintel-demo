@@ -9,14 +9,18 @@ export async function register() {
             if (Array.isArray(map.sources)) {
                 map.sources = (map.sources as string[]).map((s) => {
                     if (typeof s === 'string' && s.startsWith('file:')) {
-                        try { return fileURLToPath(s); } catch { return s; }
+                        try {
+                            return fileURLToPath(s);
+                        } catch {
+                            return s;
+                        }
                     }
                     return s;
                 });
             }
             if (Array.isArray(map.sections)) {
-                map.sections = (map.sections as { offset: unknown; map: Record<string, unknown> }[]).map(
-                    (section) => section.map ? { ...section, map: fixSources({ ...section.map }) } : section,
+                map.sections = (map.sections as { offset: unknown; map: Record<string, unknown> }[]).map((section) =>
+                    section.map ? { ...section, map: fixSources({ ...section.map }) } : section,
                 );
             }
             return map;
@@ -43,9 +47,7 @@ export async function register() {
         const smsPrepare = Error.prepareStackTrace!;
         Error.prepareStackTrace = (err, stack) => {
             const result = smsPrepare(err, stack);
-            return typeof result === 'string'
-                ? result.replaceAll('\\', '/').replaceAll(cwd, '')
-                : result;
+            return typeof result === 'string' ? result.replaceAll('\\', '/').replaceAll(cwd, '') : result;
         };
     }
 }
