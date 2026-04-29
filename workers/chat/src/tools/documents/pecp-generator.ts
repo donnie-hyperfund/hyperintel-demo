@@ -5,31 +5,21 @@
  * Streams its output through the active SSE pipeline as `summary_*` events, and
  * writes the final text into `artifact_versions.summary_internal` on the parent version.
  *
- * The prompt is a placeholder — production prompts will be wired through Langfuse later.
+ * The system prompt is loaded from Langfuse (slug: `pma/pecp-generator`) and compiled
+ * with Handlebars — the prompt itself contains placeholders for document_type,
+ * document_name, and document_content.
  */
 
 import { ANTHROPIC_MODELS } from '@common/ai/types';
 import type { EntityManager } from '@mikro-orm/core';
+import { AsyncHandlebars } from 'handlebars-jle';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { SUMMARY_INTERNAL_CHAR_ESTIMATE } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../../context';
+import { getPromptContent, resolveLocalPromptPath } from '../../utils/prompt-loader';
 
-/** Simple placeholder prompt — to be replaced with the real Langfuse-managed prompt later. */
-const PLACEHOLDER_SYSTEM_PROMPT = [
-    'You are the PE Communication Protocol writer.',
-    '',
-    'Your job: read the internal working document below and produce the PE-facing communication',
-    "summary of its content — what the Project Executor needs to know, in their voice, without",
-    'exposing internal scaffolding (no tool names, no agent jargon, no meta-commentary).',
-    '',
-    'Output rules:',
-    '- Write the summary directly. Do NOT include preamble like "Here is the summary".',
-    '- Use markdown formatting where helpful (short headings, bullets).',
-    '- Keep it concise — roughly 4–8 paragraphs unless the source genuinely demands more.',
-    '- Never reference "PECP", "internal document", "the document above", or this prompt.',
-    '- Never list the source document\'s raw section titles verbatim if they read as scaffolding.',
-].join('\n');
+const PECP_PROMPT_SLUG = 'pma/pecp-generator';
 
 export interface GenerateInternalSummaryParams {
     /** Worker request context (gives access to anthropic SDK, env, etc.). */
@@ -67,6 +57,20 @@ export async function generateInternalSummary(params: GenerateInternalSummaryPar
         throw new Error('Anthropic client not available — cannot generate internal summary.');
     }
 
+    const localPath = resolveLocalPromptPath();
+    const rawPrompt = await getPromptContent(rCtx, PECP_PROMPT_SLUG, localPath);
+    if (!rawPrompt) {
+        throw new Error(`PECP generator prompt not found (slug: ${PECP_PROMPT_SLUG}).`);
+    }
+
+    const hbs = new AsyncHandlebars({ interpreted: true });
+    const compiled = await hbs.compile(rawPrompt);
+    const systemPrompt = await compiled({
+        document_type: documentType,
+        document_name: documentName,
+        document_content: content,
+    });
+
     pushStreamEvents?.([
         {
             type: 'summary_start',
@@ -77,23 +81,15 @@ export async function generateInternalSummary(params: GenerateInternalSummaryPar
         },
     ]);
 
-    const userMessage = [
-        `Document type: ${documentType}`,
-        `Document name: ${documentName}`,
-        '',
-        '--- BEGIN DOCUMENT ---',
-        content,
-        '--- END DOCUMENT ---',
-        '',
-        'Write the PE-facing summary now.',
-    ].join('\n');
-
     let accumulated = '';
     const resp = await rCtx.anthropic.messages.create({
         model: ANTHROPIC_MODELS.SONNET,
         max_tokens: 4096,
-        system: PLACEHOLDER_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userMessage }],
+        system: systemPrompt,
+        // The prompt itself carries the document content via Handlebars placeholders;
+        // the model still needs at least one user turn to generate, so we hand it the
+        // explicit "produce the deliverable" trigger.
+        messages: [{ role: 'user', content: 'Produce the PE-facing deliverable now.' }],
         stream: true,
     });
 
