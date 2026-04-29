@@ -1,7 +1,6 @@
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
-import { estimateContextTokens, estimateTextTokens, estimateToolTokens } from '@common/ai/utils';
 import { PublicError } from '@common/common/error.helpers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -14,6 +13,7 @@ import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
 import { isPECPKey } from './tools/documents/pecp-service';
+import { estimateInferenceInputTokens, SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS } from './utils/context-budget';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -33,14 +33,13 @@ export interface SummarizerOptions {
 }
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
-const SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD = 180_000;
 
 function getSummarizerInferenceParams(contextTokens: number): ParamsWithType {
     return {
         paramsType: AIParamsType.Anthropic,
         params: {
             model:
-                contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD
+                contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS
                     ? ANTHROPIC_MODELS.SONNET_4_6
                     : ANTHROPIC_MODELS.SONNET,
         },
@@ -267,11 +266,13 @@ The summary text MUST NOT mention PECP, "PE Communication Protocol", "-pecp.md" 
         });
 
         const blurbTools = createBlurbTools();
-        const toolTokens = estimateToolTokens([...blurbTools], [BlurbToolGroup]);
-        const estimatedContextTokens =
-            estimateTextTokens(instructions) +
-            estimateContextTokens(preprocessContext(historyMessages)) +
-            toolTokens.total;
+        const estimatedContextTokens = estimateInferenceInputTokens({
+            instructions,
+            context: historyMessages,
+            tools: [...blurbTools],
+            toolGroups: [BlurbToolGroup],
+            preprocessContext,
+        });
         const inferenceParams = options.overrideInference ?? getSummarizerInferenceParams(estimatedContextTokens);
 
         const { stream, historyPromise } = runAgentStream(

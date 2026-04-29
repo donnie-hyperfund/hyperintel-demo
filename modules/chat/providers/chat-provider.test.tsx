@@ -2,6 +2,7 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatProvider, useChatContext } from './chat-provider';
 
 const getTokenMock = vi.fn();
@@ -19,11 +20,6 @@ const hasPendingNudgeMock = vi.fn();
 const clearPendingNudgeMock = vi.fn();
 
 let selectedModelMock = 'sonnet';
-let streamReaderOptions: {
-    setIsLoading: (value: boolean) => void;
-    onTerminalTool?: (toolName: string) => void;
-    onDocumentStart?: () => void;
-} | null = null;
 let fallbackMock: Record<string, unknown> = {};
 
 const cacheMock = new Map();
@@ -124,7 +120,6 @@ vi.mock('@/modules/intake/providers/project-origin-provider', () => ({
         handleApprovedArtifact: vi.fn(),
     }),
 }));
-
 
 function phaseWrapper({ children }: { children: ReactNode }) {
     return (
@@ -359,9 +354,16 @@ describe('ChatProvider', () => {
             wrapper: phaseWithoutProjectWrapper,
         });
 
+        let caught: unknown;
         await act(async () => {
-            await result.current.sendMessage('hello');
+            try {
+                await result.current.sendMessage('hello');
+            } catch (error) {
+                caught = error;
+            }
         });
+
+        expect(caught).toEqual(expect.objectContaining({ message: 'Project ID is required for phase chats' }));
 
         await waitFor(() => {
             expect(result.current.state.error?.message).toBe('Project ID is required for phase chats');
@@ -378,9 +380,18 @@ describe('ChatProvider', () => {
             wrapper: phaseWithInitialChatWrapper,
         });
 
+        let caught: unknown;
         await act(async () => {
-            await result.current.sendMessage('hello', { imageFileIds: ['file-1'] });
+            try {
+                await result.current.sendMessage('hello', { imageFileIds: ['file-1'] });
+            } catch (error) {
+                caught = error;
+            }
         });
+
+        expect(caught).toEqual(
+            expect.objectContaining({ message: expect.stringContaining('Associate uploads failed: 500') }),
+        );
 
         expect(associateUploadsMock).toHaveBeenCalledWith(
             { imageFileIds: ['file-1'], chatId: 'chat-initial', projectId: 'project-1' },
@@ -390,6 +401,50 @@ describe('ChatProvider', () => {
         await waitFor(() => {
             expect(result.current.state.error?.message).toContain('Associate uploads failed: 500');
         });
+        consoleSpy.mockRestore();
+    });
+
+    it('shows context limit alert and suppresses generic error state when send is rejected for context length', async () => {
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        sendActionMock.mockResolvedValue(
+            mockResponse(
+                {
+                    code: 'CONTEXT_TOO_LONG',
+                    message: 'This phase has reached the context limit.',
+                },
+                { ok: false, status: 400 },
+            ),
+        );
+
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        let caught: unknown;
+        await act(async () => {
+            try {
+                await result.current.sendMessage('hello');
+            } catch (error) {
+                caught = error;
+            }
+        });
+
+        expect(caught).toMatchObject({
+            name: 'ApiClientError',
+            code: 'CONTEXT_TOO_LONG',
+            message: 'This phase has reached the context limit.',
+        });
+
+        expect(sendActionMock).toHaveBeenCalled();
+        expect(result.current.state.showContextLimitAlert).toBe(true);
+        expect(result.current.state.error).toBeNull();
+        expect(result.current.state.messages).toHaveLength(0);
+
+        act(() => {
+            result.current.dismissContextLimitAlert();
+        });
+
+        expect(result.current.state.showContextLimitAlert).toBe(false);
         consoleSpy.mockRestore();
     });
 
@@ -500,7 +555,7 @@ describe('ChatProvider', () => {
         expect(result.current.state.error?.message).toBe('Summarize failed: 500 — summary failed');
     });
 
-    it('seeds hasPendingChanges from cache and clears via context methods', async () => {
+    it('seeds hasPendingChanges from cache and clears via context methods', () => {
         // hasPendingChanges is seeded from the SWR-cached chat detail
         const cacheKey = JSON.stringify(['chats', 'detail', 'chat-initial']);
         fallbackMock = {

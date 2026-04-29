@@ -133,6 +133,8 @@ export type ChatState = {
     showInvalidModelAlert: boolean;
     /** Completion Brief approval status for the current phase chat */
     completionBriefStatus: string | null;
+    /** True when send was rejected because the chat is over the context cap */
+    showContextLimitAlert: boolean;
 };
 
 export type PaginationState = {

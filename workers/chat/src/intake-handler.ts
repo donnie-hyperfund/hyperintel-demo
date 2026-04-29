@@ -9,6 +9,8 @@ import { runAgentStream } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
+import type { ContextMessage } from '@common/ai/inference/types';
+import { PublicError } from '@common/common/error.helpers';
 import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -26,6 +28,11 @@ import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
+import {
+    CHAT_CONTEXT_LIMIT_TOKENS,
+    createContextLimitError,
+    estimateInferenceInputTokens,
+} from './utils/context-budget';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
@@ -64,6 +71,13 @@ const DOCUMENT_INSTRUCTIONS: Record<
         titlePattern: '[Person Name] ([Category])',
     },
 };
+
+function getIntakeToolsAndGroups() {
+    return {
+        allTools: [...createDocumentTools(), ...createKnowledgeTools()],
+        toolGroups: [DocumentToolGroup, KnowledgeSearchToolGroup],
+    };
+}
 
 async function buildIntakeSystemPrompt(
     ctx: Ctx,
@@ -111,6 +125,64 @@ When you have gathered sufficient information, create the document using the doc
     return systemPrompt;
 }
 
+type IntakeToolsAndGroups = ReturnType<typeof getIntakeToolsAndGroups>;
+
+type PreparedIntakeGenerationInput = IntakeToolsAndGroups & {
+    contextMessages?: ContextMessage[];
+    systemPrompt: string;
+};
+
+async function prepareIntakeGenerationInput({
+    data,
+    ctx,
+    chat,
+    options,
+}: {
+    data: SendIntakeChatActionDto;
+    ctx: Ctx;
+    chat: ChatEntity;
+    options: ChatHandlerOptions;
+}): Promise<PreparedIntakeGenerationInput | PublicError> {
+    const { em } = ctx;
+    const framework = chat.metadata?.framework as 'cpf' | 'hpf';
+    const category = chat.metadata?.category as string | undefined;
+    if (!framework) throw new Error('Chat metadata missing framework type');
+
+    const historyMessages = await loadChatHistory(em!, data.chatId, ctx.env);
+    const estimationContextMessages: ContextMessage[] = data.message
+        ? [...historyMessages, { role: 'user', content: data.message }]
+        : historyMessages;
+    const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
+    const localPath = localPromptsSetting
+        ? localPromptsSetting === true
+            ? DEFAULT_LOCAL_PROMPTS_PATH
+            : localPromptsSetting
+        : null;
+    const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
+    const { allTools, toolGroups } = getIntakeToolsAndGroups();
+    const estimatedTokens = estimateInferenceInputTokens({
+        instructions: systemPrompt,
+        context: estimationContextMessages,
+        tools: allTools,
+        toolGroups,
+    });
+
+    if (estimatedTokens > CHAT_CONTEXT_LIMIT_TOKENS) {
+        return createContextLimitError(
+            estimatedTokens,
+            CHAT_CONTEXT_LIMIT_TOKENS,
+            'This conversation has reached the context limit. Start a new conversation before continuing.',
+        );
+    }
+
+    return {
+        allTools,
+        toolGroups,
+        systemPrompt,
+        ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
+    };
+}
+
 // ============================================================================
 // INTAKE HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
 // ============================================================================
@@ -131,7 +203,7 @@ export async function intakeActionHandler(
     data: SendIntakeChatActionDto,
     ctx: Ctx,
     options: ChatHandlerOptions = {},
-): Promise<IntakeActionResult | ReadableStream | Response> {
+): Promise<IntakeActionResult | ReadableStream | Response | PublicError> {
     const { chatId, message, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
@@ -166,6 +238,11 @@ export async function intakeActionHandler(
             });
         }
     }
+
+    const safetyPromise = message ? safetyCheck(ctx, message) : Promise.resolve(null);
+
+    const preparedInput = await prepareIntakeGenerationInput({ data, ctx, chat, options });
+    if (preparedInput instanceof PublicError) return preparedInput;
 
     let userMsg: ChatMessageEntity | null = null;
     if (!isNudge) {
@@ -233,6 +310,8 @@ export async function intakeActionHandler(
             agentMessageId,
             requestStartedAt,
             ugStub,
+            preparedInput,
+            safetyPromise,
         });
         return { userMessageId, agentMessageId, generation: generationPromise };
     }
@@ -248,7 +327,17 @@ export async function intakeActionHandler(
         const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
 
         try {
-            await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+            await runIntakeGeneration({
+                data,
+                ctx,
+                options,
+                chat,
+                agentMessageId,
+                requestStartedAt,
+                ugStub,
+                preparedInput,
+                safetyPromise,
+            });
         } finally {
             clearInterval(heartbeat);
         }
@@ -273,10 +362,12 @@ interface IntakeGenerationParams {
     agentMessageId: string;
     requestStartedAt: Date;
     ugStub: UserGatewayStub;
+    preparedInput: PreparedIntakeGenerationInput;
+    safetyPromise: Promise<Awaited<ReturnType<typeof safetyCheck>> | null>;
 }
 
 async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void> {
-    const { data, ctx, options, chat, agentMessageId, ugStub } = params;
+    const { data, ctx, options, chat, agentMessageId, ugStub, preparedInput, safetyPromise } = params;
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
 
@@ -289,16 +380,10 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             );
         }
 
-        const framework = chat.metadata?.framework as 'cpf' | 'hpf';
-        const category = chat.metadata?.category as string | undefined;
-        if (!framework) throw new Error('Chat metadata missing framework type');
-
-        // Load history + safety check in parallel (doesn't slow happy path)
-        // For nudge (message=null), skip safety check — the system event was injected server-side
-        const [historyMessages, safetyVerdict] = await Promise.all([
-            loadChatHistory(em!, chatId, ctx.env),
-            message ? safetyCheck(ctx, message) : Promise.resolve(null),
-        ]);
+        const historyMessages =
+            preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
+        // TODO: maybe early reject with error here if safetyVerdict.blocked
+        const safetyVerdict = await safetyPromise;
 
         const allMessages = injectSafetyContext(historyMessages, safetyVerdict);
 
@@ -320,16 +405,6 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             },
         };
 
-        // Resolve local prompts path
-        const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
-        const localPath = localPromptsSetting
-            ? localPromptsSetting === true
-                ? DEFAULT_LOCAL_PROMPTS_PATH
-                : localPromptsSetting
-            : null;
-
-        const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
-
         // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
         if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
 
@@ -344,8 +419,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         };
         const inferenceParams = options.overrideInference ?? defaultInference;
 
-        const allTools = [...createDocumentTools(), ...createKnowledgeTools()];
-        const toolGroups = [DocumentToolGroup, KnowledgeSearchToolGroup];
+        const { allTools, systemPrompt, toolGroups } = preparedInput;
 
         const { stream, historyPromise } = runAgentStream(
             agentCtx,

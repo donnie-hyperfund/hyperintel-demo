@@ -8,6 +8,7 @@ import { useForm } from 'react-hook-form';
 import {
     AlertDialog,
     AlertDialogAction,
+    AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
     AlertDialogFooter,
@@ -17,6 +18,7 @@ import {
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
+import { ApiClientError } from '@/lib/api/client/types';
 import { IS_DEV } from '@/lib/config';
 import { DevSlot } from '@/lib/dev-slots';
 import { cn } from '@/lib/utils';
@@ -43,6 +45,8 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         projectId,
         stopGeneration,
         dismissInvalidModelAlert,
+        dismissContextLimitAlert,
+        requestPhaseTransition,
         state: {
             isGenerating,
             isSummarizing,
@@ -51,6 +55,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             tokenUsage,
             activeResponseId,
             showInvalidModelAlert,
+            showContextLimitAlert,
         },
     } = useChatContext();
     const { selectedModel } = useModelSelection();
@@ -177,6 +182,9 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             try {
                 await sendMessage(message, Object.keys(opts).length > 0 ? opts : undefined);
             } catch (error) {
+                if (error instanceof ApiClientError && error.code === 'CONTEXT_TOO_LONG') {
+                    return;
+                }
                 toast({
                     title: 'Failed to send message',
                     description: error instanceof Error ? error.message : 'Please try again.',
@@ -243,6 +251,11 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         },
         [registerRef],
     );
+
+    const handleContextLimitProceed = useCallback(() => {
+        dismissContextLimitAlert();
+        requestPhaseTransition();
+    }, [dismissContextLimitAlert, requestPhaseTransition]);
 
     return (
         <div className={className}>
@@ -375,6 +388,29 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogAction onClick={dismissInvalidModelAlert}>OK</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={showContextLimitAlert} onOpenChange={(isOpen) => !isOpen && dismissContextLimitAlert()}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Context limit reached</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {chatType === 'phase'
+                                ? 'You have reached the context limit for this phase. Would you like to create a Completion Brief and move to the next phase?'
+                                : 'This conversation has reached the context limit. Start a new conversation before continuing.'}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        {chatType === 'phase' ? (
+                            <>
+                                <AlertDialogCancel onClick={dismissContextLimitAlert}>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleContextLimitProceed}>Continue</AlertDialogAction>
+                            </>
+                        ) : (
+                            <AlertDialogAction onClick={dismissContextLimitAlert}>OK</AlertDialogAction>
+                        )}
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
