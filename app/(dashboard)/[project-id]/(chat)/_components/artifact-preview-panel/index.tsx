@@ -3,8 +3,8 @@
 import { FileText, Loader2 } from 'lucide-react';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import {
-    getLatestArtifactVersionContent,
     getLatestArtifactVersion,
+    getLatestArtifactVersionContent,
     getLatestArtifactVersionTitle,
 } from '@/modules/artifacts/utils';
 import { ArtifactViewer } from './artifact-viewer';

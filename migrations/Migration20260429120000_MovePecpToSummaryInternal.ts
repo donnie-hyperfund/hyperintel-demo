@@ -26,7 +26,9 @@ export class Migration20260429120000_MovePecpToSummaryInternal extends Migration
 
         // Step 3: delete PECP artifact versions, then their owning artifacts.
         // The parent_version_id FK is ON DELETE SET NULL so deleting PECP rows is safe even before drop.
-        this.addSql(`DELETE FROM "artifact_versions" WHERE "artifact_id" IN (SELECT "id" FROM "artifacts" WHERE "is_pecp" = true);`);
+        this.addSql(
+            `DELETE FROM "artifact_versions" WHERE "artifact_id" IN (SELECT "id" FROM "artifacts" WHERE "is_pecp" = true);`,
+        );
         this.addSql(`DELETE FROM "artifacts" WHERE "is_pecp" = true;`);
 
         // Step 4: drop the parent_version FK + index + column from artifact_versions

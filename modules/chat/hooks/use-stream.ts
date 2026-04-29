@@ -325,11 +325,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         }
 
         for (const summary of stateRef.current.streamingSummaries.values()) {
-            ac.updateArtifact(
-                summary.artifactId,
-                { isStreaming: false, isSummaryStreaming: false },
-                summary.version,
-            );
+            ac.updateArtifact(summary.artifactId, { isStreaming: false, isSummaryStreaming: false }, summary.version);
         }
         stateRef.current.streamingSummaries.clear();
     };
@@ -570,9 +566,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 if (chunks.length === 1) {
                     summaryDripRef.current.enqueue({ versionId: payload.versionId, content: chunks[0] });
                 } else {
-                    summaryDripRef.current.enqueue(
-                        chunks.map((c) => ({ versionId: payload.versionId, content: c })),
-                    );
+                    summaryDripRef.current.enqueue(chunks.map((c) => ({ versionId: payload.versionId, content: c })));
                 }
                 break;
             }

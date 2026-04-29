@@ -8,8 +8,8 @@ import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { IS_DEV } from '@/lib/config';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import {
-    getLatestArtifactVersionContent,
     getLatestArtifactVersion,
+    getLatestArtifactVersionContent,
     getLatestArtifactVersionTitle,
 } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';

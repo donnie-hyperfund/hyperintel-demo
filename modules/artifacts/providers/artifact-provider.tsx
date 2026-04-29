@@ -38,7 +38,11 @@ function preservePreviewStreamingState(existing: Artifact | undefined, artifact:
         preserved.progress = existing.progress;
     }
 
-    if (!hasIncomingSummaryStreaming && artifact.summaryStreaming === undefined && existing.summaryStreaming !== undefined) {
+    if (
+        !hasIncomingSummaryStreaming &&
+        artifact.summaryStreaming === undefined &&
+        existing.summaryStreaming !== undefined
+    ) {
         preserved.summaryStreaming = existing.summaryStreaming;
     }
 
