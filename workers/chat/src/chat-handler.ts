@@ -2,6 +2,8 @@ import { runAgentStream } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
+import type { ContextMessage } from '@common/ai/inference/types';
+import { PublicError } from '@common/common/error.helpers';
 import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
@@ -9,7 +11,7 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
-import { getAvailablePresets, getDefaultPresetId, resolvePreset } from '@/lib/presets';
+import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
@@ -24,6 +26,11 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
+import {
+    CHAT_CONTEXT_LIMIT_TOKENS,
+    createContextLimitError,
+    estimateInferenceInputTokens,
+} from './utils/context-budget';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
@@ -165,6 +172,27 @@ const BOUNDARY_PROMPT_SLUG = 'safety/boundary-prompt';
 // HELPERS
 // ============================================================================
 
+function getChatToolsAndGroups() {
+    return {
+        allTools: [
+            ...pmaPromptTools,
+            ...createCompletionBriefTools(),
+            ...createDocumentTools(),
+            ...createKnowledgeTools(),
+            ...createWebScrapeTools(),
+            ...createPhaseTransitionTools(),
+        ],
+        toolGroups: [
+            PromptManagementToolGroup,
+            CompletionBriefToolGroup,
+            DocumentToolGroup,
+            KnowledgeSearchToolGroup,
+            WebScrapeToolGroup,
+            PhaseTransitionToolGroup,
+        ],
+    };
+}
+
 /**
  * Compile a Handlebars template string with the given parameters.
  */
@@ -222,6 +250,69 @@ async function buildSystemPrompt(
     return systemPrompt;
 }
 
+type ChatToolsAndGroups = ReturnType<typeof getChatToolsAndGroups>;
+
+type PreparedChatGenerationInput = ChatToolsAndGroups & {
+    contextMessages?: ContextMessage[];
+    initialSystemPrompt: string;
+    localPath: string | null;
+};
+
+async function prepareChatGenerationInput({
+    data,
+    ctx,
+    chat,
+    options,
+}: {
+    data: SendChatActionDto;
+    ctx: Ctx;
+    chat: ChatEntity;
+    options: ChatHandlerOptions;
+}): Promise<PreparedChatGenerationInput | PublicError> {
+    const { em } = ctx;
+    const historyMessages = await loadChatHistory(em!, data.chatId, ctx.env);
+    const estimationContextMessages: ContextMessage[] = data.message
+        ? [...historyMessages, { role: 'user', content: data.message }]
+        : historyMessages;
+
+    const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
+    const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
+    const localPath = localPromptsSetting
+        ? localPromptsSetting === true
+            ? DEFAULT_LOCAL_PROMPTS_PATH
+            : localPromptsSetting
+        : null;
+
+    const initialSystemPrompt = await buildSystemPrompt(
+        ctx,
+        new Set<string>(savedPrompts),
+        localPath,
+        `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}`,
+    );
+    const { allTools, toolGroups } = getChatToolsAndGroups();
+    const estimatedTokens = estimateInferenceInputTokens({
+        instructions: initialSystemPrompt,
+        context: estimationContextMessages,
+        tools: allTools,
+        toolGroups,
+        preprocessContext,
+    });
+
+    if (estimatedTokens > CHAT_CONTEXT_LIMIT_TOKENS) {
+        return createContextLimitError(estimatedTokens);
+    }
+
+    return {
+        allTools,
+        toolGroups,
+        initialSystemPrompt,
+        localPath,
+        // Image sends need a reload after image files are linked to the persisted user message
+        // so loadChatHistory can attach signed image URLs.
+        ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
+    };
+}
+
 // ============================================================================
 // CHAT HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
 // ============================================================================
@@ -235,7 +326,7 @@ export async function chatActionHandler(
     data: SendChatActionDto,
     ctx: Ctx,
     options: ChatHandlerOptions = {},
-): Promise<ChatActionResult | ReadableStream | Response> {
+): Promise<ChatActionResult | ReadableStream | Response | PublicError> {
     const { chatId, message, tempId, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
@@ -270,6 +361,11 @@ export async function chatActionHandler(
             });
         }
     }
+
+    const safetyPromise = message ? safetyCheck(ctx, message) : Promise.resolve(null);
+
+    const preparedInput = await prepareChatGenerationInput({ data, ctx, chat, options });
+    if (preparedInput instanceof PublicError) return preparedInput;
 
     let userMsg: ChatMessageEntity | null = null;
     if (!isNudge) {
@@ -336,6 +432,8 @@ export async function chatActionHandler(
             agentMessageId,
             requestStartedAt,
             ugStub,
+            preparedInput,
+            safetyPromise,
         });
         return { userMessageId, agentMessageId, generation: generationPromise };
     }
@@ -353,7 +451,17 @@ export async function chatActionHandler(
 
         // Run generation inline — Worker stays alive because the DO reads this stream
         try {
-            await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+            await runGeneration({
+                data,
+                ctx,
+                options,
+                chat,
+                agentMessageId,
+                requestStartedAt,
+                ugStub,
+                preparedInput,
+                safetyPromise,
+            });
         } finally {
             clearInterval(heartbeat);
         }
@@ -378,10 +486,12 @@ interface GenerationParams {
     agentMessageId: string;
     requestStartedAt: Date;
     ugStub: UserGatewayStub;
+    preparedInput: PreparedChatGenerationInput;
+    safetyPromise: Promise<Awaited<ReturnType<typeof safetyCheck>> | null>;
 }
 
 async function runGeneration(params: GenerationParams): Promise<void> {
-    const { data, ctx, options, chat, agentMessageId, ugStub } = params;
+    const { data, ctx, options, chat, agentMessageId, ugStub, preparedInput, safetyPromise } = params;
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
 
@@ -394,12 +504,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             );
         }
 
-        // Load history + safety check in parallel (doesn't slow happy path)
-        // For nudge (message=null), skip safety check — the system event was injected server-side
-        const [historyMessages, safetyVerdict] = await Promise.all([
-            loadChatHistory(em!, chatId, ctx.env),
-            message ? safetyCheck(ctx, message) : Promise.resolve(null),
-        ]);
+        const historyMessages = preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
+        // TODO: maybe early reject with error here if safetyVerdict.blocked
+        const safetyVerdict = await safetyPromise;
 
         const allMessages = injectSafetyContext(historyMessages, safetyVerdict);
 
@@ -438,21 +545,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             },
         };
 
-        // Resolve local prompts path
-        const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
-        const localPath = localPromptsSetting
-            ? localPromptsSetting === true
-                ? DEFAULT_LOCAL_PROMPTS_PATH
-                : localPromptsSetting
-            : null;
-
-        // Get initial system prompt
-        const initialSystemPrompt = await buildSystemPrompt(
-            ctx,
-            agentCtx.loadedPrompts,
-            localPath,
-            WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
-        );
+        const { allTools, initialSystemPrompt, localPath, toolGroups } = preparedInput;
 
         // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
         if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
@@ -468,24 +561,6 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             params: { ...resolved.params, searchEnabled: true },
         };
         const inferenceParams = options.overrideInference ?? defaultInference;
-
-        // Define tools and tool groups
-        const allTools = [
-            ...pmaPromptTools,
-            ...createCompletionBriefTools(),
-            ...createDocumentTools(),
-            ...createKnowledgeTools(),
-            ...createWebScrapeTools(),
-            ...createPhaseTransitionTools(),
-        ];
-        const toolGroups = [
-            PromptManagementToolGroup,
-            CompletionBriefToolGroup,
-            DocumentToolGroup,
-            KnowledgeSearchToolGroup,
-            WebScrapeToolGroup,
-            PhaseTransitionToolGroup,
-        ];
 
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
@@ -509,7 +584,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                             ctx,
                             agentCtx.loadedPrompts,
                             localPath,
-                            WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
+                            `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}`,
                         ),
                     statusUpdates: { enabled: true },
                     preprocessContext,

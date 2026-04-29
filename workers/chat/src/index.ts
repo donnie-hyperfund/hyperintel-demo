@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import { z } from 'zod';
+import { isGenerationProxyError, proxyErrorResponse } from '@/lib/api/proxy-error';
 import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
 import { ChatEntity, ChatMessageFileEntity, ProjectEntity } from '@/lib/orm/entities';
 import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
@@ -178,7 +179,8 @@ app.post('/chat', zValidator('json', SendChatActionSchema), async (c) => {
         const body = JSON.stringify(c.req.valid('json'));
         const authHeader = c.req.header('Authorization') ?? '';
 
-        return await proxyDO.run(streamUrl, body, authHeader);
+        const result = await proxyDO.run(streamUrl, body, authHeader);
+        return isGenerationProxyError(result) ? proxyErrorResponse(result) : result;
     });
 });
 
@@ -192,7 +194,8 @@ app.post('/intake', zValidator('json', SendIntakeChatActionSchema), async (c) =>
         const body = JSON.stringify(c.req.valid('json'));
         const authHeader = c.req.header('Authorization') ?? '';
 
-        return await proxyDO.run(streamUrl, body, authHeader);
+        const result = await proxyDO.run(streamUrl, body, authHeader);
+        return isGenerationProxyError(result) ? proxyErrorResponse(result) : result;
     });
 });
 
@@ -206,7 +209,8 @@ app.post('/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
         const body = JSON.stringify(c.req.valid('json'));
         const authHeader = c.req.header('Authorization') ?? '';
 
-        return await proxyDO.run(streamUrl, body, authHeader);
+        const result = await proxyDO.run(streamUrl, body, authHeader);
+        return isGenerationProxyError(result) ? proxyErrorResponse(result) : result;
     });
 });
 

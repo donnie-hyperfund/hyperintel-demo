@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { BadRequestError } from '@/common/common/error.helpers';
+import { BadRequestError, PublicError } from '@/common/common/error.helpers';
 import { assertAuth } from '@/lib/api/auth-guard';
 import { getOrCreateRequestId, withRequestIdHeader } from '@/lib/api/request-id';
 import { initNextjsWorkerContext } from '@/lib/local/context';
@@ -29,6 +29,9 @@ export async function POST(req: NextRequest) {
     ctx.requestId = requestId;
     // Pass no-op onEvent to get direct result (not SSE stream — no proxy DO locally)
     const result = await intakeActionHandler(parsed.data, ctx, { onEvent: () => {} });
+    if (result instanceof PublicError) {
+        return withRequestIdHeader(result.getNextResponse(), requestId);
+    }
 
     return withRequestIdHeader(NextResponse.json(result), requestId);
 }
