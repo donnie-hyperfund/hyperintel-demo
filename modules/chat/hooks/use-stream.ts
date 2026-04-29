@@ -507,11 +507,15 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 const doc = s.streamingDocs.get(payload.name);
                 if (!doc) break;
 
-                const summaryPending = !!payload.summaryPending;
-
+                // For internal docs, the auto-generated summary is produced *inside*
+                // finalize_document BEFORE the tool returns — so the SSE order on the
+                // wire is: summary_start, summary_delta..., summary_complete, then this
+                // document_complete event. By now summary state has already been
+                // settled by summary_complete (or never started for non-internal docs).
+                // Don't touch summaryStreaming / isSummaryStreaming here, and only
+                // clear isStreaming once everything has actually finished.
                 const completionUpdates: ArtifactUpdate = {
-                    isStreaming: summaryPending,
-                    isSummaryStreaming: summaryPending,
+                    isStreaming: false,
                     isUpdating: false,
                     progress: 100,
                     version: doc.version,
@@ -519,7 +523,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         version: doc.version,
                         status: 'proposed',
                     },
-                    ...(summaryPending ? { summaryStreaming: '' } : {}),
                 };
 
                 ac?.updateArtifact(doc.artifactId, completionUpdates, doc.version);
@@ -530,9 +533,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                 s.streamingDocs.delete(payload.name);
                 o.revalidateArtifact?.(doc.artifactId, doc.version);
-                if (summaryPending) {
-                    o.onArtifactOpen?.(doc.artifactId, doc.version);
-                }
                 flushActiveDocuments();
                 break;
             }
