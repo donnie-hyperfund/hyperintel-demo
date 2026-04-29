@@ -985,6 +985,17 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             flush();
                             break;
                         }
+                        case 'tool_call_complete': {
+                            const idx = s.blocks.findIndex((b) => b.type === 'tool_call' && b.toolCallId === event.id);
+                            if (idx !== -1 && s.blocks[idx].type === 'tool_call') {
+                                s.blocks[idx] = {
+                                    ...s.blocks[idx],
+                                    toolInput: event.input,
+                                } as StreamBlock;
+                                flush();
+                            }
+                            break;
+                        }
                         case 'tool_result': {
                             const idx = s.blocks.findIndex((b) => b.type === 'tool_call' && b.toolCallId === event.id);
                             if (idx !== -1 && s.blocks[idx].type === 'tool_call') {

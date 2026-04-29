@@ -61,7 +61,7 @@ function createMessage(em: ScopedEntityManager, overrides: Partial<{
 
 // -- fixtures ----------------------------------------------------------------
 
-function toolBlock(toolName: string): ToolCallStreamBlock {
+function toolBlock(toolName: string, metadata?: Record<string, unknown>): ToolCallStreamBlock {
 	return {
 		id: 'block_1',
 		type: 'tool_call',
@@ -70,6 +70,7 @@ function toolBlock(toolName: string): ToolCallStreamBlock {
 		content: 'raw content',
 		toolInput: { content: 'document body' },
 		toolOutput: 'Written successfully',
+		...(metadata && { metadata }),
 	};
 }
 
@@ -193,7 +194,7 @@ describe('ChatMessageEntity — metadata dev-only field stripping', () => {
 });
 
 describe('ChatMessageEntity — block redaction in toJSON', () => {
-	it('redacts write_document blocks in toJSON output', () => {
+	it('redacts write_document blocks when metadata is missing (legacy/fail-closed)', () => {
 		setDeploymentGroups(orm, ['dev']);
 		const em = orm.em.fork() as ScopedEntityManager;
 		const msg = createMessage(em, {
@@ -210,23 +211,59 @@ describe('ChatMessageEntity — block redaction in toJSON', () => {
 		expect((blocks[2] as ToolCallStreamBlock).content).toBe('raw content');
 	});
 
-	it('redacts patch_document blocks (regression guard)', () => {
+	it('redacts write_document blocks when metadata.internal is true', () => {
+		setDeploymentGroups(orm, ['dev']);
+		const em = orm.em.fork() as ScopedEntityManager;
+		const msg = createMessage(em, {
+			blocks: [toolBlock('write_document', { internal: true })],
+		});
+
+		const block = (msg.toJSON().blocks as StreamBlock[])[0] as ToolCallStreamBlock;
+		expect(block.content).toBe('REDACTED');
+		expect(block.toolInput).toBe('REDACTED');
+		expect(block.toolOutput).toBe('REDACTED');
+	});
+
+	it('preserves write_document blocks when metadata.internal is false (public doc)', () => {
+		setDeploymentGroups(orm, ['dev']);
+		const em = orm.em.fork() as ScopedEntityManager;
+		const msg = createMessage(em, {
+			blocks: [toolBlock('write_document', { internal: false })],
+		});
+
+		const block = (msg.toJSON().blocks as StreamBlock[])[0] as ToolCallStreamBlock;
+		expect(block.content).toBe('raw content');
+		expect(block.toolInput).toEqual({ content: 'document body' });
+		expect(block.toolOutput).toBe('Written successfully');
+	});
+
+	it('redacts patch_document blocks when metadata is missing (legacy/fail-closed)', () => {
 		setDeploymentGroups(orm, ['dev']);
 		const em = orm.em.fork() as ScopedEntityManager;
 		const msg = createMessage(em, {
 			blocks: [toolBlock('patch_document')],
 		});
 
-		const json = msg.toJSON();
-		const blocks = json.blocks as StreamBlock[];
-		const block = blocks[0] as ToolCallStreamBlock;
-
+		const block = (msg.toJSON().blocks as StreamBlock[])[0] as ToolCallStreamBlock;
 		expect(block.content).toBe('REDACTED');
 		expect(block.toolInput).toBe('REDACTED');
 		expect(block.toolOutput).toBe('REDACTED');
 	});
 
-	it('redacts read_document output but preserves input (name/range metadata)', () => {
+	it('preserves patch_document blocks when metadata.internal is false (public doc)', () => {
+		setDeploymentGroups(orm, ['dev']);
+		const em = orm.em.fork() as ScopedEntityManager;
+		const msg = createMessage(em, {
+			blocks: [toolBlock('patch_document', { internal: false })],
+		});
+
+		const block = (msg.toJSON().blocks as StreamBlock[])[0] as ToolCallStreamBlock;
+		expect(block.content).toBe('raw content');
+		expect(block.toolInput).toEqual({ content: 'document body' });
+		expect(block.toolOutput).toBe('Written successfully');
+	});
+
+	it('redacts read_document output for internal/legacy reads but preserves input', () => {
 		setDeploymentGroups(orm, ['dev']);
 		const em = orm.em.fork() as ScopedEntityManager;
 		const readBlock: ToolCallStreamBlock = {
@@ -240,14 +277,57 @@ describe('ChatMessageEntity — block redaction in toJSON', () => {
 		};
 		const msg = createMessage(em, { blocks: [readBlock] });
 
-		const json = msg.toJSON();
-		const blocks = json.blocks as StreamBlock[];
-		const block = blocks[0] as ToolCallStreamBlock;
-
+		const block = (msg.toJSON().blocks as StreamBlock[])[0] as ToolCallStreamBlock;
 		expect(block.content).toBe('REDACTED');
 		expect(block.toolOutput).toBe('REDACTED');
 		// Input preserved — just metadata, no leak.
 		expect(block.toolInput).toEqual({ name: 'internal-strategy.md', startLine: 1, endLine: 50 });
+	});
+
+	it('preserves read_document blocks when metadata.internal is false (public read)', () => {
+		setDeploymentGroups(orm, ['dev']);
+		const em = orm.em.fork() as ScopedEntityManager;
+		const readBlock: ToolCallStreamBlock = {
+			id: 'block_r',
+			type: 'tool_call',
+			toolName: 'read_document',
+			toolCallId: 'tc_r',
+			content: 'PUBLIC DOC TEXT',
+			toolInput: { name: 'public-faq.md', startLine: 1, endLine: 10 },
+			toolOutput: '1: Public content\n2: more public\n...',
+			metadata: { internal: false },
+		};
+		const msg = createMessage(em, { blocks: [readBlock] });
+
+		const block = (msg.toJSON().blocks as StreamBlock[])[0] as ToolCallStreamBlock;
+		expect(block.content).toBe('PUBLIC DOC TEXT');
+		expect(block.toolOutput).toBe('1: Public content\n2: more public\n...');
+		expect(block.toolInput).toEqual({ name: 'public-faq.md', startLine: 1, endLine: 10 });
+	});
+
+	it('wipes toolImageRefs/toolContentParts on internal read_document redaction', () => {
+		setDeploymentGroups(orm, ['dev']);
+		const em = orm.em.fork() as ScopedEntityManager;
+		const readBlock: ToolCallStreamBlock = {
+			id: 'block_r',
+			type: 'tool_call',
+			toolName: 'read_document',
+			toolCallId: 'tc_r',
+			content: 'INTERNAL',
+			toolInput: { name: 'internal.md' },
+			toolOutput: 'INTERNAL OUTPUT',
+			toolImageRefs: ['artifact-image://abc123'],
+			toolContentParts: [{ type: 'text', text: 'leaked' }],
+		};
+		const msg = createMessage(em, { blocks: [readBlock] });
+
+		const block = (msg.toJSON().blocks as StreamBlock[])[0] as ToolCallStreamBlock & {
+			toolImageRefs?: string[];
+			toolContentParts?: unknown[];
+		};
+		expect(block.content).toBe('REDACTED');
+		expect(block.toolImageRefs).toBeUndefined();
+		expect(block.toolContentParts).toBeUndefined();
 	});
 
 	it('does not redact non-document tool blocks (e.g. web_search)', () => {
@@ -260,6 +340,93 @@ describe('ChatMessageEntity — block redaction in toJSON', () => {
 
 		expect(block.content).toBe('raw content');
 		expect(block.toolOutput).toBe('Written successfully');
+	});
+
+	describe('REDACT_DOC_WRITE_TOOL_OUTPUT kill-switch', () => {
+		// The flag defaults to true (defense-in-depth); these tests pass false explicitly via the
+		// redactBlocks second arg to verify the flag-flipped behavior without module reload tricks.
+
+		it('with flag=false, write_document content + toolOutput preserved (toolInput still redacted)', () => {
+			setDeploymentGroups(orm, ['dev']);
+			const em = orm.em.fork() as ScopedEntityManager;
+			const msg = createMessage(em, {
+				blocks: [toolBlock('write_document', { internal: true })],
+			});
+
+			const redacted = (msg as any).redactBlocks(msg.blocks, false) as StreamBlock[];
+			const block = redacted[0] as ToolCallStreamBlock;
+
+			expect(block.toolInput).toBe('REDACTED'); // input still redacted (carries content)
+			expect(block.content).toBe('raw content'); // preserved (just stats today)
+			expect(block.toolOutput).toBe('Written successfully'); // preserved (just stats today)
+		});
+
+		it('with flag=false, patch_document content + toolOutput preserved (toolInput still redacted)', () => {
+			setDeploymentGroups(orm, ['dev']);
+			const em = orm.em.fork() as ScopedEntityManager;
+			const msg = createMessage(em, {
+				blocks: [toolBlock('patch_document', { internal: true })],
+			});
+
+			const redacted = (msg as any).redactBlocks(msg.blocks, false) as StreamBlock[];
+			const block = redacted[0] as ToolCallStreamBlock;
+
+			expect(block.toolInput).toBe('REDACTED');
+			expect(block.content).toBe('raw content');
+			expect(block.toolOutput).toBe('Written successfully');
+		});
+
+		it('with flag=false, public-doc write_document still fully preserved', () => {
+			setDeploymentGroups(orm, ['dev']);
+			const em = orm.em.fork() as ScopedEntityManager;
+			const msg = createMessage(em, {
+				blocks: [toolBlock('write_document', { internal: false })],
+			});
+
+			const redacted = (msg as any).redactBlocks(msg.blocks, false) as StreamBlock[];
+			const block = redacted[0] as ToolCallStreamBlock;
+
+			// Public-doc preservation gate fires before the flag check; nothing redacted.
+			expect(block.content).toBe('raw content');
+			expect(block.toolInput).toEqual({ content: 'document body' });
+			expect(block.toolOutput).toBe('Written successfully');
+		});
+
+		it('with flag=false, read_document still redacts internal output (flag is write/patch-only)', () => {
+			setDeploymentGroups(orm, ['dev']);
+			const em = orm.em.fork() as ScopedEntityManager;
+			const readBlock: ToolCallStreamBlock = {
+				id: 'block_r',
+				type: 'tool_call',
+				toolName: 'read_document',
+				toolCallId: 'tc_r',
+				content: 'INTERNAL',
+				toolInput: { name: 'internal.md' },
+				toolOutput: 'INTERNAL OUTPUT',
+				metadata: { internal: true },
+			};
+			const msg = createMessage(em, { blocks: [readBlock] });
+
+			const redacted = (msg as any).redactBlocks(msg.blocks, false) as StreamBlock[];
+			const block = redacted[0] as ToolCallStreamBlock;
+
+			// Flag does NOT govern read_document — internal reads still redact output.
+			expect(block.content).toBe('REDACTED');
+			expect(block.toolOutput).toBe('REDACTED');
+		});
+
+		it('default invocation (no second arg) honors module const (currently true)', () => {
+			setDeploymentGroups(orm, ['dev']);
+			const em = orm.em.fork() as ScopedEntityManager;
+			const msg = createMessage(em, {
+				blocks: [toolBlock('write_document', { internal: true })],
+			});
+
+			// toJSON() path uses the default — currently REDACT_DOC_WRITE_TOOL_OUTPUT=true.
+			const block = (msg.toJSON().blocks as StreamBlock[])[0] as ToolCallStreamBlock;
+			expect(block.content).toBe('REDACTED');
+			expect(block.toolOutput).toBe('REDACTED');
+		});
 	});
 
 	it('handles messages without blocks', () => {

@@ -83,7 +83,7 @@ export class ChatStreamDO extends DurableObject<Env> {
     private displayStatus: string | null = null;
 
     // --- In-memory state (lost on hibernation) ---
-    private abortResolve: ((value: 'abort' | 'done') => void) | null = null;
+    private abortResolve: ((value: 'abort' | 'timeout' | 'done') => void) | null = null;
     private approvalResolvers = new Map<string, (approved: boolean) => void>();
     private decisionResolvers = new Map<string, (result: DecisionResult | null) => void>();
     private initialized = false;
@@ -233,6 +233,14 @@ export class ChatStreamDO extends DurableObject<Env> {
                     toolInput: {},
                     toolCallId: event.id,
                 });
+                break;
+            }
+
+            case 'tool_call_complete': {
+                const toolBlock = this.blocks.find((b) => b.type === 'tool_call' && b.toolCallId === event.id);
+                if (toolBlock && toolBlock.type === 'tool_call') {
+                    toolBlock.toolInput = event.input;
+                }
                 break;
             }
 

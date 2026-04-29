@@ -84,10 +84,22 @@ export function createEnqueue(controller: ReadableStreamDefaultController<Uint8A
  *
  * Does NOT handle: done_ext (endpoint-specific persistence logic)
  */
+export interface CommonStreamEventOpts {
+    /**
+     * Returns true if the currently-active document draft is internal.
+     * Used to redact write/patch/edit_document `tool_call_complete` inputs at source
+     * so internal content never crosses the wire to FE/DO.
+     */
+    isCurrentDraftInternal?: () => boolean;
+}
+
+const DOC_TOOLS_WITH_CONTENT_INPUT = ['write_document', 'patch_document', 'edit_document'];
+
 export function handleCommonStreamEvent(
     enqueue: Enqueue,
     event: AgentStreamEvent,
     state: { wasTool: boolean },
+    opts?: CommonStreamEventOpts,
 ): boolean {
     switch (event.type) {
         case 'delta':
@@ -102,6 +114,15 @@ export function handleCommonStreamEvent(
             state.wasTool = true;
             enqueue({ type: 'tool_start', tool: event.tool, id: event.id, offsetMs: event.offsetMs });
             return true;
+
+        case 'tool_call_complete': {
+            // Redact input at source for internal-doc content tools — same defense-in-depth as tool_result.
+            // Other tools' inputs (begin/finalize/read_document, web_search, etc.) carry no content; pass through.
+            const sensitive = DOC_TOOLS_WITH_CONTENT_INPUT.includes(event.tool);
+            const input = sensitive && opts?.isCurrentDraftInternal?.() ? 'REDACTED' : event.input;
+            enqueue({ type: 'tool_call_complete', tool: event.tool, id: event.id, input });
+            return true;
+        }
 
         case 'tool_result': {
             const result =

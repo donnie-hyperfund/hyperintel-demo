@@ -152,7 +152,7 @@ When the user approves, rejects, or restores a document via the UI (not chat), y
 When a **regular** user message (not a \`<system>\` event) contains approval or rejection signals, you MUST process them BEFORE acting on any other part of the message.
 - **Approval signals:** "approved", "looks good", "accept", "approve it", "LGTM", "ship it", "all good", "proceed" (when a proposed document is pending), or similar positive confirmation.
 - **Rejection signals:** "reject", "redo", "not good", "change X", "needs work", or explicit revision requests for a pending proposed document.
-- **Compound messages:** If the user says something like "approved, now do X" or "looks good, proceed with Y" — FIRST call \`approve_document\` for the pending document, THEN do exactly that one explicit follow-up (X / Y) and stop. Do NOT chain into "what's next", PECP exception aside.
+- **Compound messages:** If the user says something like "approved, now do X" or "looks good, proceed with Y" — FIRST call \`approve_document\` for the pending document, THEN do exactly that one explicit follow-up (X / Y) and stop. Do NOT chain into "what's next".
 - **Ambiguity:** If it's unclear whether the user is approving or just continuing, and there IS a pending proposed document, ask for clarification before proceeding.
 
 ## Conflict Resolution — ALWAYS Ask the User
@@ -250,7 +250,9 @@ const FinalizeDocumentParams = z.object({
         .enum(['save', 'abort'])
         .optional()
         .default('save')
-        .describe('Finalize behavior: "save" persists the draft as a proposed version; "abort" discards the active draft without saving.'),
+        .describe(
+            'Finalize behavior: "save" persists the draft as a proposed version; "abort" discards the active draft without saving.',
+        ),
 });
 
 const ReadDocumentParams = z.object({
@@ -353,7 +355,7 @@ You MUST call finalize_document when done or content will be lost.`,
                 }
                 if (mode === 'replace' && !existing) {
                     return {
-                        error: `Document "${normalizedName}" does not exist. Use mode="create" for new documents.`,
+                        error: `Document "${normalizedName}" does not exist. Call request_user_decision with options create ("Create a new document with this name") and pick_existing ("Show existing documents and let me pick"). Do NOT decide on your own.`,
                     };
                 }
                 // Handle CREATE mode
@@ -371,17 +373,20 @@ You MUST call finalize_document when done or content will be lost.`,
                             document_type,
                         );
                         return {
-                            status: 'editing',
-                            mode: 'create',
-                            name: normalizedName,
-                            title: draft.title,
-                            is_internal: draft.is_internal,
-                            document_type: draft.document_type,
-                            lines: 0,
-                            ...(isDeleted && { previouslyDeleted: true }),
-                            message: isDeleted
-                                ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
-                                : 'Draft started. Use write_document to add content, then finalize_document.',
+                            result: {
+                                status: 'editing',
+                                mode: 'create',
+                                name: normalizedName,
+                                title: draft.title,
+                                is_internal: draft.is_internal,
+                                document_type: draft.document_type,
+                                lines: 0,
+                                ...(isDeleted && { previouslyDeleted: true }),
+                                message: isDeleted
+                                    ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
+                                    : 'Draft started. Use write_document to add content, then finalize_document.',
+                            },
+                            metadata: { internal: draft.is_internal },
                         };
                     } catch (err: any) {
                         return { error: err.message };
@@ -440,21 +445,26 @@ You MUST call finalize_document when done or content will be lost.`,
 
                     const nextVersion = existing!.latestVersion + 1;
                     return {
-                        status: 'editing',
-                        mode,
-                        name: normalizedName,
-                        title: draft.title,
-                        is_internal: draft.is_internal,
-                        document_type: draft.document_type,
-                        ...(existingDocumentType &&
-                            existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
-                        loadedFrom,
-                        loadedVersion,
-                        nextVersion,
-                        lines: countLines(draft.content),
-                        message: mode === 'replace' ? replaceMessage : messages[loadedFrom],
-                        ...(isDeleted && { previouslyDeleted: true }),
-                        ...(rejectionReason && { rejectionReason }),
+                        result: {
+                            status: 'editing',
+                            mode,
+                            name: normalizedName,
+                            title: draft.title,
+                            is_internal: draft.is_internal,
+                            document_type: draft.document_type,
+                            ...(existingDocumentType &&
+                                existingDocumentType !== document_type && {
+                                    previousDocumentType: existingDocumentType,
+                                }),
+                            loadedFrom,
+                            loadedVersion,
+                            nextVersion,
+                            lines: countLines(draft.content),
+                            message: mode === 'replace' ? replaceMessage : messages[loadedFrom],
+                            ...(isDeleted && { previouslyDeleted: true }),
+                            ...(rejectionReason && { rejectionReason }),
+                        },
+                        metadata: { internal: draft.is_internal },
                     };
                 } catch (err: any) {
                     return { error: err.message };
@@ -483,11 +493,14 @@ Content streams to the UI in real-time.`,
                     const totalLines = countLines(draft.content);
 
                     return {
-                        status: 'written',
-                        charsAdded: content.length,
-                        charsWritten: content.length,
-                        linesAdded: addedLines,
-                        totalLines,
+                        result: {
+                            status: 'written',
+                            charsAdded: content.length,
+                            charsWritten: content.length,
+                            linesAdded: addedLines,
+                            totalLines,
+                        },
+                        metadata: { internal: draft.is_internal },
                     };
                 } catch (err: any) {
                     return { error: err.message };
@@ -542,7 +555,7 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                     }
 
                     // Update draft with new content
-                    draftManager.setContent(result.newContent!);
+                    const updatedDraft = draftManager.setContent(result.newContent!);
 
                     // Stash canonical edits for document-events (side channel — keeps full-range content out of the model-facing tool result).
                     if (toolCallId && result.appliedEdits) {
@@ -550,9 +563,12 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                     }
 
                     return {
-                        status: 'edited',
-                        editsApplied: edits.length,
-                        linesNow: result.linesNow,
+                        result: {
+                            status: 'edited',
+                            editsApplied: edits.length,
+                            linesNow: result.linesNow,
+                        },
+                        metadata: { internal: updatedDraft.is_internal },
                     };
                 } catch (err: any) {
                     return { error: err.message };
@@ -591,6 +607,7 @@ Use action="abort" to discard the active draft without saving.`,
                                 lines: discardedLines,
                                 status: 'aborted',
                             },
+                            metadata: { internal: draft.is_internal },
                             message: `Aborted draft "${draft.name}" without saving.`,
                         };
                     }
@@ -658,6 +675,7 @@ Use action="abort" to discard the active draft without saving.`,
 
                     const response: Record<string, unknown> = {
                         result: toolResult,
+                        metadata: { internal: draft.is_internal },
                         appendedOutput: `::document[${draft.name}]{version=${result.version} lines=${result.lines} documentType="${draft.document_type}"}`,
                         message: `Saved as proposed v${result.version}. Awaiting user approval to become live. STOP HERE — do not create any more documents until the user asks.`,
                     };
