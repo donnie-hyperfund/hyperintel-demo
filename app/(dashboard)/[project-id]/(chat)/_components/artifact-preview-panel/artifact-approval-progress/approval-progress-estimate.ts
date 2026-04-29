@@ -1,5 +1,5 @@
 import { DOCUMENT_CHAR_ESTIMATES, type DocumentType, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
-import type { ProcessingStage } from '@/modules/artifacts/processing/types';
+import type { ProcessingEntry, ProcessingStage } from '@/modules/artifacts/processing/types';
 
 const MAX_UNCONFIRMED_PROGRESS = 97;
 const DEFAULT_CONTENT_LENGTH = DOCUMENT_CHAR_ESTIMATES.Other;
@@ -72,6 +72,10 @@ type StageFallbackInput = {
     elapsedMs: number;
 };
 
+type StageFallbackStateInput = StageFallbackInput & {
+    startedAt: number;
+};
+
 type StageDurationInput = ApprovalWorkInput & {
     stage: ProcessingStage;
 };
@@ -86,6 +90,19 @@ type ExpectationInput = ApprovalWorkInput & {
 type ApprovalTimingLabels = {
     expectationLabel: string;
     paceLabel?: string;
+};
+
+export type ApprovalProgressState = ApprovalTimingLabels & {
+    stage: ProcessingStage;
+    stageElapsedMs: number;
+    progress: number;
+    progressLabel: string;
+};
+
+type ApprovalProgressStateInput = ApprovalWorkInput & {
+    entry?: ProcessingEntry;
+    now: number;
+    fallbackStartedAt: number;
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -231,6 +248,26 @@ export function getFallbackApprovalStage({ elapsedMs }: StageFallbackInput): Pro
     return 'finalizing';
 }
 
+function getFallbackApprovalStageState({ elapsedMs, startedAt }: StageFallbackStateInput): {
+    stage: ProcessingStage;
+    stageStartedAt: number;
+} {
+    if (elapsedMs < STAGE_DURATIONS_MS.queued) return { stage: 'queued', stageStartedAt: startedAt };
+
+    const classifyingStartedAt = startedAt + STAGE_DURATIONS_MS.queued;
+    if (elapsedMs < STAGE_DURATIONS_MS.queued + STAGE_DURATIONS_MS.classifying) {
+        return { stage: 'classifying', stageStartedAt: classifyingStartedAt };
+    }
+
+    const savingStartedAt = startedAt + STAGE_DURATIONS_MS.queued + STAGE_DURATIONS_MS.classifying;
+    if (elapsedMs < 9000) return { stage: 'saving', stageStartedAt: savingStartedAt };
+
+    const indexingStartedAt = startedAt + 9000;
+    if (elapsedMs < 13_000) return { stage: 'indexing', stageStartedAt: indexingStartedAt };
+
+    return { stage: 'finalizing', stageStartedAt: startedAt + 13_000 };
+}
+
 function getInitialExpectationLabel(expectedDurationMs: number): string {
     if (expectedDurationMs < 30_000) return 'Usually quick';
     if (expectedDurationMs < 75_000) return 'Can take about a minute';
@@ -263,4 +300,58 @@ export function getApprovalTimingLabels({
     if (elapsedRatio < 0.75) return { expectationLabel, paceLabel: 'On track' };
     if (elapsedRatio < 1.25) return { expectationLabel, paceLabel: 'Still within estimate' };
     return { expectationLabel, paceLabel: 'Taking longer than expected' };
+}
+
+export function getApprovalProgressState({
+    entry,
+    now,
+    fallbackStartedAt,
+    contentLength,
+    documentType,
+    isInternal,
+}: ApprovalProgressStateInput): ApprovalProgressState {
+    const startedAt = entry?.startedAt ?? fallbackStartedAt;
+    const elapsedMs = Math.max(0, now - startedAt);
+    const isConfirmed = entry?.status === 'completed';
+    const fallbackStageState = getFallbackApprovalStageState({ elapsedMs, startedAt });
+    const stage = isConfirmed ? 'finalizing' : (entry?.stage ?? fallbackStageState.stage);
+    const stageStartedAt = isConfirmed
+        ? (entry?.completedAt ?? entry?.stageStartedAt ?? now)
+        : entry?.stage === stage
+          ? (entry.stageStartedAt ?? startedAt)
+          : fallbackStageState.stageStartedAt;
+    const stageElapsedMs = Math.max(0, now - stageStartedAt);
+    const operationKey = entry?.versionId ?? `${documentType ?? 'document'}:${contentLength}:${startedAt}`;
+    const estimatedProgress = isConfirmed
+        ? 100
+        : getApprovalProgress({
+              stage,
+              stageElapsedMs,
+              backendProgress: entry?.progress,
+              contentLength,
+              documentType,
+              isInternal,
+              operationKey,
+          });
+    const progress = isConfirmed
+        ? 100
+        : clamp(Math.max(entry?.progress ?? 0, estimatedProgress), 4, MAX_UNCONFIRMED_PROGRESS);
+    const timingLabels = getApprovalTimingLabels({
+        elapsedMs,
+        isConfirmed,
+        stage,
+        hasObservedAiContentStage: entry?.hasObservedAiContentStage,
+        contentLength,
+        documentType,
+        isInternal,
+    });
+
+    return {
+        stage,
+        stageElapsedMs,
+        progress,
+        expectationLabel: timingLabels.expectationLabel,
+        paceLabel: timingLabels.paceLabel,
+        progressLabel: isConfirmed ? `${progress}% confirmed` : `${progress}% estimated`,
+    };
 }

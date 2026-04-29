@@ -15,10 +15,11 @@ type BaseProcessingEntry = {
     phaseIndex?: number;
     chatId?: string;
     startedAt: number;
+    completedAt?: number;
     progress?: number;
-    displayProgress?: number;
     stage?: ProcessingStage;
     stageStartedAt?: number;
+    hasObservedAiContentStage?: boolean;
     /** Survives refresh via sessionStorage — only the initiating tab sends the nudge */
     initiatedLocally: boolean;
 };

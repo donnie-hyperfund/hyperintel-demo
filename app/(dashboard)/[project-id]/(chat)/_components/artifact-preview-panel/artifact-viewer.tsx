@@ -60,9 +60,9 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     } = useChatContext();
     const { isLinking: isLinkingToProject } = useOptionalProjectOrigin();
     const {
-        isProcessing: isProcessingGlobally,
         hasEntry: hasProcessingEntry,
         getEntry: getProcessingEntry,
+        reconcileVersionStatus,
         suppressVersion,
     } = useArtifactProcessing();
 
@@ -93,14 +93,17 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const canDelete =
         !!artifactKey && !!activeVersion?.isUploaded && !isStreaming && activeVersion?.status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
-    const isProcessingGlobalApproval = !!(activeVersion?.id && isProcessingGlobally(activeVersion.id));
     const hasEntryForVersion = !!(activeVersion?.id && hasProcessingEntry(activeVersion.id));
     const processingEntry = activeVersion?.id ? getProcessingEntry(activeVersion.id) : undefined;
+    const showProcessingOverlay = processingEntry?.status === 'processing';
+    const showCompletionOverlay = processingEntry?.action === 'approve' && processingEntry.status === 'completed';
     const showApprovalProgress =
         !isProcessingDelete &&
         !isLinkingToProject &&
-        (processingEntry?.action === 'approve' || (!processingEntry && isProcessingApproval));
-    const isBusy = isUpdating || isProcessingApproval || isProcessingDelete || isProcessingGlobalApproval;
+        ((processingEntry?.action === 'approve' && (showProcessingOverlay || showCompletionOverlay)) ||
+            (!processingEntry && isProcessingApproval));
+    const showPreviewOverlay =
+        isUpdating || isProcessingApproval || isProcessingDelete || showProcessingOverlay || showCompletionOverlay;
 
     // Suppress this artifact's entry from the status bar while the preview panel is open
     useEffect(() => {
@@ -108,6 +111,11 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         suppressVersion(activeVersion.id);
         return () => suppressVersion(null);
     }, [hasEntryForVersion, activeVersion?.id, suppressVersion]);
+
+    useEffect(() => {
+        if (!activeVersion?.id) return;
+        reconcileVersionStatus({ versionId: activeVersion.id, status: activeVersion.status ?? null });
+    }, [activeVersion?.id, activeVersion?.status, reconcileVersionStatus]);
 
     const diffData = useMemo(() => {
         if (!canShowDiff || !previousContent) return null;
@@ -212,8 +220,8 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                     {renderContent()}
                 </div>
 
-                {/* Busy overlay */}
-                {isBusy && (
+                {/* Preview overlay */}
+                {showPreviewOverlay && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-xs">
                         {showApprovalProgress ? (
                             <ArtifactApprovalProgress
