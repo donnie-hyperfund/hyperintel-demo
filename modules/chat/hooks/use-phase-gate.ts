@@ -11,7 +11,7 @@ export function usePhaseGate() {
 
     const { data: chatPages } = useFetchChatsInfinite(projectId);
 
-    const totalPhases = chatPages?.[0]?.data.length ?? 0;
+    const totalPhases = chatPages?.[0]?.pagination.total ?? 0;
 
     const isLatestPhase = typeof phaseIndex === 'number' && totalPhases > 0 && phaseIndex === totalPhases - 1;
 
