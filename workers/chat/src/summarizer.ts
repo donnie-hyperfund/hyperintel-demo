@@ -1,6 +1,7 @@
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import { estimateContextTokens, estimateTextTokens, estimateToolTokens } from '@common/ai/utils';
 import { PublicError } from '@common/common/error.helpers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -32,6 +33,19 @@ export interface SummarizerOptions {
 }
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
+const SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD = 180_000;
+
+function getSummarizerInferenceParams(contextTokens: number): ParamsWithType {
+    return {
+        paramsType: AIParamsType.Anthropic,
+        params: {
+            model:
+                contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD
+                    ? ANTHROPIC_MODELS.SONNET_4_6
+                    : ANTHROPIC_MODELS.SONNET,
+        },
+    };
+}
 
 /**
  * Load summarizer prompt (pma/summarizer only).
@@ -252,12 +266,13 @@ The summary text MUST NOT mention PECP, "PE Communication Protocol", "-pecp.md" 
                 'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. Do NOT mention PECPs, "PE Communication Protocol", or any `-pecp.md` files — they are internal plumbing and must not appear in the summary. After the summary, call the generate_blurb tool with the Next-Phase Initialization Blurb (Section 13 of the Completion Brief) verbatim as its input.',
         });
 
-        const inferenceParams = options.overrideInference ?? {
-            paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.SONNET },
-        };
-
         const blurbTools = createBlurbTools();
+        const toolTokens = estimateToolTokens([...blurbTools], [BlurbToolGroup]);
+        const estimatedContextTokens =
+            estimateTextTokens(instructions) +
+            estimateContextTokens(preprocessContext(historyMessages)) +
+            toolTokens.total;
+        const inferenceParams = options.overrideInference ?? getSummarizerInferenceParams(estimatedContextTokens);
 
         const { stream, historyPromise } = runAgentStream(
             {},
