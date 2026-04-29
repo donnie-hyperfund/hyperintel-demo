@@ -40,6 +40,8 @@ const STAGE_ORDER: Record<ProcessingStage, number> = {
 type ArtifactProcessingContextValue = {
     startProcessing: (entry: ProcessingEntryInput) => void;
     failProcessing: (versionId: string) => void;
+    completeProcessing: (versionId: string) => void;
+    updateProgressSnapshot: (snapshot: ProgressSnapshotInput) => void;
     isProcessing: (versionId: string) => boolean;
     hasEntry: (versionId: string) => boolean;
     getEntry: (versionId: string) => ProcessingEntry | undefined;
@@ -54,6 +56,11 @@ type ArtifactProcessingContextValue = {
 };
 
 const ArtifactProcessingContext = createContext<ArtifactProcessingContextValue | null>(null);
+
+type ProgressSnapshotInput = {
+    versionId: string;
+    progress: number;
+};
 
 function loadFromStorage(): Map<string, ProcessingEntry> {
     const entries = sessionGetJson<ProcessingEntry[]>(ARTIFACT_PROCESSING_KEY);
@@ -96,6 +103,7 @@ function getProgressPatch(event: WsEventPayload): Partial<ProcessingEntry> {
     }
     if (event.stage) {
         patch.stage = event.stage;
+        patch.stageStartedAt = Date.now();
     }
     return patch;
 }
@@ -113,13 +121,18 @@ function mergeProgressPatch(
     existing: ProcessingEntry,
     progressPatch: Partial<ProcessingEntry>,
 ): Partial<ProcessingEntry> {
+    const stage = getLatestStage(existing.stage, progressPatch.stage);
+    const stageStartedAt =
+        stage && stage !== existing.stage ? (progressPatch.stageStartedAt ?? Date.now()) : existing.stageStartedAt;
+
     return {
         ...progressPatch,
         progress:
             progressPatch.progress != null
                 ? Math.max(existing.progress ?? 0, progressPatch.progress)
                 : existing.progress,
-        stage: getLatestStage(existing.stage, progressPatch.stage),
+        stage,
+        stageStartedAt,
     };
 }
 
@@ -240,11 +253,13 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
 
     const startProcessing = useCallback((entry: ProcessingEntryInput) => {
         setEntries((prev) => {
+            const startedAt = Date.now();
             const next = new Map(prev);
             next.set(entry.versionId, {
                 ...entry,
                 status: 'processing',
-                startedAt: Date.now(),
+                startedAt,
+                ...(entry.stage ? { stageStartedAt: startedAt } : {}),
                 initiatedLocally: true,
             } as ProcessingEntry);
             saveToStorage(next);
@@ -258,6 +273,33 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
         },
         [updateEntryStatus],
     );
+
+    const completeProcessing = useCallback(
+        (versionId: string) => {
+            updateEntryStatus({
+                versionId,
+                status: 'completed',
+                patch: { progress: 100, stage: 'finalizing', stageStartedAt: Date.now() },
+            });
+        },
+        [updateEntryStatus],
+    );
+
+    const updateProgressSnapshot = useCallback(({ versionId, progress }: ProgressSnapshotInput) => {
+        const snapshotProgress = clampProgress(progress);
+        if (snapshotProgress == null) return;
+
+        setEntries((prev) => {
+            const existing = prev.get(versionId);
+            if (!existing || existing.status !== 'processing') return prev;
+            if ((existing.displayProgress ?? existing.progress ?? 0) >= snapshotProgress) return prev;
+
+            const next = new Map(prev);
+            next.set(versionId, { ...existing, displayProgress: snapshotProgress } as ProcessingEntry);
+            saveToStorage(next);
+            return next;
+        });
+    }, []);
 
     useUserEvents(
         useCallback(
@@ -334,7 +376,9 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
                     ...(event.restoredVersionNumber != null
                         ? { restoredVersionNumber: event.restoredVersionNumber }
                         : {}),
-                    ...(status === 'completed' ? { progress: 100, stage: 'finalizing' as const } : {}),
+                    ...(status === 'completed'
+                        ? { progress: 100, stage: 'finalizing' as const, stageStartedAt: Date.now() }
+                        : {}),
                 };
                 updateEntryStatus({ versionId, status, patch, fallbackEntry: buildEntryFromEvent(event) });
             },
@@ -443,6 +487,8 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
         () => ({
             startProcessing,
             failProcessing,
+            completeProcessing,
+            updateProgressSnapshot,
             isProcessing,
             hasEntry,
             getEntry,
@@ -457,6 +503,8 @@ export function ArtifactProcessingProvider({ children }: { children: ReactNode }
         [
             startProcessing,
             failProcessing,
+            completeProcessing,
+            updateProgressSnapshot,
             isProcessing,
             hasEntry,
             getEntry,

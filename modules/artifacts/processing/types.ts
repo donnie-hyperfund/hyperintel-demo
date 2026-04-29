@@ -16,7 +16,9 @@ type BaseProcessingEntry = {
     chatId?: string;
     startedAt: number;
     progress?: number;
+    displayProgress?: number;
     stage?: ProcessingStage;
+    stageStartedAt?: number;
     /** Survives refresh via sessionStorage — only the initiating tab sends the nudge */
     initiatedLocally: boolean;
 };

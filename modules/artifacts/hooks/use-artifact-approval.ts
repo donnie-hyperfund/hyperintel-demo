@@ -35,7 +35,7 @@ export function useArtifactApproval({
     const { clearPendingChanges, chatType, chatId, hasOtherPendingArtifacts, setProcessingArtifactAction, state } =
         chatContext;
     const { isLinking: isLinkingToProject, isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
-    const { startProcessing, failProcessing } = useArtifactProcessing();
+    const { startProcessing, failProcessing, completeProcessing } = useArtifactProcessing();
     const isIntake = chatType !== 'phase';
     const projectId = chatContext.chatType === 'phase' ? chatContext.projectId : undefined;
     const { data: project } = useFetchProject(projectId);
@@ -69,7 +69,6 @@ export function useArtifactApproval({
             phaseIndex: state.phaseIndex ?? undefined,
             chatId: chatId ?? undefined,
             progress: action === 'approve' ? 4 : undefined,
-            stage: action === 'approve' ? 'queued' : undefined,
         });
     };
 
@@ -81,7 +80,8 @@ export function useArtifactApproval({
             const updated = await approveRequest();
 
             if (updated) {
-                updateArtifact(artifactId, updated, version, { merge: false });
+                updateArtifact(artifactId, { ...updated, isUpdating: false }, version, { merge: false });
+                completeProcessing(artifactVersionId);
                 if (!hasOtherPendingArtifacts(artifactKey)) {
                     clearPendingChanges();
                 }
@@ -108,7 +108,8 @@ export function useArtifactApproval({
             const updated = await rejectRequest('rejected');
 
             if (updated) {
-                updateArtifact(artifactId, updated, version, { merge: false });
+                updateArtifact(artifactId, { ...updated, isUpdating: false }, version, { merge: false });
+                completeProcessing(artifactVersionId);
                 if (!hasOtherPendingArtifacts(artifactKey)) {
                     clearPendingChanges();
                 }

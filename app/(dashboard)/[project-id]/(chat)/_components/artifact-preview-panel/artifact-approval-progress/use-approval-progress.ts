@@ -42,7 +42,7 @@ export function useApprovalProgress({
         previousOperationKeyRef.current = operationKey;
         previousStageRef.current = null;
         stageStartedAtRef.current = now;
-        maxProgressRef.current = 0;
+        maxProgressRef.current = entry?.displayProgress ?? entry?.progress ?? 0;
         hasObservedAiContentStageRef.current = false;
     }
 
@@ -53,14 +53,16 @@ export function useApprovalProgress({
 
     if (previousStageRef.current !== stage) {
         previousStageRef.current = stage;
-        stageStartedAtRef.current = now;
+        stageStartedAtRef.current = entry?.stage === stage ? (entry.stageStartedAt ?? now) : now;
     }
 
     if (entry?.stage === 'generating-ai-content') {
         hasObservedAiContentStageRef.current = true;
     }
 
-    const stageElapsedMs = Math.max(0, now - stageStartedAtRef.current);
+    const stageStartedAt =
+        entry?.stage === stage ? (entry.stageStartedAt ?? stageStartedAtRef.current) : stageStartedAtRef.current;
+    const stageElapsedMs = Math.max(0, now - stageStartedAt);
     const estimatedProgress = isConfirmed
         ? 100
         : getApprovalProgress({

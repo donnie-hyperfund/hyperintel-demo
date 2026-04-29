@@ -1,9 +1,11 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import { useEffect } from 'react';
 import { Progress } from '@/components/ui/progress';
 import { ShimmerText } from '@/components/ui/shimmer-text';
 import type { DocumentType } from '@/lib/schema/artifact';
+import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import type { ProcessingEntry } from '@/modules/artifacts/processing/types';
 import { AnimatedApprovalText } from './animated-approval-text';
 import { APPROVAL_STAGE_COPY } from './approval-progress-copy';
@@ -24,6 +26,7 @@ export function ArtifactApprovalProgress({
     isInternal,
     contentLength,
 }: ArtifactApprovalProgressProps) {
+    const { updateProgressSnapshot } = useArtifactProcessing();
     const { stage, progress, progressLabel, expectationLabel, paceLabel } = useApprovalProgress({
         entry,
         documentType,
@@ -39,6 +42,11 @@ export function ArtifactApprovalProgress({
         pulseVisibleMs: 2600,
         resetKey: `${stage}:${expectationLabel}:${paceLabel ?? ''}`,
     });
+
+    useEffect(() => {
+        if (!entry?.versionId || entry.status !== 'processing') return;
+        updateProgressSnapshot({ versionId: entry.versionId, progress });
+    }, [entry?.versionId, entry?.status, progress, updateProgressSnapshot]);
 
     return (
         <div className="w-full max-w-sm space-y-4 px-6 text-center">
