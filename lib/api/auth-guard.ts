@@ -29,6 +29,9 @@ async function ensureUser(clerkId: string, em: EntityManager): Promise<UserEntit
         email,
         name,
         emailConfirmed: false,
+    }, {
+        onConflictFields: ['clerkId'],
+        onConflictMergeFields: ['email', 'name'],
     });
     await em.flush();
     return user;

@@ -129,8 +129,10 @@ export async function getOrm(
             // TODO env var, prevent on prod
             // debug: true,
         }).then((orm) => {
-            // Serialization group support (deployment-level + toObject patch)
-            initSerializationGroups(orm, process.env.NEXT_PUBLIC_APP_ENV === 'development' ? ['dev'] : undefined);
+            // Serialization group support (deployment-level + toObject patch).
+            // Default to dev when unset — matches frontendEnv schema default; only an explicit
+            // 'production' value disables. (Don't import frontendEnv here — orm.ts runs in non-Next contexts.)
+            initSerializationGroups(orm, process.env.NEXT_PUBLIC_APP_ENV !== 'production' ? ['dev'] : undefined);
 
             return orm;
         });
