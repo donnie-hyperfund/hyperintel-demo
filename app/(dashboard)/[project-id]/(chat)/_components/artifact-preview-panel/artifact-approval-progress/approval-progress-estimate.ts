@@ -40,13 +40,11 @@ const AI_CONTENT_PREPARATION_REFERENCE = {
     totalApprovalMs: 90_000,
     minMs: 45_000,
     maxMs: 180_000,
-    fallbackMinWorkSize: DOCUMENT_CHAR_ESTIMATES['Human Persona'],
 } satisfies {
     documentType: DocumentType;
     totalApprovalMs: number;
     minMs: number;
     maxMs: number;
-    fallbackMinWorkSize: number;
 };
 
 type StageProgressInput = {
@@ -67,9 +65,8 @@ type ApprovalProgressInput = ApprovalWorkInput & {
     operationKey: string;
 };
 
-type StageFallbackInput = ApprovalWorkInput & {
+type StageFallbackInput = {
     elapsedMs: number;
-    hasObservedAiContentStage?: boolean;
 };
 
 type StageDurationInput = ApprovalWorkInput & {
@@ -174,11 +171,11 @@ function getStageProgressRatio({
 function shouldIncludeAiContentPreparation({
     stage,
     hasObservedAiContentStage,
-    contentLength,
-    documentType,
-}: ApprovalWorkInput & { stage: ProcessingStage; hasObservedAiContentStage?: boolean }): boolean {
-    if (stage === 'generating-ai-content' || hasObservedAiContentStage) return true;
-    return getApprovalWorkSize({ contentLength, documentType }) >= AI_CONTENT_PREPARATION_REFERENCE.fallbackMinWorkSize;
+}: {
+    stage: ProcessingStage;
+    hasObservedAiContentStage?: boolean;
+}): boolean {
+    return stage === 'generating-ai-content' || !!hasObservedAiContentStage;
 }
 
 function getExpectedApprovalDurationMs({
@@ -189,7 +186,7 @@ function getExpectedApprovalDurationMs({
 }: ApprovalWorkInput & { stage: ProcessingStage; hasObservedAiContentStage?: boolean }): number {
     const baseDuration = getBaseApprovalDurationMs();
 
-    if (!shouldIncludeAiContentPreparation({ stage, hasObservedAiContentStage, contentLength, documentType })) {
+    if (!shouldIncludeAiContentPreparation({ stage, hasObservedAiContentStage })) {
         return baseDuration;
     }
 
@@ -213,35 +210,9 @@ export function getApprovalProgress({
     return clamp(Math.round(estimatedProgress), 4, MAX_UNCONFIRMED_PROGRESS);
 }
 
-export function getFallbackApprovalStage({
-    elapsedMs,
-    hasObservedAiContentStage,
-    contentLength,
-    documentType,
-}: StageFallbackInput): ProcessingStage {
+export function getFallbackApprovalStage({ elapsedMs }: StageFallbackInput): ProcessingStage {
     if (elapsedMs < STAGE_DURATIONS_MS.queued) return 'queued';
     if (elapsedMs < STAGE_DURATIONS_MS.queued + STAGE_DURATIONS_MS.classifying) return 'classifying';
-
-    const shouldUseLongFallback = shouldIncludeAiContentPreparation({
-        stage: 'classifying',
-        hasObservedAiContentStage,
-        contentLength,
-        documentType,
-    });
-
-    if (shouldUseLongFallback) {
-        const generationEndsAt =
-            STAGE_DURATIONS_MS.queued +
-            STAGE_DURATIONS_MS.classifying +
-            getAiContentPreparationDurationMs({ contentLength, documentType });
-
-        if (elapsedMs < generationEndsAt) return 'generating-ai-content';
-        if (elapsedMs < generationEndsAt + STAGE_DURATIONS_MS.saving) return 'saving';
-        if (elapsedMs < generationEndsAt + STAGE_DURATIONS_MS.saving + STAGE_DURATIONS_MS.indexing) {
-            return 'indexing';
-        }
-        return 'finalizing';
-    }
 
     if (elapsedMs < 9000) return 'saving';
     if (elapsedMs < 13_000) return 'indexing';

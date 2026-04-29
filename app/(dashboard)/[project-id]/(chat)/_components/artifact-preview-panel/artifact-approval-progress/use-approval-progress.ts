@@ -46,16 +46,8 @@ export function useApprovalProgress({
 
     const stage = useMemo<ProcessingStage>(() => {
         if (isConfirmed) return 'finalizing';
-        return (
-            entry?.stage ??
-            getFallbackApprovalStage({
-                elapsedMs,
-                hasObservedAiContentStage: hasObservedAiContentStageRef.current,
-                contentLength,
-                documentType,
-            })
-        );
-    }, [elapsedMs, entry?.stage, isConfirmed, contentLength, documentType]);
+        return entry?.stage ?? getFallbackApprovalStage({ elapsedMs });
+    }, [elapsedMs, entry?.stage, isConfirmed]);
 
     if (previousStageRef.current !== stage) {
         previousStageRef.current = stage;
