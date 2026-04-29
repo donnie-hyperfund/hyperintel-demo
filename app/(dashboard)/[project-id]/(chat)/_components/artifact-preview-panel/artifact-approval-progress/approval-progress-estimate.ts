@@ -1,4 +1,4 @@
-import { DOCUMENT_CHAR_ESTIMATES, type DocumentType } from '@/lib/schema/artifact';
+import { DOCUMENT_CHAR_ESTIMATES, type DocumentType, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import type { ProcessingStage } from '@/modules/artifacts/processing/types';
 
 const MAX_UNCONFIRMED_PROGRESS = 97;
@@ -46,6 +46,8 @@ const AI_CONTENT_PREPARATION_REFERENCE = {
     minMs: number;
     maxMs: number;
 };
+
+const AI_CONTENT_DOCUMENT_TYPES = new Set<DocumentType>(INTERNAL_DOCUMENTS);
 
 type StageProgressInput = {
     stage: ProcessingStage;
@@ -112,10 +114,9 @@ function getStableRangeValue(range: ProgressRange, seed: string): number {
 }
 
 function getApprovalWorkSize({ contentLength, documentType }: ApprovalWorkInput): number {
-    if (contentLength > 0) return clamp(contentLength, 1000, 60_000);
-
+    const measuredLength = contentLength > 0 ? contentLength : 0;
     const typeEstimate = documentType ? DOCUMENT_CHAR_ESTIMATES[documentType] : DEFAULT_CONTENT_LENGTH;
-    return clamp(typeEstimate, 1000, 60_000);
+    return clamp(Math.max(measuredLength, typeEstimate), 1000, 60_000);
 }
 
 function getStageStart({ stage, backendProgress, operationKey }: StageProgressInput): number {
@@ -171,11 +172,17 @@ function getStageProgressRatio({
 function shouldIncludeAiContentPreparation({
     stage,
     hasObservedAiContentStage,
+    documentType,
 }: {
     stage: ProcessingStage;
     hasObservedAiContentStage?: boolean;
+    documentType?: DocumentType;
 }): boolean {
-    return stage === 'generating-ai-content' || !!hasObservedAiContentStage;
+    return (
+        stage === 'generating-ai-content' ||
+        !!hasObservedAiContentStage ||
+        (!!documentType && AI_CONTENT_DOCUMENT_TYPES.has(documentType))
+    );
 }
 
 function getExpectedApprovalDurationMs({
@@ -186,7 +193,7 @@ function getExpectedApprovalDurationMs({
 }: ApprovalWorkInput & { stage: ProcessingStage; hasObservedAiContentStage?: boolean }): number {
     const baseDuration = getBaseApprovalDurationMs();
 
-    if (!shouldIncludeAiContentPreparation({ stage, hasObservedAiContentStage })) {
+    if (!shouldIncludeAiContentPreparation({ stage, hasObservedAiContentStage, documentType })) {
         return baseDuration;
     }
 
@@ -221,7 +228,7 @@ export function getFallbackApprovalStage({ elapsedMs }: StageFallbackInput): Pro
 
 function getInitialExpectationLabel(expectedDurationMs: number): string {
     if (expectedDurationMs < 30_000) return 'Usually quick';
-    if (expectedDurationMs < 90_000) return 'Can take about a minute';
+    if (expectedDurationMs < 75_000) return 'Can take about a minute';
     return 'Can take a minute or two';
 }
 
