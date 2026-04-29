@@ -81,7 +81,7 @@ export function createCompletionBriefTools() {
                     ``,
                     `The \`completion_brief\` template has been loaded into your context. Follow it exactly.`,
                     `Create the brief as an internal document with \`document_type: 'Completion Brief'\`.`,
-                    `The brief will be **proposed** for review — a PECP will be auto-generated after you finalize.`,
+                    `The brief will be **proposed** for review — the PE-facing summary is auto-generated after you finalize.`,
                 ];
 
                 // Documents created in this conversation

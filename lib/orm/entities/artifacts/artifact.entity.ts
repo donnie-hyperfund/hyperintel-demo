@@ -37,10 +37,6 @@ export class ArtifactEntity extends IdCreatedUpdatedColumns {
     @Property({ type: 'boolean', default: false })
     is_public!: boolean & Opt;
 
-    /** PECP artifacts are public summaries of internal documents, excluded from list endpoints */
-    @Property({ type: 'boolean', default: false })
-    is_pecp!: boolean & Opt;
-
     /** Chat-input uploads start as drafts and are hidden from the project resources list until the send flow clears the flag. */
     @Property({ type: 'boolean', default: false })
     is_draft!: boolean & Opt;

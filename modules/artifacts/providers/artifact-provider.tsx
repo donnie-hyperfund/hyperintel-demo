@@ -22,10 +22,13 @@ export type VersionKey = 'latest' | number;
 function preservePreviewStreamingState(existing: Artifact | undefined, artifact: Artifact): Artifact {
     if (!existing) return artifact;
 
-    // Internal artifact revalidation omits content and frontend-only PECP loading state.
+    // Internal artifact revalidation omits content and frontend-only summary streaming state.
     const preserved: Partial<Artifact> = {};
     const isStillStreaming = artifact.isStreaming ?? existing.isStreaming;
-    const hasIncomingPecpContent = artifact.pecpContent !== undefined || Boolean(artifact.pecp?.content);
+    const hasIncomingSummaryStreaming =
+        artifact.summaryStreaming !== undefined ||
+        Boolean(artifact.proposedVersion?.summaryInternal) ||
+        Boolean(artifact.currentVersion?.summaryInternal);
 
     if (existing.isStreaming === true && artifact.isStreaming === undefined) {
         preserved.isStreaming = true;
@@ -35,8 +38,12 @@ function preservePreviewStreamingState(existing: Artifact | undefined, artifact:
         preserved.progress = existing.progress;
     }
 
-    if (!hasIncomingPecpContent && artifact.pecpContent === undefined && existing.pecpContent !== undefined) {
-        preserved.pecpContent = existing.pecpContent;
+    if (!hasIncomingSummaryStreaming && artifact.summaryStreaming === undefined && existing.summaryStreaming !== undefined) {
+        preserved.summaryStreaming = existing.summaryStreaming;
+    }
+
+    if (artifact.isSummaryStreaming === undefined && existing.isSummaryStreaming !== undefined) {
+        preserved.isSummaryStreaming = existing.isSummaryStreaming;
     }
 
     if (Object.keys(preserved).length === 0) return artifact;
@@ -93,13 +100,22 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
             const nextArtifact = preservePreviewStreamingState(existing, artifact);
             const newContent = getLatestArtifactVersionContent(nextArtifact);
             const existingContent = existing ? getLatestArtifactVersionContent(existing) : '';
-            const nextPecpContent = nextArtifact.pecpContent ?? nextArtifact.pecp?.content ?? '';
-            const existingPecpContent = existing?.pecpContent ?? existing?.pecp?.content ?? '';
+            const nextSummary =
+                nextArtifact.summaryStreaming ??
+                nextArtifact.proposedVersion?.summaryInternal ??
+                nextArtifact.currentVersion?.summaryInternal ??
+                '';
+            const existingSummary =
+                existing?.summaryStreaming ??
+                existing?.proposedVersion?.summaryInternal ??
+                existing?.currentVersion?.summaryInternal ??
+                '';
             if (
                 existingContent === newContent &&
-                existingPecpContent === nextPecpContent &&
+                existingSummary === nextSummary &&
                 existing?.isLoading === nextArtifact.isLoading &&
                 existing?.isStreaming === nextArtifact.isStreaming &&
+                existing?.isSummaryStreaming === nextArtifact.isSummaryStreaming &&
                 existing?.isUpdating === nextArtifact.isUpdating
             ) {
                 return;

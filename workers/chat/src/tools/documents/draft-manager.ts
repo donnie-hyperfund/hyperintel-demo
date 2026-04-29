@@ -25,8 +25,6 @@ export interface DraftSession {
     is_internal: boolean;
     /** Document type classification */
     document_type: string;
-    /** For PECP: the parent internal document version ID this summary is linked to */
-    parentVersionId?: string;
     createdAt: Date;
 }
 
@@ -60,7 +58,6 @@ export class DraftManager {
         previousVersion?: number,
         is_internal = true,
         document_type = 'Other',
-        parentVersionId?: string,
     ): DraftSession {
         if (this.currentDraft) {
             throw new Error(
@@ -78,7 +75,6 @@ export class DraftManager {
             previousVersion,
             is_internal,
             document_type,
-            parentVersionId,
             createdAt: new Date(),
         };
         return this.currentDraft;

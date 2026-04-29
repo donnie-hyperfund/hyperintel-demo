@@ -153,7 +153,10 @@ export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     isStreaming?: boolean;
     isUpdating?: boolean;
     progress?: number;
-    pecpContent?: string;
+    /** Tracked separately while the summary is mid-stream (before it lands in proposedVersion.summaryInternal). */
+    summaryStreaming?: string;
+    /** True while a `summary_*` SSE stream is in flight for this artifact. */
+    isSummaryStreaming?: boolean;
 };
 
 // =============================================================================

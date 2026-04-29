@@ -24,8 +24,12 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
     const activeVersion = currentArtifact ? getLatestArtifactVersion(currentArtifact) : undefined;
     const isInternal = activeVersion?.isInternal;
 
-    const pecpContent = currentArtifact?.pecpContent ?? currentArtifact?.pecp?.content ?? '';
-    const showSkeleton = (isLoading || (isStreaming && (!isInternal || !pecpContent))) && !content;
+    const summaryContent =
+        currentArtifact?.summaryStreaming ??
+        currentArtifact?.proposedVersion?.summaryInternal ??
+        currentArtifact?.currentVersion?.summaryInternal ??
+        '';
+    const showSkeleton = (isLoading || (isStreaming && (!isInternal || !summaryContent))) && !content;
 
     if (showSkeleton) {
         return (

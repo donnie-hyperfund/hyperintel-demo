@@ -1,4 +1,4 @@
-import { Entity, Index, ManyToOne, Opt, Property, wrap } from '@mikro-orm/core';
+import { Entity, Index, ManyToOne, type Opt, Property, wrap } from '@mikro-orm/core';
 import type { Nullable } from '@/common/orm/utils';
 import type { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -67,9 +67,9 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'text', default: 'Other' })
     document_type: DocumentType & Opt = 'Other';
 
-    /** For PECP artifacts: points to the internal document version this summary was generated from */
-    @ManyToOne(() => 'ArtifactVersionEntity', { fieldName: 'parent_version_id', nullable: true })
-    parent_version?: ArtifactVersionEntity;
+    /** PE-facing summary of this internal document version. Generated automatically on finalize for internal docs. */
+    @Property({ type: 'text', nullable: true })
+    summary_internal?: string;
 
     @Property({
         type: 'timestamptz',
