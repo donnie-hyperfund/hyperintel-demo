@@ -8,8 +8,8 @@ import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { IS_DEV } from '@/lib/config';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import {
-    getLatestArtifactVersionContent,
     getLatestArtifactVersion,
+    getLatestArtifactVersionContent,
     getLatestArtifactVersionTitle,
 } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -17,6 +17,7 @@ import type { Artifact } from '@/modules/chat/types';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
+import { ArtifactApprovalProgress } from './artifact-approval-progress';
 import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
 import { ArtifactVersionHistoryDialog } from './artifact-version-history-dialog';
@@ -59,8 +60,9 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     } = useChatContext();
     const { isLinking: isLinkingToProject } = useOptionalProjectOrigin();
     const {
-        isProcessing: isProcessingGlobally,
         hasEntry: hasProcessingEntry,
+        getEntry: getProcessingEntry,
+        reconcileVersionStatus,
         suppressVersion,
     } = useArtifactProcessing();
 
@@ -91,9 +93,17 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const canDelete =
         !!artifactKey && !!activeVersion?.isUploaded && !isStreaming && activeVersion?.status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
-    const isProcessingGlobalApproval = !!(activeVersion?.id && isProcessingGlobally(activeVersion.id));
     const hasEntryForVersion = !!(activeVersion?.id && hasProcessingEntry(activeVersion.id));
-    const isBusy = isUpdating || isProcessingApproval || isProcessingDelete || isProcessingGlobalApproval;
+    const processingEntry = activeVersion?.id ? getProcessingEntry(activeVersion.id) : undefined;
+    const showProcessingOverlay = processingEntry?.status === 'processing';
+    const showCompletionOverlay = processingEntry?.action === 'approve' && processingEntry.status === 'completed';
+    const showApprovalProgress =
+        !isProcessingDelete &&
+        !isLinkingToProject &&
+        ((processingEntry?.action === 'approve' && (showProcessingOverlay || showCompletionOverlay)) ||
+            (!processingEntry && isProcessingApproval));
+    const showPreviewOverlay =
+        isUpdating || isProcessingApproval || isProcessingDelete || showProcessingOverlay || showCompletionOverlay;
 
     // Suppress this artifact's entry from the status bar while the preview panel is open
     useEffect(() => {
@@ -101,6 +111,11 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         suppressVersion(activeVersion.id);
         return () => suppressVersion(null);
     }, [hasEntryForVersion, activeVersion?.id, suppressVersion]);
+
+    useEffect(() => {
+        if (!activeVersion?.id) return;
+        reconcileVersionStatus({ versionId: activeVersion.id, status: activeVersion.status ?? null });
+    }, [activeVersion?.id, activeVersion?.status, reconcileVersionStatus]);
 
     const diffData = useMemo(() => {
         if (!canShowDiff || !previousContent) return null;
@@ -205,19 +220,28 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                     {renderContent()}
                 </div>
 
-                {/* Busy overlay */}
-                {isBusy && (
+                {/* Preview overlay */}
+                {showPreviewOverlay && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-xs">
-                        <div className="flex items-center gap-2 text-md font-medium text-muted-foreground">
-                            <Loader2 className="size-5 animate-spin" />
-                            {isProcessingDelete
-                                ? 'Deleting...'
-                                : isLinkingToProject
-                                  ? 'Adding to Project Intel...'
-                                  : isProcessingApproval || activeVersion?.status === 'proposed'
-                                    ? 'Processing...'
-                                    : 'Making changes...'}
-                        </div>
+                        {showApprovalProgress ? (
+                            <ArtifactApprovalProgress
+                                entry={processingEntry}
+                                documentType={activeVersion?.documentType}
+                                isInternal={activeVersion?.isInternal}
+                                contentLength={content.length}
+                            />
+                        ) : (
+                            <div className="flex items-center gap-2 text-md font-medium text-muted-foreground">
+                                <Loader2 className="size-5 animate-spin" />
+                                {isProcessingDelete
+                                    ? 'Deleting...'
+                                    : isLinkingToProject
+                                      ? 'Adding to Project Intel...'
+                                      : activeVersion?.status === 'proposed'
+                                        ? 'Processing...'
+                                        : 'Making changes...'}
+                            </div>
+                        )}
                     </div>
                 )}
 
