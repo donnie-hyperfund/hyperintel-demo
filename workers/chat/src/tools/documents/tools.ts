@@ -154,7 +154,7 @@ When a **regular** user message (not a \`<system>\` event) contains approval or 
 - **Ambiguity:** If it's unclear whether the user is approving or just continuing, and there IS a pending proposed document, ask for clarification before proceeding.
 
 ## Important
-\`list_documents\` and \`read_document\` are for viewing specific documents. At the START of a new conversation/phase, use \`search_knowledge\` instead to gather relevant context via semantic search.
+\`list_documents\` and \`read_document\` are for viewing specific documents. Use \`search_knowledge\` to find relevant context via semantic search across all approved documents.
 
 ## Finding Documents / Files
 When the user asks about a specific file or document (e.g., "what's in the UX doc?", "check the analysis file"):

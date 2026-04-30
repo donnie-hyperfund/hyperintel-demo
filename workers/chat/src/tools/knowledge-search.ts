@@ -133,8 +133,6 @@ export const KnowledgeSearchToolGroup: AgentToolGroup = {
     description: 'Tools for searching and retrieving information from project documents.',
     guidance: `Use search_knowledge to find relevant information from project documents. Use list_documents to see all available documents.
 
-**CRITICAL: At the START of every new conversation or phase/stage, you MUST call search_knowledge FIRST to gather relevant context from previous work before responding to the user.** This ensures continuity across phases and prevents redundant work.
-
 **When the user's message contains uploaded files** (indicated by \`::upload[filename]{size=...}\` directives):
 - Recently uploaded files may NOT yet appear in \`search_knowledge\` results because semantic indexing runs asynchronously.
 - Use \`list_documents\` first to find the uploaded file, then \`read_document\` to access its content.
@@ -157,7 +155,7 @@ export function createKnowledgeTools() {
         {
             name: 'search_knowledge' as const,
             description:
-                'Search knowledge base using semantic similarity. Use this to find relevant information from previously created or uploaded documents and artifacts. MUST be called at the start of every new conversation/phase/stage to gather context. Results may include images from documents. Set includeImages: false for text-only search.',
+                'Search knowledge base using semantic similarity. Use this to find relevant information from previously created or uploaded documents and artifacts. Results may include images from documents. Set includeImages: false for text-only search.',
             parameters: SearchKnowledgeParams,
             executor: async (
                 input: { query: string; limit?: number; includeImages?: boolean },
