@@ -12,7 +12,6 @@ import { type ChatActionResult, chatActionHandler, preprocessContext } from './c
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
-import { isPECPKey } from './tools/documents/pecp-service';
 import { estimateInferenceInputTokens, SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS } from './utils/context-budget';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
@@ -191,7 +190,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const phaseNumber = chat.phase_index + 1;
         const today = new Date().toISOString().split('T')[0];
 
-        const documents = extractDocuments(messages).filter((d) => !isPECPKey(d.name));
+        const documents = extractDocuments(messages);
         const basePrompt = await getSummarizerPrompt(ctx);
 
         // Reinforcement — the summary text must NOT contain Section 13 / the Next-Phase
@@ -203,15 +202,7 @@ The summary text (Output 1) MUST NOT contain the Next-Phase Initialization Blurb
 
 The blurb is delivered separately via the \`generate_blurb\` tool. After finishing the summary text, call \`generate_blurb\` EXACTLY ONCE with Section 13 copied VERBATIM as the \`blurb\` parameter — raw content only (no header, no intro phrase, no surrounding commentary). This is a TERMINAL action and ends the run.`;
 
-        // PECPs (PE Communication Protocol artifacts, keys ending in \`-pecp.md\`) are an internal
-        // implementation detail of the document pipeline — they must never surface in user-facing
-        // summaries. The summarizer may still see PECP tool calls in the raw conversation history,
-        // hence the explicit rule.
-        const PECP_REINFORCEMENT = `## PECP Redaction Rule
-
-The summary text MUST NOT mention PECP, "PE Communication Protocol", "-pecp.md" files, or the fact that a PECP was generated for any document. Do NOT list, reference, describe, or allude to PECPs in any form — not in headings, bullet points, document lists, or prose. Treat PECPs as invisible implementation detail. If a document has an associated PECP, mention only the parent document.`;
-
-        let instructions = `${basePrompt}\n\n---\n\n${BLURB_REINFORCEMENT}\n\n---\n\n${PECP_REINFORCEMENT}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
+        let instructions = `${basePrompt}\n\n---\n\n${BLURB_REINFORCEMENT}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
 
         if (documents.length > 0) {
             instructions += `\n\n## Documents Created During This Conversation\n\n`;
@@ -262,7 +253,7 @@ The summary text MUST NOT mention PECP, "PE Communication Protocol", "-pecp.md" 
         historyMessages.push({
             role: 'user' as const,
             content:
-                'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. Do NOT mention PECPs, "PE Communication Protocol", or any `-pecp.md` files — they are internal plumbing and must not appear in the summary. After the summary, call the generate_blurb tool with the Next-Phase Initialization Blurb (Section 13 of the Completion Brief) verbatim as its input.',
+                'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. After the summary, call the generate_blurb tool with the Next-Phase Initialization Blurb (Section 13 of the Completion Brief) verbatim as its input.',
         });
 
         const blurbTools = createBlurbTools();
@@ -397,7 +388,7 @@ The summary text MUST NOT mention PECP, "PE Communication Protocol", "-pecp.md" 
                 const nameResult = await runInferenceNoStream(ctx, {
                     paramsType: AIParamsType.OpenRouter,
                     instructions:
-                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs and PECP\'s — they are generated automatically and are not relevant. Never include them in the title. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
+                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs — they are generated automatically and are not relevant. Never include them in the title. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
                     context: [{ role: 'user', content: summaryContent + docContext }],
                     params: {
                         model: COMMON_MODELS.GPT_5_4_NANO,

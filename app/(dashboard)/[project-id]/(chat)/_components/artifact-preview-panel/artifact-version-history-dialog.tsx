@@ -104,8 +104,9 @@ export function ArtifactVersionHistoryDialog({
         selectedVersion ?? undefined,
     );
 
-    const previewContent =
-        previewArtifact?.pecp?.content ?? (previewArtifact ? getLatestArtifactVersionContent(previewArtifact) : '');
+    const previewSummary =
+        previewArtifact?.proposedVersion?.summaryInternal ?? previewArtifact?.currentVersion?.summaryInternal ?? null;
+    const previewContent = previewSummary ?? (previewArtifact ? getLatestArtifactVersionContent(previewArtifact) : '');
     const isLatestNonTerminal =
         !!history &&
         selectedVersion === history.artifact.latestVersion &&

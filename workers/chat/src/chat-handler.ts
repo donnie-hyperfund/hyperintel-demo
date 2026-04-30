@@ -526,6 +526,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             embeddingQueue: ctx.env.EMBEDDING_QUEUE,
             previewAlias: ctx.previewAlias,
             createdVersionIds,
+            // The PECP generator (called from finalize_document for internal docs) pushes
+            // summary_* events through the same SSE pusher the main agent uses.
+            pushStreamEvents: pusher.push,
             onVersionCreated: (event) => {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
@@ -589,7 +592,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                     statusUpdates: { enabled: true },
                     preprocessContext,
                     abortSignal: abortController.signal,
-                    onTurnComplete: createOnTurnComplete(agentCtx, { pecp: true }),
+                    onTurnComplete: createOnTurnComplete(agentCtx),
                 },
             },
         );

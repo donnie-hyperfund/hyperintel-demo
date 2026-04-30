@@ -74,8 +74,12 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const activeVersion = getLatestArtifactVersion(artifact);
     const content = getLatestArtifactVersionContent(artifact);
 
-    const pecpContent = artifact.pecpContent ?? artifact.pecp?.content ?? '';
-    const hasPecp = artifact.pecpContent !== undefined || !!artifact.pecp;
+    const summaryContent =
+        artifact.summaryStreaming ??
+        artifact.proposedVersion?.summaryInternal ??
+        artifact.currentVersion?.summaryInternal ??
+        '';
+    const hasSummary = !!summaryContent || !!artifact.isSummaryStreaming;
 
     const updatedAt = artifact.proposedVersion?.updatedAt ? new Date(artifact.proposedVersion.updatedAt) : undefined;
     const previousContent =
@@ -88,8 +92,8 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         !!artifactId &&
         !!artifactKey &&
         !isLastMessageStreaming;
-    const showApprovalBar = canApprove && (!activeVersion?.isInternal || hasPecp);
-    const showInternalActions = canApprove && !!activeVersion?.isInternal && !hasPecp;
+    const showApprovalBar = canApprove && (!activeVersion?.isInternal || hasSummary);
+    const showInternalActions = canApprove && !!activeVersion?.isInternal && !hasSummary;
     const canDelete =
         !!artifactKey && !!activeVersion?.isUploaded && !isStreaming && activeVersion?.status !== 'deleted';
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
@@ -122,7 +126,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         return computeDiffWithDirectives(previousContent, content);
     }, [canShowDiff, previousContent, content]);
 
-    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content, pecpContent], {
+    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content, summaryContent], {
         threshold: 100,
         disabled: !isStreaming,
     });
@@ -160,7 +164,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     );
 
     const renderContent = () => {
-        if (activeVersion?.isInternal && !hasPecp) {
+        if (activeVersion?.isInternal && !hasSummary) {
             return (
                 <InternalDocumentContent title={title} progress={progress} isStreaming={isStreaming}>
                     {showInternalActions && (
@@ -175,13 +179,13 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
             );
         }
 
-        const displayContent = pecpContent || markdownContent;
+        const displayContent = summaryContent || markdownContent;
         if (displayContent) {
             return (
                 <div className="p-6">
                     <MarkdownRenderer
                         markdown={displayContent}
-                        directives={pecpContent ? undefined : diffDirectives}
+                        directives={summaryContent ? undefined : diffDirectives}
                         scrollContainerRef={containerRef}
                     />
                 </div>
