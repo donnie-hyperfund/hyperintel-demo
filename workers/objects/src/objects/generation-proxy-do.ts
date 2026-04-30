@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { createProxyError } from '@/lib/api/proxy-error';
 
 /**
  * GenerationProxyDO — lightweight broker that holds a long-running fetch
@@ -32,7 +33,7 @@ export class GenerationProxyDO extends DurableObject<Env> {
 
         if (!response.ok || !response.body) {
             const text = await response.text().catch(() => '');
-            throw new Error(`Stream endpoint returned ${response.status}: ${text}`);
+            return createProxyError(response.status, text, response.headers.get('content-type') ?? 'application/json');
         }
 
         const reader = response.body.getReader();

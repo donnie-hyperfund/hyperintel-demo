@@ -12,7 +12,7 @@ import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
-import type { CamelCaseDto } from '@/lib/api/client/types';
+import { ApiClientError, type CamelCaseDto } from '@/lib/api/client/types';
 import {
     abort,
     associateUploads,
@@ -79,6 +79,8 @@ export type BaseChatContextValue = {
     clearPendingChanges: () => void;
     /** Clear the pending phase transition flag (called after dialog handles it) */
     clearPendingPhaseTransition: () => void;
+    /** Request the phase transition flow from send-time UI */
+    requestPhaseTransition: () => void;
     /** Check if there are other pending artifacts */
     hasOtherPendingArtifacts: (excludeArtifactKey: string) => boolean;
     /** Set artifact action processing state (approve/reject in flight) */
@@ -87,6 +89,8 @@ export type BaseChatContextValue = {
     changeModel: (presetId: string) => Promise<void>;
     /** Dismiss the invalid model alert dialog */
     dismissInvalidModelAlert: () => void;
+    /** Dismiss the send-time context-limit alert dialog */
+    dismissContextLimitAlert: () => void;
     /** Lazily create the chat if it doesn't exist yet, returns the chatId */
     ensureChatId: () => Promise<string>;
 };
@@ -226,6 +230,7 @@ export function ChatProvider({
             isProcessingArtifactAction: false,
             showInvalidModelAlert: false,
             completionBriefStatus: cached?.completionBriefStatus ?? null,
+            showContextLimitAlert: false,
         };
     });
 
@@ -369,6 +374,11 @@ export function ChatProvider({
     const clearPendingPhaseTransition = useCallback(() => {
         setState((prev) => ({ ...prev, pendingPhaseTransition: false }));
     }, []);
+
+    const requestPhaseTransition = useCallback(() => {
+        if (chatType !== 'phase') return;
+        setState((prev) => ({ ...prev, pendingPhaseTransition: true }));
+    }, [chatType]);
 
     const hasOtherPendingArtifacts = useCallback(
         (excludeArtifactKey: string) => {
@@ -1187,8 +1197,11 @@ export function ChatProvider({
                 );
 
                 if (!response.ok) {
-                    const errorText = await response.text().catch(() => 'Unknown error');
-                    throw new Error(`Send failed: ${response.status} — ${errorText}`);
+                    const apiError = await ApiClientError.fromResponse(response);
+                    if (apiError.code === 'CONTEXT_TOO_LONG') {
+                        setState((prev) => ({ ...prev, showContextLimitAlert: true }));
+                    }
+                    throw apiError;
                 }
 
                 // Broker mode: POST returns JSON { userMessageId, agentMessageId }.
@@ -1209,10 +1222,12 @@ export function ChatProvider({
                     // Request was cancelled, don't treat as error
                     return;
                 }
+                const isContextLimit = error instanceof ApiClientError && error.code === 'CONTEXT_TOO_LONG';
                 console.error('Error sending message:', error);
                 captureChatAnalytics('chat_turn_submission_failed', {
                     submission_id: userMessage.id,
                     error_message: error instanceof Error ? error.message : 'Failed to send message',
+                    error_code: isContextLimit ? 'CONTEXT_TOO_LONG' : null,
                 });
                 // Roll back the optimistic user message so we don't leave a ghost "sent" row
                 // that actually never went through.
@@ -1220,7 +1235,7 @@ export function ChatProvider({
                     ...prev,
                     messages: prev.messages.filter((m) => m.id !== userMessage.id),
                     isGenerating: false,
-                    error: error instanceof Error ? error : new Error('Failed to send message'),
+                    error: isContextLimit ? null : error instanceof Error ? error : new Error('Failed to send message'),
                 }));
                 // Re-throw so the caller can keep the user's text/files intact (no submitFiles,
                 // no silent wipe) and surface the failure.
@@ -1441,6 +1456,10 @@ export function ChatProvider({
         setState((prev) => ({ ...prev, showInvalidModelAlert: false }));
     }, []);
 
+    const dismissContextLimitAlert = useCallback(() => {
+        setState((prev) => ({ ...prev, showContextLimitAlert: false }));
+    }, []);
+
     return (
         <ChatContext.Provider
             value={buildContextValue(chatType, projectId, {
@@ -1459,10 +1478,12 @@ export function ChatProvider({
                 navigateToNewPhase,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
+                requestPhaseTransition,
                 hasOtherPendingArtifacts,
                 setProcessingArtifactAction,
                 changeModel,
                 dismissInvalidModelAlert,
+                dismissContextLimitAlert,
                 ensureChatId,
             })}
         >

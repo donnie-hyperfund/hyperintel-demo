@@ -12,6 +12,7 @@ import { type ChatActionResult, chatActionHandler, preprocessContext } from './c
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
+import { estimateInferenceInputTokens, SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS } from './utils/context-budget';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -31,6 +32,18 @@ export interface SummarizerOptions {
 }
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
+
+function getSummarizerInferenceParams(contextTokens: number): ParamsWithType {
+    return {
+        paramsType: AIParamsType.Anthropic,
+        params: {
+            model:
+                contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS
+                    ? ANTHROPIC_MODELS.SONNET_4_6
+                    : ANTHROPIC_MODELS.SONNET,
+        },
+    };
+}
 
 /**
  * Load summarizer prompt (pma/summarizer only).
@@ -243,12 +256,15 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. After the summary, call the generate_blurb tool with the Next-Phase Initialization Blurb (Section 13 of the Completion Brief) verbatim as its input.',
         });
 
-        const inferenceParams = options.overrideInference ?? {
-            paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.SONNET },
-        };
-
         const blurbTools = createBlurbTools();
+        const estimatedContextTokens = estimateInferenceInputTokens({
+            instructions,
+            context: historyMessages,
+            tools: [...blurbTools],
+            toolGroups: [BlurbToolGroup],
+            preprocessContext,
+        });
+        const inferenceParams = options.overrideInference ?? getSummarizerInferenceParams(estimatedContextTokens);
 
         const { stream, historyPromise } = runAgentStream(
             {},

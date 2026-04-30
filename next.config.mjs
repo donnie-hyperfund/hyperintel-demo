@@ -140,7 +140,7 @@ function mergeConfig(nextConfig, userConfig) {
     }
 }
 
-export default withPostHogConfig(nextConfig, {
+export default (process.env.NO_POSTHOG === 'true') ? nextConfig : withPostHogConfig(nextConfig, {
     personalApiKey: process.env.POSTHOG_PRIVATE_KEY,
     projectId: process.env.POSTHOG_PROJECT_ID,
     host: process.env.NEXT_PUBLIC_POSTHOG_HOST,

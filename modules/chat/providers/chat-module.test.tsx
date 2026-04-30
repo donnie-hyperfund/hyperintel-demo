@@ -2,6 +2,7 @@
 
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { describe, expect, it, vi } from 'vitest';
 import { ChatModule } from './chat-module';
 
 const activePanelProviderMock = vi.fn(({ children }: { children: ReactNode }) => <div>{children}</div>);
@@ -19,6 +20,9 @@ const chatProviderMock = vi.fn(
     }) => <div data-props={JSON.stringify(props)}>{children}</div>,
 );
 const scrollTargetProviderMock = vi.fn(({ children }: { children: ReactNode }) => <div>{children}</div>);
+const modelSelectionProviderMock = vi.fn(({ children }: { children: ReactNode; projectId?: string }) => (
+    <div>{children}</div>
+));
 
 vi.mock('./active-panel-provider', () => ({
     ActivePanelProvider: (props: { children: ReactNode }) => activePanelProviderMock(props),
@@ -37,6 +41,10 @@ vi.mock('./chat-provider', () => ({
         initialMessages?: unknown[];
         chatRouteBuilder?: (chatId: string) => string;
     }) => chatProviderMock(props),
+}));
+
+vi.mock('./model-selection-provider', () => ({
+    ModelSelectionProvider: (props: { children: ReactNode; projectId?: string }) => modelSelectionProviderMock(props),
 }));
 
 vi.mock('./scroll-target-provider', () => ({
