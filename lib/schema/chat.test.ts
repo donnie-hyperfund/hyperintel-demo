@@ -9,8 +9,8 @@ describe('SendChatActionSchema', () => {
             const result = SendChatActionSchema.safeParse({ ...BASE, message: 'hello' });
             expect(result.success).toBe(true);
             if (result.success) {
-                expect(result.data.bypass_context_warning).toBe(false);
-                expect(result.data.force_brief).toBe(false);
+                expect(result.data.bypass_context_warning).toBeUndefined();
+                expect(result.data.force_brief).toBeUndefined();
             }
         });
 

@@ -1,14 +1,13 @@
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
-import { PublicError } from '@common/common/error.helpers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
-import { branchDoName } from '@/workers/_common/util/preview-alias';
-import { type ChatActionResult, chatActionHandler, preprocessContext } from './chat-handler';
+// Type-only import — erased at compile time, no runtime edge to chat-handler.ts.
+import type { chatActionHandler, ChatActionResult } from './chat-handler';
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
@@ -21,14 +20,39 @@ import {
     logWorkerError,
 } from './utils/error-metadata';
 import { extractDocuments } from './utils/extract-documents';
+import { preprocessContext } from './utils/preprocess-context';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
-import { cleanupStreamDO, createEnqueue, createSSEStream } from './utils/stream-utils';
+import { cleanupStreamDO } from './utils/stream-utils';
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
     /** Event tap — called with each StreamEvent during generation. For tests. */
     onEvent?: (event: StreamEvent) => void;
+}
+
+export interface SummarizerContext {
+    data: SummarizeActionDto;
+    ctx: Ctx;
+    options: SummarizerOptions;
+    chat: ChatEntity;
+    agentMessageId: string;
+    ugStub: UserGatewayStub;
+}
+
+/** `true` = summary completed successfully; `false` = failed (already logged/cleaned up internally). */
+export type SummarizerResult = boolean;
+
+/**
+ * `chatActionHandler` is injected (not statically imported) to avoid a runtime
+ * cycle between `chat-handler.ts` and the summarizer. The forced-brief path in
+ * `chat-handler.ts` will call `runSummarizer` directly; the static-import side
+ * (chat-handler → summarizer) must be the only edge.
+ */
+export type DispatchBlurb = typeof chatActionHandler;
+
+export interface SummarizerDeps {
+    dispatchBlurb: DispatchBlurb;
 }
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
@@ -61,121 +85,18 @@ async function getSummarizerPrompt(ctx: Ctx): Promise<string> {
 }
 
 // ============================================================================
-// SUMMARIZE ACTION HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
-// ============================================================================
-
-export interface SummarizeActionResult {
-    agentMessageId: string;
-    /** Resolves when generation completes. Present when onEvent is provided. */
-    generation?: Promise<void>;
-}
-
-/**
- * Summarize action handler — registers stream under chat:{chatId} topic.
- * Returns SSE stream: first event = IDs, then generation runs inline.
- * In test mode (options.onEvent), returns SummarizeActionResult directly.
- */
-export async function summarizeActionHandler(
-    data: SummarizeActionDto,
-    ctx: Ctx,
-    options: SummarizerOptions = {},
-): Promise<SummarizeActionResult | ReadableStream | PublicError> {
-    const { chatId } = data;
-    const { em } = ctx;
-
-    const agentMessageId = crypto.randomUUID();
-
-    // Validate ownership + load chat entity
-    const chat = await em!.findOneOrFail(ChatEntity, {
-        id: chatId,
-        project: { user: { clerkId: ctx.user.userId } },
-    });
-
-    // Gate: require an approved Completion Brief before phase transition
-    if (chat.completion_brief_status !== 'approved') {
-        return new PublicError(400, {
-            code: 'completion_brief_not_approved',
-            message: 'Cannot transition phase without an approved Completion Brief',
-            details: { currentStatus: chat.completion_brief_status ?? 'none' },
-        });
-    }
-
-    // Set active_agent_message_id on the source chat (same column as normal chat responses)
-    chat.active_agent_message_id = agentMessageId;
-    await em!.flush();
-
-    // Register stream under chat:{chatId} topic with streamType: 'summary'
-    const alias = ctx.previewAlias;
-    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
-    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    await ugStub.systemAction(
-        `chat:${chatId}`,
-        'registerStream',
-        {
-            agentMessageId,
-            userId: ctx.user.userId,
-            streamType: 'summary',
-            // summarizer does not have an initiating user message
-        },
-        alias ?? undefined,
-    );
-
-    // --- Test mode: keep existing direct-call behavior ---
-    if (options.onEvent) {
-        const generationPromise = runSummarizer({
-            data,
-            ctx,
-            options,
-            chat,
-            agentMessageId,
-            ugStub,
-        });
-        return { agentMessageId, generation: generationPromise };
-    }
-
-    // --- Production mode: return SSE stream (kept alive by GenerationProxyDO) ---
-    return createSSEStream(async (controller) => {
-        const enqueue = createEnqueue(controller);
-
-        // First event: IDs (read by GenerationProxyDO, returned to frontend)
-        enqueue({ type: 'ids', agentMessageId });
-
-        // SSE keepalive — prevents Cloudflare from killing the idle connection
-        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
-
-        try {
-            await runSummarizer({ data, ctx, options, chat, agentMessageId, ugStub });
-        } finally {
-            clearInterval(heartbeat);
-        }
-
-        try {
-            controller.close();
-        } catch {
-            /* already closed */
-        }
-    }, ctx);
-}
-
-// ============================================================================
 // GENERATION — runs inline in SSE stream, pushes events to ChatStream DO
 // ============================================================================
 
-interface SummarizerParams {
-    data: SummarizeActionDto;
-    ctx: Ctx;
-    options: SummarizerOptions;
-    chat: ChatEntity;
-    agentMessageId: string;
-    ugStub: UserGatewayStub;
-}
-
-async function runSummarizer(params: SummarizerParams): Promise<void> {
-    const { data, ctx, options, chat, agentMessageId, ugStub } = params;
+export async function runSummarizer(
+    ctx: SummarizerContext,
+    deps: SummarizerDeps,
+): Promise<SummarizerResult> {
+    const { data, ctx: workerCtx, options, chat, agentMessageId, ugStub } = ctx;
     const { chatId } = data;
-    const { em, anthropic } = ctx;
+    const { em, anthropic } = workerCtx;
 
-    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'summarizer');
+    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, workerCtx, 'summarizer');
 
     try {
         if (!anthropic) {
@@ -191,7 +112,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const today = new Date().toISOString().split('T')[0];
 
         const documents = extractDocuments(messages);
-        const basePrompt = await getSummarizerPrompt(ctx);
+        const basePrompt = await getSummarizerPrompt(workerCtx);
 
         // Reinforcement — the summary text must NOT contain Section 13 / the Next-Phase
         // Initialization Blurb. The blurb is delivered separately via the `generate_blurb`
@@ -268,7 +189,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
 
         const { stream, historyPromise } = runAgentStream(
             {},
-            ctx,
+            workerCtx,
             {
                 ...inferenceParams,
                 instructions,
@@ -336,10 +257,10 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 error: cancellationError,
                 errorMetadata: buildStoredErrorMetadata({
                     classification: classifyWorkerError(cancellationError),
-                    requestId: ctx.requestId,
+                    requestId: workerCtx.requestId,
                 }),
             });
-            return;
+            return false;
         }
 
         // Emit finalizing status before DB persistence
@@ -385,7 +306,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                         ? `\n\nDocuments generated during this phase:\n${docs.map((d) => `- ${d.name}`).join('\n')}`
                         : '';
 
-                const nameResult = await runInferenceNoStream(ctx, {
+                const nameResult = await runInferenceNoStream(workerCtx, {
                     paramsType: AIParamsType.OpenRouter,
                     instructions:
                         'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs — they are generated automatically and are not relevant. Never include them in the title. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
@@ -443,7 +364,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         // keeps the Worker alive via the GenerationProxyDO that holds its fetch open.
         if (blurbContent) {
             try {
-                const result = await chatActionHandler({ chatId: newChat.id, message: blurbContent }, ctx, {
+                const result = await deps.dispatchBlurb({ chatId: newChat.id, message: blurbContent }, workerCtx, {
                     onEvent: () => {},
                 });
                 const generation = (result as ChatActionResult).generation;
@@ -452,9 +373,11 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 console.error('[summarizer] next-phase initiation failed:', err);
             }
         }
+
+        return true;
     } catch (error: any) {
         const classification = classifyWorkerError(error);
-        const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
+        const errorMetadata = buildStoredErrorMetadata({ classification, requestId: workerCtx.requestId });
         logWorkerError(
             'summarizer',
             buildWorkerErrorLogContext({
@@ -462,7 +385,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 stage: 'catch',
                 chatId,
                 agentMessageId,
-                requestId: ctx.requestId,
+                requestId: workerCtx.requestId,
                 error,
             }),
             error,
@@ -480,7 +403,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                     stage: 'clear_active_agent_message_id',
                     chatId,
                     agentMessageId,
-                    requestId: ctx.requestId,
+                    requestId: workerCtx.requestId,
                     error: saveErr,
                 }),
                 saveErr,
@@ -495,5 +418,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             error,
             errorMetadata,
         });
+
+        return false;
     }
 }

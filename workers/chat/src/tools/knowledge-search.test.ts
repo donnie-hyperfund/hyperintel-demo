@@ -77,7 +77,7 @@ describe('search_knowledge image handling', () => {
 		);
 
 		expect(hydrateArtifactImages).not.toHaveBeenCalled();
-		expect(result).toContain('> Note: Some results contain embedded images.');
+		expect(result).toContain('> Note: Some matches contain `artifact-image://` references to document images.');
 		expect(result).toContain('artifact-image://uploads/project/project-1/artifact-1/images/chart.png');
 	});
 });

@@ -1,20 +1,20 @@
 import { PublicError } from '@common/common/error.helpers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { chatActionHandler } from './chat-handler';
-import { intakeActionHandler } from './intake-handler';
-import { CHAT_CONTEXT_HARD_LIMIT_TOKENS, CHAT_CONTEXT_WARNING_TOKENS } from './utils/context-budget';
+import { chatActionHandler } from '../chat-handler';
+import { intakeActionHandler } from '../intake-handler';
+import { CHAT_CONTEXT_HARD_LIMIT_TOKENS, CHAT_CONTEXT_WARNING_TOKENS } from './context-budget';
 
 const getPromptContentMock = vi.fn();
 const loadChatHistoryMock = vi.fn();
 const estimateInferenceInputTokensMock = vi.fn();
 
-vi.mock('./utils/prompt-loader', () => ({
+vi.mock('./prompt-loader', () => ({
     DEFAULT_LOCAL_PROMPTS_PATH: 'zlocal/prompts',
     getPromptContent: (...args: unknown[]) => getPromptContentMock(...args),
     parseLocalPromptEnv: () => null,
 }));
 
-vi.mock('./utils/stream-utils', () => ({
+vi.mock('./stream-utils', () => ({
     cleanupStreamDO: vi.fn(),
     createEnqueue: vi.fn(),
     createSSEStream: vi.fn(),
@@ -22,8 +22,8 @@ vi.mock('./utils/stream-utils', () => ({
     persistErrorMessage: vi.fn(),
 }));
 
-vi.mock('./utils/context-budget', async () => {
-    const actual = await vi.importActual<typeof import('./utils/context-budget')>('./utils/context-budget');
+vi.mock('./context-budget', async () => {
+    const actual = await vi.importActual<typeof import('./context-budget')>('./context-budget');
     return {
         ...actual,
         estimateInferenceInputTokens: (...args: unknown[]) => estimateInferenceInputTokensMock(...args),
@@ -40,8 +40,9 @@ function buildEm({ chatMetadata = {}, findReturn = [] }: BuildCtxOpts = {}) {
         findOneOrFail: vi
             .fn()
             .mockResolvedValue({ id: 'chat-1', metadata: chatMetadata, project: { id: 'proj-1' } }),
+        findOne: vi.fn().mockResolvedValue(null),
         find: vi.fn().mockResolvedValue(findReturn),
-        create: vi.fn(),
+        create: vi.fn((_entity, data) => ({ ...data, toJSON: () => data })),
         persist: vi.fn(),
         flush: vi.fn().mockResolvedValue(undefined),
     };

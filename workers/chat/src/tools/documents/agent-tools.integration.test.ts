@@ -299,7 +299,7 @@ let eCtx: Ctx;
 function baseInput(userMessage: string) {
 	return {
 		paramsType: AIParamsType.Anthropic as const,
-		params: { model: MODEL, thinking: false } as const,
+		params: { model: MODEL, reasoning: false } as const,
 		instructions: `You are a document management assistant. You have tools to create, edit, read, list, delete, and search documents.
 Always use the tools to complete document tasks. Be concise in your responses.
 When creating documents, use document_type "Other" unless told otherwise.

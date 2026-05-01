@@ -34,6 +34,7 @@
 		"CHAT_OUTPUT_SAFETY_ENABLED": "false",
 		"POSTHOG_HOST": "https://us.i.posthog.com",
 		"ALLOWED_PRESETS": "sonnet",
+		"BLOCKED_PRESETS": "",
 		"DEFAULT_PRESET": "sonnet",
 		"WORKER_NAME": "hi-chat",
 		"WORKER_NAME_FULL": "hi-chat"

@@ -7,7 +7,7 @@
 
 import { runAgentStream } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
-import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
+import { extractInferenceMetadata, type ParamsWithType, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
 import type { ContextMessage } from '@common/ai/inference/types';
 import { PublicError } from '@common/common/error.helpers';
@@ -416,10 +416,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         if (!resolved) {
             throw new Error(`Preset '${presetId}' is not available`);
         }
-        const defaultInference: ParamsWithType = {
-            ...resolved,
-            params: { ...resolved.params, thinking: false },
-        };
+        const defaultInference = withCommonParams(resolved, { reasoning: false });
         const inferenceParams = options.overrideInference ?? defaultInference;
 
         const { allTools, systemPrompt, toolGroups } = preparedInput;

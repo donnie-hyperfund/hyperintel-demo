@@ -1,6 +1,6 @@
 import { runAgentStream } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
-import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
+import { extractInferenceMetadata, type ParamsWithType, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
 import type { ContextMessage } from '@common/ai/inference/types';
 import { ErrorStatus, PublicError } from '@common/common/error.helpers';
@@ -26,6 +26,7 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
+import { handleForceBrief } from './chat-brief-handler';
 import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
 import { type ContextOverflowState, evaluateContextGate, maybeRecordContextOverflow } from './utils/context-overflow';
@@ -40,6 +41,7 @@ import {
 } from './utils/error-metadata';
 import { pickInferenceParams } from './utils/pick-inference-params';
 import { captureWorkerPostHogEvent } from './utils/posthog';
+import { preprocessContext } from './utils/preprocess-context';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
@@ -49,39 +51,6 @@ import {
     loadChatHistory,
     persistErrorMessage,
 } from './utils/stream-utils';
-
-// ============================================================================
-// CONTEXT PREPROCESSING
-// ============================================================================
-
-/** Regex for document directives injected by finalize_document */
-export const DOCUMENT_DIRECTIVE_REGEX = /::document\[[^\]]+\]\{[^}]+\}/g;
-
-/**
- * Preprocess context messages before sending to inference.
- * Strips injected content (like document directives) that the model shouldn't see.
- */
-export function preprocessContext(messages: any[]): any[] {
-    return messages.map((msg) => {
-        // Only process assistant messages with blocks
-        if (msg.role !== 'assistant' || !msg.blocks) return msg;
-
-        // Process blocks - strip directives from text blocks
-        const processedBlocks = msg.blocks
-            .map((block: any) => {
-                if (block.type !== 'text') return block;
-                const cleanedContent = block.content?.replace(DOCUMENT_DIRECTIVE_REGEX, '').trim() ?? '';
-                return { ...block, content: cleanedContent };
-            })
-            .filter((b: any) => b.type !== 'text' || b.content); // Remove empty text blocks
-
-        // Also clean the content field if present
-        const cleanedContent =
-            typeof msg.content === 'string' ? msg.content.replace(DOCUMENT_DIRECTIVE_REGEX, '').trim() : msg.content;
-
-        return { ...msg, blocks: processedBlocks, content: cleanedContent };
-    });
-}
 
 export interface ChatHandlerOptions {
     /** Override inference params (model/provider). If not set, uses default OpenRouter config. */
@@ -97,7 +66,8 @@ export interface ChatHandlerOptions {
 }
 
 export interface ChatActionResult {
-    userMessageId: string;
+    /** Set when a user message was persisted. Absent for force-brief States A/C (summarize-only — no user input). */
+    userMessageId?: string;
     agentMessageId: string;
     /** Resolves when generation completes. Present when onEvent is provided. */
     generation?: Promise<void>;
@@ -251,14 +221,14 @@ async function buildSystemPrompt(
 
 type ChatToolsAndGroups = ReturnType<typeof getChatToolsAndGroups>;
 
-type PreparedChatGenerationInput = ChatToolsAndGroups & {
+export type PreparedChatGenerationInput = ChatToolsAndGroups & {
     contextMessages?: ContextMessage[];
     initialSystemPrompt: string;
     localPath: string | null;
     estimatedTokens: number;
 };
 
-async function prepareChatGenerationInput({
+export async function prepareChatGenerationInput({
     data,
     ctx,
     chat,
@@ -354,6 +324,14 @@ export async function chatActionHandler(
     );
 
     const isNudge = message === null;
+
+    // Force-brief routing — schema enforces `message === null` when `force_brief === true`.
+    if (data.force_brief === true) {
+        return handleForceBrief({
+            data, ctx, options, chat,
+            deps: { dispatchBlurb: chatActionHandler, prepareChatGenerationInput, runGeneration },
+        });
+    }
 
     // Nudge mode: skip user message creation, check if last message is a user message
     if (isNudge) {
@@ -485,7 +463,7 @@ export async function chatActionHandler(
 // GENERATION — runs inline in SSE stream, pushes events to ChatStream DO
 // ============================================================================
 
-interface GenerationParams {
+export interface GenerationParams {
     data: SendChatActionDto;
     ctx: Ctx;
     options: ChatHandlerOptions;
@@ -497,7 +475,7 @@ interface GenerationParams {
     safetyPromise: Promise<Awaited<ReturnType<typeof safetyCheck>> | null>;
 }
 
-async function runGeneration(params: GenerationParams): Promise<void> {
+export async function runGeneration(params: GenerationParams): Promise<void> {
     const { data, ctx, options, chat, agentMessageId, ugStub, preparedInput, safetyPromise } = params;
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
@@ -566,10 +544,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         if (!resolved) {
             throw new Error(`Preset '${presetId}' is not available`);
         }
-        const defaultInference: ParamsWithType = {
-            ...resolved,
-            params: { ...resolved.params, searchEnabled: true },
-        };
+        const defaultInference = withCommonParams(resolved, { searchEnabled: true });
 
         const { inferenceParams, effectivePresetOverride } = pickInferenceParams({
             defaultInference,
