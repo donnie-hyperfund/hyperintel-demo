@@ -4,7 +4,9 @@ import { estimateContextTokens, estimateTextTokens, estimateToolTokens } from '@
 import { ErrorStatus, PublicError } from '@common/common/error.helpers';
 
 export const CHAT_CONTEXT_LIMIT_TOKENS = 180_000;
-export const SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS = 165_000;
+export const CHAT_CONTEXT_WARNING_TOKENS = 180_000;
+export const CHAT_CONTEXT_HARD_LIMIT_TOKENS = 300_000;
+export const SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS = 180_000;
 
 export function estimateInferenceInputTokens({
     instructions,

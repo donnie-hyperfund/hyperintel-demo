@@ -3,7 +3,7 @@ import { buildMessageUsage } from '@common/ai/agent/usage-builder';
 import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
 import type { ContextMessage } from '@common/ai/inference/types';
-import { PublicError } from '@common/common/error.helpers';
+import { ErrorStatus, PublicError } from '@common/common/error.helpers';
 import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
@@ -26,11 +26,9 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
-import {
-    CHAT_CONTEXT_LIMIT_TOKENS,
-    createContextLimitError,
-    estimateInferenceInputTokens,
-} from './utils/context-budget';
+import { estimateInferenceInputTokens } from './utils/context-budget';
+import { buildContextGateError } from './utils/context-gate-error';
+import { type ContextOverflowState, evaluateContextGate, maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
@@ -40,6 +38,7 @@ import {
     extractRawErrorMessage,
     logWorkerError,
 } from './utils/error-metadata';
+import { pickInferenceParams } from './utils/pick-inference-params';
 import { captureWorkerPostHogEvent } from './utils/posthog';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
@@ -256,6 +255,7 @@ type PreparedChatGenerationInput = ChatToolsAndGroups & {
     contextMessages?: ContextMessage[];
     initialSystemPrompt: string;
     localPath: string | null;
+    estimatedTokens: number;
 };
 
 async function prepareChatGenerationInput({
@@ -298,8 +298,14 @@ async function prepareChatGenerationInput({
         preprocessContext,
     });
 
-    if (estimatedTokens > CHAT_CONTEXT_LIMIT_TOKENS) {
-        return createContextLimitError(estimatedTokens);
+    const gate = evaluateContextGate({
+        estimatedTokens,
+        metadataOverflow: chat.metadata?.contextOverflow as ContextOverflowState | undefined,
+        forceBrief: data.force_brief,
+        bypassContextWarning: data.bypass_context_warning,
+    });
+    if (gate) {
+        return new PublicError(ErrorStatus.BadRequest, buildContextGateError(gate));
     }
 
     return {
@@ -307,6 +313,7 @@ async function prepareChatGenerationInput({
         toolGroups,
         initialSystemPrompt,
         localPath,
+        estimatedTokens,
         // Image sends need a reload after image files are linked to the persisted user message
         // so loadChatHistory can attach signed image URLs.
         ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
@@ -563,7 +570,15 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             ...resolved,
             params: { ...resolved.params, searchEnabled: true },
         };
-        const inferenceParams = options.overrideInference ?? defaultInference;
+
+        const { inferenceParams, effectivePresetOverride } = pickInferenceParams({
+            defaultInference,
+            estimatedTokens: preparedInput.estimatedTokens,
+            bypassContextWarning: data.bypass_context_warning,
+            forceBrief: data.force_brief,
+            message,
+            overrideInference: options.overrideInference,
+        });
 
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
@@ -684,9 +699,15 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                 }),
                                 event.error!.raw,
                             );
+                            maybeRecordContextOverflow(
+                                chat,
+                                event.error!.classification,
+                                preparedInput.estimatedTokens,
+                            );
                         }
                         const msgMetadata = {
                             preset: presetId,
+                            ...(effectivePresetOverride && { effectivePreset: effectivePresetOverride }),
                             inference: extractInferenceMetadata(inferenceParams),
                             ...(errorMetadata && { error: errorMetadata }),
                             ...(messageUsage && { usage: messageUsage }),
@@ -902,6 +923,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             }),
             error,
         );
+        maybeRecordContextOverflow(chat, classification, preparedInput.estimatedTokens);
         await persistErrorMessage({
             em: em!,
             chatId,
