@@ -6,7 +6,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { downloadBlob } from '@/lib/utils';
 
 type UnsupportedFileInfoProps = {
-    src: string;
+    src?: string;
     fileName?: string;
 };
 

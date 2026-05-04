@@ -7,7 +7,7 @@ import { UnsupportedFileInfo } from './unsupported-file-info';
 
 type FilePreviewProps = {
     /** URL for PDF or image content */
-    src: string;
+    src?: string;
     /** MIME type — determines which viewer renders */
     mimeType: string;
     /** Text content for markdown rendering */
@@ -19,11 +19,11 @@ type FilePreviewProps = {
 };
 
 export function FilePreview({ src, mimeType, content, viewportGap, fileName }: FilePreviewProps) {
-    if (mimeType === 'application/pdf') {
+    if (mimeType === 'application/pdf' && src) {
         return <PdfViewer src={src} viewportGap={viewportGap} />;
     }
 
-    if (mimeType.startsWith('image/')) {
+    if (mimeType.startsWith('image/') && src) {
         return <ImageViewer src={src} viewportGap={viewportGap} />;
     }
 

@@ -8,6 +8,7 @@ import { getArtifactDocumentType } from '@/lib/artifacts/utils';
 import type { ArtifactDto } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
 import { ArtifactListItem } from '@/modules/artifacts/components/artifact-list-item';
+import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 
 const borderColorByType: Record<string, string> = {
     'Company Profile': 'border-l-emerald-500',
@@ -42,10 +43,19 @@ export function ResourceItem({
     itemRef?: Ref<HTMLDivElement>;
 }) {
     const [isRemoving, setIsRemoving] = useState(false);
+    const { openPanel } = useActivePanelContext();
     const docType = getArtifactDocumentType(artifact);
     const borderClass = (docType && borderColorByType[docType]) ?? 'border-l-transparent';
     const alwaysAttached = isPublicImport(artifact);
     const href = getResourceRoute(artifact);
+
+    const handlePreview = () => {
+        openPanel({
+            panel: 'file-preview',
+            artifactId: artifact.id,
+            version: artifact.version,
+        });
+    };
 
     const handleRemove = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -69,6 +79,7 @@ export function ResourceItem({
                 shouldDisplayVersionInfo={false}
                 badge={alwaysAttached && <AlwaysAttachedBadge />}
                 href={href}
+                onClick={handlePreview}
             />
             {alwaysAttached ? (
                 <AlwaysAttachedInfo />
