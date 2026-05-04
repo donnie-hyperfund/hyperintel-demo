@@ -28,6 +28,7 @@ import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
+import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
 import {
     CHAT_CONTEXT_LIMIT_TOKENS,
     createContextLimitError,
@@ -74,8 +75,8 @@ const DOCUMENT_INSTRUCTIONS: Record<
 
 function getIntakeToolsAndGroups() {
     return {
-        allTools: [...createDocumentTools(), ...createKnowledgeTools()],
-        toolGroups: [DocumentToolGroup, KnowledgeSearchToolGroup],
+        allTools: [...createDocumentTools(), ...createKnowledgeTools(), ...createUserDecisionTools()],
+        toolGroups: [DocumentToolGroup, KnowledgeSearchToolGroup, UserDecisionToolGroup],
     };
 }
 
@@ -391,12 +392,16 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         const userId = chat.user!.id;
 
-        const agentCtx: DocumentToolsContext & KnowledgeSearchContext = {
+        const agentCtx: DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             em: em!,
             userId,
             chatId: chat.id,
             draftManager: new DraftManager(),
             createdVersionIds,
+            // UserDecisionContext — request_user_decision pushes the prompt event
+            // through this pusher and long-polls the DO for the user's click.
+            pusher,
+            streamDO,
             onVersionCreated: (event) => {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
@@ -435,6 +440,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                 toolGroups,
                 config: {
                     maxToolCalls: 100,
+                    behavioralGuidance: [
+                        'DECISION ESCALATION: Use `request_user_decision` for GENUINE ambiguity only — multiple valid paths where the user must pick (project type at ambiguous initiation, persona disambiguation, framework branching, deliverable type, intent ambiguity, tool errors with multiple named recovery paths). Do NOT silently pick yourself, and do NOT ask in plain text when concrete options exist. FORBIDDEN: (1) refusal-disguise — presenting alternatives when the user already gave an unambiguous command (that is Authority Inversion in tool-call form; if execution is blocked, say so plainly); (2) false ambiguity — asking about details a competent SME can reasonably default. Pre-flight test: "Could a competent SME proceed without clarification?" If yes, proceed. After the user clicks, act on the choice immediately without re-confirming.',
+                    ],
                     statusUpdates: { enabled: true },
                     abortSignal: abortController.signal,
                     onTurnComplete: createOnTurnComplete(agentCtx),

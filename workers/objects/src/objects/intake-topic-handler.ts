@@ -21,6 +21,15 @@ const MessageCreatedActionSchema = z.object({
     message: z.unknown(),
     tempId: z.string().uuid().optional(),
 });
+const ToolApproveActionSchema = z.object({ identifier: z.string(), toolCallId: z.string() });
+const ToolRejectActionSchema = z.object({ identifier: z.string(), toolCallId: z.string() });
+const DecisionSelectActionSchema = z.object({
+    identifier: z.string(),
+    toolCallId: z.string(),
+    value: z.string(),
+    /** Populated when the user picked "Other" and typed a custom answer. */
+    freeText: z.string().max(2000).optional(),
+});
 
 // Storage key prefix for the intake stream registry
 const SK_PREFIX = 'intake:stream:';
@@ -40,8 +49,8 @@ const SK_PREFIX = 'intake:stream:';
  * This class adds:
  *  - checkPermission() — user owns the intake chat (type: 'intake', direct user ownership)
  *  - registerStream / clearStream — system actions from the intake worker
- *
- * No tool approval actions — intake document tools are not approval-gated.
+ *  - tool_approve / tool_reject — client actions forwarded to ChatStreamDO
+ *  - decision_select — client action forwarded to ChatStreamDO (resolves request_user_decision)
  */
 export class IntakeTopicHandler extends StreamTopicHandler {
     // ========================================================================
@@ -115,6 +124,26 @@ export class IntakeTopicHandler extends StreamTopicHandler {
             case 'clearStream': {
                 const { identifier: chatId } = ClearStreamActionSchema.parse(payload);
                 await this.storage.delete(`${SK_PREFIX}${chatId}`);
+                return;
+            }
+
+            // --- Client actions (forwarded to ChatStream DO) ---
+            case 'tool_approve': {
+                const { identifier: chatId, toolCallId } = ToolApproveActionSchema.parse(payload);
+                const stub = await this.resolveStream(chatId, env);
+                if (stub) await stub.toolApprove(toolCallId);
+                return;
+            }
+            case 'tool_reject': {
+                const { identifier: chatId, toolCallId } = ToolRejectActionSchema.parse(payload);
+                const stub = await this.resolveStream(chatId, env);
+                if (stub) await stub.toolReject(toolCallId);
+                return;
+            }
+            case 'decision_select': {
+                const { identifier: chatId, toolCallId, value, freeText } = DecisionSelectActionSchema.parse(payload);
+                const stub = await this.resolveStream(chatId, env);
+                if (stub) await stub.decisionSelect(toolCallId, value, freeText);
                 return;
             }
 

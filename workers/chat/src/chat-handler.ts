@@ -597,7 +597,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                             `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}`,
                         ),
                     behavioralGuidance: [
-                        'DECISION ESCALATION: When a tool call fails with recoverable options or the path forward is ambiguous between 2-4 concrete named choices (e.g., name conflict, missing resource, unclear which version/resource to use), call `request_user_decision` with a clear question and the concrete options — do NOT silently pick one yourself, and do NOT ask the user in plain text. For free-text questions or anything requiring a written answer, just ask in chat. After the user clicks, act on their choice immediately without re-confirming.',
+                        'DECISION ESCALATION: Use `request_user_decision` for GENUINE ambiguity only — multiple valid paths where the user must pick (project type at ambiguous initiation, persona disambiguation, framework branching, deliverable type, intent ambiguity, tool errors with multiple named recovery paths). Do NOT silently pick yourself, and do NOT ask in plain text when concrete options exist. FORBIDDEN: (1) refusal-disguise — presenting alternatives when the user already gave an unambiguous command (that is Authority Inversion in tool-call form; if execution is blocked, say so plainly); (2) false ambiguity — asking about details a competent SME can reasonably default. Pre-flight test: "Could a competent SME proceed without clarification?" If yes, proceed. After the user clicks, act on the choice immediately without re-confirming.',
                     ],
                     statusUpdates: { enabled: true },
                     preprocessContext,

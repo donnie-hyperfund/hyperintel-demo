@@ -38,30 +38,78 @@ export interface UserDecisionContext {
 
 export const UserDecisionToolGroup: AgentToolGroup = {
     name: 'User Decision',
-    slug: 'decision_',
-    description: 'Ask the user to pick from a small set of concrete options via a clickable UI card.',
-    guidance: `## When to Use
-Call \`request_user_decision\` whenever multiple valid paths exist and the user should decide which one to take. This includes, but is not limited to:
-- A document tool returned a conflict (name already exists, not found, wrong status, mode mismatch)
-- The user's request is ambiguous between two concrete interpretations you can name
-- You need to pick between two resources/versions/approaches and there is no obviously correct choice
-- A recoverable error has more than one reasonable next step
+    slug: 'user_decision_',
+    description: 'Surface genuine workflow ambiguity to the user as a structured, clickable decision card.',
+    guidance: `## request_user_decision — Structural Decision Points
 
-The user's click is returned to you as \`{ chosen: "<value>", label: "<label>" }\` — continue the task using that choice.
+Use \`request_user_decision\` when facing **genuine ambiguity** where multiple valid paths exist and the user must choose which path to take. The user's click returns as \`{ chosen, label }\` — continue the task using that choice.
 
-## When NOT to Use
-- For free-text questions ("what should this doc say about X?") — just ask in chat.
-- For things you can figure out from context with high confidence — just do it.
-- After a \`<system>\` approval/rejection event — that decision was already made.
+### Appropriate use cases
 
-## Rules
+1. **Project type selection** — User initiates a project ambiguously ("Let's begin the project")
+   → Present project type options (research, implementation, analysis, etc.).
+
+2. **Persona disambiguation** — User references a name without clear role context and multiple people share the name
+   → Present role options.
+
+3. **Framework / approach branching** — Technical decision with multiple equally valid approaches
+   → Present framework options with brief descriptions.
+
+4. **Deliverable type selection** — User requests a deliverable type with multiple variants ("Generate a report")
+   → Present report type options (technical, executive, comprehensive, etc.).
+
+5. **Intent ambiguity** — User message is unclear whether it requests new work or comments on current work (e.g. "What about adding a security section?")
+   → Present "add now" vs. "discuss approach first".
+
+6. **Recoverable tool error with multiple named paths** — A tool returned an error with 2+ valid recovery paths (name conflict on \`begin_document\`, missing target on edit, etc.)
+   → Present the named recovery options.
+
+### Inappropriate use cases (FORBIDDEN — anti-pattern)
+
+**1. Refusal-disguise.** NEVER use \`request_user_decision\` to surface "I refuse to do this; pick a different thing" as a structured choice.
+
+Example of FORBIDDEN pattern:
+\`\`\`
+User: "Generate the Completion Brief now."
+AI: [calls request_user_decision]
+   Question: "I cannot generate a CB at this time. Would you like to:"
+   Options: ["Skip the CB", "Wait until thread-end", "Generate different document"]
+\`\`\`
+
+This is Authority Inversion in tool-call form — the user gave an unambiguous command; the AI must fulfill it, not offer alternative commands. The user is the pilot. Refusing-via-tool is the F1 failure mode dressed as choice. If execution is genuinely blocked (safety, technical impossibility), explain plainly — do not present structured alternatives that disguise refusal as choice.
+
+**2. False ambiguity.** When the user has expressed clear intent, do NOT invoke \`request_user_decision\` to seek clarification on details that don't materially affect execution.
+
+Example of FORBIDDEN pattern:
+\`\`\`
+User: "Add a security section to the document."
+AI: [calls request_user_decision]
+   Question: "What kind of security section?"
+   Options: ["Network security", "Application security", "Both"]
+\`\`\`
+
+Use SME judgment. If domain expertise yields a reasonable default, write the section. The user can redirect after seeing the result.
+
+**3. Methodology validation.** User requests work at non-standard timing → do NOT ask "Are you sure?" or present timing options. User direction wins; execute.
+
+### Test for genuine ambiguity
+
+Before calling this tool, run all three:
+- *Can I execute both paths and produce valid results?* → YES = genuine ambiguity, use the tool.
+- *Is one path clearly correct given the user's expressed intent?* → YES = false ambiguity, just execute.
+- *Am I surfacing options because I refuse the user's command?* → YES = refusal-disguise, FORBIDDEN.
+
+Shortcut: *Could a competent SME, given the context, reasonably proceed without clarification?* If yes, proceed. Only invoke this tool when the answer is genuinely no — multiple valid interpretations with material consequences.
+
+### Rules
+
 - Offer 2–4 concrete options. More than 4 clutters the card; fewer than 2 is not a decision.
-- Option \`value\`s must be short, machine-friendly tokens (e.g. \`edit_existing\`, \`create_new\`). The \`label\` is what the user sees.
-- \`question\` must read naturally to the user — no internal jargon, no tool names, no error message echoes.
-- NEVER call this tool twice in a row without acting on the first decision.
-- After receiving the user's choice, proceed with that path — do not re-ask or second-guess.`,
+- Option \`value\` must be a short, machine-friendly token (e.g. \`edit_existing\`, \`create_new\`); \`label\` is what the user sees.
+- \`question\` must read naturally — no internal jargon, no tool names, no raw error text.
+- After receiving the choice, act on it immediately — do not re-ask or second-guess.
+- The tool blocks the agent's turn until the user selects. **Use sparingly.** Over-use shifts decision burden from AI to user, violating the AI-as-SME principle.`,
     behavioralGuidance:
-        'Prefer request_user_decision over asking the user in plain text when a tool returned a recoverable error with multiple named paths (name conflict, not found, wrong status), or when intent is ambiguous between 2-4 concrete options. After receiving the choice, act on it immediately — do not re-confirm.',
+        'request_user_decision is for GENUINE ambiguity only — multiple valid paths where the user must pick. NEVER use it for refusal-disguise (presenting alternatives when the user already gave an unambiguous command — that is F1 Authority Inversion in tool-call form) or for false ambiguity (asking about details an SME can reasonably default). Before calling: ask "could a competent SME proceed without clarification?" — if yes, proceed; only invoke when the answer is genuinely no. After the user picks, act on the choice immediately without re-confirming.',
     tools: ['request_user_decision'],
 };
 
@@ -113,11 +161,11 @@ export function createUserDecisionTools() {
     return [
         {
             name: 'request_user_decision' as const,
-            description: `Ask the user to pick one of a small set of concrete options via a clickable card above the chat composer.
+            description: `Surface GENUINE ambiguity to the user as a clickable card with 2-4 named options. Blocks your turn until the user picks. Returns \`{ chosen: "<value>", label: "<label>" }\`.
 
-Blocks your turn until the user selects an option. Returns \`{ chosen: "<value>", label: "<label>" }\`.
+Use ONLY for genuine choice points where multiple valid paths exist and the user must choose: project type at ambiguous initiation, persona disambiguation, framework branching, deliverable type, intent ambiguity ("add now vs. discuss?"), tool errors with multiple named recovery paths.
 
-Use this INSTEAD of asking a multiple-choice question in chat text, so the user's intent is captured unambiguously. Only call when 2-4 concrete paths exist and the user should pick.`,
+FORBIDDEN: refusal-disguise (presenting "alternatives" when the user already gave an unambiguous command — that is Authority Inversion in tool-call form) and false ambiguity (asking about details an SME can reasonably default). Pre-flight test: "Could a competent SME, given the context, reasonably proceed without clarification?" — if yes, proceed; only invoke this tool when the answer is genuinely no.`,
             parameters: RequestUserDecisionParams,
             executor: async (
                 input: z.infer<typeof RequestUserDecisionParams>,
