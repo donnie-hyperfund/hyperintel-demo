@@ -1,20 +1,3 @@
-/**
- * User Decision Tools
- *
- * `request_user_decision` surfaces a structured choice to the user as a clickable
- * card above the chat composer, then blocks the agent's turn until the user picks
- * one of the offered options. Replaces the previous "ask the user in plain text"
- * approach with a hard-structural contract — the model actually waits on
- * `tool_result`, and the value it receives is guaranteed to be one the agent
- * itself offered (validated server-side in the DO).
- *
- * Use for: name conflicts, missing resources, ambiguous intent, any branch where
- * multiple valid paths exist and the user should be the one to pick.
- *
- * Do NOT use for: confirmations of a decision the user already stated (just do it),
- * anything that can be inferred with confidence, yes/no questions phrased as chat.
- */
-
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import { z } from 'zod';
 import type { DecisionOption, StreamEvent } from '@/lib/schema/stream';
