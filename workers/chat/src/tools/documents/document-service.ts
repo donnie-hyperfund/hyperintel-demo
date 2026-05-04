@@ -11,7 +11,7 @@
  * - Versions have status: proposed | approved | rejected | superseded
  * - Only ONE proposed version can exist per artifact at a time
  * - When agent creates new version while proposed exists → old becomes superseded
- * - current_version always points to latest approved (null if none approved yet)
+ * - current_version points to the latest actioned version (approved, rejected, or deleted)
  */
 
 import type { EntityManager } from '@mikro-orm/core';
@@ -374,10 +374,17 @@ export interface DocumentInfo {
     id: string;
     name: string;
     title: string;
+    /** artifact.current_version — the latest actioned version (approved, rejected, or deleted). */
     currentVersion: number | null;
     currentContent: string | null;
     currentStatus: VersionStatus | null;
     currentDocumentType: string | null;
+    /** The most recent version with status 'approved'. May differ from current_version if a rejection happened after. */
+    approvedVersion: number | null;
+    approvedContent: string | null;
+    approvedDocumentType: string | null;
+    /** The highest version number across all versions (artifact.version). */
+    latestVersion: number;
     proposedVersion: number | null;
     proposedContent: string | null;
     proposedDocumentType: string | null;
@@ -388,8 +395,6 @@ export interface DocumentInfo {
     lineCount: number;
     /** Whether this artifact is a read-only public resource (or imported from one) */
     isReadOnly: boolean;
-    /** Whether this artifact is a PECP (auto-generated, cannot be edited directly) */
-    isPECP: boolean;
 }
 
 /**
@@ -413,10 +418,11 @@ export async function findDocumentByName(
     const versions = artifact.versions.getItems();
     const proposed = versions.find((v) => v.status === 'proposed');
     const rejected = versions.filter((v) => v.status === 'rejected').sort((a, b) => b.version - a.version)[0];
+    const lastApproved = versions.filter((v) => v.status === 'approved').sort((a, b) => b.version - a.version)[0];
 
     const currentContent = artifact.current_version?.content ?? null;
     const proposedContent = proposed?.content ?? null;
-    const rejectedContent = rejected?.content ?? null;
+    const approvedContent = lastApproved?.content ?? null;
 
     // Public artifacts and copies imported from public artifacts are read-only
     const isReadOnly = artifact.is_public || !!(artifact.metadata as any)?.importedFromPublic;
@@ -426,19 +432,22 @@ export async function findDocumentByName(
         name: artifact.key,
         title: proposed?.title ?? artifact.current_version?.title ?? '',
         currentVersion: artifact.current_version?.version ?? null,
-        currentContent,
+        currentContent: artifact.current_version?.content ?? null,
         currentStatus: artifact.current_version?.status ?? null,
         currentDocumentType: artifact.current_version?.document_type ?? null,
+        approvedVersion: lastApproved?.version ?? null,
+        approvedContent,
+        approvedDocumentType: lastApproved?.document_type ?? null,
+        latestVersion: artifact.version,
         proposedVersion: proposed?.version ?? null,
         proposedContent,
         proposedDocumentType: proposed?.document_type ?? null,
         rejectedVersion: rejected?.version ?? null,
-        rejectedContent,
+        rejectedContent: rejected?.content ?? null,
         rejectedDocumentType: rejected?.document_type ?? null,
         rejectionReason: rejected?.rejection_reason ?? null,
-        lineCount: countLines(proposedContent ?? currentContent ?? ''),
+        lineCount: countLines(proposedContent ?? approvedContent ?? ''),
         isReadOnly,
-        isPECP: !!(artifact as any).is_pecp,
     };
 }
 
@@ -471,7 +480,6 @@ export async function listDocuments(
         {
             $and: [
                 scopeFilter(scope),
-                { is_pecp: false },
                 { $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
             ],
         } as any,

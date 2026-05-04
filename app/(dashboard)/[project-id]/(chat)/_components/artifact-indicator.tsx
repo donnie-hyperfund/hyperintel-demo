@@ -87,7 +87,6 @@ export function ArtifactIndicator({
                         key: fetchedArtifact.key,
                         currentVersion: fetchedArtifact.currentVersion ?? undefined,
                         proposedVersion: fetchedArtifact.proposedVersion ?? undefined,
-                        pecp: fetchedArtifact.pecp ?? undefined,
                         updatedAt: fetchedArtifact.updatedAt,
                         isLoading: false,
                     },

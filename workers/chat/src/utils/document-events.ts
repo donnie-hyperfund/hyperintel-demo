@@ -1,11 +1,14 @@
 /**
  * Document event handling for frontend streaming.
  *
- * Handles the new multi-call document tools:
+ * Handles the multi-call document tools:
  * - begin_document → document_start
  * - write_document → document_delta (streamed) + document_progress
  * - patch_document → document_edit
  * - finalize_document → document_complete
+ *
+ * The PECP / internal-document summary is a separate concern handled by the
+ * pecp-generator (which pushes its own `summary_*` events directly).
  */
 
 import { createStreamFieldParser } from '@common/ai/agent';
@@ -30,6 +33,7 @@ export type DocumentEvent =
           estimatedChars?: number;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           loadedVersion?: number;
+          nextVersion?: number;
           rejectionReason?: string;
       }
     | { type: 'document_delta'; name: string; content: string }
@@ -49,6 +53,7 @@ export type DocumentEvent =
           action: string;
           status: 'proposed';
           supersededVersion?: number;
+          summaryPending?: boolean;
       };
 
 export interface DocumentContext {
@@ -59,7 +64,7 @@ export interface DocumentContext {
 }
 
 /**
- * Creates a document event handler for the new multi-call document tools.
+ * Creates a document event handler for the multi-call document tools.
  *
  * Flow:
  * 1. begin_document result → emit document_start
@@ -75,8 +80,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
         name: string;
         title: string;
         isInternal: boolean;
-        isPECP?: boolean;
-        parentDocument?: string;
     } | null = null;
 
     // Parser for write_document content streaming
@@ -124,14 +127,12 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                 }
                 if (!result) return;
 
-                // begin_document: set active doc and emit document_start (or pecp_start for PECP)
+                // begin_document: set active doc and emit document_start
                 if (result.status === 'editing' && result.name) {
                     activeDoc = {
                         name: result.name,
                         title: result.title || result.name,
                         isInternal: result.is_internal ?? true,
-                        isPECP: result.isPECP ?? false,
-                        parentDocument: result.parentDocument,
                     };
 
                     // Reset progress tracking
@@ -142,7 +143,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES.Other)
                         : DOCUMENT_CHAR_ESTIMATES.Other;
 
-                    const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
+                    const pendingVersion = result.nextVersion ?? (result.loadedVersion ? result.loadedVersion + 1 : 1);
 
                     const startEvent: DocumentEvent = {
                         type: 'document_start',
@@ -157,15 +158,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     if (result.document_type) {
                         startEvent.documentType = result.document_type;
                     }
-                    if (activeDoc.isPECP && activeDoc.parentDocument) {
-                        (startEvent as any).isPECP = true;
-                        (startEvent as any).parentDocument = activeDoc.parentDocument;
-                    }
                     if (result.loadedFrom) {
                         startEvent.loadedFrom = result.loadedFrom;
                     }
                     if (result.loadedVersion !== undefined) {
                         startEvent.loadedVersion = result.loadedVersion;
+                    }
+                    if (result.nextVersion !== undefined) {
+                        startEvent.nextVersion = result.nextVersion;
                     }
                     if (result.rejectionReason) {
                         startEvent.rejectionReason = result.rejectionReason;
@@ -176,9 +176,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
 
                 // patch_document: canonical edits live on draftManager side channel (keyed by tool_call_id)
                 if (event.tool === 'patch_document' && result.status === 'edited' && activeDoc) {
-                    const edits: EmittedEdit[] = event.id
-                        ? (ctx.draftManager?.takeAppliedEdits(event.id) ?? [])
-                        : [];
+                    const edits: EmittedEdit[] = event.id ? (ctx.draftManager?.takeAppliedEdits(event.id) ?? []) : [];
 
                     if (!activeDoc.isInternal && edits.length) {
                         emit({
@@ -204,12 +202,11 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             status: 'proposed',
                         };
 
-                        if (result.isPECP && activeDoc?.parentDocument) {
-                            (completeEvent as any).isPECP = true;
-                            (completeEvent as any).parentDocument = activeDoc.parentDocument;
-                        }
                         if (result.supersededVersion !== undefined) {
                             completeEvent.supersededVersion = result.supersededVersion;
+                        }
+                        if (result.summaryPending) {
+                            completeEvent.summaryPending = true;
                         }
 
                         emit(completeEvent);
@@ -233,29 +230,16 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             onDelta: (delta) => {
                                 if (!activeDoc) return;
 
-                                // Track chars for progress (always, even for internal docs)
                                 accumulatedChars += delta.length;
+                                maybeEmitProgress();
 
-                                if (activeDoc.isPECP && activeDoc.parentDocument) {
-                                    // PECP: emit document_delta with isPECP flag and parent name
+                                // Only emit content deltas for non-internal docs
+                                if (!activeDoc.isInternal) {
                                     emit({
                                         type: 'document_delta',
                                         name: activeDoc.name,
                                         content: delta,
-                                        isPECP: true,
-                                        parentDocument: activeDoc.parentDocument,
-                                    } as any);
-                                } else {
-                                    maybeEmitProgress();
-
-                                    // Only emit content deltas for non-internal docs
-                                    if (!activeDoc.isInternal) {
-                                        emit({
-                                            type: 'document_delta',
-                                            name: activeDoc.name,
-                                            content: delta,
-                                        });
-                                    }
+                                    });
                                 }
                             },
                         });

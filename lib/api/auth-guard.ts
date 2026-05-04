@@ -24,14 +24,22 @@ async function ensureUser(clerkId: string, em: EntityManager): Promise<UserEntit
     const lastName = clerkUser?.lastName;
     const name = firstName && lastName ? `${firstName} ${lastName}` : (firstName ?? lastName ?? null);
 
-    const user = await em.upsert(UserEntity, {
-        clerkId,
-        email,
-        name,
-        emailConfirmed: false,
-    });
+    const user = await em.upsert(
+        UserEntity,
+        {
+            clerkId,
+            email,
+            name,
+            emailConfirmed: false,
+        },
+        {
+            onConflictFields: ['clerkId'],
+            onConflictMergeFields: ['email', 'name'],
+        },
+    );
     await em.flush();
-    return user;
+    const created = await em.findOneOrFail(UserEntity, { clerkId });
+    return created;
 }
 
 /**

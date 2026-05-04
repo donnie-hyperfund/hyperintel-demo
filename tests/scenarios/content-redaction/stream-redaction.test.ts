@@ -43,7 +43,7 @@ function simulateEdit(
 	const isInternal = opts?.is_internal ?? true;
 	handle({ type: "tool_start", tool: "begin_document", id: "tc1" });
 	handle({ type: "tool_result", tool: "begin_document", id: "tc1", success: true,
-		result: JSON.stringify({ status: "editing", name: "doc", title: "Doc", mode: "edit", is_internal: isInternal, loadedFrom: "approved", loadedVersion: 1 }) });
+		result: JSON.stringify({ status: "editing", name: "doc", title: "Doc", mode: "edit", is_internal: isInternal, loadedFrom: "approved", loadedVersion: 1, nextVersion: 2 }) });
 	handle({ type: "tool_start", tool: "patch_document", id: "tc2" });
 	// Real executor stashes applied edits by tool_call_id; mirror that here.
 	draftManager.setAppliedEdits("tc2", [{ startLine: 1, endLine: 1, oldContent: "a", newContent: "b" }]);

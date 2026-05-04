@@ -7,6 +7,9 @@ export const VERSION_STATUSES = ['proposed', 'approved', 'rejected', 'superseded
 export const VersionStatusSchema = z.enum(VERSION_STATUSES);
 export type VersionStatus = z.infer<typeof VersionStatusSchema>;
 
+/** Terminal/dead-end statuses. The latest version can only be restored when it has one of these. */
+export const TERMINAL_VERSION_STATUSES: readonly VersionStatus[] = ['rejected', 'superseded', 'deleted'] as const;
+
 export const INTERNAL_DOCUMENTS = [
     'Genesis DNA',
     'Legacy DNA',
@@ -24,7 +27,6 @@ export const DOCUMENT_TYPES = [
     // 'Analysis',
     'Research Report',
     'Executive Summary',
-    'PECP',
     'Other',
 ] as const;
 export const DocumentTypeSchema = z.enum(DOCUMENT_TYPES);
@@ -47,9 +49,11 @@ export const DOCUMENT_CHAR_ESTIMATES: Record<DocumentType, number> = {
     'Human Persona': 8000,
     'Research Report': 14000,
     'Executive Summary': 10000,
-    PECP: 4000,
     Other: 14000,
 };
+
+/** Estimated character count for PECP / internal-document summary used during streaming progress. */
+export const SUMMARY_INTERNAL_CHAR_ESTIMATE = 4000;
 
 /** Document types that should be published to user scope on approval */
 export const PUBLISHABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['Legacy DNA'] as const;
@@ -100,6 +104,11 @@ export const GetArtifactQuerySchema = z.object({
 });
 export type GetArtifactQueryDto = z.infer<typeof GetArtifactQuerySchema>;
 
+export const ListArtifactVersionsQuerySchema = z.object({
+    key: z.string().min(1),
+});
+export type ListArtifactVersionsQueryDto = z.infer<typeof ListArtifactVersionsQuerySchema>;
+
 export const ArtifactVersionDtoSchema = z.object({
     id: z.string().uuid(),
     chat: z
@@ -116,6 +125,9 @@ export const ArtifactVersionDtoSchema = z.object({
     status_changed_by: z.string().uuid().nullable().optional(),
     is_internal: z.boolean().optional(),
     document_type: DocumentTypeSchema.optional(),
+    metadata: z.record(z.unknown()).nullable().optional(),
+    /** PE-facing summary of the internal document version (replaces the old separate PECP artifact). */
+    summary_internal: z.string().nullable().optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]).nullable().optional(),
 });
@@ -140,20 +152,22 @@ export const ArtifactDtoSchema = z.object({
     proposed_version: ArtifactVersionDtoSchema.optional(),
     loaded_version: ArtifactVersionDtoSchema.optional(),
     metadata: z.record(z.unknown()).nullable().optional(),
-    /** PECP (public summary) for internal documents */
-    pecp: z
-        .object({
-            id: z.string().uuid(),
-            content: z.string(),
-            version: z.number().int(),
-            created_at: z.union([z.string(), z.date()]),
-        })
-        .nullable()
-        .optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]),
 });
 export type ArtifactDto = z.infer<typeof ArtifactDtoSchema>;
+
+export const ArtifactVersionHistoryResponseSchema = z.object({
+    artifact: z.object({
+        id: z.string().uuid(),
+        key: z.string(),
+        title: z.string(),
+        latestVersion: z.number().int().positive(),
+        currentVersion: z.number().int().nullable(),
+    }),
+    versions: z.array(ArtifactVersionDtoSchema),
+});
+export type ArtifactVersionHistoryResponseDto = z.infer<typeof ArtifactVersionHistoryResponseSchema>;
 
 export const ApproveArtifactActionSchema = z.object({
     versionId: z.string().uuid(),
@@ -165,6 +179,27 @@ export const RejectArtifactActionSchema = z.object({
     reason: z.string().min(1, 'Rejection reason is required'),
 });
 export type RejectArtifactActionDto = z.infer<typeof RejectArtifactActionSchema>;
+
+export const RestoreArtifactActionSchema = z.object({
+    projectId: z.string().uuid().optional(),
+    key: z.string().min(1),
+    sourceVersionId: z.string().uuid(),
+});
+export type RestoreArtifactActionDto = z.infer<typeof RestoreArtifactActionSchema>;
+
+export const RestoreArtifactResponseSchema = z.object({
+    success: z.literal(true),
+    artifactId: z.string().uuid(),
+    key: z.string(),
+    sourceVersion: z.number().int().positive(),
+    restoredVersion: z.number().int().positive(),
+    restoredVersionId: z.string().uuid(),
+    status: z.literal('proposed'),
+    supersededVersions: z.array(z.number().int().positive()),
+    chatId: z.string().uuid().optional(),
+    chatType: z.string().optional(),
+});
+export type RestoreArtifactResponseDto = z.infer<typeof RestoreArtifactResponseSchema>;
 
 export const MAX_ARTIFACT_UPLOAD_SIZE = 50 * 1024 * 1024;
 

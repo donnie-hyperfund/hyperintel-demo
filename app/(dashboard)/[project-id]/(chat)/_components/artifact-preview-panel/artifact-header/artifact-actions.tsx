@@ -10,7 +10,7 @@ import { exportArtifact } from '@/lib/api/requests/worker/chat';
 import { getPhaseNumber } from '@/lib/phases';
 import { SEARCH_PARAMS } from '@/lib/search-params';
 import { downloadBlob } from '@/lib/utils';
-import { getArtifactChatId } from '@/modules/artifacts/utils';
+import { getLatestArtifactVersionChatId } from '@/modules/artifacts/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-provider';
 import type { Artifact } from '@/modules/chat/types';
@@ -97,7 +97,7 @@ export function ArtifactActions({
     const handleFindInChat = useCallback(() => {
         if (!artifactKey || !artifact || version == null) return;
 
-        const artifactChatId = getArtifactChatId(artifact);
+        const artifactChatId = getLatestArtifactVersionChatId(artifact);
 
         if (artifactChatId && artifactChatId !== chatId) {
             const phaseNumber = chatsData?.data ? getPhaseNumber(chatsData.data, artifactChatId) : null;

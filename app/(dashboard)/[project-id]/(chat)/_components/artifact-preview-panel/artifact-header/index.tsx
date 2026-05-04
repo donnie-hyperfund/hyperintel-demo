@@ -28,7 +28,7 @@ type ArtifactHeaderProps = {
     backHref?: string;
     updatedAt?: Date;
     onCloseAction?: () => void;
-    /** Slot for extra action buttons (e.g. delete) rendered before the close button */
+    /** Slot for extra action buttons (e.g. version history, delete) rendered before the close button */
     actions?: ReactNode;
     /** Whether the content is being streamed */
     isStreaming?: boolean;

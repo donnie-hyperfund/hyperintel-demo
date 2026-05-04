@@ -50,7 +50,6 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
                         key: fetched.key,
                         currentVersion: fetched.currentVersion ?? undefined,
                         proposedVersion: fetched.proposedVersion ?? undefined,
-                        pecp: fetched.pecp ?? undefined,
                         updatedAt: fetched.updatedAt,
                         isLoading: false,
                     },

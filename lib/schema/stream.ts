@@ -75,6 +75,9 @@ export type StreamEventType =
     | 'document_edit'
     | 'document_progress'
     | 'document_complete'
+    | 'summary_start'
+    | 'summary_delta'
+    | 'summary_complete'
     | 'decision_prompt'
     | 'decision_resolved'
     | 'status_update'
@@ -129,18 +132,12 @@ export type StreamEvent =
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           rejectionReason?: string;
           isInternal?: boolean;
-          /** PECP: this document is a PE Communication for the parent document */
-          isPECP?: boolean;
-          /** PECP: the internal document this PECP summarizes */
-          parentDocument?: string;
       }
     | {
           type: 'document_delta';
           name: string;
           pendingVersion?: number;
           content: string;
-          isPECP?: boolean;
-          parentDocument?: string;
       }
     | { type: 'document_edit'; name: string; pendingVersion?: number; edits: DocumentEdit[] }
     | { type: 'document_progress'; name: string; progress: number }
@@ -150,8 +147,34 @@ export type StreamEvent =
           version: number;
           lines?: number;
           action?: string;
-          isPECP?: boolean;
-          parentDocument?: string;
+          /** Set when finalize_document persisted an internal-document version that will get an auto-generated summary. */
+          summaryPending?: boolean;
+      }
+    // Internal-document PE-facing summaries (auto-generated, streamed alongside the parent doc).
+    | {
+          type: 'summary_start';
+          /** Parent document name (e.g. genesis-dna.md). */
+          name: string;
+          /** Parent artifact_versions row that this summary will be written to. */
+          versionId: string;
+          /** Version number of the parent doc — used by the frontend to update the right artifact entry. */
+          version: number;
+          estimatedChars?: number;
+      }
+    | {
+          type: 'summary_delta';
+          name: string;
+          versionId: string;
+          version: number;
+          content: string;
+      }
+    | {
+          type: 'summary_complete';
+          name: string;
+          versionId: string;
+          version: number;
+          /** Final assembled summary content — frontend can use this as the source of truth. */
+          content: string;
       }
     // User decision prompts
     | {
@@ -198,6 +221,10 @@ export type ActiveDocument = {
     documentType?: DocumentType;
     isInternal?: boolean;
     progress?: number;
+    /** When set, an auto-generated summary is streaming in alongside the parent document (after document_complete). */
+    summaryInternal?: string;
+    /** Identifier of the artifact_versions row the summary is being written to. */
+    summaryVersionId?: string;
 };
 
 /** Full state snapshot returned on subscribe */

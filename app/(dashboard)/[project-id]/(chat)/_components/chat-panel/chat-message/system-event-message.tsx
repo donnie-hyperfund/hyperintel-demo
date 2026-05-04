@@ -1,7 +1,7 @@
 'use client';
 
 import type { LucideIcon } from 'lucide-react';
-import { Check, Info, X } from 'lucide-react';
+import { Check, Info, RotateCcw, X } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 import type { Message } from '@/modules/chat/types';
 
@@ -40,6 +40,19 @@ function resolveEvent(event: NonNullable<Message['systemEvent']>): EventDisplay 
                     </>
                 ),
             };
+        case 'artifact_restored': {
+            const fromVersion = event.sourceVersionNumber != null ? <> v{event.sourceVersionNumber}</> : null;
+            return {
+                icon: RotateCcw,
+                iconClassName: 'text-blue-400/70',
+                label: (
+                    <>
+                        {name}
+                        {fromVersion} restored as proposed{version}
+                    </>
+                ),
+            };
+        }
         default:
             return {
                 icon: Info,

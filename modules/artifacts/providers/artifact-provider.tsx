@@ -1,10 +1,10 @@
 'use client';
 
 import { createContext, type ReactNode, useCallback, useContext, useRef, useSyncExternalStore } from 'react';
-import type { ArtifactVersionDto } from '@/lib/schema/artifact';
 import type { CamelCaseDto } from '@/lib/api/client/types';
+import type { ArtifactVersionDto } from '@/lib/schema/artifact';
 import type { Artifact } from '../../chat/types';
-import { getLatestArtifactContent } from '../utils';
+import { getLatestArtifactVersionContent } from '../utils';
 
 /** Update type that allows partial version objects for deep merge */
 export type ArtifactUpdate = Omit<Partial<Artifact>, 'proposedVersion' | 'currentVersion'> & {
@@ -18,6 +18,41 @@ type UpdateArtifactOptions = {
 
 export type ArtifactStore = Record<string, Record<string, Artifact>>;
 export type VersionKey = 'latest' | number;
+
+function preservePreviewStreamingState(existing: Artifact | undefined, artifact: Artifact): Artifact {
+    if (!existing) return artifact;
+
+    // Internal artifact revalidation omits content and frontend-only summary streaming state.
+    const preserved: Partial<Artifact> = {};
+    const isStillStreaming = artifact.isStreaming ?? existing.isStreaming;
+    const hasIncomingSummaryStreaming =
+        artifact.summaryStreaming !== undefined ||
+        Boolean(artifact.proposedVersion?.summaryInternal) ||
+        Boolean(artifact.currentVersion?.summaryInternal);
+
+    if (existing.isStreaming === true && artifact.isStreaming === undefined) {
+        preserved.isStreaming = true;
+    }
+
+    if (isStillStreaming && artifact.progress === undefined && existing.progress !== undefined) {
+        preserved.progress = existing.progress;
+    }
+
+    if (
+        !hasIncomingSummaryStreaming &&
+        artifact.summaryStreaming === undefined &&
+        existing.summaryStreaming !== undefined
+    ) {
+        preserved.summaryStreaming = existing.summaryStreaming;
+    }
+
+    if (artifact.isSummaryStreaming === undefined && existing.isSummaryStreaming !== undefined) {
+        preserved.isSummaryStreaming = existing.isSummaryStreaming;
+    }
+
+    if (Object.keys(preserved).length === 0) return artifact;
+    return { ...artifact, ...preserved };
+}
 
 export type ArtifactContextValue = {
     getArtifact: (id: string, version?: VersionKey) => Artifact | null;
@@ -66,13 +101,26 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
             const prev = storeRef.current;
 
             const existing = prev[artifact.id]?.[versionKey];
-            const newContent = getLatestArtifactContent(artifact);
-            const existingContent = existing ? getLatestArtifactContent(existing) : '';
+            const nextArtifact = preservePreviewStreamingState(existing, artifact);
+            const newContent = getLatestArtifactVersionContent(nextArtifact);
+            const existingContent = existing ? getLatestArtifactVersionContent(existing) : '';
+            const nextSummary =
+                nextArtifact.summaryStreaming ??
+                nextArtifact.proposedVersion?.summaryInternal ??
+                nextArtifact.currentVersion?.summaryInternal ??
+                '';
+            const existingSummary =
+                existing?.summaryStreaming ??
+                existing?.proposedVersion?.summaryInternal ??
+                existing?.currentVersion?.summaryInternal ??
+                '';
             if (
                 existingContent === newContent &&
-                existing?.isLoading === artifact.isLoading &&
-                existing?.isStreaming === artifact.isStreaming &&
-                existing?.isUpdating === artifact.isUpdating
+                existingSummary === nextSummary &&
+                existing?.isLoading === nextArtifact.isLoading &&
+                existing?.isStreaming === nextArtifact.isStreaming &&
+                existing?.isSummaryStreaming === nextArtifact.isSummaryStreaming &&
+                existing?.isUpdating === nextArtifact.isUpdating
             ) {
                 return;
             }
@@ -81,7 +129,7 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
                 ...prev,
                 [artifact.id]: {
                     ...prev[artifact.id],
-                    [versionKey]: artifact,
+                    [versionKey]: nextArtifact,
                 },
             };
             emit();
@@ -149,7 +197,7 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
                     } as CamelCaseDto<ArtifactVersionDto>;
                 }
             } else {
-                updated = updates as Artifact;
+                updated = preservePreviewStreamingState(existing, updates as Artifact);
             }
 
             storeRef.current = {

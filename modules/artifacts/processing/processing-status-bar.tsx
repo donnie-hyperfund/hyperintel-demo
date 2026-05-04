@@ -4,7 +4,36 @@ import { Check, XCircle } from 'lucide-react';
 import { StatusBar, type StatusBarEntry } from '@/components/layouts/status-bar/status-bar';
 import { ShimmerText } from '@/components/ui/shimmer-text';
 import { useArtifactProcessing } from './artifact-processing-provider';
-import type { ProcessingEntry } from './types';
+import type { ProcessingAction, ProcessingEntry, ProcessingStatus } from './types';
+
+type LabelBuilder = (entry: ProcessingEntry, suffix: string) => string;
+type LabelSet = Record<ProcessingStatus, LabelBuilder>;
+
+const LABEL_BUILDERS: Record<ProcessingAction, LabelSet> = {
+    approve: {
+        processing: (entry, suffix) => `Approving ${entry.artifactName}${suffix}`,
+        completed: (entry, suffix) => `${entry.artifactName} approved${suffix}`,
+        failed: (entry, suffix) => `Failed to approve ${entry.artifactName}${suffix}`,
+    },
+    reject: {
+        processing: (entry, suffix) => `Rejecting ${entry.artifactName}${suffix}`,
+        completed: (entry, suffix) => `${entry.artifactName} rejected${suffix}`,
+        failed: (entry, suffix) => `Failed to reject ${entry.artifactName}${suffix}`,
+    },
+    restore: {
+        processing: (entry, suffix) => `Restoring ${entry.artifactName}${restoreVersions(entry, 'as')}${suffix}`,
+        completed: (entry, suffix) =>
+            `Restored ${entry.artifactName}${restoreVersions(entry, 'as proposed')}${suffix} — awaiting approval`,
+        failed: (entry, suffix) => `Failed to restore ${entry.artifactName}${restoreVersions(entry, 'as')}${suffix}`,
+    },
+};
+
+function restoreVersions(entry: ProcessingEntry, targetLabel: string): string {
+    if (entry.action !== 'restore') return '';
+    const source = ` v${entry.sourceVersionNumber}`;
+    const target = entry.restoredVersionNumber != null ? ` ${targetLabel} v${entry.restoredVersionNumber}` : '';
+    return `${source}${target}`;
+}
 
 function formatLocationSuffix(entry: ProcessingEntry): string {
     if (!entry.projectName) return '';
@@ -14,19 +43,8 @@ function formatLocationSuffix(entry: ProcessingEntry): string {
 }
 
 function formatLabel(entry: ProcessingEntry): string {
-    const name = entry.artifactName;
     const suffix = formatLocationSuffix(entry);
-
-    if (entry.status === 'completed') {
-        const verb = entry.action === 'approve' ? 'approved' : 'rejected';
-        return `${name} ${verb}${suffix}`;
-    }
-    if (entry.status === 'failed') {
-        return `Failed to ${entry.action} ${name}${suffix}`;
-    }
-
-    const action = entry.action === 'approve' ? 'Approving' : 'Rejecting';
-    return `${action} ${name}${suffix}`;
+    return LABEL_BUILDERS[entry.action][entry.status](entry, suffix);
 }
 
 function toStatusBarEntry(entry: ProcessingEntry): StatusBarEntry {

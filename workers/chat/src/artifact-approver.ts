@@ -7,6 +7,7 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/schema/artifact';
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
+import type { ArtifactProcessingStage } from '@/lib/schema/user-events';
 import { Ctx } from './context';
 import { shouldGenerateAiContent } from './tools/documents/document-classifier';
 import { broadcastUserEvent, getUserGatewayStub } from './utils/broadcast';
@@ -15,6 +16,41 @@ import { injectSystemEvent } from './utils/system-events';
 
 const YAML_GENERATION_MODEL = ANTHROPIC_MODELS.SONNET;
 const YAML_PROMPT_SLUG = 'pma2/ai-content-prompt';
+
+async function broadcastArtifactProgress({
+    ctx,
+    version,
+    action,
+    previousStatus,
+    stage,
+    progress,
+}: {
+    ctx: Ctx;
+    version: ArtifactVersionEntity;
+    action: 'approve' | 'reject';
+    previousStatus: string;
+    stage: Exclude<ArtifactProcessingStage, 'queued'>;
+    progress: number;
+}) {
+    const project = version.artifact.project;
+    const chat = version.chat;
+    if (!chat) return;
+
+    await broadcastUserEvent(ctx, 'artifact_version_update_progress', {
+        artifactId: version.artifact.id,
+        artifactName: version.artifact.key,
+        versionId: version.id,
+        version: version.version,
+        action,
+        previousStatus,
+        stage,
+        progress,
+        projectName: project?.name,
+        phaseName: chat.name ?? undefined,
+        phaseIndex: chat.phase_index,
+        chatId: chat.id,
+    });
+}
 
 async function generateYAMLForArtifact(content: string, messages: ChatMessageEntity[], ctx: Ctx): Promise<string> {
     const localPath = resolveLocalPromptPath();
@@ -129,6 +165,15 @@ export async function approveArtifactHandler(
         chatId: chat.id,
     });
 
+    await broadcastArtifactProgress({
+        ctx,
+        version,
+        action: 'approve',
+        previousStatus,
+        stage: 'classifying',
+        progress: 10,
+    });
+
     // Classify document to determine if AI-readable YAML should be generated
     const isInternalDocument = await shouldGenerateAiContent(ctx, version.artifact.key, version.title);
 
@@ -139,9 +184,19 @@ export async function approveArtifactHandler(
 
     let yamlContent: string | undefined;
     let yamlGenerated = false;
+    const documentContent = version.content ?? '';
 
     // Only generate YAML for internal documents, not for client deliverables
     if (isInternalDocument) {
+        await broadcastArtifactProgress({
+            ctx,
+            version,
+            action: 'approve',
+            previousStatus,
+            stage: 'generating-ai-content',
+            progress: 24,
+        });
+
         const messages = await em.find(
             ChatMessageEntity,
             { chat: version.chat.id },
@@ -149,17 +204,26 @@ export async function approveArtifactHandler(
         );
 
         try {
-            yamlContent = await generateYAMLForArtifact(version.content, messages, ctx);
+            yamlContent = await generateYAMLForArtifact(documentContent, messages, ctx);
             yamlGenerated = true;
         } catch (error) {
             console.error('[approveArtifact] YAML generation failed:', error);
-            yamlContent = `# YAML generation failed\n# Error: ${error instanceof Error ? error.message : String(error)}\n\n${version.content}`;
+            yamlContent = `# YAML generation failed\n# Error: ${error instanceof Error ? error.message : String(error)}\n\n${documentContent}`;
         }
 
         version.ai_content = yamlContent;
     } else {
         console.log('[approveArtifact] Skipping YAML generation for client deliverable:', version.artifact.key);
     }
+
+    await broadcastArtifactProgress({
+        ctx,
+        version,
+        action: 'approve',
+        previousStatus,
+        stage: 'saving',
+        progress: isInternalDocument ? 76 : 62,
+    });
 
     const projectUser = project?.user;
 
@@ -180,6 +244,15 @@ export async function approveArtifactHandler(
 
     // Publish publishable document types to user scope for cross-project availability
     if (PUBLISHABLE_DOCUMENT_TYPES.includes(version.document_type) && project && projectUser) {
+        await broadcastArtifactProgress({
+            ctx,
+            version,
+            action: 'approve',
+            previousStatus,
+            stage: 'publishing',
+            progress: 84,
+        });
+
         try {
             const publishResult = await publishArtifactToUserScope(em, {
                 sourceVersion: version,
@@ -194,6 +267,15 @@ export async function approveArtifactHandler(
     }
 
     if (ctx.env.EMBEDDING_QUEUE && project) {
+        await broadcastArtifactProgress({
+            ctx,
+            version,
+            action: 'approve',
+            previousStatus,
+            stage: 'indexing',
+            progress: 88,
+        });
+
         try {
             // For internal documents: index AI-readable YAML
             // For client deliverables: index original content (no AI-readable version)
@@ -201,7 +283,7 @@ export async function approveArtifactHandler(
                 type: 'index_artifact_version',
                 projectId: project.id,
                 versionId: version.id,
-                content: isInternalDocument && yamlContent ? yamlContent : version.content,
+                content: isInternalDocument && yamlContent ? yamlContent : documentContent,
                 documentName: version.artifact.key,
                 is_ai_content: isInternalDocument,
                 previewAlias: ctx.previewAlias,
@@ -210,6 +292,15 @@ export async function approveArtifactHandler(
             console.error('[approveArtifact] Embedding queue failed:', err);
         }
     }
+
+    await broadcastArtifactProgress({
+        ctx,
+        version,
+        action: 'approve',
+        previousStatus,
+        stage: 'finalizing',
+        progress: 94,
+    });
 
     await broadcastUserEvent(ctx, 'artifact_version_updated', {
         artifactId: version.artifact.id,

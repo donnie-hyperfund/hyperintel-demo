@@ -15,7 +15,8 @@ export function ActiveInternalDocs() {
                 if (
                     artifact.isStreaming &&
                     artifact.proposedVersion?.isInternal &&
-                    artifact.pecpContent === undefined
+                    !artifact.isSummaryStreaming &&
+                    !artifact.summaryStreaming
                 ) {
                     docs.push({ key, progress: artifact.progress ?? 0 });
                     break;

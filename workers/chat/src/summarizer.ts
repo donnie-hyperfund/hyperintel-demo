@@ -12,6 +12,7 @@ import { type ChatActionResult, chatActionHandler, preprocessContext } from './c
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
+import { estimateInferenceInputTokens, SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS } from './utils/context-budget';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -31,6 +32,18 @@ export interface SummarizerOptions {
 }
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
+
+function getSummarizerInferenceParams(contextTokens: number): ParamsWithType {
+    return {
+        paramsType: AIParamsType.Anthropic,
+        params: {
+            model:
+                contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS
+                    ? ANTHROPIC_MODELS.SONNET_4_6
+                    : ANTHROPIC_MODELS.SONNET,
+        },
+    };
+}
 
 /**
  * Load summarizer prompt (pma/summarizer only).
@@ -243,12 +256,15 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. After the summary, call the generate_blurb tool with the Next-Phase Initialization Blurb (Section 13 of the Completion Brief) verbatim as its input.',
         });
 
-        const inferenceParams = options.overrideInference ?? {
-            paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.SONNET },
-        };
-
         const blurbTools = createBlurbTools();
+        const estimatedContextTokens = estimateInferenceInputTokens({
+            instructions,
+            context: historyMessages,
+            tools: [...blurbTools],
+            toolGroups: [BlurbToolGroup],
+            preprocessContext,
+        });
+        const inferenceParams = options.overrideInference ?? getSummarizerInferenceParams(estimatedContextTokens);
 
         const { stream, historyPromise } = runAgentStream(
             {},
@@ -338,7 +354,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             metadata: {
                 summarizedFrom: chatId,
                 summarizedAt: new Date().toISOString(),
-                documents: extractDocuments(messages),
+                documents,
             },
         });
         em!.persist(newChat);
@@ -363,9 +379,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         // Auto-generate a short name for the source chat if it doesn't have one
         if (!chat.name && summaryContent) {
             try {
-                const docs = extractDocuments(messages).filter(
-                    (d) => !d.name.toLowerCase().includes('completion brief'),
-                );
+                const docs = documents.filter((d) => !d.name.toLowerCase().includes('completion brief'));
                 const docContext =
                     docs.length > 0
                         ? `\n\nDocuments generated during this phase:\n${docs.map((d) => `- ${d.name}`).join('\n')}`
@@ -374,7 +388,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 const nameResult = await runInferenceNoStream(ctx, {
                     paramsType: AIParamsType.OpenRouter,
                     instructions:
-                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs and PECP\'s — they are generated automatically and are not relevant. Never include them in the title. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
+                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs — they are generated automatically and are not relevant. Never include them in the title. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
                     context: [{ role: 'user', content: summaryContent + docContext }],
                     params: {
                         model: COMMON_MODELS.GPT_5_4_NANO,
@@ -412,6 +426,14 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         await pusher.waitAll();
         await streamDO.push([{ type: 'done', newChatId: newChat.id }], pusher.seq);
 
+        // Finalize chat:${chatId} now — pushing a 'done' event broadcasts to live subscribers but
+        // does NOT change streamDO.status, so a fresh subscribe (e.g. user navigating back to this
+        // phase via breadcrumbs while the next-phase response is being prepared) would otherwise
+        // see a stale 'streaming' snapshot with streamType:'summary' and re-open the overlay.
+        // Safe to finalize here: the SSE keepalive is independent of this DO, and the next-phase
+        // generation runs against chat:${newChat.id} — a different stream DO.
+        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
+
         // Send the initiation blurb as a user message on the new chat via the normal chat handler.
         // It persists the user message, broadcasts messageCreated on `chat:${newChat.id}`, and runs
         // the next-phase agent generation streaming to that same topic.
@@ -430,8 +452,6 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 console.error('[summarizer] next-phase initiation failed:', err);
             }
         }
-
-        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
         const classification = classifyWorkerError(error);
         const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });

@@ -3,8 +3,8 @@
 import { FileText, Loader2 } from 'lucide-react';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import {
-    getLatestArtifactContent,
     getLatestArtifactVersion,
+    getLatestArtifactVersionContent,
     getLatestArtifactVersionTitle,
 } from '@/modules/artifacts/utils';
 import { ArtifactViewer } from './artifact-viewer';
@@ -20,12 +20,16 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
 
     const { isLoading, isStreaming } = currentArtifact ?? {};
 
-    const content = currentArtifact ? getLatestArtifactContent(currentArtifact) : '';
+    const content = currentArtifact ? getLatestArtifactVersionContent(currentArtifact) : '';
     const activeVersion = currentArtifact ? getLatestArtifactVersion(currentArtifact) : undefined;
     const isInternal = activeVersion?.isInternal;
 
-    const pecpContent = currentArtifact?.pecpContent ?? currentArtifact?.pecp?.content ?? '';
-    const showSkeleton = (isLoading || (isStreaming && (!isInternal || !pecpContent))) && !content;
+    const summaryContent =
+        currentArtifact?.summaryStreaming ??
+        currentArtifact?.proposedVersion?.summaryInternal ??
+        currentArtifact?.currentVersion?.summaryInternal ??
+        '';
+    const showSkeleton = (isLoading || (isStreaming && (!isInternal || !summaryContent))) && !content;
 
     if (showSkeleton) {
         return (
