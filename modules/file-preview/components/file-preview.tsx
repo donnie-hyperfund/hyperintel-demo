@@ -1,9 +1,19 @@
 'use client';
 
+import { Loader2 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { ImageViewer } from './image-viewer';
 import { MarkdownViewer } from './markdown-viewer';
-import { PdfViewer } from './pdf-viewer';
 import { UnsupportedFileInfo } from './unsupported-file-info';
+
+const PdfViewer = dynamic(() => import('./pdf-viewer').then((m) => ({ default: m.PdfViewer })), {
+    ssr: false,
+    loading: () => (
+        <div className="flex h-full items-center justify-center">
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+    ),
+});
 
 type FilePreviewProps = {
     /** URL for PDF or image content */
