@@ -57,4 +57,14 @@ describe('ContextHardStopModal', () => {
         expect(onNavigate).toHaveBeenCalledTimes(1);
         expect(onConfirm).not.toHaveBeenCalled();
     });
+
+    it('does not cancel on Escape or focus a button by default', () => {
+        render(<ContextHardStopModal open state="idle" onConfirm={onConfirm} onCancel={onCancel} />);
+
+        const confirmButton = screen.getByRole('button', { name: 'Yes, create Completion Brief' });
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+        expect(onCancel).not.toHaveBeenCalled();
+        expect(document.activeElement).not.toBe(confirmButton);
+    });
 });
