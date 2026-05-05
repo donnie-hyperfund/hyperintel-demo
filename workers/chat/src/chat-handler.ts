@@ -268,11 +268,12 @@ export async function prepareChatGenerationInput({
         preprocessContext,
     });
 
+    const isPlainNudge = data.message === null && !data.force_brief;
     const gate = evaluateContextGate({
         estimatedTokens,
         metadataOverflow: chat.metadata?.contextOverflow as ContextOverflowState | undefined,
         forceBrief: data.force_brief,
-        bypassContextWarning: data.bypass_context_warning,
+        bypassContextWarning: data.bypass_context_warning || isPlainNudge,
     });
     if (gate) {
         return new PublicError(ErrorStatus.BadRequest, buildContextGateError(gate));
