@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { prettyJSON } from 'hono/pretty-json';
 import { requestId } from 'hono/request-id';
 import { z } from 'zod';
+import { isGenerationProxyError, proxyErrorResponse } from '@/lib/api/proxy-error';
 import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
 import { ChatEntity, ChatMessageFileEntity, ProjectEntity } from '@/lib/orm/entities';
 import { getAvailablePresets, getDefaultPresetId } from '@/lib/presets';
@@ -18,6 +19,7 @@ import {
     ExportArtifactQuerySchema,
     PresignUploadSchema,
     RejectArtifactActionSchema,
+    RestoreArtifactActionSchema,
     UploadArtifactSchema,
 } from '@/lib/schema/artifact';
 import {
@@ -32,10 +34,11 @@ import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approv
 import { deleteArtifactHandler } from './artifact-deleter';
 import { exportArtifactHandler } from './artifact-exporter';
 import { importArtifactsHandler } from './artifact-importer';
+import { restoreArtifactHandler } from './artifact-restorer';
 import { chatActionHandler } from './chat-handler';
 import type { Ctx } from './context';
 import { intakeActionHandler } from './intake-handler';
-import { summarizeActionHandler } from './summarizer';
+import { summarizeActionHandler } from './summarizer-handler';
 import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './uploads/artifact-uploader';
 import { associateUploadsHandler } from './uploads/associate-handler';
 import { cleanupStaleUploads } from './uploads/cleanup';
@@ -176,7 +179,8 @@ app.post('/chat', zValidator('json', SendChatActionSchema), async (c) => {
         const body = JSON.stringify(c.req.valid('json'));
         const authHeader = c.req.header('Authorization') ?? '';
 
-        return await proxyDO.run(streamUrl, body, authHeader);
+        const result = await proxyDO.run(streamUrl, body, authHeader);
+        return isGenerationProxyError(result) ? proxyErrorResponse(result) : result;
     });
 });
 
@@ -190,7 +194,8 @@ app.post('/intake', zValidator('json', SendIntakeChatActionSchema), async (c) =>
         const body = JSON.stringify(c.req.valid('json'));
         const authHeader = c.req.header('Authorization') ?? '';
 
-        return await proxyDO.run(streamUrl, body, authHeader);
+        const result = await proxyDO.run(streamUrl, body, authHeader);
+        return isGenerationProxyError(result) ? proxyErrorResponse(result) : result;
     });
 });
 
@@ -204,7 +209,8 @@ app.post('/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
         const body = JSON.stringify(c.req.valid('json'));
         const authHeader = c.req.header('Authorization') ?? '';
 
-        return await proxyDO.run(streamUrl, body, authHeader);
+        const result = await proxyDO.run(streamUrl, body, authHeader);
+        return isGenerationProxyError(result) ? proxyErrorResponse(result) : result;
     });
 });
 
@@ -223,6 +229,12 @@ app.post('/artifacts/reject', zValidator('json', RejectArtifactActionSchema), as
 app.post('/artifacts/delete', zValidator('json', DeleteArtifactSchema), async (c) => {
     return wrapWorker(async () => {
         return await deleteArtifactHandler(c.req.valid('json'), ctxWithAlias(c));
+    });
+});
+
+app.post('/artifacts/restore', zValidator('json', RestoreArtifactActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await restoreArtifactHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 

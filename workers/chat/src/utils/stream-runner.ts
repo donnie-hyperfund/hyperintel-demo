@@ -10,7 +10,7 @@ import type { AgentStreamEvent } from '@common/ai/agent/types';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from '../context';
-import type { DocumentToolsContext, DraftManager } from '../tools/documents';
+import type { DraftManager } from '../tools/documents';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
 import { createDocumentEventHandler, type DocumentContext } from './document-events';
 import { createEventCollector, createPusher, handleCommonStreamEvent, type Pusher, wireAbort } from './stream-utils';
@@ -126,20 +126,14 @@ export async function finalizeStream(
 // ============================================================================
 
 /**
- * Create the onTurnComplete callback with draft-check and optional PECP-check.
- * Used by chat-handler (pecp: true), summarizer (pecp: true), and intake (pecp: false).
+ * Create the onTurnComplete callback that nudges the agent if it left a draft un-finalized.
+ * The PECP/internal-summary side-effect runs synchronously inside finalize_document, so
+ * there is no longer a "still need to write the PECP" handoff to police here.
  */
-export function createOnTurnComplete(
-    agentCtx: { draftManager: DraftManager; pendingPECP?: DocumentToolsContext['pendingPECP'] },
-    options: { pecp?: boolean } = {},
-): () => string | null {
+export function createOnTurnComplete(agentCtx: { draftManager: DraftManager }): () => string | null {
     return () => {
         if (agentCtx.draftManager.hasActive()) {
             return 'You have an unfinalized document draft. You MUST call finalize_document now or the content will be lost.';
-        }
-        if (options.pecp && agentCtx.pendingPECP) {
-            const p = agentCtx.pendingPECP;
-            return `You MUST generate a PECP for "${p.parentDocumentType}". Call begin_document with mode="create", name="${p.pecpKey}", document_type="PECP", parent_document="${p.parentDocument}". Write the PE-facing communication using the appropriate PECP stage template from your system prompt, then finalize.`;
         }
         return null;
     };

@@ -8,6 +8,8 @@
  * This means we only need to track ONE current draft at a time.
  */
 
+import type { AppliedEdit } from './document-service';
+
 export interface DraftSession {
     /** Document name (with .md extension) */
     name: string;
@@ -23,8 +25,6 @@ export interface DraftSession {
     is_internal: boolean;
     /** Document type classification */
     document_type: string;
-    /** For PECP: the parent internal document version ID this summary is linked to */
-    parentVersionId?: string;
     createdAt: Date;
 }
 
@@ -42,6 +42,9 @@ export class DraftManager {
     /** The currently active draft (one at a time due to sequential execution) */
     private currentDraft: DraftSession | null = null;
 
+    /** Side channel: canonical applied edits from patch_document, keyed by tool_call_id. Consumed once by document-events. */
+    private appliedEditsByToolCall = new Map<string, AppliedEdit[]>();
+
     /**
      * Create a new draft session and set it as current.
      * @throws Error if there's already an active draft (must finalize first)
@@ -55,7 +58,6 @@ export class DraftManager {
         previousVersion?: number,
         is_internal = true,
         document_type = 'Other',
-        parentVersionId?: string,
     ): DraftSession {
         if (this.currentDraft) {
             throw new Error(
@@ -73,7 +75,6 @@ export class DraftManager {
             previousVersion,
             is_internal,
             document_type,
-            parentVersionId,
             createdAt: new Date(),
         };
         return this.currentDraft;
@@ -144,6 +145,18 @@ export class DraftManager {
         this.currentDraft = null;
     }
 
+    /** Stash canonical applied edits for later read by document-events (keyed by tool_call_id). */
+    setAppliedEdits(toolCallId: string, edits: AppliedEdit[]): void {
+        this.appliedEditsByToolCall.set(toolCallId, edits);
+    }
+
+    /** Read and remove stashed applied edits for a given tool_call_id. */
+    takeAppliedEdits(toolCallId: string): AppliedEdit[] | undefined {
+        const edits = this.appliedEditsByToolCall.get(toolCallId);
+        this.appliedEditsByToolCall.delete(toolCallId);
+        return edits;
+    }
+
     /**
      * Check if there's an active draft.
      */
@@ -156,6 +169,7 @@ export class DraftManager {
      */
     clear(): void {
         this.currentDraft = null;
+        this.appliedEditsByToolCall.clear();
     }
 }
 

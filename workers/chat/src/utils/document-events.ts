@@ -1,27 +1,25 @@
 /**
  * Document event handling for frontend streaming.
  *
- * Handles the new multi-call document tools:
+ * Handles the multi-call document tools:
  * - begin_document → document_start
  * - write_document → document_delta (streamed) + document_progress
  * - patch_document → document_edit
  * - finalize_document → document_complete
+ *
+ * The PECP / internal-document summary is a separate concern handled by the
+ * pecp-generator (which pushes its own `summary_*` events directly).
  */
 
 import { createStreamFieldParser } from '@common/ai/agent';
 import type { AgentStreamEvent } from '@common/ai/agent/types';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { DOCUMENT_CHAR_ESTIMATES, type DocumentType } from '@/lib/schema/artifact';
+import type { AppliedEdit, DraftManager } from '../tools/documents';
 
 export type DocumentEventEmitter = (event: DocumentEvent) => void;
 
-/** Edit operation as sent by patch_document tool */
-export interface EditOperation {
-    startLine: number;
-    endLine: number;
-    oldContent: string;
-    newContent: string;
-}
+type EmittedEdit = AppliedEdit;
 
 export type DocumentEvent =
     | {
@@ -35,6 +33,7 @@ export type DocumentEvent =
           estimatedChars?: number;
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           loadedVersion?: number;
+          nextVersion?: number;
           rejectionReason?: string;
       }
     | { type: 'document_delta'; name: string; content: string }
@@ -42,7 +41,7 @@ export type DocumentEvent =
     | {
           type: 'document_edit';
           name: string;
-          edits: EditOperation[];
+          edits: EmittedEdit[];
           editsApplied: number;
           linesNow: number;
       }
@@ -54,15 +53,18 @@ export type DocumentEvent =
           action: string;
           status: 'proposed';
           supersededVersion?: number;
+          summaryPending?: boolean;
       };
 
 export interface DocumentContext {
     em: EntityManager;
     projectId?: string;
+    /** Required for patch_document replay — canonical edits are stashed here by the executor and consumed on tool_result. */
+    draftManager?: DraftManager;
 }
 
 /**
- * Creates a document event handler for the new multi-call document tools.
+ * Creates a document event handler for the multi-call document tools.
  *
  * Flow:
  * 1. begin_document result → emit document_start
@@ -78,15 +80,10 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
         name: string;
         title: string;
         isInternal: boolean;
-        isPECP?: boolean;
-        parentDocument?: string;
     } | null = null;
 
     // Parser for write_document content streaming
     let writeParser: ReturnType<typeof createStreamFieldParser> | null = null;
-
-    // Accumulator for patch_document input (to capture the edits array)
-    let editBuffer = '';
 
     // Progress tracking state
     let accumulatedChars = 0;
@@ -120,31 +117,22 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
     function handle(event: AgentStreamEvent): void {
         switch (event.type) {
             case 'tool_result': {
-                if (!event.success) {
-                    editBuffer = '';
-                    return;
-                }
+                if (!event.success) return;
 
                 let result: any = null;
                 try {
                     result = typeof event.result === 'string' ? JSON.parse(event.result) : event.result;
                 } catch {
-                    editBuffer = '';
                     return;
                 }
-                if (!result) {
-                    editBuffer = '';
-                    return;
-                }
+                if (!result) return;
 
-                // begin_document: set active doc and emit document_start (or pecp_start for PECP)
+                // begin_document: set active doc and emit document_start
                 if (result.status === 'editing' && result.name) {
                     activeDoc = {
                         name: result.name,
                         title: result.title || result.name,
                         isInternal: result.is_internal ?? true,
-                        isPECP: result.isPECP ?? false,
-                        parentDocument: result.parentDocument,
                     };
 
                     // Reset progress tracking
@@ -155,7 +143,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES.Other)
                         : DOCUMENT_CHAR_ESTIMATES.Other;
 
-                    const pendingVersion = result.loadedVersion ? result.loadedVersion + 1 : 1;
+                    const pendingVersion = result.nextVersion ?? (result.loadedVersion ? result.loadedVersion + 1 : 1);
 
                     const startEvent: DocumentEvent = {
                         type: 'document_start',
@@ -170,15 +158,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     if (result.document_type) {
                         startEvent.documentType = result.document_type;
                     }
-                    if (activeDoc.isPECP && activeDoc.parentDocument) {
-                        (startEvent as any).isPECP = true;
-                        (startEvent as any).parentDocument = activeDoc.parentDocument;
-                    }
                     if (result.loadedFrom) {
                         startEvent.loadedFrom = result.loadedFrom;
                     }
                     if (result.loadedVersion !== undefined) {
                         startEvent.loadedVersion = result.loadedVersion;
+                    }
+                    if (result.nextVersion !== undefined) {
+                        startEvent.nextVersion = result.nextVersion;
                     }
                     if (result.rejectionReason) {
                         startEvent.rejectionReason = result.rejectionReason;
@@ -187,20 +174,11 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     emit(startEvent);
                 }
 
-                // patch_document: emit document_edit with the captured edits
-                if (result.status === 'edited' && activeDoc) {
-                    // Parse the accumulated input to get the edits array
-                    let edits: EditOperation[] = [];
-                    try {
-                        const parsed = JSON.parse(editBuffer);
-                        if (Array.isArray(parsed.edits)) {
-                            edits = parsed.edits;
-                        }
-                    } catch {
-                        // Fallback: empty edits if parsing failed
-                    }
+                // patch_document: canonical edits live on draftManager side channel (keyed by tool_call_id)
+                if (event.tool === 'patch_document' && result.status === 'edited' && activeDoc) {
+                    const edits: EmittedEdit[] = event.id ? (ctx.draftManager?.takeAppliedEdits(event.id) ?? []) : [];
 
-                    if (!activeDoc.isInternal) {
+                    if (!activeDoc.isInternal && edits.length) {
                         emit({
                             type: 'document_edit',
                             name: activeDoc.name,
@@ -209,7 +187,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             linesNow: result.linesNow ?? 0,
                         });
                     }
-                    editBuffer = '';
                 }
 
                 // finalize_document: emit document_complete and clear state
@@ -225,19 +202,17 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             status: 'proposed',
                         };
 
-                        if (result.isPECP && activeDoc?.parentDocument) {
-                            (completeEvent as any).isPECP = true;
-                            (completeEvent as any).parentDocument = activeDoc.parentDocument;
-                        }
                         if (result.supersededVersion !== undefined) {
                             completeEvent.supersededVersion = result.supersededVersion;
+                        }
+                        if (result.summaryPending) {
+                            completeEvent.summaryPending = true;
                         }
 
                         emit(completeEvent);
                     }
                     activeDoc = null;
                     writeParser = null;
-                    editBuffer = '';
                     accumulatedChars = 0;
                     estimatedChars = 0;
                     lastEmittedProgress = 0;
@@ -255,39 +230,21 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                             onDelta: (delta) => {
                                 if (!activeDoc) return;
 
-                                // Track chars for progress (always, even for internal docs)
                                 accumulatedChars += delta.length;
+                                maybeEmitProgress();
 
-                                if (activeDoc.isPECP && activeDoc.parentDocument) {
-                                    // PECP: emit document_delta with isPECP flag and parent name
+                                // Only emit content deltas for non-internal docs
+                                if (!activeDoc.isInternal) {
                                     emit({
                                         type: 'document_delta',
                                         name: activeDoc.name,
                                         content: delta,
-                                        isPECP: true,
-                                        parentDocument: activeDoc.parentDocument,
-                                    } as any);
-                                } else {
-                                    maybeEmitProgress();
-
-                                    // Only emit content deltas for non-internal docs
-                                    if (!activeDoc.isInternal) {
-                                        emit({
-                                            type: 'document_delta',
-                                            name: activeDoc.name,
-                                            content: delta,
-                                        });
-                                    }
+                                    });
                                 }
                             },
                         });
                     }
                     writeParser.feed(event);
-                }
-
-                // patch_document: accumulate args to capture the edits array
-                if (event.tool === 'patch_document') {
-                    editBuffer += event.delta;
                 }
                 break;
             }
@@ -296,10 +253,6 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                 // Reset parser when a new write_document starts
                 if (event.tool === 'write_document') {
                     writeParser = null;
-                }
-                // Reset edit state on new patch_document
-                if (event.tool === 'patch_document') {
-                    editBuffer = '';
                 }
                 break;
             }

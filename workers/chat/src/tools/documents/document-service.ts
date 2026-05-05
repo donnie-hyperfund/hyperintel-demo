@@ -11,7 +11,7 @@
  * - Versions have status: proposed | approved | rejected | superseded
  * - Only ONE proposed version can exist per artifact at a time
  * - When agent creates new version while proposed exists → old becomes superseded
- * - current_version always points to latest approved (null if none approved yet)
+ * - current_version points to the latest actioned version (approved, rejected, or deleted)
  */
 
 import type { EntityManager } from '@mikro-orm/core';
@@ -92,6 +92,15 @@ export function extractViewport(
 
 export interface EditOperation {
     startLine: number;
+    /** Optional: inferred from oldContent line count when omitted. */
+    endLine?: number | null;
+    oldContent: string;
+    newContent: string;
+}
+
+/** Resolved edit — coords reflect state after prior edits in the batch; content is full-range. */
+export interface AppliedEdit {
+    startLine: number;
     endLine: number;
     oldContent: string;
     newContent: string;
@@ -102,6 +111,90 @@ export interface EditResult {
     error?: string;
     newContent?: string;
     linesNow?: number;
+    appliedEdits?: AppliedEdit[];
+}
+
+const LINE_WIGGLE = 2;
+
+const NORMALIZE_PATCH_NEWLINES = true;
+const TOLERATE_PATCH_TRAILING_NEWLINE_MISMATCH = true;
+const STRIP_NUMBERED_LINE_PREFIXES_FROM_PATCH_OLD_CONTENT = true;
+
+interface PreparedEdit {
+    startLine: number;
+    endLine: number;
+    oldContent: string;
+    newContent: string;
+    oldContentCandidates: string[];
+}
+
+function normalizePatchNewlines(content: string): string {
+    return NORMALIZE_PATCH_NEWLINES ? content.replace(/\r\n?/g, '\n') : content;
+}
+
+function stripNumberedLinePrefixes(content: string, startLine: number): string {
+    if (!STRIP_NUMBERED_LINE_PREFIXES_FROM_PATCH_OLD_CONTENT) return content;
+
+    const lines = content.split('\n');
+    if (!lines.length) return content;
+
+    const numberedLines = lines
+        .map((line) => line.match(/^(\d+):\s?/))
+        .filter((match): match is RegExpMatchArray => Boolean(match));
+    if (!numberedLines.length) return content;
+
+    // Only strip when every non-empty copied line looks like sequential read_document output.
+    const allContentLinesAreNumbered = lines.every((line) => line === '' || /^\d+:\s?/.test(line));
+    const lineNumbers = numberedLines.map((match) => Number(match[1]));
+    const isSequentialViewport = lineNumbers.every((lineNumber, index) =>
+        index === 0 ? Math.abs(lineNumber - startLine) <= LINE_WIGGLE : lineNumber === lineNumbers[index - 1] + 1,
+    );
+
+    if (!allContentLinesAreNumbered || !isSequentialViewport) return content;
+    return lines.map((line) => line.replace(/^\d+:\s?/, '')).join('\n');
+}
+
+function trimOneTrailingNewline(content: string): string {
+    return content.endsWith('\n') ? content.slice(0, -1) : content;
+}
+
+function uniqueStrings(values: string[]): string[] {
+    return [...new Set(values)];
+}
+
+function oldContentCandidates(oldContent: string): string[] {
+    const candidates = [oldContent];
+
+    if (TOLERATE_PATCH_TRAILING_NEWLINE_MISMATCH) {
+        if (oldContent.endsWith('\n')) {
+            candidates.push(trimOneTrailingNewline(oldContent));
+        } else {
+            candidates.push(`${oldContent}\n`);
+        }
+    }
+
+    return uniqueStrings(candidates);
+}
+
+export function inferEndLine(startLine: number, oldContent: string): number {
+    const contentForInference = TOLERATE_PATCH_TRAILING_NEWLINE_MISMATCH
+        ? trimOneTrailingNewline(oldContent)
+        : oldContent;
+    return startLine + Math.max(1, countLines(contentForInference)) - 1;
+}
+
+function prepareEdit(edit: EditOperation): PreparedEdit {
+    const oldContent = stripNumberedLinePrefixes(normalizePatchNewlines(edit.oldContent), edit.startLine);
+    const newContent = normalizePatchNewlines(edit.newContent);
+    const endLine = edit.endLine ?? inferEndLine(edit.startLine, oldContent);
+
+    return {
+        startLine: edit.startLine,
+        endLine,
+        oldContent,
+        newContent,
+        oldContentCandidates: oldContentCandidates(oldContent),
+    };
 }
 
 /**
@@ -110,9 +203,11 @@ export interface EditResult {
  */
 function findOldContent(
     content: string,
-    edit: EditOperation,
+    edit: PreparedEdit,
     wiggle: number,
-): { success: true; actualStart: number; actualEnd: number } | { success: false; error: string } {
+):
+    | { success: true; actualStart: number; actualEnd: number; matchedOldContent: string }
+    | { success: false; error: string } {
     const lines = content.split('\n');
     const totalLines = lines.length;
 
@@ -134,19 +229,21 @@ function findOldContent(
             const rangeLines = lines.slice(start - 1, end);
             const rangeContent = rangeLines.join('\n');
 
-            const matchIndex = rangeContent.indexOf(edit.oldContent);
-            if (matchIndex === -1) continue;
+            for (const oldContent of edit.oldContentCandidates) {
+                const matchIndex = rangeContent.indexOf(oldContent);
+                if (matchIndex === -1) continue;
 
-            // Check for ambiguity
-            const secondMatch = rangeContent.indexOf(edit.oldContent, matchIndex + 1);
-            if (secondMatch !== -1) {
-                return {
-                    success: false,
-                    error: `Multiple matches for oldContent in lines ${start}-${end}. Edit is ambiguous.`,
-                };
+                // Check for ambiguity
+                const secondMatch = rangeContent.indexOf(oldContent, matchIndex + 1);
+                if (secondMatch !== -1) {
+                    return {
+                        success: false,
+                        error: `Multiple matches for oldContent in lines ${start}-${end}. Edit is ambiguous.`,
+                    };
+                }
+
+                return { success: true, actualStart: start, actualEnd: end, matchedOldContent: oldContent };
             }
-
-            return { success: true, actualStart: start, actualEnd: end };
         }
     }
 
@@ -156,22 +253,14 @@ function findOldContent(
     };
 }
 
-/**
- * Apply precision edits to content.
- * Validates that oldContent matches exactly within the line range.
- */
+/** Atomic multi-edit: all validate first, then apply. Large earlier edits can shift later inputs past LINE_WIGGLE — prefer one big edit over several small ones across a collapsing region. */
 export function applyEdits(content: string, edits: EditOperation[]): EditResult {
-    let currentContent = content;
-
-    // Allow ±2 lines for model off-by-one errors.
-    // NOTE: Multi-edit with line-shifting (e.g. first edit removes 5 lines) can cause
-    // subsequent edits' line numbers to be stale. The wiggle covers small shifts, but
-    // large structural changes should use a single edit with a big oldContent/newContent range.
-    // If this becomes a real problem, consider tracking cumulative line offsets across edits.
-    const LINE_WIGGLE = 2;
+    let currentContent = normalizePatchNewlines(content);
+    const preparedEdits = edits.map(prepareEdit);
+    const appliedEdits: AppliedEdit[] = [];
 
     // Validate all edits first (atomic)
-    for (const edit of edits) {
+    for (const edit of preparedEdits) {
         const match = findOldContent(currentContent, edit, LINE_WIGGLE);
         if (!match.success) {
             return { success: false, error: match.error };
@@ -179,7 +268,7 @@ export function applyEdits(content: string, edits: EditOperation[]): EditResult 
     }
 
     // Apply all edits (now that validation passed)
-    for (const edit of edits) {
+    for (const edit of preparedEdits) {
         const match = findOldContent(currentContent, edit, LINE_WIGGLE);
         if (!match.success) {
             return { success: false, error: match.error };
@@ -190,7 +279,14 @@ export function applyEdits(content: string, edits: EditOperation[]): EditResult 
         const rangeContent = rangeLines.join('\n');
 
         // Apply replacement
-        const newRangeContent = rangeContent.replace(edit.oldContent, edit.newContent);
+        const newRangeContent = rangeContent.replace(match.matchedOldContent, edit.newContent);
+
+        appliedEdits.push({
+            startLine: match.actualStart,
+            endLine: match.actualEnd,
+            oldContent: rangeContent,
+            newContent: newRangeContent,
+        });
 
         // Rebuild content
         const before = lines.slice(0, match.actualStart - 1);
@@ -202,6 +298,7 @@ export function applyEdits(content: string, edits: EditOperation[]): EditResult 
         success: true,
         newContent: currentContent,
         linesNow: countLines(currentContent),
+        appliedEdits,
     };
 }
 
@@ -212,7 +309,7 @@ export function applyEdits(content: string, edits: EditOperation[]): EditResult 
 /**
  * Find the latest version with a specific status.
  */
-export async function findVersionByStatus(
+export function findVersionByStatus(
     em: EntityManager,
     artifactId: string,
     status: VersionStatus,
@@ -277,10 +374,17 @@ export interface DocumentInfo {
     id: string;
     name: string;
     title: string;
+    /** artifact.current_version — the latest actioned version (approved, rejected, or deleted). */
     currentVersion: number | null;
     currentContent: string | null;
     currentStatus: VersionStatus | null;
     currentDocumentType: string | null;
+    /** The most recent version with status 'approved'. May differ from current_version if a rejection happened after. */
+    approvedVersion: number | null;
+    approvedContent: string | null;
+    approvedDocumentType: string | null;
+    /** The highest version number across all versions (artifact.version). */
+    latestVersion: number;
     proposedVersion: number | null;
     proposedContent: string | null;
     proposedDocumentType: string | null;
@@ -291,8 +395,6 @@ export interface DocumentInfo {
     lineCount: number;
     /** Whether this artifact is a read-only public resource (or imported from one) */
     isReadOnly: boolean;
-    /** Whether this artifact is a PECP (auto-generated, cannot be edited directly) */
-    isPECP: boolean;
 }
 
 /**
@@ -316,10 +418,11 @@ export async function findDocumentByName(
     const versions = artifact.versions.getItems();
     const proposed = versions.find((v) => v.status === 'proposed');
     const rejected = versions.filter((v) => v.status === 'rejected').sort((a, b) => b.version - a.version)[0];
+    const lastApproved = versions.filter((v) => v.status === 'approved').sort((a, b) => b.version - a.version)[0];
 
     const currentContent = artifact.current_version?.content ?? null;
     const proposedContent = proposed?.content ?? null;
-    const rejectedContent = rejected?.content ?? null;
+    const approvedContent = lastApproved?.content ?? null;
 
     // Public artifacts and copies imported from public artifacts are read-only
     const isReadOnly = artifact.is_public || !!(artifact.metadata as any)?.importedFromPublic;
@@ -327,21 +430,24 @@ export async function findDocumentByName(
     return {
         id: artifact.id,
         name: artifact.key,
-        title: artifact.title,
+        title: proposed?.title ?? artifact.current_version?.title ?? '',
         currentVersion: artifact.current_version?.version ?? null,
-        currentContent,
+        currentContent: artifact.current_version?.content ?? null,
         currentStatus: artifact.current_version?.status ?? null,
         currentDocumentType: artifact.current_version?.document_type ?? null,
+        approvedVersion: lastApproved?.version ?? null,
+        approvedContent,
+        approvedDocumentType: lastApproved?.document_type ?? null,
+        latestVersion: artifact.version,
         proposedVersion: proposed?.version ?? null,
         proposedContent,
         proposedDocumentType: proposed?.document_type ?? null,
         rejectedVersion: rejected?.version ?? null,
-        rejectedContent,
+        rejectedContent: rejected?.content ?? null,
         rejectedDocumentType: rejected?.document_type ?? null,
         rejectionReason: rejected?.rejection_reason ?? null,
-        lineCount: countLines(proposedContent ?? currentContent ?? ''),
+        lineCount: countLines(proposedContent ?? approvedContent ?? ''),
         isReadOnly,
-        isPECP: !!(artifact as any).is_pecp,
     };
 }
 
@@ -374,7 +480,6 @@ export async function listDocuments(
         {
             $and: [
                 scopeFilter(scope),
-                { is_pecp: false },
                 { $or: [{ current_version: null }, { current_version: { status: { $ne: 'deleted' } } }] },
             ],
         } as any,
@@ -391,7 +496,7 @@ export async function listDocuments(
 
         return {
             name: a.key,
-            title: a.title,
+            title: proposed?.title ?? a.current_version?.title ?? '',
             lines: countLines(contentForLines),
             documentType: latest?.document_type ?? a.current_version?.document_type ?? 'Other',
             currentVersion: a.current_version?.version ?? null,
@@ -457,6 +562,7 @@ export async function upsertDocument(
         const newVersion = new ArtifactVersionEntity();
         newVersion.artifact = existing;
         newVersion.version = newVersionNum;
+        newVersion.title = title;
         newVersion.content = content;
         newVersion.status = 'proposed';
         newVersion.is_internal = is_internal;
@@ -468,7 +574,6 @@ export async function upsertDocument(
 
         // Update artifact's version counter (but NOT current_version - that only changes on approval)
         existing.version = newVersionNum;
-        existing.title = title;
 
         await em.flush();
 
@@ -491,7 +596,6 @@ export async function upsertDocument(
             // Phase 1: Create artifact (current_version will be NULL - nothing approved yet)
             const artifact = new ArtifactEntity();
             artifact.key = normalizedName;
-            artifact.title = title;
             artifact.version = 1;
             setArtifactOwner(artifact, scope, txEm);
             // current_version stays null until first approval
@@ -504,6 +608,7 @@ export async function upsertDocument(
             const version = new ArtifactVersionEntity();
             version.artifact = artifact;
             version.version = 1;
+            version.title = title;
             version.content = content;
             version.status = 'proposed';
             version.is_internal = is_internal;

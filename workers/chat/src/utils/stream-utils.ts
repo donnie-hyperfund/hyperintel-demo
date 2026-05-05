@@ -17,7 +17,13 @@ import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
 import { generateSignedImageUrls } from '../uploads/image-uploader';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
-import { buildWorkerErrorLogContext, logWorkerError, type PublicErrorMetadata } from './error-metadata';
+import {
+    buildStoredErrorMetadata,
+    buildWorkerErrorLogContext,
+    classifyWorkerError,
+    logWorkerError,
+    type StoredErrorMetadata,
+} from './error-metadata';
 
 // ============================================================================
 // DO LIFECYCLE HELPERS
@@ -229,9 +235,9 @@ export async function persistErrorMessage({
     em: any;
     chatId: string;
     agentMessageId: string;
-    chat: { active_agent_message_id: string | null };
+    chat: { active_agent_message_id?: string | null };
     error: any;
-    errorMetadata: PublicErrorMetadata;
+    errorMetadata: StoredErrorMetadata;
     label: string;
 }) {
     try {
@@ -243,7 +249,7 @@ export async function persistErrorMessage({
                 role: 'assistant',
                 content: '',
                 is_error: true,
-                metadata: errorMetadata,
+                metadata: { error: errorMetadata },
                 debug_data: { error: serializeException(error) },
             });
             em.persist(errorMsg);
@@ -254,11 +260,11 @@ export async function persistErrorMessage({
         logWorkerError(
             label,
             buildWorkerErrorLogContext({
-                error: saveErr,
+                classification: classifyWorkerError(saveErr),
                 stage: 'persist_error_state',
                 chatId,
                 agentMessageId,
-                errorMetadata,
+                error: saveErr,
             }),
             saveErr,
         );
@@ -282,18 +288,19 @@ export async function cleanupStreamDO({
     ugStub: UserGatewayStub;
     topic: string;
     error: any;
-    errorMetadata?: PublicErrorMetadata;
+    errorMetadata?: StoredErrorMetadata;
 }) {
     try {
         await pusher.waitAll();
-        const errorMessage = errorMetadata?.error ?? error?.message ?? 'Unknown error';
+        const safeMetadata = errorMetadata ?? buildStoredErrorMetadata({ classification: classifyWorkerError(error) });
+        const errorSignal = safeMetadata.code;
         await streamDO.push(
             [
-                { type: 'error', error: errorMessage },
+                { type: 'error', error: errorSignal },
                 {
                     type: 'done',
-                    error: errorMessage,
-                    ...(errorMetadata && { messageMetadata: errorMetadata }),
+                    error: errorSignal,
+                    messageMetadata: { error: safeMetadata },
                 },
             ],
             pusher.seq,
@@ -481,6 +488,8 @@ export async function handleStreamError(
     const serialized = serializeException(error);
     console.log('ERROR ', JSON.stringify(serialized, undefined, 2));
 
+    const errorMetadata = buildStoredErrorMetadata({ classification: classifyWorkerError(error) });
+
     try {
         const userMsg = em.create(ChatMessageEntity, {
             chat: chatId,
@@ -496,7 +505,7 @@ export async function handleStreamError(
             content: '',
             is_error: true,
             created_at: new Date(Math.max(Date.now(), requestStartedAt.getTime() + 100)),
-            metadata: { error: serialized.message || JSON.stringify(serialized) },
+            metadata: { error: errorMetadata },
             debug_data: { error: serialized },
         });
         em.persist(errorMsg);
@@ -506,7 +515,7 @@ export async function handleStreamError(
         console.log('Failed to save error messages:', saveErr);
     }
 
-    enqueue({ type: 'error', error: serialized.message || JSON.stringify(serialized) });
+    enqueue({ type: 'error', error: errorMetadata.code });
     try {
         controller.close();
     } catch {

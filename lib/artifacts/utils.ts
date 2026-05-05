@@ -13,6 +13,10 @@ export function getLatestArtifactVersion(artifact: CamelCaseDto<ArtifactDto>) {
     return artifact.proposedVersion ?? artifact.currentVersion;
 }
 
+export function getLatestArtifactVersionTitle(artifact: CamelCaseDto<ArtifactDto>): string {
+    return getLatestArtifactVersion(artifact)?.title ?? '';
+}
+
 export function getArtifactDocumentType(artifact: CamelCaseDto<ArtifactDto>) {
     return getLatestArtifactVersion(artifact)?.documentType;
 }

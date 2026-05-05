@@ -8,15 +8,17 @@
  */
 
 import type { AgentStreamEvent } from "@/common/ai/agent/types";
+import { createDocumentTools, DraftManager, type DocumentToolsContext } from "@/workers/chat/src/tools/documents";
 import { createDocumentEventHandler, type DocumentEvent } from "@/workers/chat/src/utils/document-events";
 
 function collect() {
 	const events: DocumentEvent[] = [];
+	const draftManager = new DraftManager();
 	const { handle } = createDocumentEventHandler(
-		{ em: {} as any, projectId: "p1" },
+		{ em: {} as any, projectId: "p1", draftManager },
 		(e) => events.push(e),
 	);
-	return { events, handle };
+	return { events, handle, draftManager };
 }
 
 function simulateWrite(handle: (e: AgentStreamEvent) => void, opts?: { is_internal?: boolean }) {
@@ -33,16 +35,24 @@ function simulateWrite(handle: (e: AgentStreamEvent) => void, opts?: { is_intern
 		result: JSON.stringify({ name: "doc", version: 1, lines: 5, action: "created" }) });
 }
 
-function simulateEdit(handle: (e: AgentStreamEvent) => void, opts?: { is_internal?: boolean }) {
+function simulateEdit(
+	handle: (e: AgentStreamEvent) => void,
+	draftManager: DraftManager,
+	opts?: { is_internal?: boolean },
+) {
 	const isInternal = opts?.is_internal ?? true;
 	handle({ type: "tool_start", tool: "begin_document", id: "tc1" });
 	handle({ type: "tool_result", tool: "begin_document", id: "tc1", success: true,
-		result: JSON.stringify({ status: "editing", name: "doc", title: "Doc", mode: "edit", is_internal: isInternal, loadedFrom: "approved", loadedVersion: 1 }) });
+		result: JSON.stringify({ status: "editing", name: "doc", title: "Doc", mode: "edit", is_internal: isInternal, loadedFrom: "approved", loadedVersion: 1, nextVersion: 2 }) });
 	handle({ type: "tool_start", tool: "patch_document", id: "tc2" });
-	handle({ type: "tool_call_delta", tool: "patch_document", id: "tc2",
-		delta: '{"edits":[{"startLine":1,"endLine":1,"oldContent":"a","newContent":"b"}]}' });
+	// Real executor stashes applied edits by tool_call_id; mirror that here.
+	draftManager.setAppliedEdits("tc2", [{ startLine: 1, endLine: 1, oldContent: "a", newContent: "b" }]);
 	handle({ type: "tool_result", tool: "patch_document", id: "tc2", success: true,
-		result: JSON.stringify({ status: "edited", editsApplied: 1, linesNow: 5 }) });
+		result: JSON.stringify({
+			status: "edited",
+			editsApplied: 1,
+			linesNow: 5,
+		}) });
 	handle({ type: "tool_start", tool: "finalize_document", id: "tc3" });
 	handle({ type: "tool_result", tool: "finalize_document", id: "tc3", success: true,
 		result: JSON.stringify({ name: "doc", version: 2, lines: 5, action: "edited", supersededVersion: 1 }) });
@@ -73,14 +83,14 @@ describe("stream document content redaction", () => {
 		});
 
 		it("edit flow — no document_edit emitted", () => {
-			const { events, handle } = collect();
-			simulateEdit(handle);
+			const { events, handle, draftManager } = collect();
+			simulateEdit(handle, draftManager);
 			expect(events.map((e) => e.type)).not.toContain("document_edit");
 		});
 
 		it("edit flow — document_start + document_complete still emitted", () => {
-			const { events, handle } = collect();
-			simulateEdit(handle);
+			const { events, handle, draftManager } = collect();
+			simulateEdit(handle, draftManager);
 			const types = events.map((e) => e.type);
 			expect(types).toContain("document_start");
 			expect(types).toContain("document_complete");
@@ -103,16 +113,16 @@ describe("stream document content redaction", () => {
 		});
 
 		it("edit flow — document_start carries isInternal=false", () => {
-			const { events, handle } = collect();
-			simulateEdit(handle, { is_internal: false });
+			const { events, handle, draftManager } = collect();
+			simulateEdit(handle, draftManager, { is_internal: false });
 			const start = events.find((e) => e.type === "document_start");
 			expect(start).toBeDefined();
 			expect((start as any).isInternal).toBe(false);
 		});
 
 		it("edit flow — document_edit IS emitted for non-internal", () => {
-			const { events, handle } = collect();
-			simulateEdit(handle, { is_internal: false });
+			const { events, handle, draftManager } = collect();
+			simulateEdit(handle, draftManager, { is_internal: false });
 			expect(events.map((e) => e.type)).toContain("document_edit");
 		});
 
@@ -134,6 +144,51 @@ describe("stream document content redaction", () => {
 			const start = events.find((e) => e.type === "document_start");
 			expect(start).toBeDefined();
 			expect((start as any).isInternal).toBe(true);
+		});
+	});
+
+	describe("patch_document tool result carries no content", () => {
+		// Guards the generic tool_result leak vector: appliedEdits lives on DraftManager, not in the result.
+		function runRealPatchExecutor(isInternal: boolean) {
+			const tools = createDocumentTools();
+			const patch = tools.find((t) => t.name === "patch_document")!;
+			const draftManager = new DraftManager();
+			draftManager.begin("scope", "doc.md", "Doc", "edit", "alpha\nbeta\ngamma\n", 1, isInternal, "Other");
+			const ctx = { draftManager, chatId: "c", createdVersionIds: [] } as unknown as DocumentToolsContext;
+			const result = patch.executor(
+				{ edits: [{ startLine: 2, oldContent: "beta", newContent: "BETA" }] },
+				ctx,
+				undefined,
+				undefined,
+				"tc-real",
+			);
+			return { result, draftManager };
+		}
+
+		it("internal doc: result has no appliedEdits / oldContent / newContent", () => {
+			const { result } = runRealPatchExecutor(true);
+			const serialized = JSON.stringify(result);
+			expect((result as any).appliedEdits).toBeUndefined();
+			expect(serialized).not.toContain("oldContent");
+			expect(serialized).not.toContain("newContent");
+			expect(serialized).not.toContain("beta");
+			expect(serialized).not.toContain("BETA");
+		});
+
+		it("non-internal doc: same — result never carries content regardless of is_internal", () => {
+			const { result } = runRealPatchExecutor(false);
+			const serialized = JSON.stringify(result);
+			expect((result as any).appliedEdits).toBeUndefined();
+			expect(serialized).not.toContain("oldContent");
+			expect(serialized).not.toContain("newContent");
+		});
+
+		it("canonical edits are stashed on DraftManager keyed by tool_call_id", () => {
+			const { draftManager } = runRealPatchExecutor(false);
+			const stashed = draftManager.takeAppliedEdits("tc-real");
+			expect(stashed).toBeDefined();
+			expect(stashed!.length).toBeGreaterThan(0);
+			expect(stashed![0]).toMatchObject({ startLine: expect.any(Number), endLine: expect.any(Number) });
 		});
 	});
 });

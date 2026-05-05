@@ -35,7 +35,7 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
             return;
         }
 
-        addArtifact({ id: cbKey, key: cbKey, title: 'Completion Brief', isLoading: true }, cbVersion);
+        addArtifact({ id: cbKey, key: cbKey, isLoading: true }, cbVersion);
         openPanel({ panel: 'artifact-preview', artifactId: cbKey, version: cbVersion });
 
         try {
@@ -48,10 +48,8 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
                     cbKey,
                     {
                         key: fetched.key,
-                        title: fetched.title,
                         currentVersion: fetched.currentVersion ?? undefined,
                         proposedVersion: fetched.proposedVersion ?? undefined,
-                        pecp: fetched.pecp ?? undefined,
                         updatedAt: fetched.updatedAt,
                         isLoading: false,
                     },

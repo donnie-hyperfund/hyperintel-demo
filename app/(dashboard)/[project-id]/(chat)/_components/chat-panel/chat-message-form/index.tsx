@@ -8,6 +8,7 @@ import { useForm } from 'react-hook-form';
 import {
     AlertDialog,
     AlertDialogAction,
+    AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
     AlertDialogFooter,
@@ -17,13 +18,17 @@ import {
 import { AutoExpandingTextarea, type AutoExpandingTextareaRef } from '@/components/ui/auto-expanding-textarea';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
+import { ApiClientError } from '@/lib/api/client/types';
 import { IS_DEV } from '@/lib/config';
 import { DevSlot } from '@/lib/dev-slots';
 import { cn } from '@/lib/utils';
 import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
+import { getContextBypassForChat, setContextBypassForChat } from '@/modules/chat/utils/context-bypass-session';
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
+import { ContextHardStopModal } from '../../context-hard-stop-modal';
+import { ContextWarningModal } from '../../context-warning-modal';
 import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
 import { FilePreviewItem } from './file-preview-item/file-preview-item';
@@ -43,6 +48,12 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         projectId,
         stopGeneration,
         dismissInvalidModelAlert,
+        dismissContextLimitAlert,
+        dismissContextWarningModal,
+        sendForceBrief,
+        dismissHardStopModal,
+        navigateToExistingNextChat,
+        requestPhaseTransition,
         state: {
             isGenerating,
             isSummarizing,
@@ -51,6 +62,11 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             tokenUsage,
             activeResponseId,
             showInvalidModelAlert,
+            showContextLimitAlert,
+            showContextWarningModal,
+            hardStopModalState,
+            hardStopExistingNextChatId,
+            hardStopError,
         },
     } = useChatContext();
     const { selectedModel } = useModelSelection();
@@ -68,6 +84,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
     } = useFileUploadContext();
     const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
+    const bypassContextWarningRef = useRef(false);
 
     const {
         register,
@@ -107,6 +124,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         isGenerating || isSummarizing || isLoading || isSubmitting || hasBlockingFiles || isProcessingArtifactAction;
     const isAwaitingStream = isGenerating && !activeResponseId;
     const isSubmitDisabled = !hasContent || isBusy;
+    const isSending = isGenerating || isSubmitting;
 
     const onFormSubmit = async (data: ChatMessageFormValues) => {
         if (!data.message.trim() && files.length === 0) return;
@@ -154,7 +172,12 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 imageFileIds?: string[];
                 onUploadsAssociated?: () => Promise<void>;
                 isDeferredSend?: boolean;
+                bypassContextWarning?: boolean;
             } = {};
+
+            const shouldBypass = bypassContextWarningRef.current || (chatId ? getContextBypassForChat(chatId) : false);
+            bypassContextWarningRef.current = false;
+            if (shouldBypass) opts.bypassContextWarning = true;
             if (hasStagedUploads && stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
             if (draftArtifactIds.length > 0) opts.draftArtifactIds = draftArtifactIds;
             if (imageFileIds.length > 0) opts.imageFileIds = imageFileIds;
@@ -176,6 +199,9 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             try {
                 await sendMessage(message, Object.keys(opts).length > 0 ? opts : undefined);
             } catch (error) {
+                if (error instanceof ApiClientError && error.code === 'CONTEXT_TOO_LONG') {
+                    return;
+                }
                 toast({
                     title: 'Failed to send message',
                     description: error instanceof Error ? error.message : 'Please try again.',
@@ -243,6 +269,26 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         [registerRef],
     );
 
+    const handleContextLimitProceed = useCallback(() => {
+        dismissContextLimitAlert();
+        requestPhaseTransition();
+    }, [dismissContextLimitAlert, requestPhaseTransition]);
+
+    const handleWarningContinue = useCallback(
+        (dontRemindAgain: boolean) => {
+            if (dontRemindAgain && chatId) setContextBypassForChat(chatId);
+            dismissContextWarningModal();
+            bypassContextWarningRef.current = true;
+            handleSubmit(onFormSubmit)();
+        },
+        [chatId, dismissContextWarningModal, handleSubmit, onFormSubmit],
+    );
+
+    const handleWarningNextPhase = useCallback(() => {
+        dismissContextWarningModal();
+        requestPhaseTransition();
+    }, [dismissContextWarningModal, requestPhaseTransition]);
+
     return (
         <div className={className}>
             <AnimatePresence>
@@ -283,6 +329,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                                 status={entry.status}
                                                 file={entry.file}
                                                 onRemove={() => removeFile(i)}
+                                                disabled={isSending}
                                             />
                                         ))}
                                     </div>
@@ -373,6 +420,46 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogAction onClick={dismissInvalidModelAlert}>OK</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <ContextWarningModal
+                open={showContextWarningModal}
+                onContinue={handleWarningContinue}
+                onNextPhase={handleWarningNextPhase}
+                onCancel={dismissContextWarningModal}
+            />
+
+            <ContextHardStopModal
+                open={hardStopModalState !== 'closed'}
+                state={hardStopModalState === 'closed' ? 'idle' : hardStopModalState}
+                onConfirm={sendForceBrief}
+                onCancel={dismissHardStopModal}
+                onNavigate={navigateToExistingNextChat}
+                existingNextChatId={hardStopExistingNextChatId ?? undefined}
+                error={hardStopError}
+            />
+
+            <AlertDialog open={showContextLimitAlert} onOpenChange={(isOpen) => !isOpen && dismissContextLimitAlert()}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Context limit reached</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {chatType === 'phase'
+                                ? 'You have reached the context limit for this phase. Would you like to create a Completion Brief and move to the next phase?'
+                                : 'This conversation has reached the context limit. Start a new conversation before continuing.'}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        {chatType === 'phase' ? (
+                            <>
+                                <AlertDialogCancel onClick={dismissContextLimitAlert}>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleContextLimitProceed}>Continue</AlertDialogAction>
+                            </>
+                        ) : (
+                            <AlertDialogAction onClick={dismissContextLimitAlert}>OK</AlertDialogAction>
+                        )}
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

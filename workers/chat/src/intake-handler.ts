@@ -7,8 +7,10 @@
 
 import { runAgentStream } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
-import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
+import { extractInferenceMetadata, type ParamsWithType, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
+import type { ContextMessage } from '@common/ai/inference/types';
+import { PublicError } from '@common/common/error.helpers';
 import { serializeException } from '@/common/ai/utils';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
@@ -26,9 +28,21 @@ import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
+import {
+    CHAT_CONTEXT_LIMIT_TOKENS,
+    createContextLimitError,
+    estimateInferenceInputTokens,
+} from './utils/context-budget';
+import { maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
-import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
+import {
+    buildStoredErrorMetadata,
+    buildWorkerErrorLogContext,
+    classifyWorkerError,
+    extractRawErrorMessage,
+    logWorkerError,
+} from './utils/error-metadata';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
@@ -58,6 +72,13 @@ const DOCUMENT_INSTRUCTIONS: Record<
         titlePattern: '[Person Name] ([Category])',
     },
 };
+
+function getIntakeToolsAndGroups() {
+    return {
+        allTools: [...createDocumentTools(), ...createKnowledgeTools()],
+        toolGroups: [DocumentToolGroup, KnowledgeSearchToolGroup],
+    };
+}
 
 async function buildIntakeSystemPrompt(
     ctx: Ctx,
@@ -105,6 +126,67 @@ When you have gathered sufficient information, create the document using the doc
     return systemPrompt;
 }
 
+type IntakeToolsAndGroups = ReturnType<typeof getIntakeToolsAndGroups>;
+
+type PreparedIntakeGenerationInput = IntakeToolsAndGroups & {
+    contextMessages?: ContextMessage[];
+    systemPrompt: string;
+    estimatedTokens: number;
+};
+
+async function prepareIntakeGenerationInput({
+    data,
+    ctx,
+    chat,
+    options,
+}: {
+    data: SendIntakeChatActionDto;
+    ctx: Ctx;
+    chat: ChatEntity;
+    options: ChatHandlerOptions;
+}): Promise<PreparedIntakeGenerationInput | PublicError> {
+    const { em } = ctx;
+    const framework = chat.metadata?.framework as 'cpf' | 'hpf';
+    const category = chat.metadata?.category as string | undefined;
+    if (!framework) throw new Error('Chat metadata missing framework type');
+
+    const historyMessages = await loadChatHistory(em!, data.chatId, ctx.env);
+    const estimationContextMessages: ContextMessage[] = data.message
+        ? [...historyMessages, { role: 'user', content: data.message }]
+        : historyMessages;
+    const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
+    const localPath = localPromptsSetting
+        ? localPromptsSetting === true
+            ? DEFAULT_LOCAL_PROMPTS_PATH
+            : localPromptsSetting
+        : null;
+    const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
+    const { allTools, toolGroups } = getIntakeToolsAndGroups();
+    const estimatedTokens = estimateInferenceInputTokens({
+        instructions: systemPrompt,
+        context: estimationContextMessages,
+        tools: allTools,
+        toolGroups,
+    });
+
+    // TODO: two-gate preflight (warning/hard) not implemented here — intake keeps single-stop behavior for now.
+    if (estimatedTokens > CHAT_CONTEXT_LIMIT_TOKENS) {
+        return createContextLimitError(
+            estimatedTokens,
+            CHAT_CONTEXT_LIMIT_TOKENS,
+            'This conversation has reached the context limit. Start a new conversation before continuing.',
+        );
+    }
+
+    return {
+        allTools,
+        toolGroups,
+        systemPrompt,
+        estimatedTokens,
+        ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
+    };
+}
+
 // ============================================================================
 // INTAKE HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
 // ============================================================================
@@ -125,7 +207,7 @@ export async function intakeActionHandler(
     data: SendIntakeChatActionDto,
     ctx: Ctx,
     options: ChatHandlerOptions = {},
-): Promise<IntakeActionResult | ReadableStream | Response> {
+): Promise<IntakeActionResult | ReadableStream | Response | PublicError> {
     const { chatId, message, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
@@ -160,6 +242,11 @@ export async function intakeActionHandler(
             });
         }
     }
+
+    const safetyPromise = message ? safetyCheck(ctx, message) : Promise.resolve(null);
+
+    const preparedInput = await prepareIntakeGenerationInput({ data, ctx, chat, options });
+    if (preparedInput instanceof PublicError) return preparedInput;
 
     let userMsg: ChatMessageEntity | null = null;
     if (!isNudge) {
@@ -227,6 +314,8 @@ export async function intakeActionHandler(
             agentMessageId,
             requestStartedAt,
             ugStub,
+            preparedInput,
+            safetyPromise,
         });
         return { userMessageId, agentMessageId, generation: generationPromise };
     }
@@ -242,7 +331,17 @@ export async function intakeActionHandler(
         const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
 
         try {
-            await runIntakeGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+            await runIntakeGeneration({
+                data,
+                ctx,
+                options,
+                chat,
+                agentMessageId,
+                requestStartedAt,
+                ugStub,
+                preparedInput,
+                safetyPromise,
+            });
         } finally {
             clearInterval(heartbeat);
         }
@@ -267,10 +366,12 @@ interface IntakeGenerationParams {
     agentMessageId: string;
     requestStartedAt: Date;
     ugStub: UserGatewayStub;
+    preparedInput: PreparedIntakeGenerationInput;
+    safetyPromise: Promise<Awaited<ReturnType<typeof safetyCheck>> | null>;
 }
 
 async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void> {
-    const { data, ctx, options, chat, agentMessageId, ugStub } = params;
+    const { data, ctx, options, chat, agentMessageId, ugStub, preparedInput, safetyPromise } = params;
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
 
@@ -283,16 +384,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             );
         }
 
-        const framework = chat.metadata?.framework as 'cpf' | 'hpf';
-        const category = chat.metadata?.category as string | undefined;
-        if (!framework) throw new Error('Chat metadata missing framework type');
-
-        // Load history + safety check in parallel (doesn't slow happy path)
-        // For nudge (message=null), skip safety check — the system event was injected server-side
-        const [historyMessages, safetyVerdict] = await Promise.all([
-            loadChatHistory(em!, chatId, ctx.env),
-            message ? safetyCheck(ctx, message) : Promise.resolve(null),
-        ]);
+        const historyMessages = preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
+        // TODO: maybe early reject with error here if safetyVerdict.blocked
+        const safetyVerdict = await safetyPromise;
 
         const allMessages = injectSafetyContext(historyMessages, safetyVerdict);
 
@@ -314,16 +408,6 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             },
         };
 
-        // Resolve local prompts path
-        const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
-        const localPath = localPromptsSetting
-            ? localPromptsSetting === true
-                ? DEFAULT_LOCAL_PROMPTS_PATH
-                : localPromptsSetting
-            : null;
-
-        const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
-
         // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
         if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
 
@@ -332,14 +416,10 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         if (!resolved) {
             throw new Error(`Preset '${presetId}' is not available`);
         }
-        const defaultInference: ParamsWithType = {
-            ...resolved,
-            params: { ...resolved.params, thinking: false },
-        };
+        const defaultInference = withCommonParams(resolved, { reasoning: false });
         const inferenceParams = options.overrideInference ?? defaultInference;
 
-        const allTools = [...createDocumentTools(), ...createKnowledgeTools()];
-        const toolGroups = [DocumentToolGroup, KnowledgeSearchToolGroup];
+        const { allTools, systemPrompt, toolGroups } = preparedInput;
 
         const { stream, historyPromise } = runAgentStream(
             agentCtx,
@@ -389,7 +469,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         await runStreamLoop({
             stream,
             push: pusher.push,
-            docEventsCtx: { em: em! },
+            docEventsCtx: { em: em!, draftManager: agentCtx.draftManager },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
@@ -407,24 +487,28 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
                         const errorMetadata = isError
-                            ? buildPublicErrorMetadata({
-                                  error: event.error!.raw,
-                                  fallbackMessage: event.error!.message,
+                            ? buildStoredErrorMetadata({
+                                  classification: event.error!.classification,
                                   requestId: ctx.requestId,
                               })
                             : null;
-                        if (isError && errorMetadata) {
+                        if (isError) {
                             logWorkerError(
                                 'intake-handler',
                                 buildWorkerErrorLogContext({
-                                    error: event.error!.raw,
+                                    classification: event.error!.classification,
                                     stage: 'done_ext',
                                     chatId,
                                     agentMessageId,
-                                    fallbackMessage: event.error!.message,
-                                    errorMetadata,
+                                    requestId: ctx.requestId,
+                                    error: event.error!.raw,
                                 }),
                                 event.error!.raw,
+                            );
+                            maybeRecordContextOverflow(
+                                chat,
+                                event.error!.classification,
+                                preparedInput.estimatedTokens,
                             );
                         }
 
@@ -462,7 +546,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                                 metadata: {
                                     preset: presetId,
                                     inference: extractInferenceMetadata(inferenceParams),
-                                    ...(errorMetadata ?? {}),
+                                    ...(errorMetadata && { error: errorMetadata }),
                                     ...(messageUsage && { usage: messageUsage }),
                                 },
                                 ...(isError && { is_error: true }),
@@ -490,11 +574,16 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
                         // Push terminal done event (totalCost is dev-only — matches chat-handler contract)
                         const isDev = ctx.env.ENV === 'dev';
+                        // `detail` is dev-only and never persisted.
+                        const devErrorDetail = isDev && isError ? extractRawErrorMessage(event.error!.raw) : undefined;
+                        const wsError = errorMetadata
+                            ? { ...errorMetadata, ...(devErrorDetail && { detail: devErrorDetail }) }
+                            : undefined;
                         const doneEvent: StreamEvent = {
                             type: 'done',
                             ...(isDev && chat.total_cost != null && { totalCost: Number(chat.total_cost) }),
-                            ...(isError && { error: event.error!.message }),
-                            ...(errorMetadata && { messageMetadata: errorMetadata }),
+                            ...(isError && { error: errorMetadata?.code ?? 'UNKNOWN' }),
+                            ...(wsError && { messageMetadata: { error: wsError } }),
                             ...(pendingDoneEvent?.outputType === 'tool' &&
                                 pendingDoneEvent.outputTool && {
                                     outputType: 'tool' as const,
@@ -521,18 +610,21 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
     } catch (error: any) {
-        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        const classification = classifyWorkerError(error);
+        const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(
             'intake-handler',
             buildWorkerErrorLogContext({
-                error,
+                classification,
                 stage: 'catch',
                 chatId,
                 agentMessageId,
-                errorMetadata,
+                requestId: ctx.requestId,
+                error,
             }),
             error,
         );
+        maybeRecordContextOverflow(chat, classification, preparedInput.estimatedTokens);
         await persistErrorMessage({
             em: em!,
             chatId,

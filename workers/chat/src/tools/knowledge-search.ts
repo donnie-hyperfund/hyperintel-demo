@@ -68,7 +68,7 @@ async function searchKnowledge(
             ae.chunk_content,
             ae.chunk_index,
             av.artifact_id,
-            a.title,
+            av.title,
             a.key,
             1 - (ae.embedding <=> '${embeddingStr}'::vector) as similarity
         FROM artifact_embeddings ae
@@ -133,8 +133,6 @@ export const KnowledgeSearchToolGroup: AgentToolGroup = {
     description: 'Tools for searching and retrieving information from project documents.',
     guidance: `Use search_knowledge to find relevant information from project documents. Use list_documents to see all available documents.
 
-**CRITICAL: At the START of every new conversation or phase/stage, you MUST call search_knowledge FIRST to gather relevant context from previous work before responding to the user.** This ensures continuity across phases and prevents redundant work.
-
 **When the user's message contains uploaded files** (indicated by \`::upload[filename]{size=...}\` directives):
 - Recently uploaded files may NOT yet appear in \`search_knowledge\` results because semantic indexing runs asynchronously.
 - Use \`list_documents\` first to find the uploaded file, then \`read_document\` to access its content.
@@ -144,9 +142,11 @@ export const KnowledgeSearchToolGroup: AgentToolGroup = {
 2. If no relevant results, use \`list_documents\` to browse all available documents and find the correct name.
 3. Then use \`read_document\` with the exact name to view the full content.
 Never guess document names — always discover them via search or listing first.
-${SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT
+${
+    SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT
         ? '\nsearch_knowledge includes embedded images by default. Set `includeImages: false` for text-only results.'
-        : '\nsearch_knowledge is text-only by default. Use `read_document` if embedded images matter.'}`,
+        : '\nsearch_knowledge is text-only by default. Use `read_document` if embedded images matter.'
+}`,
     tools: ['search_knowledge', 'list_documents'],
 };
 
@@ -155,7 +155,7 @@ export function createKnowledgeTools() {
         {
             name: 'search_knowledge' as const,
             description:
-                'Search knowledge base using semantic similarity. Use this to find relevant information from previously created or uploaded documents and artifacts. MUST be called at the start of every new conversation/phase/stage to gather context. Results may include images from documents. Set includeImages: false for text-only search.',
+                'Search knowledge base using semantic similarity. Use this to find relevant information from previously created or uploaded documents and artifacts. Results may include images from documents. Set includeImages: false for text-only search.',
             parameters: SearchKnowledgeParams,
             executor: async (
                 input: { query: string; limit?: number; includeImages?: boolean },

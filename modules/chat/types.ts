@@ -1,6 +1,7 @@
 // Re-export StreamBlock from common for use in chat module
 export type { StreamBlock } from '@/common/ai/agent/types';
 
+import type { PublicErrorCode } from '@/common/ai';
 import type { StreamBlock } from '@/common/ai/agent/types';
 import type { CamelCaseDto } from '@/lib/api/client/types';
 import type { ArtifactDto } from '@/lib/schema/artifact';
@@ -20,11 +21,17 @@ export type MessageArtifactRef = {
     title: string;
 };
 
+export type MessageErrorMetadata = {
+    code: PublicErrorCode;
+    retryable: boolean;
+    referenceId?: string;
+    /** Raw provider/internal text. Dev-only — never persisted, only on live WS when ENV === 'dev'. */
+    detail?: string;
+};
+
 export type MessageMetadata = {
     preset?: string;
-    error?: string;
-    errorCode?: string;
-    requestId?: string;
+    error?: MessageErrorMetadata;
     inference?: {
         paramsType?: string;
         model?: string;
@@ -84,6 +91,7 @@ export type Message = {
         type: string;
         artifactKey?: string;
         versionNumber?: number;
+        sourceVersionNumber?: number;
         reason?: string;
     };
     status?: string;
@@ -111,6 +119,7 @@ export type ChatState = {
     totalCost: number | null;
     hasPendingChanges: boolean;
     phaseIndex: number | null;
+    phaseName: string | null;
     /** Chat ID of the new phase after summarization completes */
     summaryNewChatId: string | null;
     /** True when AI triggered generate_summary from chat — tells UI to show the phase transition dialog */
@@ -125,6 +134,18 @@ export type ChatState = {
     showInvalidModelAlert: boolean;
     /** Completion Brief approval status for the current phase chat */
     completionBriefStatus: string | null;
+    /** True when send was rejected because the chat is over the context cap */
+    showContextLimitAlert: boolean;
+    /** True when send was rejected at the soft-warning gate (details.gate === 'warning') */
+    showContextWarningModal: boolean;
+    /** Hard-stop modal lifecycle: idle (show confirm), forcing (in progress), already-transitioned */
+    hardStopModalState: 'closed' | 'idle' | 'forcing' | 'already-transitioned';
+    /** If the phase already transitioned, the existing next chat ID for navigation */
+    hardStopExistingNextChatId: string | null;
+    /** Error message from a failed force-brief attempt, surfaced in the hard-stop modal */
+    hardStopError: string | null;
+    /** Provider-confirmed context overflow state from chat metadata */
+    contextOverflow: 'soft' | 'hard' | null;
 };
 
 export type PaginationState = {
@@ -141,12 +162,14 @@ export type PaginationState = {
 export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     id: string;
     key: string;
-    title: string;
     isLoading?: boolean;
     isStreaming?: boolean;
     isUpdating?: boolean;
     progress?: number;
-    pecpContent?: string;
+    /** Tracked separately while the summary is mid-stream (before it lands in proposedVersion.summaryInternal). */
+    summaryStreaming?: string;
+    /** True while a `summary_*` SSE stream is in flight for this artifact. */
+    isSummaryStreaming?: boolean;
 };
 
 // =============================================================================

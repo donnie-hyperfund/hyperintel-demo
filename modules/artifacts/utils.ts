@@ -6,11 +6,15 @@ export const getLatestArtifactVersion = (artifact: Artifact) => {
     return artifact.proposedVersion ?? artifact.currentVersion;
 };
 
-export const getLatestArtifactContent = (artifact: Artifact) => {
+export const getLatestArtifactVersionTitle = (artifact: Artifact): string => {
+    return getLatestArtifactVersion(artifact)?.title ?? '';
+};
+
+export const getLatestArtifactVersionContent = (artifact: Artifact) => {
     return getLatestArtifactVersion(artifact)?.content ?? '';
 };
 
-export const getArtifactChatId = (artifact: Artifact): string | null => {
+export const getLatestArtifactVersionChatId = (artifact: Artifact): string | null => {
     const chat = getLatestArtifactVersion(artifact)?.chat;
     return typeof chat === 'string' ? chat : null;
 };

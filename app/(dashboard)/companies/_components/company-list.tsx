@@ -10,7 +10,7 @@ import { useResourceListFilters } from '@/hooks/use-resource-list-filters';
 import { useFetchArtifactsInfinite } from '@/lib/api/client/hooks/use-artifacts';
 import { ArtifactListItem, ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifact-list-item';
 import { ResourceListToolbar } from '@/modules/artifacts/components/resource-list-toolbar';
-import { getArtifactChatId } from '@/modules/artifacts/utils';
+import { getLatestArtifactVersionChatId } from '@/modules/artifacts/utils';
 
 const PAGE_SIZE = 20;
 
@@ -95,7 +95,7 @@ export const CompanyList = ({ onEmptyChange }: CompanyListProps) => {
                 <div className="space-y-2 flex-1">
                     {artifacts.map((artifact) => {
                         const isShared = artifact.isOwn === false;
-                        const chatId = getArtifactChatId(artifact);
+                        const chatId = getLatestArtifactVersionChatId(artifact);
                         return (
                             <ArtifactListItem
                                 key={artifact.id}

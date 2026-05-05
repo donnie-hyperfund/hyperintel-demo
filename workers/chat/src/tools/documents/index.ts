@@ -3,6 +3,7 @@
  */
 
 export {
+    type AppliedEdit,
     applyEdits,
     approveVersion,
     countLines,
@@ -16,11 +17,13 @@ export {
     findDocumentByName,
     findVersionByStatus,
     formatWithLineNumbers,
+    inferEndLine,
     listDocuments,
     rejectVersion,
     supersedeProposedVersion,
     upsertDocument,
 } from './document-service';
 export { DraftManager, type DraftSession } from './draft-manager';
-export { pecpKeyForDocument, shouldGeneratePECP } from './pecp-service';
+export { generateInternalSummary } from './pecp-generator';
+export { shouldGeneratePECP } from './pecp-service';
 export { createDocumentTools, DocumentToolGroup, type DocumentToolsContext } from './tools';

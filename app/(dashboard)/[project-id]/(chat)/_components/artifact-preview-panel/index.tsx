@@ -2,7 +2,11 @@
 
 import { FileText, Loader2 } from 'lucide-react';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
-import { getLatestArtifactContent, getLatestArtifactVersion } from '@/modules/artifacts/utils';
+import {
+    getLatestArtifactVersion,
+    getLatestArtifactVersionContent,
+    getLatestArtifactVersionTitle,
+} from '@/modules/artifacts/utils';
 import { ArtifactViewer } from './artifact-viewer';
 
 type ArtifactPreviewPanelProps = {
@@ -16,12 +20,16 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
 
     const { isLoading, isStreaming } = currentArtifact ?? {};
 
-    const content = currentArtifact ? getLatestArtifactContent(currentArtifact) : '';
+    const content = currentArtifact ? getLatestArtifactVersionContent(currentArtifact) : '';
     const activeVersion = currentArtifact ? getLatestArtifactVersion(currentArtifact) : undefined;
     const isInternal = activeVersion?.isInternal;
 
-    const pecpContent = currentArtifact?.pecpContent ?? currentArtifact?.pecp?.content ?? '';
-    const showSkeleton = (isLoading || (isStreaming && (!isInternal || !pecpContent))) && !content;
+    const summaryContent =
+        currentArtifact?.summaryStreaming ??
+        currentArtifact?.proposedVersion?.summaryInternal ??
+        currentArtifact?.currentVersion?.summaryInternal ??
+        '';
+    const showSkeleton = (isLoading || (isStreaming && (!isInternal || !summaryContent))) && !content;
 
     if (showSkeleton) {
         return (
@@ -31,7 +39,8 @@ export const ArtifactPreviewPanel = ({ version, artifactId, onClose }: ArtifactP
                         <Loader2 className="size-12 mx-auto animate-spin text-primary" />
                         <div className="space-y-1">
                             <p className="text-sm font-medium text-foreground">
-                                {currentArtifact?.title ?? 'Loading document...'}
+                                {(currentArtifact && getLatestArtifactVersionTitle(currentArtifact)) ||
+                                    'Loading document...'}
                             </p>
                             <p className="text-xs text-muted-foreground">Fetching content</p>
                         </div>

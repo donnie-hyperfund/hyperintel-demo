@@ -1,5 +1,10 @@
 import { unstable_serialize } from 'swr/infinite';
-import type { ArtifactDto, FilterableStatus, VisibilityFilter } from '@/lib/schema/artifact';
+import type {
+    ArtifactDto,
+    ArtifactVersionHistoryResponseDto,
+    FilterableStatus,
+    VisibilityFilter,
+} from '@/lib/schema/artifact';
 import { buildUrl, createAxiosInstance, type TokenGetter } from '../axios';
 import type { CamelCaseDto, PaginatedResponse, PaginationParams } from '../types';
 
@@ -14,6 +19,7 @@ export type ProjectArtifactListParams = PaginationParams & ProjectArtifactFilter
 const ENDPOINTS = {
     root: (projectId: string) => `/api/projects/${projectId}/artifacts`,
     byId: (projectId: string, artifactId: string) => `/api/projects/${projectId}/artifacts/${artifactId}`,
+    versions: (projectId: string) => `/api/projects/${projectId}/artifacts/versions`,
     approve: (projectId: string, artifactId: string, versionId: string) =>
         `/api/projects/${projectId}/artifacts/${artifactId}/versions/${versionId}/approve`,
     reject: (projectId: string, artifactId: string, versionId: string) =>
@@ -29,6 +35,7 @@ export const projectArtifactKeys = {
     detail: (projectId: string, artifactId: string) =>
         [...projectArtifactKeys.details(), projectId, artifactId] as const,
     byKey: (projectId: string, key: string) => [...projectArtifactKeys.details(), projectId, 'key', key] as const,
+    history: (projectId: string, key: string) => [...projectArtifactKeys.details(), projectId, 'history', key] as const,
 };
 
 export function getProjectArtifactListInfiniteKey(
@@ -76,6 +83,13 @@ export function createProjectArtifactApi(getToken: TokenGetter) {
                 params.version = version;
             }
             const { data } = await axios.get<CamelCaseDto<ArtifactDto>>(buildUrl(ENDPOINTS.root(projectId), params));
+            return data;
+        },
+
+        listVersionsByKey: async (projectId: string, key: string) => {
+            const { data } = await axios.get<ArtifactVersionHistoryResponseDto>(
+                buildUrl(ENDPOINTS.versions(projectId), { key }),
+            );
             return data;
         },
 

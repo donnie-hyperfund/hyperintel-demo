@@ -14,9 +14,10 @@ type FilePreviewItemProps = {
     status?: FileEntryStatus;
     file?: File;
     onRemove?: () => void;
+    disabled?: boolean;
 };
 
-export function FilePreviewItem({ name, size, status, file, onRemove }: FilePreviewItemProps) {
+export function FilePreviewItem({ name, size, status, file, onRemove, disabled }: FilePreviewItemProps) {
     const ext = getFileExtension(name).toLowerCase();
     const isImage = IMAGE_EXTENSIONS.has(ext);
     const thumbUrl = useImageObjectUrl(isImage ? file : undefined);
@@ -40,11 +41,12 @@ export function FilePreviewItem({ name, size, status, file, onRemove }: FilePrev
             ) : (
                 <button
                     type="button"
+                    disabled={disabled}
                     onClick={(e) => {
                         e.stopPropagation();
                         onRemove?.();
                     }}
-                    className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer transition-colors"
+                    className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground"
                 >
                     <X className="size-5" />
                 </button>

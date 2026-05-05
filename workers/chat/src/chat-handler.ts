@@ -1,7 +1,9 @@
 import { runAgentStream } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
-import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
+import { extractInferenceMetadata, type ParamsWithType, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
+import type { ContextMessage } from '@common/ai/inference/types';
+import { ErrorStatus, PublicError } from '@common/common/error.helpers';
 import { AsyncHandlebars } from 'handlebars-jle';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens, serializeException } from '@/common/ai/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
@@ -9,10 +11,11 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
-import { getAvailablePresets, getDefaultPresetId, resolvePreset } from '@/lib/presets';
+import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
+import { handleForceBrief } from './chat-brief-handler';
 import type { Ctx } from './context';
 import { createNoopSafetyMonitor, createSafetyMonitor } from './safety/analyzer';
 import { isOutputSafetyEnabled } from './safety/config';
@@ -24,10 +27,21 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
+import { estimateInferenceInputTokens } from './utils/context-budget';
+import { buildContextGateError } from './utils/context-gate-error';
+import { type ContextOverflowState, evaluateContextGate, maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
-import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
+import {
+    buildStoredErrorMetadata,
+    buildWorkerErrorLogContext,
+    classifyWorkerError,
+    extractRawErrorMessage,
+    logWorkerError,
+} from './utils/error-metadata';
+import { pickInferenceParams } from './utils/pick-inference-params';
 import { captureWorkerPostHogEvent } from './utils/posthog';
+import { preprocessContext } from './utils/preprocess-context';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
@@ -37,39 +51,6 @@ import {
     loadChatHistory,
     persistErrorMessage,
 } from './utils/stream-utils';
-
-// ============================================================================
-// CONTEXT PREPROCESSING
-// ============================================================================
-
-/** Regex for document directives injected by finalize_document */
-export const DOCUMENT_DIRECTIVE_REGEX = /::document\[[^\]]+\]\{[^}]+\}/g;
-
-/**
- * Preprocess context messages before sending to inference.
- * Strips injected content (like document directives) that the model shouldn't see.
- */
-export function preprocessContext(messages: any[]): any[] {
-    return messages.map((msg) => {
-        // Only process assistant messages with blocks
-        if (msg.role !== 'assistant' || !msg.blocks) return msg;
-
-        // Process blocks - strip directives from text blocks
-        const processedBlocks = msg.blocks
-            .map((block: any) => {
-                if (block.type !== 'text') return block;
-                const cleanedContent = block.content?.replace(DOCUMENT_DIRECTIVE_REGEX, '').trim() ?? '';
-                return { ...block, content: cleanedContent };
-            })
-            .filter((b: any) => b.type !== 'text' || b.content); // Remove empty text blocks
-
-        // Also clean the content field if present
-        const cleanedContent =
-            typeof msg.content === 'string' ? msg.content.replace(DOCUMENT_DIRECTIVE_REGEX, '').trim() : msg.content;
-
-        return { ...msg, blocks: processedBlocks, content: cleanedContent };
-    });
-}
 
 export interface ChatHandlerOptions {
     /** Override inference params (model/provider). If not set, uses default OpenRouter config. */
@@ -85,7 +66,8 @@ export interface ChatHandlerOptions {
 }
 
 export interface ChatActionResult {
-    userMessageId: string;
+    /** Set when a user message was persisted. Absent for force-brief States A/C (summarize-only — no user input). */
+    userMessageId?: string;
     agentMessageId: string;
     /** Resolves when generation completes. Present when onEvent is provided. */
     generation?: Promise<void>;
@@ -159,6 +141,27 @@ const BOUNDARY_PROMPT_SLUG = 'safety/boundary-prompt';
 // HELPERS
 // ============================================================================
 
+function getChatToolsAndGroups() {
+    return {
+        allTools: [
+            ...pmaPromptTools,
+            ...createCompletionBriefTools(),
+            ...createDocumentTools(),
+            ...createKnowledgeTools(),
+            ...createWebScrapeTools(),
+            ...createPhaseTransitionTools(),
+        ],
+        toolGroups: [
+            PromptManagementToolGroup,
+            CompletionBriefToolGroup,
+            DocumentToolGroup,
+            KnowledgeSearchToolGroup,
+            WebScrapeToolGroup,
+            PhaseTransitionToolGroup,
+        ],
+    };
+}
+
 /**
  * Compile a Handlebars template string with the given parameters.
  */
@@ -216,6 +219,78 @@ async function buildSystemPrompt(
     return systemPrompt;
 }
 
+type ChatToolsAndGroups = ReturnType<typeof getChatToolsAndGroups>;
+
+export type PreparedChatGenerationInput = ChatToolsAndGroups & {
+    contextMessages?: ContextMessage[];
+    initialSystemPrompt: string;
+    localPath: string | null;
+    estimatedTokens: number;
+};
+
+export async function prepareChatGenerationInput({
+    data,
+    ctx,
+    chat,
+    options,
+}: {
+    data: SendChatActionDto;
+    ctx: Ctx;
+    chat: ChatEntity;
+    options: ChatHandlerOptions;
+}): Promise<PreparedChatGenerationInput | PublicError> {
+    const { em } = ctx;
+    const historyMessages = await loadChatHistory(em!, data.chatId, ctx.env);
+    const estimationContextMessages: ContextMessage[] = data.message
+        ? [...historyMessages, { role: 'user', content: data.message }]
+        : historyMessages;
+
+    const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
+    const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
+    const localPath = localPromptsSetting
+        ? localPromptsSetting === true
+            ? DEFAULT_LOCAL_PROMPTS_PATH
+            : localPromptsSetting
+        : null;
+
+    const initialSystemPrompt = await buildSystemPrompt(
+        ctx,
+        new Set<string>(savedPrompts),
+        localPath,
+        `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}`,
+    );
+    const { allTools, toolGroups } = getChatToolsAndGroups();
+    const estimatedTokens = estimateInferenceInputTokens({
+        instructions: initialSystemPrompt,
+        context: estimationContextMessages,
+        tools: allTools,
+        toolGroups,
+        preprocessContext,
+    });
+
+    const isPlainNudge = data.message === null && !data.force_brief;
+    const gate = evaluateContextGate({
+        estimatedTokens,
+        metadataOverflow: chat.metadata?.contextOverflow as ContextOverflowState | undefined,
+        forceBrief: data.force_brief,
+        bypassContextWarning: data.bypass_context_warning || isPlainNudge,
+    });
+    if (gate) {
+        return new PublicError(ErrorStatus.BadRequest, buildContextGateError(gate));
+    }
+
+    return {
+        allTools,
+        toolGroups,
+        initialSystemPrompt,
+        localPath,
+        estimatedTokens,
+        // Image sends need a reload after image files are linked to the persisted user message
+        // so loadChatHistory can attach signed image URLs.
+        ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
+    };
+}
+
 // ============================================================================
 // CHAT HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
 // ============================================================================
@@ -229,7 +304,7 @@ export async function chatActionHandler(
     data: SendChatActionDto,
     ctx: Ctx,
     options: ChatHandlerOptions = {},
-): Promise<ChatActionResult | ReadableStream | Response> {
+): Promise<ChatActionResult | ReadableStream | Response | PublicError> {
     const { chatId, message, tempId, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
@@ -251,6 +326,17 @@ export async function chatActionHandler(
 
     const isNudge = message === null;
 
+    // Force-brief routing — schema enforces `message === null` when `force_brief === true`.
+    if (data.force_brief === true) {
+        return handleForceBrief({
+            data,
+            ctx,
+            options,
+            chat,
+            deps: { dispatchBlurb: chatActionHandler, prepareChatGenerationInput, runGeneration },
+        });
+    }
+
     // Nudge mode: skip user message creation, check if last message is a user message
     if (isNudge) {
         const [lastMsg] = await em!.find(
@@ -264,6 +350,11 @@ export async function chatActionHandler(
             });
         }
     }
+
+    const safetyPromise = message ? safetyCheck(ctx, message) : Promise.resolve(null);
+
+    const preparedInput = await prepareChatGenerationInput({ data, ctx, chat, options });
+    if (preparedInput instanceof PublicError) return preparedInput;
 
     let userMsg: ChatMessageEntity | null = null;
     if (!isNudge) {
@@ -330,6 +421,8 @@ export async function chatActionHandler(
             agentMessageId,
             requestStartedAt,
             ugStub,
+            preparedInput,
+            safetyPromise,
         });
         return { userMessageId, agentMessageId, generation: generationPromise };
     }
@@ -347,7 +440,17 @@ export async function chatActionHandler(
 
         // Run generation inline — Worker stays alive because the DO reads this stream
         try {
-            await runGeneration({ data, ctx, options, chat, agentMessageId, requestStartedAt, ugStub });
+            await runGeneration({
+                data,
+                ctx,
+                options,
+                chat,
+                agentMessageId,
+                requestStartedAt,
+                ugStub,
+                preparedInput,
+                safetyPromise,
+            });
         } finally {
             clearInterval(heartbeat);
         }
@@ -364,7 +467,7 @@ export async function chatActionHandler(
 // GENERATION — runs inline in SSE stream, pushes events to ChatStream DO
 // ============================================================================
 
-interface GenerationParams {
+export interface GenerationParams {
     data: SendChatActionDto;
     ctx: Ctx;
     options: ChatHandlerOptions;
@@ -372,10 +475,12 @@ interface GenerationParams {
     agentMessageId: string;
     requestStartedAt: Date;
     ugStub: UserGatewayStub;
+    preparedInput: PreparedChatGenerationInput;
+    safetyPromise: Promise<Awaited<ReturnType<typeof safetyCheck>> | null>;
 }
 
-async function runGeneration(params: GenerationParams): Promise<void> {
-    const { data, ctx, options, chat, agentMessageId, ugStub } = params;
+export async function runGeneration(params: GenerationParams): Promise<void> {
+    const { data, ctx, options, chat, agentMessageId, ugStub, preparedInput, safetyPromise } = params;
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
 
@@ -388,12 +493,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             );
         }
 
-        // Load history + safety check in parallel (doesn't slow happy path)
-        // For nudge (message=null), skip safety check — the system event was injected server-side
-        const [historyMessages, safetyVerdict] = await Promise.all([
-            loadChatHistory(em!, chatId, ctx.env),
-            message ? safetyCheck(ctx, message) : Promise.resolve(null),
-        ]);
+        const historyMessages = preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
+        // TODO: maybe early reject with error here if safetyVerdict.blocked
+        const safetyVerdict = await safetyPromise;
 
         const allMessages = injectSafetyContext(historyMessages, safetyVerdict);
 
@@ -413,6 +515,9 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             embeddingQueue: ctx.env.EMBEDDING_QUEUE,
             previewAlias: ctx.previewAlias,
             createdVersionIds,
+            // The PECP generator (called from finalize_document for internal docs) pushes
+            // summary_* events through the same SSE pusher the main agent uses.
+            pushStreamEvents: pusher.push,
             onVersionCreated: (event) => {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
@@ -432,21 +537,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
             },
         };
 
-        // Resolve local prompts path
-        const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
-        const localPath = localPromptsSetting
-            ? localPromptsSetting === true
-                ? DEFAULT_LOCAL_PROMPTS_PATH
-                : localPromptsSetting
-            : null;
-
-        // Get initial system prompt
-        const initialSystemPrompt = await buildSystemPrompt(
-            ctx,
-            agentCtx.loadedPrompts,
-            localPath,
-            WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
-        );
+        const { allTools, initialSystemPrompt, localPath, toolGroups } = preparedInput;
 
         // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
         if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
@@ -457,29 +548,16 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         if (!resolved) {
             throw new Error(`Preset '${presetId}' is not available`);
         }
-        const defaultInference: ParamsWithType = {
-            ...resolved,
-            params: { ...resolved.params, searchEnabled: true },
-        };
-        const inferenceParams = options.overrideInference ?? defaultInference;
+        const defaultInference = withCommonParams(resolved, { searchEnabled: true });
 
-        // Define tools and tool groups
-        const allTools = [
-            ...pmaPromptTools,
-            ...createCompletionBriefTools(),
-            ...createDocumentTools(),
-            ...createKnowledgeTools(),
-            ...createWebScrapeTools(),
-            ...createPhaseTransitionTools(),
-        ];
-        const toolGroups = [
-            PromptManagementToolGroup,
-            CompletionBriefToolGroup,
-            DocumentToolGroup,
-            KnowledgeSearchToolGroup,
-            WebScrapeToolGroup,
-            PhaseTransitionToolGroup,
-        ];
+        const { inferenceParams, effectivePresetOverride } = pickInferenceParams({
+            defaultInference,
+            estimatedTokens: preparedInput.estimatedTokens,
+            bypassContextWarning: data.bypass_context_warning,
+            forceBrief: data.force_brief,
+            message,
+            overrideInference: options.overrideInference,
+        });
 
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
@@ -503,12 +581,12 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                             ctx,
                             agentCtx.loadedPrompts,
                             localPath,
-                            WEB_SEARCH_GUIDANCE + '\n\n' + COMPLETION_BRIEF_GUIDANCE,
+                            `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}`,
                         ),
                     statusUpdates: { enabled: true },
                     preprocessContext,
                     abortSignal: abortController.signal,
-                    onTurnComplete: createOnTurnComplete(agentCtx, { pecp: true }),
+                    onTurnComplete: createOnTurnComplete(agentCtx),
                 },
             },
         );
@@ -539,7 +617,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
         await runStreamLoop({
             stream,
             push: pusher.push,
-            docEventsCtx: { em: em!, projectId: agentCtx.projectId },
+            docEventsCtx: { em: em!, projectId: agentCtx.projectId, draftManager: agentCtx.draftManager },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
@@ -582,30 +660,35 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         // --- Persist agent message to DB (using pre-generated ID) ---
                         let assistantMsg: ChatMessageEntity | null = null;
                         const errorMetadata = isError
-                            ? buildPublicErrorMetadata({
-                                  error: event.error!.raw,
-                                  fallbackMessage: event.error!.message,
+                            ? buildStoredErrorMetadata({
+                                  classification: event.error!.classification,
                                   requestId: ctx.requestId,
                               })
                             : null;
-                        if (isError && errorMetadata) {
+                        if (isError) {
                             logWorkerError(
                                 'chat-handler',
                                 buildWorkerErrorLogContext({
-                                    error: event.error!.raw,
+                                    classification: event.error!.classification,
                                     stage: 'done_ext',
                                     chatId,
                                     agentMessageId,
-                                    fallbackMessage: event.error!.message,
-                                    errorMetadata,
+                                    requestId: ctx.requestId,
+                                    error: event.error!.raw,
                                 }),
                                 event.error!.raw,
+                            );
+                            maybeRecordContextOverflow(
+                                chat,
+                                event.error!.classification,
+                                preparedInput.estimatedTokens,
                             );
                         }
                         const msgMetadata = {
                             preset: presetId,
+                            ...(effectivePresetOverride && { effectivePreset: effectivePresetOverride }),
                             inference: extractInferenceMetadata(inferenceParams),
-                            ...(errorMetadata ?? {}),
+                            ...(errorMetadata && { error: errorMetadata }),
                             ...(messageUsage && { usage: messageUsage }),
                         };
 
@@ -753,22 +836,21 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                         // Push terminal done event to DO (subscriber gets it via broadcast)
                         const isDev = ctx.env.ENV === 'dev';
 
-                        // Build safe message metadata for WS delivery (no error, safetyAnalysis, etc.)
-                        // Only include dev-only fields (preset, inference, usage) in dev mode
+                        // `detail` is dev-only and never persisted, so API fetches can't leak it.
+                        const devErrorDetail = isDev && isError ? extractRawErrorMessage(event.error!.raw) : undefined;
+                        const wsError = errorMetadata
+                            ? { ...errorMetadata, ...(devErrorDetail && { detail: devErrorDetail }) }
+                            : undefined;
                         const safeMessageMetadata: Record<string, unknown> | undefined = isDev
                             ? {
                                   ...(msgMetadata.preset && { preset: msgMetadata.preset }),
                                   ...(msgMetadata.inference && { inference: msgMetadata.inference }),
                                   ...(msgMetadata.usage && { usage: msgMetadata.usage }),
-                                  ...(msgMetadata.error && { error: msgMetadata.error }),
-                                  ...(msgMetadata.errorCode && { errorCode: msgMetadata.errorCode }),
-                                  ...(msgMetadata.requestId && { requestId: msgMetadata.requestId }),
+                                  ...(wsError && { error: wsError }),
                               }
-                            : {
-                                  ...(msgMetadata.error && { error: msgMetadata.error }),
-                                  ...(msgMetadata.errorCode && { errorCode: msgMetadata.errorCode }),
-                                  ...(msgMetadata.requestId && { requestId: msgMetadata.requestId }),
-                              };
+                            : wsError
+                              ? { error: wsError }
+                              : undefined;
 
                         const doneEvent: StreamEvent = {
                             type: 'done',
@@ -780,7 +862,7 @@ async function runGeneration(params: GenerationParams): Promise<void> {
                                 }),
                             hasPendingChanges,
                             phaseIndex,
-                            ...(isError && { error: event.error!.message }),
+                            ...(isError && { error: errorMetadata?.code ?? 'UNKNOWN' }),
                             ...(pendingDoneEvent?.outputType === 'tool' &&
                                 pendingDoneEvent.outputTool && {
                                     outputType: 'tool' as const,
@@ -806,18 +888,21 @@ async function runGeneration(params: GenerationParams): Promise<void> {
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
-        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        const classification = classifyWorkerError(error);
+        const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(
             'chat-handler',
             buildWorkerErrorLogContext({
-                error,
+                classification,
                 stage: 'catch',
                 chatId,
                 agentMessageId,
-                errorMetadata,
+                requestId: ctx.requestId,
+                error,
             }),
             error,
         );
+        maybeRecordContextOverflow(chat, classification, preparedInput.estimatedTokens);
         await persistErrorMessage({
             em: em!,
             chatId,

@@ -1,4 +1,5 @@
-import { Entity, Index, ManyToOne, Opt, Property, wrap } from '@mikro-orm/core';
+import { Entity, Index, ManyToOne, type Opt, Property, wrap } from '@mikro-orm/core';
+import type { Nullable } from '@/common/orm/utils';
 import type { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
@@ -36,6 +37,9 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'int' })
     version!: number;
 
+    @Property({ type: 'text' })
+    title!: string;
+
     @Property({ type: 'text', nullable: true })
     content?: string;
 
@@ -63,9 +67,9 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'text', default: 'Other' })
     document_type: DocumentType & Opt = 'Other';
 
-    /** For PECP artifacts: points to the internal document version this summary was generated from */
-    @ManyToOne(() => 'ArtifactVersionEntity', { fieldName: 'parent_version_id', nullable: true })
-    parent_version?: ArtifactVersionEntity;
+    /** PE-facing summary of this internal document version. Generated automatically on finalize for internal docs. */
+    @Property({ type: 'text', nullable: true })
+    summary_internal?: string;
 
     @Property({
         type: 'timestamptz',
@@ -75,6 +79,10 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
         serializer: (value) => value?.toISOString(),
     })
     updated_at?: Date & Opt;
+
+    /** Free-form provenance bag. Known keys: `restoredFrom` (set by the restore flow). Open for future provenance types. */
+    @Property({ type: 'json', nullable: true })
+    metadata?: Nullable<Record<string, unknown>>;
 
     /**
      * Custom serialization: ai_content always redacted, content conditional on is_internal.

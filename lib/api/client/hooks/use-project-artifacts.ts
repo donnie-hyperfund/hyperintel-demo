@@ -4,7 +4,7 @@ import useSWR, { type SWRConfiguration, useSWRConfig } from 'swr';
 import type { SWRInfiniteConfiguration } from 'swr/infinite';
 import useSWRMutation from 'swr/mutation';
 import { toast } from '@/hooks/use-toast';
-import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
+import { artifactKeys, createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import {
     createProjectArtifactApi,
     getProjectArtifactListInfiniteKey,
@@ -21,9 +21,14 @@ import type {
     PaginationParams,
     UploadStatus,
 } from '@/lib/api/client/types';
-import { approveArtifact, rejectArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
+import { approveArtifact, rejectArtifact, restoreArtifact, uploadArtifact } from '@/lib/api/requests/worker/chat';
 import { isKnownUploadError, UploadValidationError, validateArtifactFile } from '@/lib/artifacts/utils';
-import type { ArtifactDto, UploadArtifactResponseDto } from '@/lib/schema/artifact';
+import type {
+    ArtifactDto,
+    ArtifactVersionHistoryResponseDto,
+    RestoreArtifactResponseDto,
+    UploadArtifactResponseDto,
+} from '@/lib/schema/artifact';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
 import { useSWRInfinitePaginated } from './use-swr-infinite-paginated';
 
@@ -83,15 +88,35 @@ export function useFetchProjectArtifact(
 export function useFetchProjectArtifactByKey(
     projectId: string | undefined,
     key: string | undefined,
+    version?: number,
     config?: SWRConfiguration<CamelCaseDto<ArtifactDto>>,
 ) {
     const { getToken } = useAuth();
 
     return useSWR<CamelCaseDto<ArtifactDto>>(
-        projectId && key ? projectArtifactKeys.byKey(projectId, key) : null,
+        key ? [...projectArtifactKeys.byKey(projectId ?? '_user', key), version] : null,
         () => {
-            if (!projectId || !key) throw new Error('Project ID and key are required');
-            return createProjectArtifactApi(getToken).getByKey(projectId, key);
+            if (!key) throw new Error('Key is required');
+            if (projectId) return createProjectArtifactApi(getToken).getByKey(projectId, key, version);
+            return createArtifactApi(getToken).getByKey(key, version);
+        },
+        { revalidateOnFocus: false, ...config },
+    );
+}
+
+export function useFetchProjectArtifactVersions(
+    projectId: string | undefined,
+    key: string | undefined,
+    config?: SWRConfiguration<ArtifactVersionHistoryResponseDto>,
+) {
+    const { getToken } = useAuth();
+
+    return useSWR<ArtifactVersionHistoryResponseDto>(
+        key ? projectArtifactKeys.history(projectId ?? '_user', key) : null,
+        () => {
+            if (!key) throw new Error('Key is required');
+            if (projectId) return createProjectArtifactApi(getToken).listVersionsByKey(projectId, key);
+            return createArtifactApi(getToken).listVersionsByKey(key);
         },
         { revalidateOnFocus: false, ...config },
     );
@@ -153,6 +178,45 @@ export function useRejectProjectArtifactVersion(
                 return createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, artifactVersion);
             }
             return createArtifactApi(getToken).getByKey(artifactKey, artifactVersion);
+        },
+    );
+}
+
+export type RestoreResult = CamelCaseDto<ArtifactDto> & { chatId?: string; chatType?: string };
+
+export function useRestoreProjectArtifactVersion(projectId: string | undefined, artifactKey: string) {
+    const { getToken } = useAuth();
+    const { mutate: globalMutate } = useSWRConfig();
+
+    return useSWRMutation<RestoreResult, Error, readonly string[], { sourceVersionId: string }>(
+        [...projectArtifactKeys.history(projectId ?? '_user', artifactKey), 'restore'],
+        async (_, { arg }) => {
+            const token = await getToken();
+            if (!token) throw new Error('Not authenticated');
+
+            const response = await restoreArtifact(
+                { key: artifactKey, sourceVersionId: arg.sourceVersionId, ...(projectId && { projectId }) },
+                token,
+            );
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Failed to restore artifact');
+            }
+
+            const result = (await response.json()) as RestoreArtifactResponseDto;
+
+            if (projectId) {
+                globalMutate(serializeProjectArtifactListKey(projectId));
+                globalMutate(projectArtifactKeys.history(projectId, artifactKey));
+                globalMutate(projectArtifactKeys.byKey(projectId, artifactKey));
+            } else {
+                globalMutate((key) => Array.isArray(key) && key[0] === artifactKeys.all[0]);
+            }
+
+            const artifact = projectId
+                ? await createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, result.restoredVersion)
+                : await createArtifactApi(getToken).getByKey(artifactKey, result.restoredVersion);
+            return { ...artifact, chatId: result.chatId, chatType: result.chatType };
         },
     );
 }

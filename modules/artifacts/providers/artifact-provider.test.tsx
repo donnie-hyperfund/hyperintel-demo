@@ -2,6 +2,7 @@
 
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { describe, expect, it } from 'vitest';
 import type { Artifact } from '@/modules/chat/types';
 import { ArtifactProvider, useArtifactActions } from './artifact-provider';
 
@@ -13,13 +14,13 @@ function buildArtifact(id: string, content = 'initial'): Artifact {
     return {
         id,
         key: id,
-        title: `Artifact ${id}`,
         version: 1,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
         currentVersion: {
             id: `${id}-current`,
             version: 0,
+            title: `Artifact ${id}`,
             content: 'approved-content',
             status: 'approved',
             createdAt: '2026-01-01T00:00:00.000Z',
@@ -28,6 +29,7 @@ function buildArtifact(id: string, content = 'initial'): Artifact {
         proposedVersion: {
             id: `${id}-proposed`,
             version: 1,
+            title: `Artifact ${id}`,
             content,
             status: 'proposed',
             createdAt: '2026-01-01T00:00:00.000Z',

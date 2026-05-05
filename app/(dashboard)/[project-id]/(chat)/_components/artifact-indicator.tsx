@@ -72,7 +72,7 @@ export function ArtifactIndicator({
             return;
         }
 
-        addArtifact({ id: documentName, key: documentName, title: documentName, isLoading: true }, documentVersion);
+        addArtifact({ id: documentName, key: documentName, isLoading: true }, documentVersion);
         openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
 
         try {
@@ -85,10 +85,8 @@ export function ArtifactIndicator({
                     documentName,
                     {
                         key: fetchedArtifact.key,
-                        title: fetchedArtifact.title,
                         currentVersion: fetchedArtifact.currentVersion ?? undefined,
                         proposedVersion: fetchedArtifact.proposedVersion ?? undefined,
-                        pecp: fetchedArtifact.pecp ?? undefined,
                         updatedAt: fetchedArtifact.updatedAt,
                         isLoading: false,
                     },

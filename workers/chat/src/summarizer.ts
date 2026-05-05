@@ -1,23 +1,29 @@
 import { runAgentStream } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
-import { PublicError } from '@common/common/error.helpers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
-import { branchDoName } from '@/workers/_common/util/preview-alias';
-import { type ChatActionResult, chatActionHandler, preprocessContext } from './chat-handler';
+// Type-only import — erased at compile time, no runtime edge to chat-handler.ts.
+import type { ChatActionResult, chatActionHandler } from './chat-handler';
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
+import { estimateInferenceInputTokens, SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS } from './utils/context-budget';
 import type { UserGatewayStub } from './utils/do-stubs';
-import { buildPublicErrorMetadata, buildWorkerErrorLogContext, logWorkerError } from './utils/error-metadata';
+import {
+    buildStoredErrorMetadata,
+    buildWorkerErrorLogContext,
+    classifyWorkerError,
+    logWorkerError,
+} from './utils/error-metadata';
 import { extractDocuments } from './utils/extract-documents';
+import { preprocessContext } from './utils/preprocess-context';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
-import { cleanupStreamDO, createEnqueue, createSSEStream } from './utils/stream-utils';
+import { cleanupStreamDO } from './utils/stream-utils';
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
@@ -25,7 +31,43 @@ export interface SummarizerOptions {
     onEvent?: (event: StreamEvent) => void;
 }
 
+export interface SummarizerContext {
+    data: SummarizeActionDto;
+    ctx: Ctx;
+    options: SummarizerOptions;
+    chat: ChatEntity;
+    agentMessageId: string;
+    ugStub: UserGatewayStub;
+}
+
+/** `true` = summary completed successfully; `false` = failed (already logged/cleaned up internally). */
+export type SummarizerResult = boolean;
+
+/**
+ * `chatActionHandler` is injected (not statically imported) to avoid a runtime
+ * cycle between `chat-handler.ts` and the summarizer. The forced-brief path in
+ * `chat-handler.ts` will call `runSummarizer` directly; the static-import side
+ * (chat-handler → summarizer) must be the only edge.
+ */
+export type DispatchBlurb = typeof chatActionHandler;
+
+export interface SummarizerDeps {
+    dispatchBlurb: DispatchBlurb;
+}
+
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
+
+function getSummarizerInferenceParams(contextTokens: number): ParamsWithType {
+    return {
+        paramsType: AIParamsType.Anthropic,
+        params: {
+            model:
+                contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS
+                    ? ANTHROPIC_MODELS.SONNET_4_6
+                    : ANTHROPIC_MODELS.SONNET,
+        },
+    };
+}
 
 /**
  * Load summarizer prompt (pma/summarizer only).
@@ -43,121 +85,15 @@ async function getSummarizerPrompt(ctx: Ctx): Promise<string> {
 }
 
 // ============================================================================
-// SUMMARIZE ACTION HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
-// ============================================================================
-
-export interface SummarizeActionResult {
-    agentMessageId: string;
-    /** Resolves when generation completes. Present when onEvent is provided. */
-    generation?: Promise<void>;
-}
-
-/**
- * Summarize action handler — registers stream under chat:{chatId} topic.
- * Returns SSE stream: first event = IDs, then generation runs inline.
- * In test mode (options.onEvent), returns SummarizeActionResult directly.
- */
-export async function summarizeActionHandler(
-    data: SummarizeActionDto,
-    ctx: Ctx,
-    options: SummarizerOptions = {},
-): Promise<SummarizeActionResult | ReadableStream | PublicError> {
-    const { chatId } = data;
-    const { em } = ctx;
-
-    const agentMessageId = crypto.randomUUID();
-
-    // Validate ownership + load chat entity
-    const chat = await em!.findOneOrFail(ChatEntity, {
-        id: chatId,
-        project: { user: { clerkId: ctx.user.userId } },
-    });
-
-    // Gate: require an approved Completion Brief before phase transition
-    if (chat.completion_brief_status !== 'approved') {
-        return new PublicError(400, {
-            code: 'completion_brief_not_approved',
-            message: 'Cannot transition phase without an approved Completion Brief',
-            details: { currentStatus: chat.completion_brief_status ?? 'none' },
-        });
-    }
-
-    // Set active_agent_message_id on the source chat (same column as normal chat responses)
-    chat.active_agent_message_id = agentMessageId;
-    await em!.flush();
-
-    // Register stream under chat:{chatId} topic with streamType: 'summary'
-    const alias = ctx.previewAlias;
-    const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
-    const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    await ugStub.systemAction(
-        `chat:${chatId}`,
-        'registerStream',
-        {
-            agentMessageId,
-            userId: ctx.user.userId,
-            streamType: 'summary',
-            // summarizer does not have an initiating user message
-        },
-        alias ?? undefined,
-    );
-
-    // --- Test mode: keep existing direct-call behavior ---
-    if (options.onEvent) {
-        const generationPromise = runSummarizer({
-            data,
-            ctx,
-            options,
-            chat,
-            agentMessageId,
-            ugStub,
-        });
-        return { agentMessageId, generation: generationPromise };
-    }
-
-    // --- Production mode: return SSE stream (kept alive by GenerationProxyDO) ---
-    return createSSEStream(async (controller) => {
-        const enqueue = createEnqueue(controller);
-
-        // First event: IDs (read by GenerationProxyDO, returned to frontend)
-        enqueue({ type: 'ids', agentMessageId });
-
-        // SSE keepalive — prevents Cloudflare from killing the idle connection
-        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
-
-        try {
-            await runSummarizer({ data, ctx, options, chat, agentMessageId, ugStub });
-        } finally {
-            clearInterval(heartbeat);
-        }
-
-        try {
-            controller.close();
-        } catch {
-            /* already closed */
-        }
-    }, ctx);
-}
-
-// ============================================================================
 // GENERATION — runs inline in SSE stream, pushes events to ChatStream DO
 // ============================================================================
 
-interface SummarizerParams {
-    data: SummarizeActionDto;
-    ctx: Ctx;
-    options: SummarizerOptions;
-    chat: ChatEntity;
-    agentMessageId: string;
-    ugStub: UserGatewayStub;
-}
-
-async function runSummarizer(params: SummarizerParams): Promise<void> {
-    const { data, ctx, options, chat, agentMessageId, ugStub } = params;
+export async function runSummarizer(ctx: SummarizerContext, deps: SummarizerDeps): Promise<SummarizerResult> {
+    const { data, ctx: workerCtx, options, chat, agentMessageId, ugStub } = ctx;
     const { chatId } = data;
-    const { em, anthropic } = ctx;
+    const { em, anthropic } = workerCtx;
 
-    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'summarizer');
+    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, workerCtx, 'summarizer');
 
     try {
         if (!anthropic) {
@@ -173,7 +109,7 @@ async function runSummarizer(params: SummarizerParams): Promise<void> {
         const today = new Date().toISOString().split('T')[0];
 
         const documents = extractDocuments(messages);
-        const basePrompt = await getSummarizerPrompt(ctx);
+        const basePrompt = await getSummarizerPrompt(workerCtx);
 
         // Reinforcement — the summary text must NOT contain Section 13 / the Next-Phase
         // Initialization Blurb. The blurb is delivered separately via the `generate_blurb`
@@ -238,16 +174,19 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. After the summary, call the generate_blurb tool with the Next-Phase Initialization Blurb (Section 13 of the Completion Brief) verbatim as its input.',
         });
 
-        const inferenceParams = options.overrideInference ?? {
-            paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.SONNET },
-        };
-
         const blurbTools = createBlurbTools();
+        const estimatedContextTokens = estimateInferenceInputTokens({
+            instructions,
+            context: historyMessages,
+            tools: [...blurbTools],
+            toolGroups: [BlurbToolGroup],
+            preprocessContext,
+        });
+        const inferenceParams = options.overrideInference ?? getSummarizerInferenceParams(estimatedContextTokens);
 
         const { stream, historyPromise } = runAgentStream(
             {},
-            ctx,
+            workerCtx,
             {
                 ...inferenceParams,
                 instructions,
@@ -313,12 +252,12 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 ugStub,
                 topic: `chat:${chatId}`,
                 error: cancellationError,
-                errorMetadata: buildPublicErrorMetadata({
-                    error: cancellationError,
-                    requestId: ctx.requestId,
+                errorMetadata: buildStoredErrorMetadata({
+                    classification: classifyWorkerError(cancellationError),
+                    requestId: workerCtx.requestId,
                 }),
             });
-            return;
+            return false;
         }
 
         // Emit finalizing status before DB persistence
@@ -333,7 +272,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             metadata: {
                 summarizedFrom: chatId,
                 summarizedAt: new Date().toISOString(),
-                documents: extractDocuments(messages),
+                documents,
             },
         });
         em!.persist(newChat);
@@ -358,18 +297,16 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         // Auto-generate a short name for the source chat if it doesn't have one
         if (!chat.name && summaryContent) {
             try {
-                const docs = extractDocuments(messages).filter(
-                    (d) => !d.name.toLowerCase().includes('completion brief'),
-                );
+                const docs = documents.filter((d) => !d.name.toLowerCase().includes('completion brief'));
                 const docContext =
                     docs.length > 0
                         ? `\n\nDocuments generated during this phase:\n${docs.map((d) => `- ${d.name}`).join('\n')}`
                         : '';
 
-                const nameResult = await runInferenceNoStream(ctx, {
+                const nameResult = await runInferenceNoStream(workerCtx, {
                     paramsType: AIParamsType.OpenRouter,
                     instructions:
-                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs and PECP\'s — they are generated automatically and are not relevant. Never include them in the title. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
+                        'You are a concise title generator for conversation phases. Given a summary and optionally a list of documents that were generated, produce a short title (4-6 words) for this phase. If documents were generated, prioritize referencing them in the title. If the phase has no meaningful content or discussion, return "Empty phase" — do not make up a title. CRITICAL: Ignore completion briefs — they are generated automatically and are not relevant. Never include them in the title. CRITICAL: Never include phase numbers or phase names like "Phase 1" in the title. Return ONLY the title, no quotes, no punctuation at the end.',
                     context: [{ role: 'user', content: summaryContent + docContext }],
                     params: {
                         model: COMMON_MODELS.GPT_5_4_NANO,
@@ -407,6 +344,14 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         await pusher.waitAll();
         await streamDO.push([{ type: 'done', newChatId: newChat.id }], pusher.seq);
 
+        // Finalize chat:${chatId} now — pushing a 'done' event broadcasts to live subscribers but
+        // does NOT change streamDO.status, so a fresh subscribe (e.g. user navigating back to this
+        // phase via breadcrumbs while the next-phase response is being prepared) would otherwise
+        // see a stale 'streaming' snapshot with streamType:'summary' and re-open the overlay.
+        // Safe to finalize here: the SSE keepalive is independent of this DO, and the next-phase
+        // generation runs against chat:${newChat.id} — a different stream DO.
+        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
+
         // Send the initiation blurb as a user message on the new chat via the normal chat handler.
         // It persists the user message, broadcasts messageCreated on `chat:${newChat.id}`, and runs
         // the next-phase agent generation streaming to that same topic.
@@ -416,7 +361,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         // keeps the Worker alive via the GenerationProxyDO that holds its fetch open.
         if (blurbContent) {
             try {
-                const result = await chatActionHandler({ chatId: newChat.id, message: blurbContent }, ctx, {
+                const result = await deps.dispatchBlurb({ chatId: newChat.id, message: blurbContent }, workerCtx, {
                     onEvent: () => {},
                 });
                 const generation = (result as ChatActionResult).generation;
@@ -426,17 +371,19 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             }
         }
 
-        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
+        return true;
     } catch (error: any) {
-        const errorMetadata = buildPublicErrorMetadata({ error, requestId: ctx.requestId });
+        const classification = classifyWorkerError(error);
+        const errorMetadata = buildStoredErrorMetadata({ classification, requestId: workerCtx.requestId });
         logWorkerError(
             'summarizer',
             buildWorkerErrorLogContext({
-                error,
+                classification,
                 stage: 'catch',
                 chatId,
                 agentMessageId,
-                errorMetadata,
+                requestId: workerCtx.requestId,
+                error,
             }),
             error,
         );
@@ -449,11 +396,12 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             logWorkerError(
                 'summarizer',
                 buildWorkerErrorLogContext({
-                    error: saveErr,
+                    classification: classifyWorkerError(saveErr),
                     stage: 'clear_active_agent_message_id',
                     chatId,
                     agentMessageId,
-                    requestId: ctx.requestId,
+                    requestId: workerCtx.requestId,
+                    error: saveErr,
                 }),
                 saveErr,
             );
@@ -467,5 +415,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             error,
             errorMetadata,
         });
+
+        return false;
     }
 }

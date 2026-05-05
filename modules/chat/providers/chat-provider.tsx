@@ -12,7 +12,7 @@ import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
-import type { CamelCaseDto } from '@/lib/api/client/types';
+import { ApiClientError, type CamelCaseDto } from '@/lib/api/client/types';
 import {
     abort,
     associateUploads,
@@ -61,6 +61,8 @@ export type BaseChatContextValue = {
             draftArtifactIds?: string[];
             imageFileIds?: string[];
             onUploadsAssociated?: () => Promise<void>;
+            /** User acknowledged the soft-warning gate; backend skips the warning preflight check. */
+            bypassContextWarning?: boolean;
         },
     ) => Promise<void>;
     /** Send a nudge (message: null) to trigger generation on last injected system event */
@@ -79,6 +81,8 @@ export type BaseChatContextValue = {
     clearPendingChanges: () => void;
     /** Clear the pending phase transition flag (called after dialog handles it) */
     clearPendingPhaseTransition: () => void;
+    /** Request the phase transition flow from send-time UI */
+    requestPhaseTransition: () => void;
     /** Check if there are other pending artifacts */
     hasOtherPendingArtifacts: (excludeArtifactKey: string) => boolean;
     /** Set artifact action processing state (approve/reject in flight) */
@@ -87,6 +91,16 @@ export type BaseChatContextValue = {
     changeModel: (presetId: string) => Promise<void>;
     /** Dismiss the invalid model alert dialog */
     dismissInvalidModelAlert: () => void;
+    /** Dismiss the send-time context-limit alert dialog */
+    dismissContextLimitAlert: () => void;
+    /** Dismiss the soft-warning modal (context approaching limit) */
+    dismissContextWarningModal: () => void;
+    /** Send force_brief nudge and transition hard-stop modal to forcing state */
+    sendForceBrief: () => Promise<void>;
+    /** Dismiss the hard-stop modal */
+    dismissHardStopModal: () => void;
+    /** Navigate to the already-existing next phase chat (from hard-stop modal) */
+    navigateToExistingNextChat: () => void;
     /** Lazily create the chat if it doesn't exist yet, returns the chatId */
     ensureChatId: () => Promise<string>;
 };
@@ -226,6 +240,12 @@ export function ChatProvider({
             isProcessingArtifactAction: false,
             showInvalidModelAlert: false,
             completionBriefStatus: cached?.completionBriefStatus ?? null,
+            showContextLimitAlert: false,
+            showContextWarningModal: false,
+            hardStopModalState: 'closed',
+            hardStopExistingNextChatId: null,
+            hardStopError: null,
+            contextOverflow: null,
         };
     });
 
@@ -370,6 +390,11 @@ export function ChatProvider({
         setState((prev) => ({ ...prev, pendingPhaseTransition: false }));
     }, []);
 
+    const requestPhaseTransition = useCallback(() => {
+        if (chatType !== 'phase') return;
+        setState((prev) => ({ ...prev, pendingPhaseTransition: true }));
+    }, [chatType]);
+
     const hasOtherPendingArtifacts = useCallback(
         (excludeArtifactKey: string) => {
             return Object.values(artifactContext.getStore()).some((versions) =>
@@ -484,6 +509,7 @@ export function ChatProvider({
                         type: systemEventType,
                         artifactKey: meta.artifactKey as string | undefined,
                         versionNumber: meta.versionNumber as number | undefined,
+                        sourceVersionNumber: meta.sourceVersionNumber as number | undefined,
                         reason: meta.reason as string | undefined,
                     },
                 }),
@@ -755,8 +781,30 @@ export function ChatProvider({
     useUserEvents(
         useCallback(
             (eventType, payload) => {
-                if (eventType !== 'artifact_version_updated' && eventType !== 'artifact_version_update_started') return;
                 if (!payload || typeof payload !== 'object') return;
+
+                if (eventType === 'context_limit_transition_update') {
+                    const {
+                        chatId: eventChatId,
+                        status,
+                        message,
+                    } = payload as {
+                        chatId: string;
+                        status: string;
+                        message?: string;
+                    };
+                    if (eventChatId !== chatId) return;
+                    if (status === 'failed') {
+                        setState((prev) =>
+                            prev.hardStopModalState === 'forcing'
+                                ? { ...prev, hardStopModalState: 'idle', hardStopError: message ?? 'Operation failed' }
+                                : prev,
+                        );
+                    }
+                    return;
+                }
+
+                if (eventType !== 'artifact_version_updated' && eventType !== 'artifact_version_update_started') return;
 
                 const eventPayload = payload as ArtifactVersionEventPayload;
                 const artifactKey = eventPayload.artifactName || resolveStoredArtifactKeyById(eventPayload);
@@ -795,6 +843,7 @@ export function ChatProvider({
                 }
             },
             [
+                chatId,
                 api.artifacts,
                 api.projectArtifacts,
                 artifactContext,
@@ -981,6 +1030,22 @@ export function ChatProvider({
                 // Don't set isGenerating if we already know this is a summary stream
                 // (active_agent_message_id is set for both chat and summary streams in DB)
                 const hasActiveStream = !!chatData.activeAgentMessageId;
+
+                const transitionMarker = chatData.metadata?.contextLimitTransition as
+                    | { status: string; message?: string }
+                    | undefined;
+                let hardStopModalState = prev.hardStopModalState;
+                let hardStopError = prev.hardStopError;
+                if (transitionMarker) {
+                    if (transitionMarker.status === 'failed') {
+                        hardStopModalState = 'idle';
+                        hardStopError = transitionMarker.message ?? 'Operation failed';
+                    } else {
+                        hardStopModalState = 'forcing';
+                        hardStopError = null;
+                    }
+                }
+
                 return {
                     ...prev,
                     messages: apiMessagesReversed,
@@ -992,6 +1057,9 @@ export function ChatProvider({
                     hasPendingChanges: chatData.hasPendingChanges ?? false,
                     phaseIndex: chatData.phaseIndex,
                     completionBriefStatus: chatData.completionBriefStatus ?? null,
+                    contextOverflow: (chatData.metadata?.contextOverflow as 'soft' | 'hard') ?? null,
+                    hardStopModalState,
+                    hardStopError,
                 };
             });
             setPagination({
@@ -1085,6 +1153,8 @@ export function ChatProvider({
                 // onUploadsAssociated resolves — used by the pre-chat→chat staged path
                 // so the info badge shows during the wait instead of a duplicated message.
                 isDeferredSend?: boolean;
+                /** User acknowledged the soft-warning gate; backend skips the warning preflight check. */
+                bypassContextWarning?: boolean;
             },
         ) => {
             if (!content.trim() || state.isGenerating) return;
@@ -1181,13 +1251,34 @@ export function ChatProvider({
                         model: selectedModel,
                         tempId: userMessage.id, // Reconcile across WS boundaries
                         ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
+                        ...(opts?.bypassContextWarning ? { bypass_context_warning: true } : {}),
                     },
                     (await getToken()) ?? '',
                 );
 
                 if (!response.ok) {
-                    const errorText = await response.text().catch(() => 'Unknown error');
-                    throw new Error(`Send failed: ${response.status} — ${errorText}`);
+                    const apiError = await ApiClientError.fromResponse(response);
+                    if (apiError.code === 'CONTEXT_TOO_LONG') {
+                        const gate = apiError.details?.gate;
+                        if (gate === 'warning') {
+                            setState((prev) => ({ ...prev, showContextWarningModal: true }));
+                        } else if (gate === 'hard') {
+                            const canForceBrief = apiError.details?.canForceBrief !== false;
+                            const existingNextChatId = (apiError.details?.existingNextChatId as string) ?? null;
+                            setState((prev) => {
+                                if (prev.hardStopModalState === 'forcing') return prev;
+                                return {
+                                    ...prev,
+                                    hardStopModalState: canForceBrief ? 'idle' : 'already-transitioned',
+                                    hardStopExistingNextChatId: existingNextChatId,
+                                    hardStopError: null,
+                                };
+                            });
+                        } else {
+                            setState((prev) => ({ ...prev, showContextLimitAlert: true }));
+                        }
+                    }
+                    throw apiError;
                 }
 
                 // Broker mode: POST returns JSON { userMessageId, agentMessageId }.
@@ -1208,10 +1299,12 @@ export function ChatProvider({
                     // Request was cancelled, don't treat as error
                     return;
                 }
+                const isContextLimit = error instanceof ApiClientError && error.code === 'CONTEXT_TOO_LONG';
                 console.error('Error sending message:', error);
                 captureChatAnalytics('chat_turn_submission_failed', {
                     submission_id: userMessage.id,
                     error_message: error instanceof Error ? error.message : 'Failed to send message',
+                    error_code: isContextLimit ? 'CONTEXT_TOO_LONG' : null,
                 });
                 // Roll back the optimistic user message so we don't leave a ghost "sent" row
                 // that actually never went through.
@@ -1219,7 +1312,7 @@ export function ChatProvider({
                     ...prev,
                     messages: prev.messages.filter((m) => m.id !== userMessage.id),
                     isGenerating: false,
-                    error: error instanceof Error ? error : new Error('Failed to send message'),
+                    error: isContextLimit ? null : error instanceof Error ? error : new Error('Failed to send message'),
                 }));
                 // Re-throw so the caller can keep the user's text/files intact (no submitFiles,
                 // no silent wipe) and surface the failure.
@@ -1260,6 +1353,13 @@ export function ChatProvider({
             if (!response.ok) {
                 const errorText = await response.text().catch(() => 'Unknown error');
                 throw new Error(`Nudge failed: ${response.status} — ${errorText}`);
+            }
+
+            // If the backend skipped the nudge (no pending system event to respond to),
+            // reset isGenerating — no SSE stream will fire to reset it otherwise.
+            const body = await response.json().catch(() => null);
+            if (body?.nudge === 'skipped') {
+                setState((prev) => ({ ...prev, isGenerating: false }));
             }
         } catch (error) {
             console.error('Error sending nudge:', error);
@@ -1433,6 +1533,82 @@ export function ChatProvider({
         setState((prev) => ({ ...prev, showInvalidModelAlert: false }));
     }, []);
 
+    const dismissContextLimitAlert = useCallback(() => {
+        setState((prev) => ({ ...prev, showContextLimitAlert: false }));
+    }, []);
+
+    const dismissContextWarningModal = useCallback(() => {
+        setState((prev) => ({ ...prev, showContextWarningModal: false }));
+    }, []);
+
+    const dismissHardStopModal = useCallback(() => {
+        setState((prev) => ({
+            ...prev,
+            hardStopModalState: 'closed',
+            hardStopExistingNextChatId: null,
+            hardStopError: null,
+        }));
+    }, []);
+
+    const navigateToExistingNextChat = useCallback(() => {
+        if (!state.hardStopExistingNextChatId) return;
+        const nextId = state.hardStopExistingNextChatId;
+        setState((prev) => ({
+            ...prev,
+            hardStopModalState: 'closed',
+            hardStopExistingNextChatId: null,
+            hardStopError: null,
+        }));
+        router.push(`/${projectId}/${nextId}`);
+    }, [projectId, router, state.hardStopExistingNextChatId]);
+
+    const forceBriefInFlightRef = useRef(false);
+
+    const sendForceBrief = useCallback(async () => {
+        if (!chatId || forceBriefInFlightRef.current) return;
+        forceBriefInFlightRef.current = true;
+
+        setState((prev) => ({ ...prev, hardStopModalState: 'forcing', hardStopError: null }));
+
+        try {
+            const send = chatType === 'phase' ? sendAction : sendIntakeAction;
+            const response = await send(
+                { message: null, chatId, model: selectedModel, force_brief: true },
+                (await getToken()) ?? '',
+            );
+
+            if (!response.ok) {
+                const apiError = await ApiClientError.fromResponse(response);
+                if (apiError.code === 'CONTEXT_TOO_LONG' && apiError.details?.canForceBrief === false) {
+                    setState((prev) => ({
+                        ...prev,
+                        hardStopModalState: 'already-transitioned',
+                        hardStopExistingNextChatId: (apiError.details?.existingNextChatId as string) ?? null,
+                    }));
+                    return;
+                }
+                throw apiError;
+            }
+        } catch (error) {
+            console.error('Error sending force_brief:', error);
+            setState((prev) => ({
+                ...prev,
+                hardStopModalState: 'idle',
+                hardStopError: error instanceof Error ? error.message : 'Failed to create Completion Brief',
+            }));
+        } finally {
+            forceBriefInFlightRef.current = false;
+        }
+    }, [chatId, chatType, getToken, selectedModel]);
+
+    // Close the hard-stop modal when the summary stream completes with a new chat ID.
+    // The summarizer overlay's "Continue to next phase" button takes over from here.
+    useEffect(() => {
+        if (state.hardStopModalState === 'forcing' && state.summaryNewChatId) {
+            dismissHardStopModal();
+        }
+    }, [state.hardStopModalState, state.summaryNewChatId, dismissHardStopModal]);
+
     return (
         <ChatContext.Provider
             value={buildContextValue(chatType, projectId, {
@@ -1451,10 +1627,16 @@ export function ChatProvider({
                 navigateToNewPhase,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
+                requestPhaseTransition,
                 hasOtherPendingArtifacts,
                 setProcessingArtifactAction,
                 changeModel,
                 dismissInvalidModelAlert,
+                dismissContextLimitAlert,
+                dismissContextWarningModal,
+                sendForceBrief,
+                dismissHardStopModal,
+                navigateToExistingNextChat,
                 ensureChatId,
             })}
         >
