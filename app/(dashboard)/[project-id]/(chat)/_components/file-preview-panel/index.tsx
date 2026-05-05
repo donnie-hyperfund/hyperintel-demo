@@ -26,7 +26,7 @@ export function FilePreviewPanel({ artifactId, onClose }: FilePreviewPanelProps)
 
     if (isLoading) {
         return (
-            <div className="flex flex-col h-full bg-neutral-975">
+            <div className="flex flex-col h-full bg-neutral-975 overflow-hidden">
                 <div className="flex-1 flex items-center justify-center">
                     <Loader2 className="size-8 animate-spin text-muted-foreground" />
                 </div>
@@ -36,7 +36,7 @@ export function FilePreviewPanel({ artifactId, onClose }: FilePreviewPanelProps)
 
     if (error || !artifact) {
         return (
-            <div className="flex flex-col h-full bg-neutral-975">
+            <div className="flex flex-col h-full bg-neutral-975 overflow-hidden">
                 <FilePreviewHeader title="Error" artifactId={artifactId} onClose={onClose} />
                 <div className="flex-1 flex items-center justify-center">
                     <EmptyState title="Failed to load" description={error?.message ?? 'Unknown error'} />
@@ -46,7 +46,7 @@ export function FilePreviewPanel({ artifactId, onClose }: FilePreviewPanelProps)
     }
 
     return (
-        <div className="flex flex-col h-full bg-neutral-975">
+        <div className="flex flex-col h-full bg-neutral-975 overflow-hidden">
             <FilePreviewHeader
                 title={title}
                 documentType={version?.documentType}
@@ -57,8 +57,10 @@ export function FilePreviewPanel({ artifactId, onClose }: FilePreviewPanelProps)
                 isUploaded={version?.isUploaded}
                 onClose={onClose}
             />
-            <div className="flex-1 min-h-0">
-                <FilePreviewPanelContent file={file} content={version?.content} />
+            <div className="relative flex-1 min-h-0">
+                <div className="absolute inset-0">
+                    <FilePreviewPanelContent file={file} content={version?.content} />
+                </div>
             </div>
         </div>
     );
