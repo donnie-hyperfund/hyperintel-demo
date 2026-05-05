@@ -10,6 +10,7 @@ import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { handleListChatArtifacts } from '@/lib/chats/handlers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
@@ -820,6 +821,10 @@ export async function handleRemoveProjectResource(
     }
 
     await em.transactional(async (txEm) => {
+        await Promise.all([
+            txEm.nativeDelete(ArtifactEmbeddingEntity, { artifact_version: { artifact: artifact.id } }),
+            txEm.nativeDelete(ArtifactFileEntity, { artifact_version: { artifact: artifact.id } }),
+        ]);
         await txEm.nativeDelete(ArtifactVersionEntity, { artifact: artifact.id });
         await txEm.nativeDelete(ArtifactEntity, { id: artifact.id });
     });
