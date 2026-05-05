@@ -21,6 +21,7 @@ const clearPendingNudgeMock = vi.fn();
 
 let selectedModelMock = 'sonnet';
 let fallbackMock: Record<string, unknown> = {};
+let wsMessageHandler: ((message: unknown) => void) | null = null;
 
 const cacheMock = new Map();
 const artifactContextMock = {
@@ -189,6 +190,13 @@ describe('ChatProvider', () => {
         hasPendingNudgeMock.mockReset();
         hasPendingNudgeMock.mockReturnValue(false);
         clearPendingNudgeMock.mockReset();
+        wsMessageHandler = null;
+        wsMock.send.mockReset();
+        wsMock.subscribe.mockReset().mockReturnValue(vi.fn());
+        wsMock.on.mockReset().mockImplementation((event: string, handler: (message: unknown) => void) => {
+            if (event === 'message') wsMessageHandler = handler;
+        });
+        wsMock.off.mockReset();
 
         cacheMock.clear();
         artifactContextMock.addArtifact.mockReset();
@@ -203,6 +211,15 @@ describe('ChatProvider', () => {
         apiMock.chats.updateModel.mockReset();
         apiMock.chats.updateModel.mockResolvedValue(undefined);
         apiMock.messages.list.mockReset();
+        apiMock.messages.list.mockResolvedValue({
+            data: [],
+            pagination: { page: 1, limit: 20, total: 0, totalPages: 1 },
+        });
+        apiMock.chats.get.mockResolvedValue({
+            tokenUsage: null,
+            hasPendingChanges: false,
+            phaseIndex: 1,
+        });
         apiMock.artifacts.getByKey.mockReset();
         apiMock.projectArtifacts.getByKey.mockReset();
 
@@ -448,6 +465,129 @@ describe('ChatProvider', () => {
         consoleSpy.mockRestore();
     });
 
+    it('passes bypass_context_warning only when explicitly requested', async () => {
+        apiMock.chats.create.mockResolvedValueOnce({ id: 'chat-normal', phaseIndex: 1 });
+        sendActionMock.mockResolvedValue(mockResponse());
+
+        const normal = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWrapper,
+        });
+
+        await act(async () => {
+            await normal.result.current.sendMessage('normal');
+        });
+
+        expect(sendActionMock).toHaveBeenLastCalledWith(
+            expect.not.objectContaining({ bypass_context_warning: true }),
+            'token-abc',
+        );
+
+        normal.unmount();
+        sendActionMock.mockClear();
+        apiMock.chats.create.mockResolvedValueOnce({ id: 'chat-bypassed', phaseIndex: 1 });
+
+        const bypassed = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWrapper,
+        });
+
+        await act(async () => {
+            await bypassed.result.current.sendMessage('bypassed', { bypassContextWarning: true });
+        });
+
+        expect(sendActionMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({ message: 'bypassed', bypass_context_warning: true }),
+            'token-abc',
+        );
+    });
+
+    it('opens the soft warning modal for warning-gate context errors', async () => {
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        sendActionMock.mockResolvedValue(
+            mockResponse(
+                {
+                    code: 'CONTEXT_TOO_LONG',
+                    message: 'Approaching context limit.',
+                    details: { gate: 'warning' },
+                },
+                { ok: false, status: 400 },
+            ),
+        );
+
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        await act(async () => {
+            await expect(result.current.sendMessage('hello')).rejects.toMatchObject({
+                code: 'CONTEXT_TOO_LONG',
+            });
+        });
+
+        expect(result.current.state.showContextWarningModal).toBe(true);
+        expect(result.current.state.hardStopModalState).toBe('closed');
+        expect(result.current.state.showContextLimitAlert).toBe(false);
+        expect(result.current.state.error).toBeNull();
+        consoleSpy.mockRestore();
+    });
+
+    it('opens the hard-stop modal for hard-gate context errors', async () => {
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        sendActionMock.mockResolvedValue(
+            mockResponse(
+                {
+                    code: 'CONTEXT_TOO_LONG',
+                    message: 'Context limit reached.',
+                    details: { gate: 'hard' },
+                },
+                { ok: false, status: 400 },
+            ),
+        );
+
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        await act(async () => {
+            await expect(result.current.sendMessage('hello')).rejects.toMatchObject({
+                code: 'CONTEXT_TOO_LONG',
+            });
+        });
+
+        expect(result.current.state.hardStopModalState).toBe('idle');
+        expect(result.current.state.hardStopExistingNextChatId).toBeNull();
+        expect(result.current.state.showContextWarningModal).toBe(false);
+        expect(result.current.state.error).toBeNull();
+        consoleSpy.mockRestore();
+    });
+
+    it('uses already-transitioned hard-stop state when backend says force brief is unavailable', async () => {
+        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        sendActionMock.mockResolvedValue(
+            mockResponse(
+                {
+                    code: 'CONTEXT_TOO_LONG',
+                    message: 'Context limit reached.',
+                    details: { gate: 'hard', canForceBrief: false, existingNextChatId: 'chat-next' },
+                },
+                { ok: false, status: 400 },
+            ),
+        );
+
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        await act(async () => {
+            await expect(result.current.sendMessage('hello')).rejects.toMatchObject({
+                code: 'CONTEXT_TOO_LONG',
+            });
+        });
+
+        expect(result.current.state.hardStopModalState).toBe('already-transitioned');
+        expect(result.current.state.hardStopExistingNextChatId).toBe('chat-next');
+        consoleSpy.mockRestore();
+    });
+
     it('includes projectId when associating uploads after creating a new phase chat', async () => {
         apiMock.chats.create.mockResolvedValue({
             id: 'chat-1',
@@ -555,6 +695,55 @@ describe('ChatProvider', () => {
         expect(result.current.state.error?.message).toBe('Summarize failed: 500 — summary failed');
     });
 
+    it('sends force_brief as a null-message nudge and enters forcing state', async () => {
+        sendActionMock.mockResolvedValue(mockResponse());
+
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        await act(async () => {
+            await result.current.sendForceBrief();
+        });
+
+        expect(sendActionMock).toHaveBeenCalledWith(
+            { message: null, chatId: 'chat-initial', model: 'sonnet', force_brief: true },
+            'token-abc',
+        );
+        expect(result.current.state.hardStopModalState).toBe('forcing');
+        expect(result.current.state.hardStopError).toBeNull();
+    });
+
+    it('surfaces force-brief failures from user events while forcing', async () => {
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        act(() => {
+            result.current.dismissHardStopModal();
+        });
+
+        sendActionMock.mockResolvedValue(mockResponse());
+        await act(async () => {
+            await result.current.sendForceBrief();
+        });
+
+        act(() => {
+            wsMessageHandler?.({
+                type: 'user_event',
+                eventType: 'context_limit_transition_update',
+                payload: {
+                    chatId: 'chat-initial',
+                    status: 'failed',
+                    message: 'Summary failed',
+                },
+            });
+        });
+
+        expect(result.current.state.hardStopModalState).toBe('idle');
+        expect(result.current.state.hardStopError).toBe('Summary failed');
+    });
+
     it('seeds hasPendingChanges from cache and clears via context methods', () => {
         // hasPendingChanges is seeded from the SWR-cached chat detail
         const cacheKey = JSON.stringify(['chats', 'detail', 'chat-initial']);
@@ -587,5 +776,36 @@ describe('ChatProvider', () => {
         });
 
         expect(result.current.state.hasPendingChanges).toBe(false);
+    });
+
+    it('restores context overflow and forced-transition state when loading an existing chat', async () => {
+        apiMock.messages.list.mockResolvedValue({
+            data: [],
+            pagination: { page: 1, limit: 20, total: 0, totalPages: 1 },
+        });
+        apiMock.chats.get.mockResolvedValue({
+            tokenUsage: null,
+            hasPendingChanges: false,
+            phaseIndex: 1,
+            metadata: {
+                contextOverflow: 'hard',
+                contextLimitTransition: {
+                    status: 'failed',
+                    message: 'Approval failed',
+                },
+            },
+        });
+
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        await waitFor(() => {
+            expect(result.current.state.isLoading).toBe(false);
+        });
+
+        expect(result.current.state.contextOverflow).toBe('hard');
+        expect(result.current.state.hardStopModalState).toBe('idle');
+        expect(result.current.state.hardStopError).toBe('Approval failed');
     });
 });

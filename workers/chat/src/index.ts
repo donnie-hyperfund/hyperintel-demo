@@ -38,7 +38,7 @@ import { restoreArtifactHandler } from './artifact-restorer';
 import { chatActionHandler } from './chat-handler';
 import type { Ctx } from './context';
 import { intakeActionHandler } from './intake-handler';
-import { summarizeActionHandler } from './summarizer';
+import { summarizeActionHandler } from './summarizer-handler';
 import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './uploads/artifact-uploader';
 import { associateUploadsHandler } from './uploads/associate-handler';
 import { cleanupStaleUploads } from './uploads/cleanup';
