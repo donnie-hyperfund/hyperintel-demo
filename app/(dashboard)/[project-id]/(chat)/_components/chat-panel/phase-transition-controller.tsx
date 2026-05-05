@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { SummarizerOverlay } from '@/components/layouts/dashboard-layout/summarizer/summarizer-overlay';
 import {
@@ -20,8 +21,8 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 type CbGateDialog = 'none' | 'generate' | 'pending';
 
 export function PhaseTransitionController() {
-    const { projectId, summarizeChat, cancelSummary, navigateToNewPhase, clearPendingPhaseTransition, state } =
-        useChatContext<'phase'>();
+    const { projectId, summarizeChat, cancelSummary, clearPendingPhaseTransition, state } = useChatContext<'phase'>();
+    const router = useRouter();
 
     const { mutate: revalidateChats } = useFetchChatsInfinite(projectId);
     const { isLatestPhase, hasAssistantMessage, canTransition, requestCbGeneration } = usePhaseGate();
@@ -68,11 +69,11 @@ export function PhaseTransitionController() {
     }, [cancelSummary]);
 
     useEffect(() => {
-        if (!pendingNavigation || dialogOpen) return;
+        if (!pendingNavigation || dialogOpen || !state.summaryNewChatId) return;
         setPendingNavigation(false);
         revalidateChats();
-        navigateToNewPhase();
-    }, [pendingNavigation, dialogOpen, revalidateChats, navigateToNewPhase]);
+        router.push(`/${projectId}/${state.summaryNewChatId}`, { scroll: false });
+    }, [pendingNavigation, dialogOpen, projectId, revalidateChats, router, state.summaryNewChatId]);
 
     // Cross-tab sync: open/close overlay based on summarizing state
     useEffect(() => {

@@ -82,9 +82,11 @@ vi.mock('@/modules/file-uploads/providers/file-upload-provider', () => ({
         submitFiles: vi.fn(),
         waitForArtifactsReady: vi.fn(),
         isSubmitting: false,
-        consumeStagedArtifactIds: vi.fn(),
-        consumeStagedImageFileIds: vi.fn(),
-        consumeDraftArtifactIds: vi.fn(),
+        getMessageAttachments: vi.fn(() => ({
+            artifactIds: [],
+            requiresAssociationIds: [],
+            imageFileIds: [],
+        })),
     }),
 }));
 

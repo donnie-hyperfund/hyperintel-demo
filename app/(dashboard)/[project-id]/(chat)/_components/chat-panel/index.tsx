@@ -21,7 +21,7 @@ export default function ChatPanel({ HeaderComponent, emptyTitle, emptySubtitle }
     const allowUploadBeforeFirstMessage = chatType !== 'phase';
 
     return (
-        <FileUploadProvider scope={{ projectId, chatId: chatId ?? undefined }} trackAsPending>
+        <FileUploadProvider scope={{ kind: 'chat-input', chatType, projectId, chatId: chatId ?? undefined }}>
             <ChatPanelContent
                 isEmpty={isEmpty}
                 allowUploadBeforeFirstMessage={allowUploadBeforeFirstMessage}

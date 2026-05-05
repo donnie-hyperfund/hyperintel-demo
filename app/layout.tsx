@@ -8,13 +8,16 @@ import { ClerkProvider } from '@clerk/nextjs';
 import NextTopLoader from 'nextjs-toploader';
 import { PostHogBootstrap } from '@/components/analytics/posthog-bootstrap';
 import { Toaster } from '@/components/ui/toaster';
+import { APP_TITLE } from '@/lib/metadata/page-title';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-    title: 'HYPERINTEL™',
-    description: 'Dual-panel AI chatbot comparison interface',
-    generator: 'v0.app',
+    title: {
+        default: APP_TITLE,
+        template: `%s | ${APP_TITLE}`,
+    },
+    description: 'AI-powered strategic intelligence platform',
     icons: {
         icon: '/favicon.ico',
     },

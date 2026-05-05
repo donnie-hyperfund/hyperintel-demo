@@ -1,6 +1,7 @@
 'use client';
 
-import { type ReactNode, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
+import { type ReactNode, Suspense, useCallback } from 'react';
 import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
 import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
 import type { Message } from '../types';
@@ -12,7 +13,7 @@ type ChatModuleBaseProps = {
     children: ReactNode;
     initialChatId?: string;
     initialMessages?: Message[];
-    chatRouteBuilder?: (chatId: string) => string;
+    buildCreatedChatHref?: (chatId: string) => string;
 };
 
 type PhaseChatModuleProps = ChatModuleBaseProps & {
@@ -33,8 +34,33 @@ export function ChatModule({
     chatType,
     initialChatId,
     initialMessages = [],
-    chatRouteBuilder,
+    buildCreatedChatHref,
 }: ChatModuleProps) {
+    const router = useRouter();
+
+    const buildChatRoute = useCallback(
+        (nextChatId: string) => {
+            if (buildCreatedChatHref) {
+                return buildCreatedChatHref(nextChatId);
+            }
+
+            if (chatType === 'phase') {
+                if (!projectId) throw new Error('Project ID is required for phase chats');
+                return `/${projectId}/${nextChatId}`;
+            }
+
+            return `/${chatType === 'company' ? 'companies' : 'stakeholders'}/${nextChatId}`;
+        },
+        [buildCreatedChatHref, chatType, projectId],
+    );
+
+    const handleChatCreated = useCallback(
+        (chatId: string) => {
+            router.replace(buildChatRoute(chatId), { scroll: false });
+        },
+        [buildChatRoute, router],
+    );
+
     return (
         <ActivePanelProvider>
             <ArtifactProvider>
@@ -44,7 +70,7 @@ export function ChatModule({
                         chatType={chatType}
                         initialChatId={initialChatId}
                         initialMessages={initialMessages}
-                        chatRouteBuilder={chatRouteBuilder}
+                        onChatCreated={handleChatCreated}
                     >
                         <Suspense>
                             <ScrollTargetProvider>{children}</ScrollTargetProvider>

@@ -119,6 +119,7 @@ export type ChatState = {
     totalCost: number | null;
     hasPendingChanges: boolean;
     phaseIndex: number | null;
+    phaseName: string | null;
     /** Chat ID of the new phase after summarization completes */
     summaryNewChatId: string | null;
     /** True when AI triggered generate_summary from chat — tells UI to show the phase transition dialog */

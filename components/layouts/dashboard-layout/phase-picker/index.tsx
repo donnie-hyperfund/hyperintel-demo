@@ -42,10 +42,10 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
         return data.flatMap((page) => page.data);
     }, [data]);
 
-    const isNewChat = !currentPhaseIndex;
-    const currentChat = chats.find((c) => c.id === currentChatId);
-    const phaseName =
-        currentChat?.name ?? (typeof currentPhaseIndex === 'number' ? `Phase ${currentPhaseIndex + 1}` : null);
+    const currentChat = chats.find((chat) => chat.id === currentChatId);
+    const phaseIndex = currentChat?.phaseIndex ?? currentPhaseIndex;
+    const isNewChat = !currentChatId && phaseIndex == null;
+    const phaseName = currentChat?.name ?? (typeof phaseIndex === 'number' ? `Phase ${phaseIndex + 1}` : null);
 
     const [sentryRef, { rootRef }] = useInfiniteScroll({
         loading: isLoading,
@@ -56,21 +56,21 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
         rootMargin: '0px 0px 100px 0px',
     });
 
-    const handleNewPhase = (e: React.MouseEvent) => {
-        e.preventDefault();
+    const handleNewPhase = (event: React.MouseEvent) => {
+        event.preventDefault();
         setOpen(false);
-        window.dispatchEvent(new Event('new-phase'));
         router.push(`/${projectId}?new=true`);
     };
 
     const handleEdit = (chatId: string) => {
-        const chat = chats.find((c) => c.id === chatId);
+        const chat = chats.find((chatEntry) => chatEntry.id === chatId);
         setEditingInitialName(chat?.name ?? '');
         setEditingChatId(chatId);
     };
 
     const handleSaved = async () => {
         await mutate();
+        router.refresh();
         setEditingChatId(null);
     };
 
@@ -96,7 +96,7 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
                     <ChevronDown className="size-3.5 shrink-0 text-neutral-600 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                 </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="max-w-80 p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
+            <PopoverContent align="start" className="max-w-80 p-0" onOpenAutoFocus={(event) => event.preventDefault()}>
                 <div ref={rootRef} className="max-h-64 overflow-y-auto w-full py-1">
                     {chats.map((chat) => (
                         <PhasePickerItem

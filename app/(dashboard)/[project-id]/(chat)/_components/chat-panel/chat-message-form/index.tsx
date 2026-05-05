@@ -60,18 +60,9 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
     } = useChatContext();
     const { selectedModel } = useModelSelection();
 
-    const {
-        files,
-        addFiles,
-        removeFile,
-        submitFiles,
-        waitForArtifactsReady,
-        isSubmitting,
-        consumeStagedArtifactIds,
-        consumeStagedImageFileIds,
-        consumeDraftArtifactIds,
-    } = useFileUploadContext();
-    const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
+    const { files, addFiles, removeFile, submitFiles, waitForArtifactsReady, isSubmitting, getMessageAttachments } =
+        useFileUploadContext();
+    const { draftKey, initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
 
     const {
@@ -89,6 +80,13 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
 
     const message = watch('message');
 
+    // Sync the form value when the chat changes. Keyed on draftKey (not initialDraft value)
+    // so the effect fires on every chatId switch even when both drafts are empty strings.
+    useEffect(() => {
+        reset({ message: initialDraft });
+        textareaRef.current?.updateTextareaHeight();
+    }, [draftKey, initialDraft, reset]);
+
     // Clear draft + input when the send actually starts streaming. This is the shared
     // cleanup for the deferred path (whose remounted form instance hydrates with the
     // migrated draft) and a redundant safety-net for the normal path (already cleared).
@@ -102,11 +100,11 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         prevActiveResponseIdRef.current = activeResponseId;
     }, [activeResponseId, clearDraft, reset]);
     const hasContent = message && message.trim().length > 0;
-    const hasDeferredFilesAwaitingAssociation = !chatId && files.some((f) => f.requiresAssociation);
+    const hasDeferredFilesAwaitingAssociation = !chatId && files.some((fileEntry) => fileEntry.requiresAssociation);
     const hasBlockingFiles = files.some(
-        (f) =>
-            (f.status === 'uploading' || f.status === 'processing') &&
-            !(f.status === 'processing' && !chatId && f.requiresAssociation),
+        (fileEntry) =>
+            (fileEntry.status === 'uploading' || fileEntry.status === 'processing') &&
+            !(fileEntry.status === 'processing' && !chatId && fileEntry.requiresAssociation),
     );
     const isBusy =
         isGenerating || isSummarizing || isLoading || isSubmitting || hasBlockingFiles || isProcessingArtifactAction;
@@ -126,27 +124,23 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             imageHeight: entry.imageHeight,
         }));
 
-        const stagedArtifactIds = [
-            ...new Set(
-                files.flatMap((entry) => (entry.requiresAssociation && entry.artifactId ? [entry.artifactId] : [])),
-            ),
-        ];
-        const draftArtifactIds = [...new Set(files.flatMap((entry) => (entry.artifactId ? [entry.artifactId] : [])))];
-        const imageFileIds = [...new Set(files.flatMap((entry) => (entry.imageFileId ? [entry.imageFileId] : [])))];
+        const { artifactIds, requiresAssociationIds, imageFileIds } = getMessageAttachments();
 
         const hasStagedUploads =
-            hasDeferredFilesAwaitingAssociation && (stagedArtifactIds.length > 0 || imageFileIds.length > 0);
+            hasDeferredFilesAwaitingAssociation && (requiresAssociationIds.length > 0 || imageFileIds.length > 0);
 
         const fileDirective =
             uploadedFiles.length > 0
                 ? uploadedFiles
-                      .map((f) => {
-                          const attrs = [`size=${f.size}`];
-                          if (f.imageFileId) {
-                              attrs.push(`fileid=${f.imageFileId}`, 'type=image');
-                              if (f.imageWidth && f.imageHeight) attrs.push(`w=${f.imageWidth}`, `h=${f.imageHeight}`);
+                      .map((uploadedFile) => {
+                          const attrs = [`size=${uploadedFile.size}`];
+                          if (uploadedFile.imageFileId) {
+                              attrs.push(`fileid=${uploadedFile.imageFileId}`, 'type=image');
+                              if (uploadedFile.imageWidth && uploadedFile.imageHeight) {
+                                  attrs.push(`w=${uploadedFile.imageWidth}`, `h=${uploadedFile.imageHeight}`);
+                              }
                           }
-                          return `::upload[${f.name}]{${attrs.join(' ')}}`;
+                          return `::upload[${uploadedFile.name}]{${attrs.join(' ')}}`;
                       })
                       .join('\n')
                 : '';
@@ -161,17 +155,13 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 onUploadsAssociated?: () => Promise<void>;
                 isDeferredSend?: boolean;
             } = {};
-            if (hasStagedUploads && stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
-            if (draftArtifactIds.length > 0) opts.draftArtifactIds = draftArtifactIds;
+            if (hasStagedUploads && requiresAssociationIds.length > 0) opts.stagedArtifactIds = requiresAssociationIds;
+            if (artifactIds.length > 0) opts.draftArtifactIds = artifactIds;
             if (imageFileIds.length > 0) opts.imageFileIds = imageFileIds;
-            if (hasStagedUploads && stagedArtifactIds.length > 0) {
-                opts.onUploadsAssociated = () => waitForArtifactsReady(stagedArtifactIds);
+            if (hasStagedUploads && requiresAssociationIds.length > 0) {
+                opts.onUploadsAssociated = () => waitForArtifactsReady(requiresAssociationIds);
                 opts.isDeferredSend = true;
             }
-
-            consumeStagedArtifactIds();
-            consumeStagedImageFileIds();
-            consumeDraftArtifactIds();
 
             // Don't clear input or files until the POST resolves successfully. This keeps both
             // halves of the draft in sync with the transcript (visible during the POST round-trip,
@@ -205,9 +195,9 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
             if (!isSubmitDisabled) {
                 handleSubmit(onFormSubmit)();
             }
@@ -215,20 +205,20 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
     };
 
     const handlePaste = useCallback(
-        (e: React.ClipboardEvent) => {
+        (event: React.ClipboardEvent) => {
             if (isAwaitingStream) return;
 
-            const imageFiles = Array.from(e.clipboardData.items)
+            const imageFiles = Array.from(event.clipboardData.items)
                 .filter((item) => item.type.startsWith('image/'))
                 .map((item) => item.getAsFile())
-                .filter((f): f is File => f !== null);
+                .filter((file): file is File => file !== null);
 
             if (imageFiles.length > 0) {
                 // Give pasted screenshots a sensible name
-                const named = imageFiles.map((f, i) => {
-                    const ext = f.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png';
+                const named = imageFiles.map((file, i) => {
+                    const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png';
                     const name = `screenshot-${Date.now()}${imageFiles.length > 1 ? `-${i + 1}` : ''}.${ext}`;
-                    return new File([f], name, { type: f.type });
+                    return new File([file], name, { type: file.type });
                 });
                 addFiles(named, { source: 'paste' });
             }
@@ -316,9 +306,9 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                 name={name}
                                 ref={mergedRef}
                                 value={message || ''}
-                                onChange={(e) => {
-                                    onChange(e);
-                                    saveDraft(e.target.value);
+                                onChange={(event) => {
+                                    onChange(event);
+                                    saveDraft(event.target.value);
                                 }}
                                 onBlur={onBlur}
                                 onKeyDown={handleKeyDown}

@@ -18,6 +18,7 @@ const openPanelMock = vi.fn();
 const createApiClientMock = vi.fn();
 const hasPendingNudgeMock = vi.fn();
 const clearPendingNudgeMock = vi.fn();
+const onChatCreatedMock = vi.fn();
 
 let selectedModelMock = 'sonnet';
 let fallbackMock: Record<string, unknown> = {};
@@ -145,12 +146,9 @@ function companyWrapper({ children }: { children: ReactNode }) {
     return <ChatProvider chatType="company">{children}</ChatProvider>;
 }
 
-function companyWithProjectOriginWrapper({ children }: { children: ReactNode }) {
+function companyWithChatCreatedEventWrapper({ children }: { children: ReactNode }) {
     return (
-        <ChatProvider
-            chatType="company"
-            chatRouteBuilder={(chatId) => `/companies/${chatId}?origin=project&projectId=project-1`}
-        >
+        <ChatProvider chatType="company" onChatCreated={onChatCreatedMock}>
             {children}
         </ChatProvider>
     );
@@ -179,6 +177,7 @@ describe('ChatProvider', () => {
         insertChatToCacheMock.mockReset();
         sendActionMock.mockReset();
         sendIntakeActionMock.mockReset();
+        onChatCreatedMock.mockReset();
         associateUploadsMock.mockReset();
         summarizeMock.mockReset();
         openPanelMock.mockReset();
@@ -242,17 +241,16 @@ describe('ChatProvider', () => {
 
         const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWithInitialChatWrapper });
 
-        await waitFor(() => {
-            expect(apiMock.messages.list).toHaveBeenCalledWith('chat-initial', { page: 1 });
+        await act(async () => {
+            await result.current.openChat('chat-initial');
         });
 
-        await waitFor(() => {
-            expect(result.current.state.messages.map((message) => message.id)).toEqual(['m1', 'm2']);
-            expect(result.current.state.tokenUsage?.usedTokens).toBe(12);
-            expect(result.current.state.hasPendingChanges).toBe(true);
-            expect(result.current.state.phaseIndex).toBe(2);
-            expect(result.current.pagination.hasMore).toBe(true);
-        });
+        expect(apiMock.messages.list).toHaveBeenCalledWith('chat-initial', { page: 1 });
+        expect(result.current.state.messages.map((message) => message.id)).toEqual(['m1', 'm2']);
+        expect(result.current.state.tokenUsage?.usedTokens).toBe(12);
+        expect(result.current.state.hasPendingChanges).toBe(true);
+        expect(result.current.state.phaseIndex).toBe(2);
+        expect(result.current.pagination.hasMore).toBe(true);
     });
 
     it('loads more messages and prepends older pages for infinite scroll', async () => {
@@ -287,9 +285,11 @@ describe('ChatProvider', () => {
 
         const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWithInitialChatWrapper });
 
-        await waitFor(() => {
-            expect(result.current.state.messages.map((message) => message.id)).toEqual(['m2', 'm3']);
+        await act(async () => {
+            await result.current.openChat('chat-initial');
         });
+
+        expect(result.current.state.messages.map((message) => message.id)).toEqual(['m2', 'm3']);
 
         await act(async () => {
             await result.current.loadMoreMessages();
@@ -313,8 +313,6 @@ describe('ChatProvider', () => {
     });
 
     it('creates a new phase chat and sends a message when chat id is missing', async () => {
-        const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
-
         apiMock.chats.create.mockResolvedValue({
             id: 'chat-1',
             phaseIndex: 3,
@@ -339,13 +337,10 @@ describe('ChatProvider', () => {
         expect(result.current.chatId).toBe('chat-1');
         expect(result.current.state.phaseIndex).toBe(3);
         expect(result.current.state.messages.at(-1)?.role).toBe('user');
-        expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/project-1/chat-1');
         expect(insertChatToCacheMock).toHaveBeenCalledWith(cacheMock, mutateMock, 'project-1', {
             id: 'chat-1',
             phaseIndex: 3,
         });
-
-        replaceStateSpy.mockRestore();
     });
 
     it('surfaces an error when phase chat send is attempted without project id', async () => {
@@ -470,7 +465,6 @@ describe('ChatProvider', () => {
     });
 
     it('creates intake chats for company mode and uses intake send endpoint', async () => {
-        const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
         apiMock.chats.createIntake.mockResolvedValue({ id: 'company-chat-1' });
         sendIntakeActionMock.mockResolvedValue(mockResponse());
 
@@ -493,29 +487,21 @@ describe('ChatProvider', () => {
             'token-abc',
         );
         expect(result.current.chatId).toBe('company-chat-1');
-        expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/companies/company-chat-1');
-
-        replaceStateSpy.mockRestore();
     });
 
-    it('uses a custom route builder after creating an intake chat', async () => {
-        const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+    it('emits a created chat event after creating an intake chat', async () => {
         apiMock.chats.createIntake.mockResolvedValue({ id: 'company-chat-2' });
         sendIntakeActionMock.mockResolvedValue(mockResponse());
 
-        const { result } = renderHook(() => useChatContext<'company'>(), { wrapper: companyWithProjectOriginWrapper });
+        const { result } = renderHook(() => useChatContext<'company'>(), {
+            wrapper: companyWithChatCreatedEventWrapper,
+        });
 
         await act(async () => {
             await result.current.sendMessage('intake message');
         });
 
-        expect(replaceStateSpy).toHaveBeenCalledWith(
-            null,
-            '',
-            '/companies/company-chat-2?origin=project&projectId=project-1',
-        );
-
-        replaceStateSpy.mockRestore();
+        expect(onChatCreatedMock).toHaveBeenCalledWith('company-chat-2');
     });
 
     it('summarizes and navigates to the new phase chat', async () => {
@@ -532,8 +518,6 @@ describe('ChatProvider', () => {
         });
 
         expect(summarizeMock).toHaveBeenCalledWith({ chatId: 'chat-1' }, 'token-abc');
-        // summaryNewChatId is set via WS stream events, not the HTTP response.
-        // navigateToNewPhase is a no-op until WS delivers the new chat ID.
         expect(result.current.state.summaryNewChatId).toBeNull();
         expect(result.current.state.error).toBeNull();
     });
