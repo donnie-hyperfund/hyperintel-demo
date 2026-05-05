@@ -100,11 +100,16 @@ export type UseStreamOptions = {
     onCbStatusChanged?: (status: string) => void;
 };
 
+/** What the user submitted for a pending decision — kept around until the backend confirms via `decision_resolved`. */
+export type DecisionSubmission = { value: string; freeText?: string };
+
 export type UseStreamReturn = {
     blocks: StreamBlock[];
     activeDocuments: ActiveDocument[];
     /** User-decision prompts currently awaiting the user's click. */
     pendingDecisions: PendingDecision[];
+    /** Submissions in flight — keyed by toolCallId. Cleared on `decision_resolved` or terminal status. */
+    submittingDecisions: Record<string, DecisionSubmission>;
     status: StreamStatus | 'idle';
     displayStatus: string | null;
     agentMessageId: string | null;
@@ -182,6 +187,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const [blocks, setBlocks] = useState<StreamBlock[]>([]);
     const [activeDocuments, setActiveDocuments] = useState<ActiveDocument[]>([]);
     const [pendingDecisions, setPendingDecisions] = useState<PendingDecision[]>([]);
+    const [submittingDecisions, setSubmittingDecisions] = useState<Record<string, DecisionSubmission>>({});
     const [status, setStatus] = useState<StreamStatus | 'idle'>('idle');
     const [displayStatus, setDisplayStatus] = useState<string | null>(null);
     const [agentMessageId, setAgentMessageId] = useState<string | null>(null);
@@ -628,6 +634,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         setBlocks([]);
         setActiveDocuments([]);
         setPendingDecisions([]);
+        setSubmittingDecisions({});
         setStatus('idle');
         setDisplayStatus(null);
         setAgentMessageId(null);
@@ -799,6 +806,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     setBlocks([]);
                     setActiveDocuments([]);
                     setPendingDecisions([]);
+                    setSubmittingDecisions({});
                     setStatus('streaming');
                     setDisplayStatus(null);
                     setError(null);
@@ -1008,6 +1016,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         }
                         case 'decision_resolved':
                             setPendingDecisions((prev) => prev.filter((d) => d.toolCallId !== event.toolCallId));
+                            setSubmittingDecisions((prev) => {
+                                if (!(event.toolCallId in prev)) return prev;
+                                const { [event.toolCallId]: _dropped, ...rest } = prev;
+                                return rest;
+                            });
                             break;
 
                         // ----- Status & terminal -----
@@ -1054,6 +1067,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             streamTerminalRef.current = true;
                             flushSync();
                             clearStreamingFlags();
+                            // Decision cards may contain agent-generated text — drop them on retract.
+                            setPendingDecisions([]);
+                            setSubmittingDecisions({});
                             setIsRetracted(true);
                             break;
 
@@ -1089,6 +1105,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         ownedAgentMessageIdRef.current = null;
                         setDisplayStatus(null);
                         setPendingDecisions([]);
+                        setSubmittingDecisions({});
                         o.onDone?.(sm.status, undefined, sm.agentMessageId);
                     }
                     break;
@@ -1140,9 +1157,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
     const selectDecision = (toolCallId: string, value: string, freeText?: string) => {
         if (!id) return;
-        // Optimistic: drop the card immediately so the user sees their click land.
-        // The backend will also broadcast `decision_resolved` which is idempotent.
-        setPendingDecisions((prev) => prev.filter((d) => d.toolCallId !== toolCallId));
+        // Mark in flight; the card stays mounted in submitting mode until the backend
+        // broadcasts `decision_resolved` (which removes both pending and submitting entries).
+        const submission: DecisionSubmission = freeText ? { value, freeText } : { value };
+        setSubmittingDecisions((prev) => ({ ...prev, [toolCallId]: submission }));
         const payload: { toolCallId: string; value: string; freeText?: string } = { toolCallId, value };
         if (freeText) payload.freeText = freeText;
         ws.sendAction(`${domain}:${id}`, 'decision_select', payload);
@@ -1152,6 +1170,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         blocks,
         activeDocuments,
         pendingDecisions,
+        submittingDecisions,
         status,
         displayStatus,
         agentMessageId,

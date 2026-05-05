@@ -33,7 +33,7 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { useChatStream } from '../hooks/use-chat-stream';
-import type { ToolDocumentDecision } from '../hooks/use-stream';
+import type { DecisionSubmission, ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, SummaryStatus } from '../types';
@@ -95,6 +95,8 @@ export type BaseChatContextValue = {
     ensureChatId: () => Promise<string>;
     /** Pending `request_user_decision` cards awaiting the user's click. */
     pendingDecisions: PendingDecision[];
+    /** Submissions in flight, keyed by toolCallId — used to render the submitting state on the active card. */
+    submittingDecisions: Record<string, DecisionSubmission>;
     /**
      * Resolve a pending decision card. Pass `freeText` when the user typed a
      * custom "Other" answer (in that case `value` should be the Other sentinel).
@@ -1493,6 +1495,7 @@ export function ChatProvider({
                 dismissContextLimitAlert,
                 ensureChatId,
                 pendingDecisions: stream.pendingDecisions,
+                submittingDecisions: stream.submittingDecisions,
                 selectDecision: stream.selectDecision,
             })}
         >

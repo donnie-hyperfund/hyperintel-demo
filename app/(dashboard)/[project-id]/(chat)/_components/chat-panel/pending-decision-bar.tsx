@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowUp, Loader2, Pencil, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { DECISION_OTHER_SENTINEL } from '@/lib/schema/stream';
@@ -10,46 +10,38 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 /**
  * Renders the first active `request_user_decision` card above the chat composer.
- * Width matches the composer (max-w-3xl, centered). The agent's turn is paused
- * until the user clicks an option or submits a free-text answer via "Other".
+ * Width matches the composer (max-w-3xl, centered). The card stays mounted in a
+ * submitting state after the user clicks, until the backend broadcasts
+ * `decision_resolved` — that event removes the card from `pendingDecisions`.
  */
 export function PendingDecisionBar() {
-    const { pendingDecisions, selectDecision } = useChatContext();
-    const [submittingValue, setSubmittingValue] = useState<string | null>(null);
+    const { pendingDecisions, submittingDecisions, selectDecision } = useChatContext();
     const [otherMode, setOtherMode] = useState(false);
     const [otherText, setOtherText] = useState('');
-    const otherTextareaRef = useRef<HTMLTextAreaElement>(null);
 
     const active = pendingDecisions[0];
-
-    // Reset local UI state whenever a new pending card arrives.
     const activeId = active?.toolCallId ?? null;
+    const submission = activeId ? submittingDecisions[activeId] : undefined;
+    const isSubmitting = !!submission;
+
+    // New card → discard any in-flight "Other" composition from the previous card.
     useEffect(() => {
-        setSubmittingValue(null);
         setOtherMode(false);
         setOtherText('');
     }, [activeId]);
 
-    useEffect(() => {
-        if (otherMode) otherTextareaRef.current?.focus();
-    }, [otherMode]);
-
     if (!active) return null;
 
     const onSelectOption = (value: string) => {
-        if (submittingValue) return;
-        setSubmittingValue(value);
+        if (isSubmitting) return;
         selectDecision(active.toolCallId, value);
     };
 
     const onSubmitOther = () => {
         const text = otherText.trim();
-        if (!text || submittingValue) return;
-        setSubmittingValue(DECISION_OTHER_SENTINEL);
+        if (!text || isSubmitting) return;
         selectDecision(active.toolCallId, DECISION_OTHER_SENTINEL, text);
     };
-
-    const disabled = submittingValue !== null;
 
     return (
         <div className="relative flex justify-center px-4 pb-3">
@@ -68,14 +60,14 @@ export function PendingDecisionBar() {
                 {!otherMode && (
                     <>
                         <div className="grid gap-2 sm:grid-cols-2">
-                            {active.options.map((opt) => {
-                                const isSubmittingThis = submittingValue === opt.value;
+                            {active.options.map((option) => {
+                                const isSubmittingThis = submission?.value === option.value && !submission.freeText;
                                 return (
                                     <button
-                                        key={opt.value}
+                                        key={option.value}
                                         type="button"
-                                        onClick={() => onSelectOption(opt.value)}
-                                        disabled={disabled}
+                                        onClick={() => onSelectOption(option.value)}
+                                        disabled={isSubmitting}
                                         className={cn(
                                             'group relative flex flex-col items-start gap-0.5 rounded-lg border border-border bg-background',
                                             'px-3 py-2 text-left transition-colors',
@@ -87,11 +79,11 @@ export function PendingDecisionBar() {
                                     >
                                         <span className="flex w-full items-center gap-2 text-sm font-medium text-foreground">
                                             {isSubmittingThis && <Loader2 className="size-3 animate-spin" />}
-                                            <span className="flex-1 truncate">{opt.label}</span>
+                                            <span className="flex-1 truncate">{option.label}</span>
                                         </span>
-                                        {opt.description && (
-                                            <span className="text-xs font-normal text-muted-foreground leading-snug">
-                                                {opt.description}
+                                        {option.description && (
+                                            <span className="text-xs font-normal text-muted-foreground leading-snug line-clamp-2">
+                                                {option.description}
                                             </span>
                                         )}
                                     </button>
@@ -104,7 +96,7 @@ export function PendingDecisionBar() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setOtherMode(true)}
-                                disabled={disabled}
+                                disabled={isSubmitting}
                                 className="h-7 text-xs text-muted-foreground hover:text-foreground"
                             >
                                 <Pencil className="size-3 mr-1" />
@@ -117,20 +109,20 @@ export function PendingDecisionBar() {
                 {otherMode && (
                     <div className="space-y-2">
                         <Textarea
-                            ref={otherTextareaRef}
+                            autoFocus
                             value={otherText}
-                            onChange={(e) => setOtherText(e.target.value)}
+                            onChange={(event) => setOtherText(event.target.value)}
                             placeholder="Describe what you want instead…"
                             rows={2}
                             maxLength={2000}
-                            disabled={disabled}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                                    e.preventDefault();
+                            disabled={isSubmitting}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                                    event.preventDefault();
                                     onSubmitOther();
                                 }
-                                if (e.key === 'Escape') {
-                                    e.preventDefault();
+                                if (event.key === 'Escape') {
+                                    event.preventDefault();
                                     setOtherMode(false);
                                     setOtherText('');
                                 }
@@ -138,7 +130,7 @@ export function PendingDecisionBar() {
                             className="resize-none text-sm"
                         />
                         <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] text-muted-foreground">
+                            <span className="text-xs text-muted-foreground">
                                 ⌘/Ctrl + Enter to submit · Esc to cancel
                             </span>
                             <div className="flex gap-2">
@@ -150,7 +142,7 @@ export function PendingDecisionBar() {
                                         setOtherMode(false);
                                         setOtherText('');
                                     }}
-                                    disabled={disabled}
+                                    disabled={isSubmitting}
                                     className="h-7"
                                 >
                                     <X className="size-3 mr-1" />
@@ -160,10 +152,10 @@ export function PendingDecisionBar() {
                                     type="button"
                                     size="sm"
                                     onClick={onSubmitOther}
-                                    disabled={disabled || !otherText.trim()}
+                                    disabled={isSubmitting || !otherText.trim()}
                                     className="h-7"
                                 >
-                                    {submittingValue === DECISION_OTHER_SENTINEL ? (
+                                    {submission?.freeText ? (
                                         <Loader2 className="size-3 mr-1 animate-spin" />
                                     ) : (
                                         <ArrowUp className="size-3 mr-1" />

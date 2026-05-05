@@ -55,7 +55,7 @@ export interface DecisionResult {
 /** Sentinel `value` the UI sends on the Other/free-text path. */
 export const DECISION_OTHER_SENTINEL = '__other__';
 
-export type StreamStatus = 'streaming' | 'done' | 'aborted' | 'error' | 'pending_approval' | 'pending_decision';
+export type StreamStatus = 'streaming' | 'done' | 'aborted' | 'error' | 'pending_approval';
 
 export type StreamEventType =
     | 'delta'
