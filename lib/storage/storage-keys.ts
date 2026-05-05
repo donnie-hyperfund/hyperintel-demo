@@ -27,3 +27,6 @@ export const ARTIFACT_PROCESSING_KEY = 'artifact-processing';
 
 /** sessionStorage key for chat IDs that need a nudge after a locally-initiated approval/rejection. */
 export const NUDGE_PENDING_KEY = 'nudge-pending';
+
+/** sessionStorage key prefix for per-chat context-warning bypass ("don't remind me again this session"). */
+export const CB_BYPASS_KEY_PREFIX = 'cb-bypass';

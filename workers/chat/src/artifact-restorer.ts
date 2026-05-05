@@ -10,6 +10,7 @@ import {
     TERMINAL_VERSION_STATUSES,
 } from '@/lib/schema/artifact';
 import type { Ctx } from './context';
+import { countLines } from './tools/documents/document-service';
 import { broadcastUserEvent } from './utils/broadcast';
 import { injectSystemEvent } from './utils/system-events';
 
@@ -20,6 +21,8 @@ type RestoreMeta = {
     sourceStatus: string;
     restoredVersionNumber: number;
     restoredVersionId: string;
+    restoredLines: number;
+    restoredDocumentType: string | null;
     supersededVersions: number[];
     chatId?: string;
     chatType: string;
@@ -240,6 +243,8 @@ export async function restoreArtifactHandler(
                 sourceStatus: sourceVersion.status,
                 restoredVersionNumber: newVersionNumber,
                 restoredVersionId: restored.id,
+                restoredLines: countLines(sourceVersion.content ?? ''),
+                restoredDocumentType: sourceVersion.document_type ?? null,
                 supersededVersions: supersededVersions.sort((a, b) => a - b),
                 chatId: targetChat?.id,
                 chatType: (targetChat?.type as string) ?? 'phase',
@@ -260,14 +265,20 @@ export async function restoreArtifactHandler(
     });
 
     // Inject system event so the agent knows the user proposed a restore via UI.
+    // Pre-compute the ::document[…] directive here — the agent must echo it in its reply
+    // for the UI artifact card to render, and inlining the values avoids a read_document round-trip.
     if (meta.chatId) {
+        const docTypeAttr = meta.restoredDocumentType ? ` documentType="${meta.restoredDocumentType}"` : '';
+        const directive = `::document[${meta.key}]{version=${meta.restoredVersionNumber} lines=${meta.restoredLines}${docTypeAttr}}`;
         await injectSystemEvent(ctx, em, {
             chatId: meta.chatId,
             chatType: meta.chatType,
             event: 'artifact_restored',
             description:
                 `User has restored artifact [${meta.key}] v${meta.sourceVersionNumber} ` +
-                `as proposed v${meta.restoredVersionNumber} (awaiting approval).`,
+                `as proposed v${meta.restoredVersionNumber} (awaiting approval). ` +
+                `Include this directive verbatim in your reply so the artifact card renders: ${directive}. ` +
+                `Then briefly acknowledge and ask what they want to do next.`,
             extra: {
                 artifactId: meta.artifactId,
                 artifactKey: meta.key,

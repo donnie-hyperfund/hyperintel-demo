@@ -235,7 +235,7 @@ export async function persistErrorMessage({
     em: any;
     chatId: string;
     agentMessageId: string;
-    chat: { active_agent_message_id: string | null };
+    chat: { active_agent_message_id?: string | null };
     error: any;
     errorMetadata: StoredErrorMetadata;
     label: string;
