@@ -47,7 +47,6 @@ const AnalysisResultSchema = z.object({
         'internal_document_content',
         'system_prompt',
         'infrastructure',
-        'ai_content_yaml',
         'debug_data',
         'none',
     ]),

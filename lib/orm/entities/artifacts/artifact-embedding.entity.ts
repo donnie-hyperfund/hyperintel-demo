@@ -32,7 +32,4 @@ export class ArtifactEmbeddingEntity extends IdCreatedColumns {
 
     @Property({ type: 'vector', length: 1024, columnType: 'vector(1024)' })
     embedding!: number[];
-
-    @Property({ type: 'boolean', default: false })
-    is_ai_content!: boolean;
 }

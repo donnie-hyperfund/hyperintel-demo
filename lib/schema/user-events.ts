@@ -8,8 +8,6 @@ export const UserEventType = {
 
 export const ARTIFACT_PROCESSING_STAGES = [
     'queued',
-    'classifying',
-    'generating-ai-content',
     'saving',
     'publishing',
     'indexing',

@@ -58,7 +58,6 @@ export async function processMessage(
                 { id: message.versionId, content: message.content },
                 { projectId: message.projectId, chatId: message.chatId },
                 ArtifactEmbeddingEntity,
-                message.is_ai_content ?? false,
             );
 
             console.log(

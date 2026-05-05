@@ -428,7 +428,6 @@ async function processExtraction(
                 versionId,
                 content: markdown,
                 documentName: originalName,
-                is_ai_content: false,
                 previewAlias: message.previewAlias,
             });
             console.log(`${logPrefix} Queued embedding for ${originalName}`);

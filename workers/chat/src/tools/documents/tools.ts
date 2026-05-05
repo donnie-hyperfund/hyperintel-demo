@@ -26,7 +26,6 @@ import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
-import { shouldGenerateAiContent } from './document-classifier';
 import {
     applyEdits,
     countLines,
@@ -587,28 +586,19 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         }
                     }
 
-                    // ── Embedding + AI content classification (fire-and-forget, non-blocking) ────────
+                    // ── Embedding (fire-and-forget, non-blocking) ────────
                     if (embeddingQueue && (ctx.projectId || ctx.chatId)) {
-                        const classifyAndEmbed = async () => {
-                            const generateAiContent = rCtx
-                                ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
-                                : true;
-
-                            await embeddingQueue.send({
+                        const embedPromise = embeddingQueue
+                            .send({
                                 type: 'index_artifact_version',
                                 projectId: ctx.projectId ?? null,
                                 chatId: ctx.chatId ?? null,
                                 versionId: result.versionId,
                                 content: draft.content,
                                 documentName: draft.name,
-                                is_ai_content: generateAiContent,
                                 previewAlias: ctx.previewAlias,
-                            });
-                        };
-
-                        const embedPromise = classifyAndEmbed().catch((err) =>
-                            console.error('[finalize_document] Classify/embed error:', err),
-                        );
+                            })
+                            .catch((err) => console.error('[finalize_document] Embed error:', err));
 
                         rCtx?.eCtx?.waitUntil(embedPromise);
                     }
@@ -890,7 +880,7 @@ If the user's message combines approval with another request (e.g., "approved, n
 
 **ERROR HANDLING:** If this tool returns an error, you MUST NOT claim the document was approved. NEVER forward raw error details to the user — instead, communicate naturally (e.g., "This document needs to be revised before it can be approved. Let me update it for you.") and take the appropriate recovery action (revise the document).
 
-This triggers AI content generation (YAML) for internal documents and queues embedding indexing.`,
+This queues embedding indexing for the approved version.`,
             parameters: ApproveDocumentParams,
             executor: async (input: z.infer<typeof ApproveDocumentParams>, ctx: DocumentToolsContext, eCtx?: Ctx) => {
                 const { name } = input;
