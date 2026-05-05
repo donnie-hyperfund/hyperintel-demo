@@ -130,13 +130,7 @@ function getStageDurationMs({ stage }: { stage: ProcessingStage }): number {
     return STAGE_DURATIONS_MS[stage];
 }
 
-function getStageProgressRatio({
-    durationMs,
-    stageElapsedMs,
-}: {
-    durationMs: number;
-    stageElapsedMs: number;
-}): number {
+function getStageProgressRatio({ durationMs, stageElapsedMs }: { durationMs: number; stageElapsedMs: number }): number {
     return easeOutQuad(clamp(stageElapsedMs / durationMs, 0, 1));
 }
 

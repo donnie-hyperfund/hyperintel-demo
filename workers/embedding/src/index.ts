@@ -6,12 +6,15 @@
  */
 
 import type { MessageBatch } from '@cloudflare/workers-types';
-import { type EmbeddingQueueMessage, EmbeddingQueueMessageSchema } from '@/lib/api/client/queue/embedding-queue.adapter';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type { OpenRouter } from '@openrouter/sdk';
 import { initInferredContext } from '@worker/context.helpers';
 import { Hono } from 'hono';
 import type OpenAI from 'openai';
+import {
+    type EmbeddingQueueMessage,
+    EmbeddingQueueMessageSchema,
+} from '@/lib/api/client/queue/embedding-queue.adapter';
 import { indexArtifactVersion, reindexProject } from '@/lib/orm/artifacts/artifact.helpers';
 import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 

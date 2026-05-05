@@ -10,13 +10,16 @@
  */
 
 import type { MessageBatch } from '@cloudflare/workers-types';
-import { type ExtractionQueueMessage, ExtractionQueueMessageSchema } from '@/lib/api/client/queue/extraction-queue.adapter';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { initInferredContext } from '@worker/context.helpers';
 import { Hono } from 'hono';
 import type Reducto from 'reductoai';
 import type { ParseResponse } from 'reductoai/resources/shared';
 import { toFile } from 'reductoai/uploads';
+import {
+    type ExtractionQueueMessage,
+    ExtractionQueueMessageSchema,
+} from '@/lib/api/client/queue/extraction-queue.adapter';
 import { uploadArtifactImage } from '@/lib/artifacts/artifact-images';
 import { persistMarkdownImages } from '@/lib/markdown/artifact-images';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
@@ -139,7 +142,10 @@ async function extractViaReducto(
     storagePrefix: string,
     mimeTypeOverride?: string,
 ): Promise<ReductoExtractionResult> {
-    const file = await toFile(new Blob([fileBytes], { type: mimeTypeOverride ?? FILETYPE_TO_MIME[filetype] }), originalName);
+    const file = await toFile(
+        new Blob([fileBytes], { type: mimeTypeOverride ?? FILETYPE_TO_MIME[filetype] }),
+        originalName,
+    );
     const upload = await reducto.upload({ file });
 
     const result = await reducto.parse.run({
@@ -319,11 +325,18 @@ async function processExtraction(
         if (ctx.reducto) {
             try {
                 const reductoResult = await extractViaReducto(
-                    fileBytes, filetype, originalName, ctx.reducto,
-                    ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix, mimeType,
+                    fileBytes,
+                    filetype,
+                    originalName,
+                    ctx.reducto,
+                    ctx.env.ARTIFACTS_BUCKET,
+                    imageStoragePrefix,
+                    mimeType,
                 );
                 markdown = reductoResult.content;
-                console.log(`${logPrefix} Reducto image extraction produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
+                console.log(
+                    `${logPrefix} Reducto image extraction produced ${markdown.length} chars, ${reductoResult.imageCount} images`,
+                );
             } catch (error) {
                 console.error(`${logPrefix} Reducto failed for image, falling back to raw image ref:`, error);
                 markdown = await copyImageAsRef();
@@ -353,9 +366,18 @@ async function processExtraction(
                     `${logPrefix} Re-processing ${originalName} via Reducto OCR (imageText=${rustResult.imageText}, contentTooShort=${contentTooShort})`,
                 );
                 try {
-                    const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
+                    const reductoResult = await extractViaReducto(
+                        fileBytes,
+                        filetype,
+                        originalName,
+                        ctx.reducto,
+                        ctx.env.ARTIFACTS_BUCKET,
+                        imageStoragePrefix,
+                    );
                     markdown = reductoResult.content;
-                    console.log(`${logPrefix} Reducto OCR produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
+                    console.log(
+                        `${logPrefix} Reducto OCR produced ${markdown.length} chars, ${reductoResult.imageCount} images`,
+                    );
                 } catch (ocrError) {
                     console.error(`${logPrefix} Reducto OCR failed, falling back to Rust extraction:`, ocrError);
                 }
@@ -370,9 +392,18 @@ async function processExtraction(
             if (ctx.reducto) {
                 console.log(`${logPrefix} Attempting Reducto fallback after Rust failure`);
                 try {
-                    const reductoResult = await extractViaReducto(fileBytes, filetype, originalName, ctx.reducto, ctx.env.ARTIFACTS_BUCKET, imageStoragePrefix);
+                    const reductoResult = await extractViaReducto(
+                        fileBytes,
+                        filetype,
+                        originalName,
+                        ctx.reducto,
+                        ctx.env.ARTIFACTS_BUCKET,
+                        imageStoragePrefix,
+                    );
                     markdown = reductoResult.content;
-                    console.log(`${logPrefix} Reducto fallback produced ${markdown.length} chars, ${reductoResult.imageCount} images`);
+                    console.log(
+                        `${logPrefix} Reducto fallback produced ${markdown.length} chars, ${reductoResult.imageCount} images`,
+                    );
                 } catch (reductoError) {
                     console.error(`${logPrefix} Reducto fallback also failed:`, reductoError);
                     await markFileFailed(ctx.em, fileId, errorMsg);
