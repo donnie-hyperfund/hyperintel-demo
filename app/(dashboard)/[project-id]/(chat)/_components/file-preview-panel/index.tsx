@@ -42,7 +42,12 @@ export function FilePreviewPanel({ artifactId, onClose }: FilePreviewPanelProps)
 
     return (
         <div className="flex flex-col h-full bg-neutral-975">
-            <FilePreviewHeader title={title} documentType={version?.documentType} onClose={onClose} />
+            <FilePreviewHeader
+                title={title}
+                documentType={version?.documentType}
+                fileName={version?.file?.originalName}
+                onClose={onClose}
+            />
             <div className="flex-1 min-h-0">
                 <FilePreviewPanelContent file={version?.file} content={version?.content} />
             </div>

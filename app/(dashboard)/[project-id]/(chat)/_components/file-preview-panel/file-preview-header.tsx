@@ -1,6 +1,7 @@
 'use client';
 
 import { Download, Loader2, Trash2, X } from 'lucide-react';
+import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { DocumentType } from '@/lib/schema/artifact';
@@ -9,6 +10,7 @@ import { getDocumentTypeIcon } from '@/modules/artifacts/utils';
 type FilePreviewHeaderProps = {
     title: string;
     documentType?: DocumentType;
+    fileName?: string;
     onClose: () => void;
     onDownload?: () => void;
     onDelete?: () => void;
@@ -18,17 +20,16 @@ type FilePreviewHeaderProps = {
 export function FilePreviewHeader({
     title,
     documentType,
+    fileName,
     onClose,
     onDownload,
     onDelete,
     isDeleting,
 }: FilePreviewHeaderProps) {
-    const Icon = getDocumentTypeIcon(documentType);
-
     return (
         <div className="flex items-center justify-between gap-2 h-14 px-4 border-b border-border">
             <div className="flex items-center gap-3 min-w-0">
-                <Icon className="size-5 shrink-0 text-neutral-500" />
+                <HeaderIcon fileName={fileName} documentType={documentType} />
                 <span title={title} className="line-clamp-1 text-sm font-medium">
                     {title}
                 </span>
@@ -61,4 +62,18 @@ export function FilePreviewHeader({
             </div>
         </div>
     );
+}
+
+type HeaderIconProps = {
+    fileName?: string;
+    documentType?: DocumentType;
+};
+
+function HeaderIcon({ fileName, documentType }: HeaderIconProps) {
+    if (fileName) {
+        return <FileTypeIcon filename={fileName} size={20} className="shrink-0" />;
+    }
+
+    const Icon = getDocumentTypeIcon(documentType);
+    return <Icon className="size-5 shrink-0 text-neutral-500" />;
 }
