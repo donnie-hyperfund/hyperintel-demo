@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
 import type { ActiveDocument, PendingDecision, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
+import { DECISION_DISMISSED_SENTINEL } from '@/lib/schema/stream';
 import type {
     CbStatusChangedMessage,
     ChatMessageCreatedMessage,
@@ -125,6 +126,8 @@ export type UseStreamReturn = {
      * custom "Other" answer (in that case `value` should be the Other sentinel).
      */
     selectDecision: (toolCallId: string, value: string, freeText?: string) => void;
+    /** Dismiss a pending decision without picking — agent gets the cancelled path. */
+    dismissDecision: (toolCallId: string) => void;
 };
 
 // ============================================================================
@@ -1067,7 +1070,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             streamTerminalRef.current = true;
                             flushSync();
                             clearStreamingFlags();
-                            // Decision cards may contain agent-generated text — drop them on retract.
                             setPendingDecisions([]);
                             setSubmittingDecisions({});
                             setIsRetracted(true);
@@ -1157,13 +1159,17 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
     const selectDecision = (toolCallId: string, value: string, freeText?: string) => {
         if (!id) return;
-        // Mark in flight; the card stays mounted in submitting mode until the backend
-        // broadcasts `decision_resolved` (which removes both pending and submitting entries).
         const submission: DecisionSubmission = freeText ? { value, freeText } : { value };
         setSubmittingDecisions((prev) => ({ ...prev, [toolCallId]: submission }));
         const payload: { toolCallId: string; value: string; freeText?: string } = { toolCallId, value };
         if (freeText) payload.freeText = freeText;
         ws.sendAction(`${domain}:${id}`, 'decision_select', payload);
+    };
+
+    const dismissDecision = (toolCallId: string) => {
+        if (!id) return;
+        setSubmittingDecisions((prev) => ({ ...prev, [toolCallId]: { value: DECISION_DISMISSED_SENTINEL } }));
+        ws.sendAction(`${domain}:${id}`, 'decision_dismiss', { toolCallId });
     };
 
     return {
@@ -1180,5 +1186,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         abort,
         sendAction,
         selectDecision,
+        dismissDecision,
     };
 }

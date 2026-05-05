@@ -17,6 +17,7 @@ const DecisionSelectActionSchema = z.object({
     /** Populated when the user picked "Other" and typed a custom answer. */
     freeText: z.string().max(2000).optional(),
 });
+const DecisionDismissActionSchema = z.object({ identifier: z.string(), toolCallId: z.string() });
 const ModelChangedActionSchema = z.object({ identifier: z.string(), model: z.string() });
 const RegisterStreamActionSchema = z.object({
     identifier: z.string(),
@@ -208,6 +209,12 @@ export class ChatTopicHandler extends StreamTopicHandler {
                 const { identifier: chatId, toolCallId, value, freeText } = DecisionSelectActionSchema.parse(payload);
                 const stub = await this.resolveStream(chatId, env);
                 if (stub) await stub.decisionSelect(toolCallId, value, freeText);
+                return;
+            }
+            case 'decision_dismiss': {
+                const { identifier: chatId, toolCallId } = DecisionDismissActionSchema.parse(payload);
+                const stub = await this.resolveStream(chatId, env);
+                if (stub) await stub.decisionDismiss(toolCallId);
                 return;
             }
 

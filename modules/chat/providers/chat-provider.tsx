@@ -102,6 +102,8 @@ export type BaseChatContextValue = {
      * custom "Other" answer (in that case `value` should be the Other sentinel).
      */
     selectDecision: (toolCallId: string, value: string, freeText?: string) => void;
+    /** Dismiss a pending decision without picking — agent gets the cancelled path. */
+    dismissDecision: (toolCallId: string) => void;
 };
 
 type PhaseChatContextValue = BaseChatContextValue & {
@@ -1497,6 +1499,7 @@ export function ChatProvider({
                 pendingDecisions: stream.pendingDecisions,
                 submittingDecisions: stream.submittingDecisions,
                 selectDecision: stream.selectDecision,
+                dismissDecision: stream.dismissDecision,
             })}
         >
             {children}
