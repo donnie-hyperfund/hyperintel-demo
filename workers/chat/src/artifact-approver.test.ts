@@ -16,6 +16,7 @@ function buildVersion(documentType = 'Other', summaryInternal: string | null = '
         type: 'phase',
         name: 'Phase 1',
         phase_index: 0,
+        completion_brief_status: null,
     };
     const projectUser = { id: 'user-db-1', clerkId: 'user-1' };
     const project = { id: 'project-1', name: 'Project', user: projectUser };

@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react';
 import type { StreamBlock } from '@/lib/schema/stream';
 
+type EmptyDevSlotProps = Record<never, never>;
+
 /** Props forwarded to components registered in each named slot. */
 export type DevSlotProps = {
 	'message-actions': {
@@ -15,11 +17,11 @@ export type DevSlotProps = {
 		feedbackComment?: string | null;
 		metadata?: Record<string, unknown> | null;
 	};
-	'dev-panel': Record<string, never>;
+	'dev-panel': EmptyDevSlotProps;
 	'chat-header': {
 		chatId: string;
 	};
-	'chat-footer': Record<string, never>;
+	'chat-footer': EmptyDevSlotProps;
 };
 
 export type DevSlotName = keyof DevSlotProps;
