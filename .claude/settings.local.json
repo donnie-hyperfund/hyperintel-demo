@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(git -C c:/Users/bartl/Documents/hyperintel-demo-new show b2bcc7f4 -- modules/chat/hooks/use-stream.ts)"
-    ]
-  }
-}
