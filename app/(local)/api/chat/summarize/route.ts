@@ -5,7 +5,7 @@ import { getOrCreateRequestId, withRequestIdHeader } from '@/lib/api/request-id'
 import { initNextjsWorkerContext } from '@/lib/local/context';
 import { SummarizeActionSchema } from '@/lib/schema/chat';
 import type { Ctx } from '@/workers/chat/src/context';
-import { summarizeActionHandler } from '@/workers/chat/src/summarizer';
+import { summarizeActionHandler } from '@/workers/chat/src/summarizer-handler';
 
 export async function POST(req: NextRequest) {
     const requestId = getOrCreateRequestId(req.headers);

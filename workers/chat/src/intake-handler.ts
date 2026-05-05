@@ -7,7 +7,7 @@
 
 import { runAgentStream } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
-import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
+import { extractInferenceMetadata, type ParamsWithType, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
 import type { ContextMessage } from '@common/ai/inference/types';
 import { PublicError } from '@common/common/error.helpers';
@@ -34,6 +34,7 @@ import {
     createContextLimitError,
     estimateInferenceInputTokens,
 } from './utils/context-budget';
+import { maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
@@ -131,6 +132,7 @@ type IntakeToolsAndGroups = ReturnType<typeof getIntakeToolsAndGroups>;
 type PreparedIntakeGenerationInput = IntakeToolsAndGroups & {
     contextMessages?: ContextMessage[];
     systemPrompt: string;
+    estimatedTokens: number;
 };
 
 async function prepareIntakeGenerationInput({
@@ -168,6 +170,7 @@ async function prepareIntakeGenerationInput({
         toolGroups,
     });
 
+    // TODO: two-gate preflight (warning/hard) not implemented here — intake keeps single-stop behavior for now.
     if (estimatedTokens > CHAT_CONTEXT_LIMIT_TOKENS) {
         return createContextLimitError(
             estimatedTokens,
@@ -180,6 +183,7 @@ async function prepareIntakeGenerationInput({
         allTools,
         toolGroups,
         systemPrompt,
+        estimatedTokens,
         ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
     };
 }
@@ -417,10 +421,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         if (!resolved) {
             throw new Error(`Preset '${presetId}' is not available`);
         }
-        const defaultInference: ParamsWithType = {
-            ...resolved,
-            params: { ...resolved.params, thinking: false },
-        };
+        const defaultInference = withCommonParams(resolved, { reasoning: false });
         const inferenceParams = options.overrideInference ?? defaultInference;
 
         const { allTools, systemPrompt, toolGroups } = preparedInput;
@@ -511,6 +512,11 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                                     error: event.error!.raw,
                                 }),
                                 event.error!.raw,
+                            );
+                            maybeRecordContextOverflow(
+                                chat,
+                                event.error!.classification,
+                                preparedInput.estimatedTokens,
                             );
                         }
 
@@ -626,6 +632,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             }),
             error,
         );
+        maybeRecordContextOverflow(chat, classification, preparedInput.estimatedTokens);
         await persistErrorMessage({
             em: em!,
             chatId,
