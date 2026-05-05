@@ -33,13 +33,15 @@ export function ContextHardStopModal({
     const isForcing = state === 'forcing';
     const isAlreadyTransitioned = state === 'already-transitioned';
 
-    const handleOpenChange = (isOpen: boolean) => {
-        if (!isOpen && !isForcing) onCancel();
-    };
-
     return (
-        <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent showCloseButton={false}>
+        <Dialog open={open}>
+            <DialogContent
+                showCloseButton={false}
+                onEscapeKeyDown={(event) => event.preventDefault()}
+                onPointerDownOutside={(event) => event.preventDefault()}
+                onInteractOutside={(event) => event.preventDefault()}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+            >
                 <DialogHeader>
                     <DialogTitle>Context limit reached</DialogTitle>
                     <DialogDescription>

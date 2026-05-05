@@ -27,16 +27,23 @@ describe('ContextWarningModal', () => {
         expect(onCancel).not.toHaveBeenCalled();
     });
 
-    it('routes Next phase and Cancel to their own callbacks', () => {
-        const { rerender } = render(
-            <ContextWarningModal open onContinue={onContinue} onNextPhase={onNextPhase} onCancel={onCancel} />,
-        );
+    it('does not expose Next phase and only Cancel closes it', () => {
+        render(<ContextWarningModal open onContinue={onContinue} onNextPhase={onNextPhase} onCancel={onCancel} />);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Next phase' }));
-        expect(onNextPhase).toHaveBeenCalledTimes(1);
-
-        rerender(<ContextWarningModal open onContinue={onContinue} onNextPhase={onNextPhase} onCancel={onCancel} />);
+        expect(screen.queryByRole('button', { name: 'Next phase' })).toBeNull();
         fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
         expect(onCancel).toHaveBeenCalledTimes(1);
+        expect(onNextPhase).not.toHaveBeenCalled();
+    });
+
+    it('does not cancel on Escape or focus a button by default', () => {
+        render(<ContextWarningModal open onContinue={onContinue} onNextPhase={onNextPhase} onCancel={onCancel} />);
+
+        const continueButton = screen.getByRole('button', { name: 'Continue' });
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+        expect(onCancel).not.toHaveBeenCalled();
+        expect(document.activeElement).not.toBe(continueButton);
     });
 });

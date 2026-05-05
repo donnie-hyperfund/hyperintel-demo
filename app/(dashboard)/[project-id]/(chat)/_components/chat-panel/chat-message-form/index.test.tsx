@@ -209,16 +209,14 @@ describe('ChatMessageForm context-limit alert', () => {
         });
     });
 
-    it('soft-warning Next phase uses the normal phase transition path', () => {
+    it('soft-warning does not expose the Next phase action', () => {
         showContextLimitAlertMock = false;
         showContextWarningModalMock = true;
 
         render(<ChatMessageForm />);
 
-        fireEvent.click(screen.getByRole('button', { name: 'Next phase' }));
-
-        expect(dismissContextWarningModalMock).toHaveBeenCalledTimes(1);
-        expect(requestPhaseTransitionMock).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole('button', { name: 'Next phase' })).toBeNull();
+        expect(requestPhaseTransitionMock).not.toHaveBeenCalled();
         expect(sendForceBriefMock).not.toHaveBeenCalled();
     });
 

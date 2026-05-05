@@ -20,22 +20,18 @@ type ContextWarningModalProps = {
     onCancel: () => void;
 };
 
-export function ContextWarningModal({ open, onContinue, onNextPhase, onCancel }: ContextWarningModalProps) {
+export function ContextWarningModal({ open, onContinue, onCancel }: ContextWarningModalProps) {
     const [dontRemindAgain, setDontRemindAgain] = useState(false);
-
-    const handleOpenChange = (isOpen: boolean) => {
-        if (!isOpen) onCancel();
-    };
 
     const handleContinue = () => {
         onContinue(dontRemindAgain);
         setDontRemindAgain(false);
     };
 
-    const handleNextPhase = () => {
-        setDontRemindAgain(false);
-        onNextPhase();
-    };
+    // const handleNextPhase = () => {
+    //     setDontRemindAgain(false);
+    //     onNextPhase();
+    // };
 
     const handleCancel = () => {
         setDontRemindAgain(false);
@@ -43,8 +39,14 @@ export function ContextWarningModal({ open, onContinue, onNextPhase, onCancel }:
     };
 
     return (
-        <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent showCloseButton={false}>
+        <Dialog open={open}>
+            <DialogContent
+                showCloseButton={false}
+                onEscapeKeyDown={(event) => event.preventDefault()}
+                onPointerDownOutside={(event) => event.preventDefault()}
+                onInteractOutside={(event) => event.preventDefault()}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+            >
                 <DialogHeader>
                     <DialogTitle>Approaching context limit</DialogTitle>
                     <DialogDescription>
@@ -67,9 +69,9 @@ export function ContextWarningModal({ open, onContinue, onNextPhase, onCancel }:
                     <Button variant="outline" onClick={handleCancel}>
                         Cancel
                     </Button>
-                    <Button variant="outline" onClick={handleNextPhase}>
+                    {/* <Button variant="outline" onClick={handleNextPhase}>
                         Next phase
-                    </Button>
+                    </Button> */}
                     <Button onClick={handleContinue}>Continue</Button>
                 </DialogFooter>
             </DialogContent>
