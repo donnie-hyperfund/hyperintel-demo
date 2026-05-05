@@ -1,14 +1,23 @@
 import z from 'zod';
 
-export const SendChatActionSchema = z.object({
-    /** User message content. `null` = nudge (trigger generation on last injected system event). */
-    message: z.string().nullable(),
-    chatId: z.string().uuid(),
-    model: z.string().optional(),
-    tempId: z.string().uuid('tempId must be a valid UUID').optional(),
-    /** IDs of uploaded image files (ChatMessageFileEntity) to attach to this message. */
-    imageFileIds: z.array(z.string().uuid()).max(10).optional(),
-});
+export const SendChatActionSchema = z
+    .object({
+        /** User message content. `null` = nudge (trigger generation on last injected system event). */
+        message: z.string().nullable(),
+        chatId: z.string().uuid(),
+        model: z.string().optional(),
+        tempId: z.string().uuid('tempId must be a valid UUID').optional(),
+        /** IDs of uploaded image files (ChatMessageFileEntity) to attach to this message. */
+        imageFileIds: z.array(z.string().uuid()).max(10).optional(),
+        /** User acknowledged the context-warning gate and wants to proceed anyway. */
+        bypass_context_warning: z.boolean().optional(),
+        /** Trigger a forced completion brief instead of a normal reply (requires message === null). */
+        force_brief: z.boolean().optional(),
+    })
+    .refine((data) => !(data.force_brief === true && data.message !== null), {
+        message: 'force_brief may only be true when message is null',
+        path: ['force_brief'],
+    });
 
 export type SendChatActionDto = z.infer<typeof SendChatActionSchema>;
 

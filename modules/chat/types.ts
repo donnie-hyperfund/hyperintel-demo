@@ -119,6 +119,7 @@ export type ChatState = {
     totalCost: number | null;
     hasPendingChanges: boolean;
     phaseIndex: number | null;
+    phaseName: string | null;
     /** Chat ID of the new phase after summarization completes */
     summaryNewChatId: string | null;
     /** True when AI triggered generate_summary from chat — tells UI to show the phase transition dialog */
@@ -135,6 +136,16 @@ export type ChatState = {
     completionBriefStatus: string | null;
     /** True when send was rejected because the chat is over the context cap */
     showContextLimitAlert: boolean;
+    /** True when send was rejected at the soft-warning gate (details.gate === 'warning') */
+    showContextWarningModal: boolean;
+    /** Hard-stop modal lifecycle: idle (show confirm), forcing (in progress), already-transitioned */
+    hardStopModalState: 'closed' | 'idle' | 'forcing' | 'already-transitioned';
+    /** If the phase already transitioned, the existing next chat ID for navigation */
+    hardStopExistingNextChatId: string | null;
+    /** Error message from a failed force-brief attempt, surfaced in the hard-stop modal */
+    hardStopError: string | null;
+    /** Provider-confirmed context overflow state from chat metadata */
+    contextOverflow: 'soft' | 'hard' | null;
 };
 
 export type PaginationState = {
