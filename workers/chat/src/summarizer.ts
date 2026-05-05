@@ -7,7 +7,7 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import { SummarizeActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 // Type-only import — erased at compile time, no runtime edge to chat-handler.ts.
-import type { chatActionHandler, ChatActionResult } from './chat-handler';
+import type { ChatActionResult, chatActionHandler } from './chat-handler';
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { listDocuments } from './tools/documents/document-service';
@@ -88,10 +88,7 @@ async function getSummarizerPrompt(ctx: Ctx): Promise<string> {
 // GENERATION — runs inline in SSE stream, pushes events to ChatStream DO
 // ============================================================================
 
-export async function runSummarizer(
-    ctx: SummarizerContext,
-    deps: SummarizerDeps,
-): Promise<SummarizerResult> {
+export async function runSummarizer(ctx: SummarizerContext, deps: SummarizerDeps): Promise<SummarizerResult> {
     const { data, ctx: workerCtx, options, chat, agentMessageId, ugStub } = ctx;
     const { chatId } = data;
     const { em, anthropic } = workerCtx;

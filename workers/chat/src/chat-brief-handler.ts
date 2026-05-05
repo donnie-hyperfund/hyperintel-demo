@@ -15,8 +15,16 @@ import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { SendChatActionDto } from '@/lib/schema/chat';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
-import type { Ctx } from './context';
 import { approveArtifactProgrammatic } from './artifact-approver';
+// Type-only — no runtime edge back to chat-handler.ts
+import type {
+    ChatActionResult,
+    ChatHandlerOptions,
+    chatActionHandler,
+    GenerationParams,
+    PreparedChatGenerationInput,
+} from './chat-handler';
+import type { Ctx } from './context';
 import { runSummarizer } from './summarizer';
 import { broadcastUserEvent } from './utils/broadcast';
 import { buildContextGateError } from './utils/context-gate-error';
@@ -24,25 +32,11 @@ import type { UserGatewayStub } from './utils/do-stubs';
 import { findNextPhaseChat } from './utils/next-phase';
 import { createEnqueue, createSSEStream } from './utils/stream-utils';
 
-// Type-only — no runtime edge back to chat-handler.ts
-import type {
-    chatActionHandler,
-    ChatActionResult,
-    ChatHandlerOptions,
-    GenerationParams,
-    PreparedChatGenerationInput,
-} from './chat-handler';
-
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type ForcedBriefStatus =
-    | 'generating_brief'
-    | 'approving_brief'
-    | 'starting_summary'
-    | 'summarizing'
-    | 'failed';
+export type ForcedBriefStatus = 'generating_brief' | 'approving_brief' | 'starting_summary' | 'summarizing' | 'failed';
 
 /**
  * Stable error codes for the `failed` marker. FE switches on these — do not
@@ -105,10 +99,7 @@ async function clearForcedBriefStatus(ctx: Ctx, chat: ChatEntity): Promise<void>
 }
 
 /** Latest `proposed` version of the chat's Completion Brief, or null. */
-async function findProposedCBVersion(
-    em: EntityManager,
-    chat: ChatEntity,
-): Promise<ArtifactVersionEntity | null> {
+async function findProposedCBVersion(em: EntityManager, chat: ChatEntity): Promise<ArtifactVersionEntity | null> {
     const cbArtifactId =
         chat.completion_brief &&
         (typeof chat.completion_brief === 'string' ? chat.completion_brief : chat.completion_brief.id);

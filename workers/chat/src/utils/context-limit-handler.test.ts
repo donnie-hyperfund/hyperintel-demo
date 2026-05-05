@@ -37,9 +37,7 @@ interface BuildCtxOpts {
 
 function buildEm({ chatMetadata = {}, findReturn = [] }: BuildCtxOpts = {}) {
     return {
-        findOneOrFail: vi
-            .fn()
-            .mockResolvedValue({ id: 'chat-1', metadata: chatMetadata, project: { id: 'proj-1' } }),
+        findOneOrFail: vi.fn().mockResolvedValue({ id: 'chat-1', metadata: chatMetadata, project: { id: 'proj-1' } }),
         findOne: vi.fn().mockResolvedValue(null),
         find: vi.fn().mockResolvedValue(findReturn),
         create: vi.fn((_entity, data) => ({ ...data, toJSON: () => data })),

@@ -1,9 +1,9 @@
 import { PublicError } from '@common/common/error.helpers';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { approveArtifactProgrammatic } from './artifact-approver';
-import { handleForceBrief, type ForceBriefDeps } from './chat-brief-handler';
+import { type ForceBriefDeps, handleForceBrief } from './chat-brief-handler';
 import { runSummarizer } from './summarizer';
 import { broadcastUserEvent } from './utils/broadcast';
 
@@ -100,8 +100,9 @@ async function forceBrief(harness: ReturnType<typeof buildHarness>) {
 }
 
 function transitionEvents() {
-    return vi.mocked(broadcastUserEvent).mock.calls
-        .filter(([, eventName]) => eventName === 'context_limit_transition_update')
+    return vi
+        .mocked(broadcastUserEvent)
+        .mock.calls.filter(([, eventName]) => eventName === 'context_limit_transition_update')
         .map(([, , payload]) => payload as Record<string, unknown>);
 }
 

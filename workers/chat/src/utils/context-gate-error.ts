@@ -36,7 +36,8 @@ export function buildContextGateError(details: ContextGateDetails): {
     message: string;
     details: ContextGateDetails;
 } {
-    const message = details.source === 'already_transitioned' ? ALREADY_TRANSITIONED_MESSAGE : GATE_MESSAGES[details.gate];
+    const message =
+        details.source === 'already_transitioned' ? ALREADY_TRANSITIONED_MESSAGE : GATE_MESSAGES[details.gate];
     return {
         code: 'CONTEXT_TOO_LONG',
         message,

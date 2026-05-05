@@ -1,8 +1,8 @@
 import { PublicError } from '@common/common/error.helpers';
-import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { summarizeActionHandler } from './summarizer-handler';
+import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { runSummarizer } from './summarizer';
+import { summarizeActionHandler } from './summarizer-handler';
 
 vi.mock('./chat-handler', () => ({
     chatActionHandler: vi.fn(),

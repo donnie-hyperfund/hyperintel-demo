@@ -33,13 +33,7 @@ describe('ContextHardStopModal', () => {
 
     it('surfaces forced-transition errors in the modal', () => {
         render(
-            <ContextHardStopModal
-                open
-                state="idle"
-                error="Summary failed"
-                onConfirm={onConfirm}
-                onCancel={onCancel}
-            />,
+            <ContextHardStopModal open state="idle" error="Summary failed" onConfirm={onConfirm} onCancel={onCancel} />,
         );
 
         expect(screen.getByText('Summary failed')).toBeTruthy();

@@ -1,5 +1,5 @@
-import type { ErrorClassification } from '@/common/ai';
 import { describe, expect, it } from 'vitest';
+import type { ErrorClassification } from '@/common/ai';
 import { CHAT_CONTEXT_HARD_LIMIT_TOKENS, CHAT_CONTEXT_WARNING_TOKENS } from './context-budget';
 import { evaluateContextGate, maybeRecordContextOverflow, resolveContextOverflowGate } from './context-overflow';
 
@@ -156,9 +156,7 @@ describe('evaluateContextGate', () => {
     });
 
     it('fires the hard gate at hard threshold', () => {
-        expect(
-            evaluateContextGate({ ...baseInput, estimatedTokens: CHAT_CONTEXT_HARD_LIMIT_TOKENS }),
-        ).toEqual({
+        expect(evaluateContextGate({ ...baseInput, estimatedTokens: CHAT_CONTEXT_HARD_LIMIT_TOKENS })).toEqual({
             gate: 'hard',
             source: 'estimator',
             estimatedTokens: CHAT_CONTEXT_HARD_LIMIT_TOKENS,
@@ -188,9 +186,7 @@ describe('evaluateContextGate', () => {
     });
 
     it('fires the warning gate at warning threshold', () => {
-        expect(
-            evaluateContextGate({ ...baseInput, estimatedTokens: CHAT_CONTEXT_WARNING_TOKENS }),
-        ).toEqual({
+        expect(evaluateContextGate({ ...baseInput, estimatedTokens: CHAT_CONTEXT_WARNING_TOKENS })).toEqual({
             gate: 'warning',
             source: 'estimator',
             estimatedTokens: CHAT_CONTEXT_WARNING_TOKENS,

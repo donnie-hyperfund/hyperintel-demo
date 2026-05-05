@@ -33,9 +33,9 @@ import {
     createContextLimitError,
     estimateInferenceInputTokens,
 } from './utils/context-budget';
+import { maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
-import { maybeRecordContextOverflow } from './utils/context-overflow';
 import {
     buildStoredErrorMetadata,
     buildWorkerErrorLogContext,

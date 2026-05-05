@@ -784,7 +784,11 @@ export function ChatProvider({
                 if (!payload || typeof payload !== 'object') return;
 
                 if (eventType === 'context_limit_transition_update') {
-                    const { chatId: eventChatId, status, message } = payload as {
+                    const {
+                        chatId: eventChatId,
+                        status,
+                        message,
+                    } = payload as {
                         chatId: string;
                         status: string;
                         message?: string;

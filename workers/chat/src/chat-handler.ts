@@ -15,6 +15,7 @@ import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
+import { handleForceBrief } from './chat-brief-handler';
 import type { Ctx } from './context';
 import { createNoopSafetyMonitor, createSafetyMonitor } from './safety/analyzer';
 import { isOutputSafetyEnabled } from './safety/config';
@@ -26,7 +27,6 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
-import { handleForceBrief } from './chat-brief-handler';
 import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
 import { type ContextOverflowState, evaluateContextGate, maybeRecordContextOverflow } from './utils/context-overflow';
@@ -329,7 +329,10 @@ export async function chatActionHandler(
     // Force-brief routing — schema enforces `message === null` when `force_brief === true`.
     if (data.force_brief === true) {
         return handleForceBrief({
-            data, ctx, options, chat,
+            data,
+            ctx,
+            options,
+            chat,
             deps: { dispatchBlurb: chatActionHandler, prepareChatGenerationInput, runGeneration },
         });
     }

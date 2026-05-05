@@ -27,5 +27,14 @@ export function useChatStatusPillStage(): ChatStatusPillStage | null {
         if (contextLevel === 'critical') return 'warn';
         if (contextLevel === 'caution') return 'caution';
         return null;
-    }, [chatType, canTransition, completionBriefStatus, tokenUsage, contextOverflow, isGenerating, isSummarizing, isLoading]);
+    }, [
+        chatType,
+        canTransition,
+        completionBriefStatus,
+        tokenUsage,
+        contextOverflow,
+        isGenerating,
+        isSummarizing,
+        isLoading,
+    ]);
 }

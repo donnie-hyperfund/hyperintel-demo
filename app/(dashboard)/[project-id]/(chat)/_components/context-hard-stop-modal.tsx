@@ -48,11 +48,7 @@ export function ContextHardStopModal({
                             : 'You have reached the context limit for this phase. Would you like to create a Completion Brief and move to the next phase?'}
                     </DialogDescription>
                 </DialogHeader>
-                {error && (
-                    <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">
-                        {error}
-                    </div>
-                )}
+                {error && <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">{error}</div>}
                 <DialogFooter>
                     {isAlreadyTransitioned ? (
                         existingNextChatId ? (
