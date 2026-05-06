@@ -15,13 +15,31 @@ import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity'
 import type { Ctx } from '../context';
 import { getUserGatewayStub } from './broadcast';
 
+/**
+ * Known system-event names. Persistence and history reconstruction may switch
+ * on these values, so add a string here when introducing a new event kind.
+ *
+ * - `artifact_approved` — manual user approval via UI.
+ * - `artifact_auto_approved` — programmatic approval (e.g. context hard-gate
+ *   forces a Completion Brief to auto-approve before phase transition).
+ *   Distinct from `artifact_approved` so the transcript does not falsely claim
+ *   the user approved.
+ * - `artifact_rejected` — manual user rejection via UI.
+ * - `artifact_restored` — user proposed a restore of an older version via UI.
+ */
+export type SystemEventName =
+    | 'artifact_approved'
+    | 'artifact_auto_approved'
+    | 'artifact_rejected'
+    | 'artifact_restored';
+
 export interface SystemEventOptions {
     /** Chat to inject the message into */
     chatId: string;
     /** Chat type — determines the WS topic prefix ('intake' vs 'chat') */
     chatType?: string;
     /** Short event name, e.g. 'artifact_approved', 'artifact_rejected' */
-    event: string;
+    event: SystemEventName;
     /** Human-readable description the model will see inside <system> tags */
     description: string;
     /** Optional extra metadata stored alongside the message */

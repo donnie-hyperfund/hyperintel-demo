@@ -1,5 +1,5 @@
-import type { SqlEntityManager } from '@mikro-orm/knex';
 import { raw } from '@mikro-orm/core';
+import type { SqlEntityManager } from '@mikro-orm/knex';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
@@ -84,18 +84,14 @@ async function processArtifactBatch(em: SqlEntityManager, env: Env, cutoff: Date
  * Post-fix, extraction is deferred for staged uploads so those objects shouldn't exist.
  * Any pre-fix leftovers need a separate R2-listing sweep.
  */
-async function processStaleStagedArtifactsBatch(
-    em: SqlEntityManager,
-    env: Env,
-    cutoff: Date,
-): Promise<number> {
+async function processStaleStagedArtifactsBatch(em: SqlEntityManager, env: Env, cutoff: Date): Promise<number> {
     const staleArtifacts = await em.find(
         ArtifactEntity,
         {
             project: null,
             chat: null,
             user: null,
-            [raw("metadata->>'stagedBy'")]: { $ne: null },
+            [raw((alias) => `${alias}.metadata->>'stagedBy'`)]: { $ne: null },
             created_at: { $lt: cutoff },
         },
         { populate: ['versions'], limit: BATCH_SIZE },
@@ -105,9 +101,7 @@ async function processStaleStagedArtifactsBatch(
 
     const versionIds = staleArtifacts.flatMap((a) => a.versions.getItems().map((v) => v.id));
 
-    const files = versionIds.length
-        ? await em.find(ArtifactFileEntity, { artifact_version: { $in: versionIds } })
-        : [];
+    const files = versionIds.length ? await em.find(ArtifactFileEntity, { artifact_version: { $in: versionIds } }) : [];
 
     // Best-effort R2 deletion — DB rows go regardless.
     await Promise.allSettled(files.map((f) => env.ARTIFACTS_BUCKET.delete(f.storage_key)));

@@ -55,7 +55,7 @@ async function findUniqueArtifactKey(em: Ctx['em'], normalizedKey: string, scope
                       project: null,
                       chat: null,
                       user: null,
-                      [raw("metadata->>'stagedBy'")]: scope.stagedUserId,
+                      [raw((alias) => `${alias}.metadata->>'stagedBy'`)]: scope.stagedUserId,
                   };
 
     const likePattern = `${escapeLikePattern(base)}%${escapeLikePattern(ext)}`;
@@ -505,7 +505,7 @@ export async function associateArtifactsInternal(
             project: null,
             chat: null,
             user: null,
-            [raw("metadata->>'stagedBy'")]: dbUserId,
+            [raw((alias) => `${alias}.metadata->>'stagedBy'`)]: dbUserId,
         },
         { populate: ['current_version', 'versions'] },
     );
@@ -625,7 +625,6 @@ async function queueEmbedding(
             versionId,
             content,
             documentName,
-            is_ai_content: false,
             previewAlias: ctx.previewAlias,
         });
     } catch (error) {

@@ -53,7 +53,6 @@ async function handleCreateProject(req: NextRequest, user: UserEntity): Promise<
                         versionId: d.newVersionId!,
                         content: d.content!,
                         documentName: d.key,
-                        is_ai_content: true,
                     })
                     .catch((err) => console.error(`[createProject] Failed to queue embedding for ${d.key}:`, err)),
             );

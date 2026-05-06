@@ -23,12 +23,19 @@ type AutoExpandingTextareaProps = {
 const AutoExpandingTextarea = forwardRef<AutoExpandingTextareaRef, AutoExpandingTextareaProps>(
     ({ className, maxHeight = 144, minHeight = 20, onInput, value, ...props }, ref) => {
         const textareaRef = useRef<HTMLTextAreaElement>(null);
+        const previousLengthRef = useRef(0);
 
         const updateTextareaHeight = useCallback(() => {
             const textarea = textareaRef.current;
             if (!textarea) return;
 
-            textarea.style.height = '0px';
+            // Skip collapse on grow — avoids a layout flash that clamps any ancestor scroll container.
+            const length = textarea.value.length;
+            if (length < previousLengthRef.current) {
+                textarea.style.height = '0px';
+            }
+            previousLengthRef.current = length;
+
             textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
         }, [maxHeight]);
 

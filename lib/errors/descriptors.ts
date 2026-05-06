@@ -72,3 +72,13 @@ export function describeError(code: PublicErrorCode | undefined | null): ErrorDe
     if (!code) return DESCRIPTORS.UNKNOWN;
     return DESCRIPTORS[code] ?? DESCRIPTORS.UNKNOWN;
 }
+
+const USER_HINTS: Partial<Record<PublicErrorCode, string>> = {
+    CONTEXT_TOO_LONG:
+        'Your message was sent, but the response was cut short. Your next message will offer options to continue or wrap up this phase.',
+};
+
+export function getUserHint(code: PublicErrorCode | undefined | null): string | undefined {
+    if (!code) return undefined;
+    return USER_HINTS[code];
+}

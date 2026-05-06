@@ -69,7 +69,6 @@ export async function publishArtifactToUserScope(
             newVersion.version = newVersionNum;
             newVersion.title = sourceVersion.title;
             newVersion.content = sourceVersion.content;
-            newVersion.ai_content = sourceVersion.ai_content;
             newVersion.is_internal = sourceVersion.is_internal;
             newVersion.document_type = sourceVersion.document_type;
             newVersion.status = 'approved';
@@ -115,7 +114,6 @@ export async function publishArtifactToUserScope(
             version.version = 1;
             version.title = sourceVersion.title;
             version.content = sourceVersion.content;
-            version.ai_content = sourceVersion.ai_content;
             version.is_internal = sourceVersion.is_internal;
             version.document_type = sourceVersion.document_type;
             version.status = 'approved';

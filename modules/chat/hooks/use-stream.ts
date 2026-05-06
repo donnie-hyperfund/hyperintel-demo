@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
-import type { ActiveDocument, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
+import type { ActiveDocument, PendingDecision, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
+import { DECISION_DISMISSED_SENTINEL } from '@/lib/schema/stream';
 import type {
     CbStatusChangedMessage,
     ChatMessageCreatedMessage,
@@ -100,9 +101,16 @@ export type UseStreamOptions = {
     onCbStatusChanged?: (status: string) => void;
 };
 
+/** What the user submitted for a pending decision — kept around until the backend confirms via `decision_resolved`. */
+export type DecisionSubmission = { value: string; freeText?: string };
+
 export type UseStreamReturn = {
     blocks: StreamBlock[];
     activeDocuments: ActiveDocument[];
+    /** User-decision prompts currently awaiting the user's click. */
+    pendingDecisions: PendingDecision[];
+    /** Submissions in flight — keyed by toolCallId. Cleared on `decision_resolved` or terminal status. */
+    submittingDecisions: Record<string, DecisionSubmission>;
     status: StreamStatus | 'idle';
     displayStatus: string | null;
     agentMessageId: string | null;
@@ -113,6 +121,13 @@ export type UseStreamReturn = {
     isRetracted: boolean;
     abort: () => void;
     sendAction: (type: string, payload?: unknown) => void;
+    /**
+     * Resolve a pending decision card. Pass `freeText` when the user typed a
+     * custom "Other" answer (in that case `value` should be the Other sentinel).
+     */
+    selectDecision: (toolCallId: string, value: string, freeText?: string) => void;
+    /** Dismiss a pending decision without picking — agent gets the cancelled path. */
+    dismissDecision: (toolCallId: string) => void;
 };
 
 // ============================================================================
@@ -174,6 +189,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     // Stream state
     const [blocks, setBlocks] = useState<StreamBlock[]>([]);
     const [activeDocuments, setActiveDocuments] = useState<ActiveDocument[]>([]);
+    const [pendingDecisions, setPendingDecisions] = useState<PendingDecision[]>([]);
+    const [submittingDecisions, setSubmittingDecisions] = useState<Record<string, DecisionSubmission>>({});
     const [status, setStatus] = useState<StreamStatus | 'idle'>('idle');
     const [displayStatus, setDisplayStatus] = useState<string | null>(null);
     const [agentMessageId, setAgentMessageId] = useState<string | null>(null);
@@ -619,6 +636,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         documentQueueRef.current = new AsyncEventQueue(handleDocumentEvent);
         setBlocks([]);
         setActiveDocuments([]);
+        setPendingDecisions([]);
+        setSubmittingDecisions({});
         setStatus('idle');
         setDisplayStatus(null);
         setAgentMessageId(null);
@@ -678,6 +697,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         stateRef.current = initFromSnapshot(sr.snapshot);
                         setBlocks([...sr.snapshot.blocks]);
                         setActiveDocuments(sr.snapshot.activeDocuments);
+                        setPendingDecisions(sr.snapshot.pendingDecisions ?? []);
                         setStatus(sr.snapshot.status);
                         setAgentMessageId(sr.agentMessageId);
                         setStreamType(sr.streamType ?? null);
@@ -788,6 +808,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     documentQueueRef.current = new AsyncEventQueue(handleDocumentEvent);
                     setBlocks([]);
                     setActiveDocuments([]);
+                    setPendingDecisions([]);
+                    setSubmittingDecisions({});
                     setStatus('streaming');
                     setDisplayStatus(null);
                     setError(null);
@@ -979,6 +1001,31 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             documentQueueRef.current?.push({ type: event.type, payload: event });
                             break;
 
+                        // ----- User decision prompts -----
+                        case 'decision_prompt': {
+                            setPendingDecisions((prev) => {
+                                if (prev.some((d) => d.toolCallId === event.toolCallId)) return prev;
+                                return [
+                                    ...prev,
+                                    {
+                                        toolCallId: event.toolCallId,
+                                        question: event.question,
+                                        options: event.options,
+                                        context: event.context,
+                                    },
+                                ];
+                            });
+                            break;
+                        }
+                        case 'decision_resolved':
+                            setPendingDecisions((prev) => prev.filter((d) => d.toolCallId !== event.toolCallId));
+                            setSubmittingDecisions((prev) => {
+                                if (!(event.toolCallId in prev)) return prev;
+                                const { [event.toolCallId]: _dropped, ...rest } = prev;
+                                return rest;
+                            });
+                            break;
+
                         // ----- Status & terminal -----
                         case 'status_update':
                             setDisplayStatus(event.status);
@@ -1023,6 +1070,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             streamTerminalRef.current = true;
                             flushSync();
                             clearStreamingFlags();
+                            setPendingDecisions([]);
+                            setSubmittingDecisions({});
                             setIsRetracted(true);
                             break;
 
@@ -1057,6 +1106,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     if (isTerminal) {
                         ownedAgentMessageIdRef.current = null;
                         setDisplayStatus(null);
+                        setPendingDecisions([]);
+                        setSubmittingDecisions({});
                         o.onDone?.(sm.status, undefined, sm.agentMessageId);
                     }
                     break;
@@ -1106,9 +1157,26 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         ws.sendAction(`${domain}:${id}`, type, payload);
     };
 
+    const selectDecision = (toolCallId: string, value: string, freeText?: string) => {
+        if (!id) return;
+        const submission: DecisionSubmission = freeText ? { value, freeText } : { value };
+        setSubmittingDecisions((prev) => ({ ...prev, [toolCallId]: submission }));
+        const payload: { toolCallId: string; value: string; freeText?: string } = { toolCallId, value };
+        if (freeText) payload.freeText = freeText;
+        ws.sendAction(`${domain}:${id}`, 'decision_select', payload);
+    };
+
+    const dismissDecision = (toolCallId: string) => {
+        if (!id) return;
+        setSubmittingDecisions((prev) => ({ ...prev, [toolCallId]: { value: DECISION_DISMISSED_SENTINEL } }));
+        ws.sendAction(`${domain}:${id}`, 'decision_dismiss', { toolCallId });
+    };
+
     return {
         blocks,
         activeDocuments,
+        pendingDecisions,
+        submittingDecisions,
         status,
         displayStatus,
         agentMessageId,
@@ -1117,5 +1185,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         isRetracted,
         abort,
         sendAction,
+        selectDecision,
+        dismissDecision,
     };
 }

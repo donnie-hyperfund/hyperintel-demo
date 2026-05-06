@@ -54,7 +54,6 @@ export async function importArtifactsHandler(
                         versionId: d.newVersionId!,
                         content: d.content!,
                         documentName: d.key,
-                        is_ai_content: true,
                     }).catch((err) => console.error(`[import] Failed to queue embedding for ${d.key}:`, err)),
                 );
 

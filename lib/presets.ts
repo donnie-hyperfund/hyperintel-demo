@@ -36,7 +36,7 @@ const BASE_PRESETS: ModelPreset[] = [
         description: 'Fast & cheap',
         inference: {
             paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.HAIKU, thinking: false },
+            params: { model: ANTHROPIC_MODELS.HAIKU, reasoning: false },
         },
         pricing: {
             inputPer1M: 1,
@@ -50,7 +50,7 @@ const BASE_PRESETS: ModelPreset[] = [
         description: 'Balanced',
         inference: {
             paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.SONNET, thinking: true, thinkingBudget: 8000 },
+            params: { model: ANTHROPIC_MODELS.SONNET, reasoning: true, reasoningBudget: 8000 },
         },
         pricing: {
             inputPer1M: 3,
@@ -64,7 +64,7 @@ const BASE_PRESETS: ModelPreset[] = [
         description: 'Max quality',
         inference: {
             paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.OPUS, thinking: true, thinkingBudget: 16000 },
+            params: { model: ANTHROPIC_MODELS.OPUS, reasoning: { effort: 'high' } },
         },
         pricing: {
             inputPer1M: 5,

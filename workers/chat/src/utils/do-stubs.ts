@@ -8,7 +8,7 @@
  * When CF d.ts generation is wired up, these can be replaced by the generated types.
  */
 
-import type { StreamEvent } from '@/lib/schema/stream';
+import type { DecisionResult, StreamEvent } from '@/lib/schema/stream';
 
 export interface UserGatewayStub {
     systemAction(topic: string, action: string, payload: unknown, previewAlias?: string): Promise<unknown>;
@@ -21,4 +21,10 @@ export interface ChatStreamDOStub {
     abort(chatId?: string): Promise<void>;
     abortWait(): Promise<'abort' | 'timeout' | 'done'>;
     finalize(): Promise<void>;
+    /**
+     * Long-poll for the user's decision on a `request_user_decision` tool call.
+     * Returns `{ value, freeText? }` where `freeText` is set when the user
+     * typed a custom "Other" answer. Returns `null` on timeout / cancel.
+     */
+    decisionWait(toolCallId: string): Promise<DecisionResult | null>;
 }
