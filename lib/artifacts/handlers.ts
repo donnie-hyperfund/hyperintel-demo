@@ -263,7 +263,6 @@ export async function handleListProjectArtifacts(
         .select('a.*')
         .leftJoin('a.project', 'p')
         .leftJoinAndSelect('a.current_version', 'cv')
-        .leftJoin('a.versions', 'pv', { 'pv.status': 'proposed' })
         .where({
             'p.id': projectId,
             'p.user': user.id,
@@ -281,27 +280,31 @@ export async function handleListProjectArtifacts(
             [],
     });
 
+    // Proposed-version subquery used by filters below (avoids a JOIN + GROUP BY that breaks pagination counts)
+    const pvSub = (col: string) =>
+        `(SELECT pv.${col} FROM artifact_versions pv WHERE pv.artifact_id = a.id AND pv.status = 'proposed' ORDER BY pv.created_at DESC LIMIT 1)`;
+
     // Apply user-selected filters (prefer proposed version, fall back to current)
     if (queryData.visibility?.length) {
         const booleans = queryData.visibility.map((v) => v === 'internal');
         query.andWhere({
-            [raw('COALESCE(pv.is_internal, cv.is_internal)')]: { $in: booleans },
+            [raw(`COALESCE(${pvSub('is_internal')}, cv.is_internal)`)]: { $in: booleans },
         });
     }
 
     if (queryData.status?.length) {
         query.andWhere({
-            [raw('COALESCE(pv.status, cv.status)')]: { $in: queryData.status },
+            [raw(`COALESCE(${pvSub('status')}, cv.status)`)]: { $in: queryData.status },
         });
     }
 
     if (queryData.chatId?.length) {
         query.andWhere({
-            [raw('COALESCE(pv.chat_id, cv.chat_id)')]: { $in: queryData.chatId },
+            [raw(`COALESCE(${pvSub('chat_id')}, cv.chat_id)`)]: { $in: queryData.chatId },
         });
     }
 
-    query.groupBy(['a.id', 'cv.id']).orderBy({ 'a.created_at': 'DESC' });
+    query.orderBy({ 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, {
         page: queryData.page ?? 1,
