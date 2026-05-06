@@ -8,6 +8,7 @@ import type {
     StreamSnapshot,
     StreamStatus,
 } from '@/lib/schema/stream';
+import { DECISION_DISMISSED_SENTINEL } from '@/lib/schema/stream';
 import createNeonSql from '@/workers/_common/vendor/neon';
 
 // Re-export shared types for consumers that imported from here
@@ -825,6 +826,35 @@ export class ChatStreamDO extends DurableObject<Env> {
                     toolCallId,
                     value,
                     ...(trimmedText ? { freeText: trimmedText } : {}),
+                } as StreamEvent,
+                _seq: this.broadcastSeq++,
+            },
+        ]);
+        await this.drainBroadcastQueue();
+    }
+
+    /** Resolve the long-poll with `null` (same shape as a timeout) so the agent's tool gets the cancelled path. */
+    async decisionDismiss(toolCallId: string) {
+        await this.ensureLoaded();
+        if (!this.pendingDecisions.has(toolCallId)) return;
+
+        const resolver = this.decisionResolvers.get(toolCallId);
+        if (resolver) {
+            resolver(null);
+            this.decisionResolvers.delete(toolCallId);
+        }
+        this.pendingDecisions.delete(toolCallId);
+        await this.persistState();
+
+        this.queueBroadcast([
+            {
+                topic: this.topic,
+                type: 'stream_event',
+                agentMessageId: this.agentMessageId,
+                event: {
+                    type: 'decision_resolved',
+                    toolCallId,
+                    value: DECISION_DISMISSED_SENTINEL,
                 } as StreamEvent,
                 _seq: this.broadcastSeq++,
             },

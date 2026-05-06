@@ -54,8 +54,10 @@ export interface DecisionResult {
 
 /** Sentinel `value` the UI sends on the Other/free-text path. */
 export const DECISION_OTHER_SENTINEL = '__other__';
+/** Sentinel `value` the backend broadcasts on `decision_resolved` when the user dismissed without picking. */
+export const DECISION_DISMISSED_SENTINEL = '__dismissed__';
 
-export type StreamStatus = 'streaming' | 'done' | 'aborted' | 'error' | 'pending_approval' | 'pending_decision';
+export type StreamStatus = 'streaming' | 'done' | 'aborted' | 'error' | 'pending_approval';
 
 export type StreamEventType =
     | 'delta'

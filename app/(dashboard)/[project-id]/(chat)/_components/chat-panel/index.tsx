@@ -1,12 +1,15 @@
 'use client';
 
+import { DevSlot } from '@/lib/dev-slots';
+import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { FileDropOverlay } from '@/modules/file-uploads/components/file-drop-overlay';
 import { FileUploadProvider } from '@/modules/file-uploads/providers/file-upload-provider';
 import ChatConversation from './chat-conversation/chat-conversation';
 import { ChatEmptyTitle } from './chat-conversation/chat-empty-title';
 import ChatMessageForm from './chat-message-form';
-import { PendingDecisionBar } from './pending-decision-bar';
+import { ContextUsageIndicator } from './context-usage-indicator';
+import { DecisionPrompt } from './decision-prompt';
 import { PhaseTransitionController } from './phase-transition-controller';
 import { ChatStatusPill } from './status-pill';
 
@@ -44,8 +47,13 @@ function ChatPanelContent({
     isEmpty: boolean;
     allowUploadBeforeFirstMessage: boolean;
 }) {
-    const { chatType } = useChatContext();
+    const {
+        chatType,
+        pendingDecisions,
+        state: { tokenUsage },
+    } = useChatContext();
     const isPhaseChat = chatType === 'phase';
+    const hasPendingDecision = pendingDecisions.length > 0;
 
     if (isEmpty) {
         const content = (
@@ -76,9 +84,18 @@ function ChatPanelContent({
                     <div className="pointer-events-none absolute inset-x-0 bottom-full z-20">
                         <ChatStatusPill className="pointer-events-auto mb-3" />
                     </div>
-                    <PendingDecisionBar />
+                    {hasPendingDecision && <DecisionPrompt />}
+                    {/* Hidden, not unmounted — prevents the form's motion entrance from re-firing on every decision resolve. */}
+                    <div className={cn(hasPendingDecision && 'hidden')}>
+                        <ChatMessageForm />
+                    </div>
 
-                    <ChatMessageForm />
+                    <div className="px-4">
+                        <div className="mx-auto flex h-9 w-full max-w-3xl items-center px-1">
+                            <DevSlot name="chat-footer" />
+                            <ContextUsageIndicator tokenUsage={tokenUsage} className="ml-auto" />
+                        </div>
+                    </div>
                 </div>
             </div>
 
