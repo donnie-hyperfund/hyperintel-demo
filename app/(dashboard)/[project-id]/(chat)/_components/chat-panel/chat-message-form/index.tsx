@@ -3,6 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowUp, Loader2, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import {
@@ -50,7 +51,6 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         dismissContextWarningModal,
         sendForceBrief,
         dismissHardStopModal,
-        navigateToExistingNextChat,
         requestPhaseTransition,
         state: {
             isGenerating,
@@ -73,6 +73,14 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
     const { draftKey, initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
     const bypassContextWarningRef = useRef(false);
+    const router = useRouter();
+
+    const handleHardStopNavigate = useCallback(() => {
+        if (!hardStopExistingNextChatId || !projectId) return;
+        const nextChatId = hardStopExistingNextChatId;
+        dismissHardStopModal();
+        router.push(`/${projectId}/${nextChatId}`);
+    }, [dismissHardStopModal, hardStopExistingNextChatId, projectId, router]);
 
     const {
         register,
@@ -417,7 +425,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 state={hardStopModalState === 'closed' ? 'idle' : hardStopModalState}
                 onConfirm={sendForceBrief}
                 onCancel={dismissHardStopModal}
-                onNavigate={navigateToExistingNextChat}
+                onNavigate={handleHardStopNavigate}
                 existingNextChatId={hardStopExistingNextChatId ?? undefined}
                 error={hardStopError}
             />

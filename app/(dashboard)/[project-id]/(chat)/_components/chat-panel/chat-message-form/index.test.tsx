@@ -10,7 +10,7 @@ const dismissContextLimitAlertMock = vi.fn();
 const dismissContextWarningModalMock = vi.fn();
 const dismissHardStopModalMock = vi.fn();
 const dismissInvalidModelAlertMock = vi.fn();
-const navigateToExistingNextChatMock = vi.fn();
+const routerPushMock = vi.fn();
 const requestPhaseTransitionMock = vi.fn();
 const sendForceBriefMock = vi.fn();
 const sendMessageMock = vi.fn();
@@ -68,7 +68,6 @@ vi.mock('@/modules/chat/providers/chat-provider', () => ({
         dismissContextWarningModal: dismissContextWarningModalMock,
         sendForceBrief: sendForceBriefMock,
         dismissHardStopModal: dismissHardStopModalMock,
-        navigateToExistingNextChat: navigateToExistingNextChatMock,
         requestPhaseTransition: requestPhaseTransitionMock,
         state: {
             isGenerating: false,
@@ -85,6 +84,10 @@ vi.mock('@/modules/chat/providers/chat-provider', () => ({
             hardStopError: hardStopErrorMock,
         },
     }),
+}));
+
+vi.mock('next/navigation', () => ({
+    useRouter: () => ({ push: routerPushMock }),
 }));
 
 vi.mock('@/modules/chat/providers/model-selection-provider', () => ({
@@ -137,7 +140,7 @@ describe('ChatMessageForm context-limit alert', () => {
         dismissContextWarningModalMock.mockReset();
         dismissHardStopModalMock.mockReset();
         dismissInvalidModelAlertMock.mockReset();
-        navigateToExistingNextChatMock.mockReset();
+        routerPushMock.mockReset();
         requestPhaseTransitionMock.mockReset();
         sendForceBriefMock.mockReset();
         sendMessageMock.mockReset();
@@ -242,7 +245,8 @@ describe('ChatMessageForm context-limit alert', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Go to next phase' }));
 
-        expect(navigateToExistingNextChatMock).toHaveBeenCalledTimes(1);
+        expect(dismissHardStopModalMock).toHaveBeenCalledTimes(1);
+        expect(routerPushMock).toHaveBeenCalledWith('/project-1/chat-next');
         expect(sendForceBriefMock).not.toHaveBeenCalled();
     });
 });

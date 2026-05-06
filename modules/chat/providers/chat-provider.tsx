@@ -100,8 +100,6 @@ export type BaseChatContextValue = {
     sendForceBrief: () => Promise<void>;
     /** Dismiss the hard-stop modal */
     dismissHardStopModal: () => void;
-    /** Navigate to the already-existing next phase chat (from hard-stop modal) */
-    navigateToExistingNextChat: () => void;
     /** Lazily create the chat if it doesn't exist yet, returns the chatId */
     ensureChatId: () => Promise<string>;
     /** Pending `request_user_decision` cards awaiting the user's click. */
@@ -1574,18 +1572,6 @@ export function ChatProvider({
         }));
     }, []);
 
-    const navigateToExistingNextChat = useCallback(() => {
-        if (!state.hardStopExistingNextChatId) return;
-        const nextId = state.hardStopExistingNextChatId;
-        setState((prev) => ({
-            ...prev,
-            hardStopModalState: 'closed',
-            hardStopExistingNextChatId: null,
-            hardStopError: null,
-        }));
-        router.push(`/${projectId}/${nextId}`);
-    }, [projectId, router, state.hardStopExistingNextChatId]);
-
     const forceBriefInFlightRef = useRef(false);
 
     const sendForceBrief = useCallback(async () => {
@@ -1661,7 +1647,6 @@ export function ChatProvider({
                 dismissContextWarningModal,
                 sendForceBrief,
                 dismissHardStopModal,
-                navigateToExistingNextChat,
                 ensureChatId,
                 pendingDecisions: stream.pendingDecisions,
                 submittingDecisions: stream.submittingDecisions,
