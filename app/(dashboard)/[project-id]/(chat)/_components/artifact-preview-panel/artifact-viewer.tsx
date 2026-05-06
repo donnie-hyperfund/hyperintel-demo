@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronDown, Loader2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
@@ -140,6 +140,17 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         }
         prevTitleRef.current = title;
     }, [isStreaming, title, containerRef]);
+
+    // Re-pin to bottom when the approval bar appears below the scroll container — its height
+    // shrinks the visible region and would otherwise hide the last lines of content.
+    const prevShowApprovalBarRef = useRef(showApprovalBar);
+    useLayoutEffect(() => {
+        const container = containerRef.current;
+        const becameVisible = showApprovalBar && !prevShowApprovalBarRef.current;
+        prevShowApprovalBarRef.current = showApprovalBar;
+        if (!container || !becameVisible || !isAtBottom) return;
+        container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
+    }, [showApprovalBar, isAtBottom, containerRef]);
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
