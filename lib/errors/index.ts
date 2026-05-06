@@ -1,1 +1,1 @@
-export { describeError, type ErrorDescriptor, type RetryAffordance } from './descriptors';
+export { describeError, type ErrorDescriptor, getUserHint, type RetryAffordance } from './descriptors';

@@ -2,12 +2,10 @@ import type { ProcessingEntry, ProcessingEntryInput, ProcessingStage } from './t
 
 const STAGE_ORDER: Record<ProcessingStage, number> = {
     queued: 0,
-    classifying: 1,
-    'generating-ai-content': 2,
-    saving: 3,
-    publishing: 4,
-    indexing: 5,
-    finalizing: 6,
+    saving: 1,
+    publishing: 2,
+    indexing: 3,
+    finalizing: 4,
 };
 
 type ProcessingEntries = Map<string, ProcessingEntry>;
@@ -18,7 +16,6 @@ type ProgressPatch = {
     progress?: number;
     stage?: ProcessingStage;
     stageStartedAt?: number;
-    hasObservedAiContentStage?: boolean;
 };
 
 type StartOperationInput = {
@@ -125,8 +122,6 @@ function mergeProgressPatch({
         progress,
         stage,
         stageStartedAt,
-        hasObservedAiContentStage:
-            existing.hasObservedAiContentStage || normalizedIncoming.stage === 'generating-ai-content' || undefined,
     };
 }
 
@@ -138,7 +133,6 @@ function buildStartedEntry({ input, now }: { input: ProcessingEntryInput; now: n
         ...input,
         ...(progress != null ? { progress } : {}),
         ...(stageStartedAt != null ? { stageStartedAt } : {}),
-        hasObservedAiContentStage: input.hasObservedAiContentStage || input.stage === 'generating-ai-content',
         status: 'processing',
         startedAt: now,
         initiatedLocally: true,
@@ -153,7 +147,6 @@ function normalizeIncomingEntry({ incoming, now }: { incoming: ProcessingEntry; 
         ...incoming,
         ...(progress != null ? { progress } : {}),
         ...(stageStartedAt != null ? { stageStartedAt } : {}),
-        hasObservedAiContentStage: incoming.hasObservedAiContentStage || incoming.stage === 'generating-ai-content',
         status: 'processing',
         startedAt: incoming.startedAt || now,
     } as ProcessingEntry;
@@ -252,8 +245,6 @@ export function completeOperation({
         progress: 100,
         stage: patch?.stage ?? 'finalizing',
         stageStartedAt: patch?.stageStartedAt ?? now,
-        hasObservedAiContentStage:
-            existing.hasObservedAiContentStage || patch?.stage === 'generating-ai-content' || undefined,
     } as ProcessingEntry);
 }
 

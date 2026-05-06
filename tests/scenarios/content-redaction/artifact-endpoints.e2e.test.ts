@@ -1,8 +1,7 @@
 /**
- * Artifact endpoints: ai_content always stripped, content depends on is_internal.
+ * Artifact endpoints: content redaction depends on is_internal.
  *
- * - ai_content is ALWAYS stripped regardless of is_internal
- * - is_internal=true  (default) -> content also stripped
+ * - is_internal=true  (default) -> content stripped
  * - is_internal=false (client deliverable) -> content exposed
  *
  * Calls route handlers directly with mocked Clerk auth + real DB.
@@ -21,9 +20,7 @@ import { clearDatabase, closeTestOrm, getTestEm } from '@/tests/helpers/db';
 mockClerkNextjs();
 
 const SECRET = '# SECRET BODY that must never reach the frontend.';
-const AI_SECRET = 'AI secret content.';
 const PUBLIC_CONTENT = '# PUBLIC deliverable visible to users.';
-const PUBLIC_AI = 'Public AI-generated YAML.';
 const CLERK_ID = 'user_artifact_test';
 
 let projectId: string;
@@ -55,7 +52,6 @@ beforeAll(async () => {
         version: 1,
         title: 'Secret',
         content: SECRET,
-        ai_content: AI_SECRET,
         status: 'approved',
         chat,
     });
@@ -64,7 +60,6 @@ beforeAll(async () => {
         version: 2,
         title: 'Secret',
         content: SECRET + '\nv2',
-        ai_content: AI_SECRET + '\nv2',
         status: 'proposed',
         chat,
     });
@@ -82,7 +77,6 @@ beforeAll(async () => {
         version: 1,
         title: 'Deliverable',
         content: PUBLIC_CONTENT,
-        ai_content: PUBLIC_AI,
         status: 'approved',
         is_internal: false,
         chat,
@@ -92,7 +86,6 @@ beforeAll(async () => {
         version: 2,
         title: 'Deliverable',
         content: PUBLIC_CONTENT + '\nv2',
-        ai_content: PUBLIC_AI + '\nv2',
         status: 'proposed',
         is_internal: false,
         chat,
@@ -128,7 +121,6 @@ describe('internal artifact content redaction (is_internal=true)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).not.toContain(SECRET);
-        expect(json).not.toContain(AI_SECRET);
     });
 
     it('GET /projects/:pid/artifacts?key=... — no content by key', async () => {
@@ -139,7 +131,6 @@ describe('internal artifact content redaction (is_internal=true)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).not.toContain(SECRET);
-        expect(json).not.toContain(AI_SECRET);
     });
 
     it('GET /projects/:pid/artifacts/:aid — no content on single', async () => {
@@ -150,7 +141,6 @@ describe('internal artifact content redaction (is_internal=true)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).not.toContain(SECRET);
-        expect(json).not.toContain(AI_SECRET);
     });
 
     it('GET /projects/:pid/artifacts/:aid?version=1 — no content on loaded version', async () => {
@@ -161,7 +151,6 @@ describe('internal artifact content redaction (is_internal=true)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).not.toContain(SECRET);
-        expect(json).not.toContain(AI_SECRET);
     });
 
     it('GET /chats/:cid/artifacts — no content in list', async () => {
@@ -172,7 +161,6 @@ describe('internal artifact content redaction (is_internal=true)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).not.toContain(SECRET);
-        expect(json).not.toContain(AI_SECRET);
     });
 
     it('GET /chats/:cid/artifacts/:aid — no content on single chat artifact', async () => {
@@ -183,21 +171,19 @@ describe('internal artifact content redaction (is_internal=true)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).not.toContain(SECRET);
-        expect(json).not.toContain(AI_SECRET);
     });
 });
 
 describe('non-internal artifact content exposure (is_internal=false)', () => {
-    it('GET /projects/:pid/artifacts — public content in list, ai_content still redacted', async () => {
+    it('GET /projects/:pid/artifacts — public content in list', async () => {
         const { GET } = await import('@/app/api/projects/[projectId]/artifacts/route');
         const res = await GET(req(`/api/projects/${projectId}/artifacts`), { params: Promise.resolve({ projectId }) });
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).toContain(PUBLIC_CONTENT);
-        expect(json).not.toContain(PUBLIC_AI);
     });
 
-    it('GET /projects/:pid/artifacts?key=... — public content by key, ai_content still redacted', async () => {
+    it('GET /projects/:pid/artifacts?key=... — public content by key', async () => {
         const { GET } = await import('@/app/api/projects/[projectId]/artifacts/route');
         const res = await GET(req(`/api/projects/${projectId}/artifacts?key=${publicArtifactKey}`), {
             params: Promise.resolve({ projectId }),
@@ -205,10 +191,9 @@ describe('non-internal artifact content exposure (is_internal=false)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).toContain(PUBLIC_CONTENT);
-        expect(json).not.toContain(PUBLIC_AI);
     });
 
-    it('GET /projects/:pid/artifacts/:aid — public content on single, ai_content still redacted', async () => {
+    it('GET /projects/:pid/artifacts/:aid — public content on single', async () => {
         const { GET } = await import('@/app/api/projects/[projectId]/artifacts/[artifactId]/route');
         const res = await GET(req(`/api/projects/${projectId}/artifacts/${publicArtifactId}`), {
             params: Promise.resolve({ projectId, artifactId: publicArtifactId }),
@@ -216,10 +201,9 @@ describe('non-internal artifact content exposure (is_internal=false)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).toContain(PUBLIC_CONTENT);
-        expect(json).not.toContain(PUBLIC_AI);
     });
 
-    it('GET /projects/:pid/artifacts/:aid?version=1 — public content on loaded version, ai_content still redacted', async () => {
+    it('GET /projects/:pid/artifacts/:aid?version=1 — public content on loaded version', async () => {
         const { GET } = await import('@/app/api/projects/[projectId]/artifacts/[artifactId]/route');
         const res = await GET(req(`/api/projects/${projectId}/artifacts/${publicArtifactId}?version=1`), {
             params: Promise.resolve({ projectId, artifactId: publicArtifactId }),
@@ -227,10 +211,9 @@ describe('non-internal artifact content exposure (is_internal=false)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).toContain(PUBLIC_CONTENT);
-        expect(json).not.toContain(PUBLIC_AI);
     });
 
-    it('GET /chats/:cid/artifacts — public content in list, ai_content still redacted', async () => {
+    it('GET /chats/:cid/artifacts — public content in list', async () => {
         const { GET } = await import('@/app/api/projects/[projectId]/chats/[chatId]/artifacts/route');
         const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/artifacts`), {
             params: Promise.resolve({ projectId, chatId }),
@@ -238,10 +221,9 @@ describe('non-internal artifact content exposure (is_internal=false)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).toContain(PUBLIC_CONTENT);
-        expect(json).not.toContain(PUBLIC_AI);
     });
 
-    it('GET /chats/:cid/artifacts/:aid — public content on single chat artifact, ai_content still redacted', async () => {
+    it('GET /chats/:cid/artifacts/:aid — public content on single chat artifact', async () => {
         const { GET } = await import('@/app/api/projects/[projectId]/chats/[chatId]/artifacts/[artifactId]/route');
         const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/artifacts/${publicArtifactId}`), {
             params: Promise.resolve({ projectId, chatId, artifactId: publicArtifactId }),
@@ -249,6 +231,5 @@ describe('non-internal artifact content exposure (is_internal=false)', () => {
         const json = await res.text();
         expect(res.status).toBe(200);
         expect(json).toContain(PUBLIC_CONTENT);
-        expect(json).not.toContain(PUBLIC_AI);
     });
 });

@@ -9,12 +9,12 @@ export type ContextWarningStage = 'caution' | 'warn';
 
 const STAGE_CONFIG = {
     caution: {
-        label: 'Context usage growing — Generate Completion Brief',
+        label: 'Approaching context limit — quality may degrade',
         icon: <TrendingUp className="size-4 shrink-0" />,
         baseColor: 'rgb(161,98,7)',
     },
     warn: {
-        label: 'Context running low — Generate Completion Brief',
+        label: 'Context limit reached — Completion Brief required to continue',
         icon: <AlertTriangle className="size-4 shrink-0" />,
         baseColor: 'rgb(185,28,28)',
     },

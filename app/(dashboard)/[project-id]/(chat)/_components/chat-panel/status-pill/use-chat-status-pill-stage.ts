@@ -9,7 +9,7 @@ export type ChatStatusPillStage = 'ready' | 'review' | ContextWarningStage;
 export function useChatStatusPillStage(): ChatStatusPillStage | null {
     const {
         chatType,
-        state: { tokenUsage, completionBriefStatus, isGenerating, isSummarizing, isLoading },
+        state: { tokenUsage, completionBriefStatus, isGenerating, isSummarizing, isLoading, contextOverflow },
     } = useChatContext();
     const { canTransition } = usePhaseGate();
 
@@ -20,9 +20,21 @@ export function useChatStatusPillStage(): ChatStatusPillStage | null {
         if (completionBriefStatus === 'approved') return 'ready';
         if (completionBriefStatus === 'proposed') return 'review';
 
+        if (contextOverflow === 'hard') return 'warn';
+        if (contextOverflow === 'soft') return 'caution';
+
         const contextLevel = getContextLevel(getContextPercent(tokenUsage));
         if (contextLevel === 'critical') return 'warn';
         if (contextLevel === 'caution') return 'caution';
         return null;
-    }, [chatType, canTransition, completionBriefStatus, tokenUsage, isGenerating, isSummarizing, isLoading]);
+    }, [
+        chatType,
+        canTransition,
+        completionBriefStatus,
+        tokenUsage,
+        contextOverflow,
+        isGenerating,
+        isSummarizing,
+        isLoading,
+    ]);
 }

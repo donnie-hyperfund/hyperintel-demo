@@ -43,9 +43,6 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     @Property({ type: 'text', nullable: true })
     content?: string;
 
-    @Property({ type: 'text', nullable: true })
-    ai_content?: string & Opt;
-
     @Property({ type: 'text', default: 'approved' })
     status!: VersionStatus & Opt;
 
@@ -85,12 +82,10 @@ export class ArtifactVersionEntity extends IdCreatedColumns {
     metadata?: Nullable<Record<string, unknown>>;
 
     /**
-     * Custom serialization: ai_content always redacted, content conditional on is_internal.
+     * Custom serialization: content redacted for internal documents.
      */
     toJSON(): Record<string, unknown> {
         const obj = wrap(this).toObject() as Record<string, unknown>;
-
-        delete obj.ai_content;
 
         if (this.is_internal) {
             delete obj.content;

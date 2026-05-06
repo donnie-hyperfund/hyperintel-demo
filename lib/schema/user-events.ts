@@ -6,15 +6,7 @@ export const UserEventType = {
     ProjectResourceImported: 'project_resource_imported',
 } as const;
 
-export const ARTIFACT_PROCESSING_STAGES = [
-    'queued',
-    'classifying',
-    'generating-ai-content',
-    'saving',
-    'publishing',
-    'indexing',
-    'finalizing',
-] as const;
+export const ARTIFACT_PROCESSING_STAGES = ['queued', 'saving', 'publishing', 'indexing', 'finalizing'] as const;
 
 export const ArtifactProcessingStageSchema = z.enum(ARTIFACT_PROCESSING_STAGES);
 export type ArtifactProcessingStage = z.infer<typeof ArtifactProcessingStageSchema>;

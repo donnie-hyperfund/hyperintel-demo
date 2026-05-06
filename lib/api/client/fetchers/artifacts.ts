@@ -21,6 +21,7 @@ export type ArtifactListFilterParams = {
 
 export const artifactKeys = {
     all: ['artifacts'] as const,
+    detail: (artifactId: string) => [...artifactKeys.all, 'detail', artifactId] as const,
     lists: () => [...artifactKeys.all, 'list'] as const,
     list: (documentType?: DocumentType, params?: PaginationParams & ArtifactListFilterParams) =>
         [...artifactKeys.lists(), documentType, params] as const,
@@ -49,6 +50,11 @@ export function createArtifactApi(getToken: TokenGetter) {
     const axios = createAxiosInstance(getToken);
 
     return {
+        getById: async (artifactId: string) => {
+            const { data } = await axios.get<CamelCaseDto<ArtifactDto>>(ENDPOINTS.byId(artifactId));
+            return data;
+        },
+
         delete: async (artifactId: string) => {
             const { data } = await axios.delete<{ success: true; message: string }>(ENDPOINTS.byId(artifactId));
             return data;

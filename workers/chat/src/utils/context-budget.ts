@@ -2,9 +2,12 @@ import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { ContextMessage } from '@common/ai/inference/types';
 import { estimateContextTokens, estimateTextTokens, estimateToolTokens } from '@common/ai/utils';
 import { ErrorStatus, PublicError } from '@common/common/error.helpers';
+import { CONTEXT_GATE_HARD_TOKENS, CONTEXT_GATE_WARNING_TOKENS } from '@/lib/constants/context-limits';
 
-export const CHAT_CONTEXT_LIMIT_TOKENS = 180_000;
-export const SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS = 165_000;
+export const CHAT_CONTEXT_LIMIT_TOKENS = CONTEXT_GATE_WARNING_TOKENS;
+export const CHAT_CONTEXT_WARNING_TOKENS = CONTEXT_GATE_WARNING_TOKENS;
+export const CHAT_CONTEXT_HARD_LIMIT_TOKENS = CONTEXT_GATE_HARD_TOKENS;
+export const SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS = CONTEXT_GATE_WARNING_TOKENS;
 
 export function estimateInferenceInputTokens({
     instructions,

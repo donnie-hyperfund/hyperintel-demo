@@ -7,7 +7,7 @@
 
 import { runAgentStream } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
-import { extractInferenceMetadata, type ParamsWithType } from '@common/ai/inference';
+import { extractInferenceMetadata, type ParamsWithType, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
 import type { ContextMessage } from '@common/ai/inference/types';
 import { PublicError } from '@common/common/error.helpers';
@@ -28,11 +28,13 @@ import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
+import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
 import {
     CHAT_CONTEXT_LIMIT_TOKENS,
     createContextLimitError,
     estimateInferenceInputTokens,
 } from './utils/context-budget';
+import { maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
@@ -74,8 +76,8 @@ const DOCUMENT_INSTRUCTIONS: Record<
 
 function getIntakeToolsAndGroups() {
     return {
-        allTools: [...createDocumentTools(), ...createKnowledgeTools()],
-        toolGroups: [DocumentToolGroup, KnowledgeSearchToolGroup],
+        allTools: [...createDocumentTools(), ...createKnowledgeTools(), ...createUserDecisionTools()],
+        toolGroups: [DocumentToolGroup, KnowledgeSearchToolGroup, UserDecisionToolGroup],
     };
 }
 
@@ -130,6 +132,7 @@ type IntakeToolsAndGroups = ReturnType<typeof getIntakeToolsAndGroups>;
 type PreparedIntakeGenerationInput = IntakeToolsAndGroups & {
     contextMessages?: ContextMessage[];
     systemPrompt: string;
+    estimatedTokens: number;
 };
 
 async function prepareIntakeGenerationInput({
@@ -167,6 +170,7 @@ async function prepareIntakeGenerationInput({
         toolGroups,
     });
 
+    // TODO: two-gate preflight (warning/hard) not implemented here — intake keeps single-stop behavior for now.
     if (estimatedTokens > CHAT_CONTEXT_LIMIT_TOKENS) {
         return createContextLimitError(
             estimatedTokens,
@@ -179,6 +183,7 @@ async function prepareIntakeGenerationInput({
         allTools,
         toolGroups,
         systemPrompt,
+        estimatedTokens,
         ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
     };
 }
@@ -391,12 +396,16 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         const userId = chat.user!.id;
 
-        const agentCtx: DocumentToolsContext & KnowledgeSearchContext = {
+        const agentCtx: DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             em: em!,
             userId,
             chatId: chat.id,
             draftManager: new DraftManager(),
             createdVersionIds,
+            // UserDecisionContext — request_user_decision pushes the prompt event
+            // through this pusher and long-polls the DO for the user's click.
+            pusher,
+            streamDO,
             onVersionCreated: (event) => {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
@@ -412,10 +421,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         if (!resolved) {
             throw new Error(`Preset '${presetId}' is not available`);
         }
-        const defaultInference: ParamsWithType = {
-            ...resolved,
-            params: { ...resolved.params, thinking: false },
-        };
+        const defaultInference = withCommonParams(resolved, { reasoning: false });
         const inferenceParams = options.overrideInference ?? defaultInference;
 
         const { allTools, systemPrompt, toolGroups } = preparedInput;
@@ -435,6 +441,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                 toolGroups,
                 config: {
                     maxToolCalls: 100,
+                    behavioralGuidance: [
+                        'DECISION ESCALATION: Use `request_user_decision` for GENUINE ambiguity only — multiple valid paths where the user must pick (project type at ambiguous initiation, persona disambiguation, framework branching, deliverable type, intent ambiguity, tool errors with multiple named recovery paths). Do NOT silently pick yourself, and do NOT ask in plain text when concrete options exist. FORBIDDEN: (1) refusal-disguise — presenting alternatives when the user already gave an unambiguous command (that is Authority Inversion in tool-call form; if execution is blocked, say so plainly); (2) false ambiguity — asking about details a competent SME can reasonably default. Pre-flight test: "Could a competent SME proceed without clarification?" If yes, proceed. After the user clicks, act on the choice immediately without re-confirming.',
+                    ],
                     statusUpdates: { enabled: true },
                     abortSignal: abortController.signal,
                     onTurnComplete: createOnTurnComplete(agentCtx),
@@ -503,6 +512,11 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                                     error: event.error!.raw,
                                 }),
                                 event.error!.raw,
+                            );
+                            maybeRecordContextOverflow(
+                                chat,
+                                event.error!.classification,
+                                preparedInput.estimatedTokens,
                             );
                         }
 
@@ -618,6 +632,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             }),
             error,
         );
+        maybeRecordContextOverflow(chat, classification, preparedInput.estimatedTokens);
         await persistErrorMessage({
             em: em!,
             chatId,

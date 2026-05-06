@@ -44,7 +44,6 @@ export async function indexArtifactVersion(
     artifactVersion: ArtifactVersionLike,
     projectIdOrScope: string | IndexArtifactVersionScope,
     EmbeddingEntity: ArtifactEmbeddingEntityConstructor,
-    is_ai_content: boolean,
 ): Promise<{ indexed: number; deleted: number }> {
     // Support both legacy string projectId and new scope object
     const scope: IndexArtifactVersionScope =
@@ -82,15 +81,14 @@ export async function indexArtifactVersion(
         const escapedContent = escapeSqlString(chunk.content);
 
         await conn.execute(
-            `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chat_id, chunk_index, chunk_content, start_line, end_line, embedding, is_ai_content)
-             VALUES ('${artifactVersion.id}', ${projectVal}, ${chatVal}, ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector, ${is_ai_content})`,
+            `INSERT INTO artifact_embeddings (artifact_version_id, project_id, chat_id, chunk_index, chunk_content, start_line, end_line, embedding)
+             VALUES ('${artifactVersion.id}', ${projectVal}, ${chatVal}, ${i}, '${escapedContent}', ${chunk.start_line}, ${chunk.end_line}, '${embeddingStr}'::vector)`,
         );
     }
 
     return { indexed: chunks.length, deleted };
 }
 
-// TODO re-index ai_content too.
 export async function reindexProject(
     openaiClient: OpenAI,
     openrouterClient: OpenRouter,

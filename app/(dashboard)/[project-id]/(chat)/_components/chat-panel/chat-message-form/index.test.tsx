@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getContextBypassForChat, setContextBypassForChat } from '@/modules/chat/utils/context-bypass-session';
 import ChatMessageForm from './index';
 
 const dismissContextLimitAlertMock = vi.fn();
+const dismissContextWarningModalMock = vi.fn();
+const dismissHardStopModalMock = vi.fn();
 const dismissInvalidModelAlertMock = vi.fn();
+const navigateToExistingNextChatMock = vi.fn();
 const requestPhaseTransitionMock = vi.fn();
+const sendForceBriefMock = vi.fn();
 const sendMessageMock = vi.fn();
 const stopGenerationMock = vi.fn();
 const saveDraftMock = vi.fn();
@@ -15,6 +20,10 @@ const clearDraftMock = vi.fn();
 
 let chatTypeMock: 'phase' | 'company' = 'phase';
 let showContextLimitAlertMock = true;
+let showContextWarningModalMock = false;
+let hardStopModalStateMock: 'closed' | 'idle' | 'forcing' | 'already-transitioned' = 'closed';
+let hardStopExistingNextChatIdMock: string | null = null;
+let hardStopErrorMock: string | null = null;
 
 vi.mock('@/components/ui/alert-dialog', () => ({
     AlertDialog: ({ children, open }: { children: ReactNode; open?: boolean }) => (open ? <div>{children}</div> : null),
@@ -56,6 +65,10 @@ vi.mock('@/modules/chat/providers/chat-provider', () => ({
         stopGeneration: stopGenerationMock,
         dismissInvalidModelAlert: dismissInvalidModelAlertMock,
         dismissContextLimitAlert: dismissContextLimitAlertMock,
+        dismissContextWarningModal: dismissContextWarningModalMock,
+        sendForceBrief: sendForceBriefMock,
+        dismissHardStopModal: dismissHardStopModalMock,
+        navigateToExistingNextChat: navigateToExistingNextChatMock,
         requestPhaseTransition: requestPhaseTransitionMock,
         state: {
             isGenerating: false,
@@ -66,6 +79,10 @@ vi.mock('@/modules/chat/providers/chat-provider', () => ({
             activeResponseId: null,
             showInvalidModelAlert: false,
             showContextLimitAlert: showContextLimitAlertMock,
+            showContextWarningModal: showContextWarningModalMock,
+            hardStopModalState: hardStopModalStateMock,
+            hardStopExistingNextChatId: hardStopExistingNextChatIdMock,
+            hardStopError: hardStopErrorMock,
         },
     }),
 }));
@@ -117,14 +134,24 @@ vi.mock('./switch-model-selector', () => ({
 describe('ChatMessageForm context-limit alert', () => {
     beforeEach(() => {
         dismissContextLimitAlertMock.mockReset();
+        dismissContextWarningModalMock.mockReset();
+        dismissHardStopModalMock.mockReset();
         dismissInvalidModelAlertMock.mockReset();
+        navigateToExistingNextChatMock.mockReset();
         requestPhaseTransitionMock.mockReset();
+        sendForceBriefMock.mockReset();
         sendMessageMock.mockReset();
+        sendMessageMock.mockResolvedValue(undefined);
         stopGenerationMock.mockReset();
         saveDraftMock.mockReset();
         clearDraftMock.mockReset();
+        sessionStorage.clear();
         chatTypeMock = 'phase';
         showContextLimitAlertMock = true;
+        showContextWarningModalMock = false;
+        hardStopModalStateMock = 'closed';
+        hardStopExistingNextChatIdMock = null;
+        hardStopErrorMock = null;
     });
 
     it('continues phase chats by dismissing the alert and requesting phase transition', () => {
@@ -150,5 +177,72 @@ describe('ChatMessageForm context-limit alert', () => {
 
         expect(dismissContextLimitAlertMock).toHaveBeenCalledTimes(1);
         expect(requestPhaseTransitionMock).not.toHaveBeenCalled();
+    });
+
+    it('continues from the soft warning by resending the current draft with bypass', async () => {
+        showContextLimitAlertMock = false;
+        showContextWarningModalMock = true;
+
+        render(<ChatMessageForm />);
+
+        fireEvent.change(screen.getByPlaceholderText('Type your message...'), { target: { value: 'keep going' } });
+        fireEvent.click(screen.getByRole('checkbox', { name: "don't remind me again this session" }));
+        fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+        await waitFor(() => {
+            expect(sendMessageMock).toHaveBeenCalledWith('keep going', { bypassContextWarning: true });
+        });
+        expect(dismissContextWarningModalMock).toHaveBeenCalledTimes(1);
+        expect(getContextBypassForChat('chat-1')).toBe(true);
+    });
+
+    it('auto-attaches bypass on submit when the chat has a session bypass flag', async () => {
+        showContextLimitAlertMock = false;
+        setContextBypassForChat('chat-1');
+
+        render(<ChatMessageForm />);
+
+        const textbox = screen.getByPlaceholderText('Type your message...');
+        fireEvent.change(textbox, { target: { value: 'next message' } });
+        fireEvent.submit(textbox.closest('form')!);
+
+        await waitFor(() => {
+            expect(sendMessageMock).toHaveBeenCalledWith('next message', { bypassContextWarning: true });
+        });
+    });
+
+    it('soft-warning does not expose the Next phase action', () => {
+        showContextLimitAlertMock = false;
+        showContextWarningModalMock = true;
+
+        render(<ChatMessageForm />);
+
+        expect(screen.queryByRole('button', { name: 'Next phase' })).toBeNull();
+        expect(requestPhaseTransitionMock).not.toHaveBeenCalled();
+        expect(sendForceBriefMock).not.toHaveBeenCalled();
+    });
+
+    it('hard-stop confirmation sends the forced brief nudge', () => {
+        showContextLimitAlertMock = false;
+        hardStopModalStateMock = 'idle';
+
+        render(<ChatMessageForm />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Yes, create Completion Brief' }));
+
+        expect(sendForceBriefMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('already-transitioned hard stop navigates to the existing next phase', () => {
+        showContextLimitAlertMock = false;
+        hardStopModalStateMock = 'already-transitioned';
+        hardStopExistingNextChatIdMock = 'chat-next';
+
+        render(<ChatMessageForm />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'Go to next phase' }));
+
+        expect(navigateToExistingNextChatMock).toHaveBeenCalledTimes(1);
+        expect(sendForceBriefMock).not.toHaveBeenCalled();
     });
 });

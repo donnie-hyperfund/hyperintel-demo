@@ -31,7 +31,7 @@ export function ArtifactApprovalProgress({
         contentLength,
     });
     const copy = APPROVAL_STAGE_COPY[stage];
-    const detail = useRotatingText(copy.details, stage === 'generating-ai-content' ? 14_000 : 7000, stageElapsedMs);
+    const detail = useRotatingText(copy.details, 7000, stageElapsedMs);
     const expectation = usePulsedText({
         primaryText: expectationLabel,
         pulseText: paceLabel,
