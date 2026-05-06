@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
-import { IS_DEV } from '@/lib/config';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import {
     getLatestArtifactVersion,
@@ -145,7 +144,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
 
     const headerActions = (
         <>
-            {IS_DEV && artifactKey && artifactId && (
+            {artifactKey && artifactId && (
                 <ArtifactVersionHistoryDialog
                     artifactKey={artifactKey}
                     artifactId={artifactId}
