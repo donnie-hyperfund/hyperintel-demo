@@ -28,8 +28,6 @@ export const IndexVersionMessageSchema = z.object({
     content: z.string(),
     /** Optional: document name for logging */
     documentName: z.string().optional(),
-    /** Optional: whether this is AI-generated content */
-    is_ai_content: z.boolean().optional(),
     /** Preview branch alias — when set, the worker connects to the branch DB instead of main */
     previewAlias: z.string().nullish(),
 });

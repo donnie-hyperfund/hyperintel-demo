@@ -165,7 +165,6 @@ function buildEntryFromEvent(event: WsEventPayload, now: number): ProcessingEntr
         startedAt: now,
         ...(progress != null ? { progress } : {}),
         ...(event.stage ? { stage: event.stage, stageStartedAt: now } : {}),
-        hasObservedAiContentStage: event.stage === 'generating-ai-content',
         initiatedLocally: false,
     };
 

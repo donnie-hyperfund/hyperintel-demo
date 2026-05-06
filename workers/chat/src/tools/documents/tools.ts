@@ -26,7 +26,6 @@ import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
-import { shouldGenerateAiContent } from './document-classifier';
 import {
     applyEdits,
     countLines,
@@ -153,6 +152,13 @@ When a **regular** user message (not a \`<system>\` event) contains approval or 
 - **Compound messages:** If the user says something like "approved, now do X" or "looks good, proceed with Y" — FIRST call \`approve_document\` for the pending document, THEN proceed with the rest of the request.
 - **Ambiguity:** If it's unclear whether the user is approving or just continuing, and there IS a pending proposed document, ask for clarification before proceeding.
 
+## Conflict Resolution — ALWAYS Ask the User
+When a tool call fails or returns an error with multiple concrete recovery paths (e.g., name already taken, document not found, mode mismatch), **do NOT silently recover or decide on your own**. Instead, call \`request_user_decision\` with a clear question and the available options. For example:
+- Name conflict: question "A document called X already exists. What should I do?" with options \`edit_existing\` ("Edit the existing document") and \`create_new\` ("Create with a different name").
+- Document not found: question "I couldn't find a document called X." with options \`create\` ("Create it now") and \`pick_existing\` ("Show me what exists and let me pick").
+
+Let the user's click drive the next step. **Never assume the user's intent when multiple valid paths exist.**
+
 ## Important
 \`list_documents\` and \`read_document\` are for viewing specific documents. Use \`search_knowledge\` to find relevant context via semantic search across all approved documents.
 
@@ -175,7 +181,7 @@ When you finalize an internal working document (Genesis DNA, Legacy DNA, Team Sp
 - Call any document tools (begin_document, write_document, finalize_document, etc.) unless the user explicitly asks
 - Mention "Phase 2", "next step", or suggest what comes next — let the user drive the workflow
 Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
-    behavioralGuidance: `NEVER re-read a document after patching — patches are atomic and confirmed. If you authored or patched this document earlier in the same conversation, skip read_document and patch directly — your own content is authoritative. Before patching an existing document, call begin_document(mode="edit") so there is an active draft. ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? 'Patch edits may include optional endLine only to narrow the search window.' : 'Patch edits have exactly three fields: startLine, oldContent, and newContent.'} When copying text from read_document into oldContent, strip the leading "N: " line-number prefix — it is display-only and must not appear in oldContent. Batch independent edits into a single patch_document call. When an earlier edit heavily shifts later line numbers, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: When you receive a <system> event indicating a RESTORE, the selected content has been saved as a new PROPOSED version awaiting the user's decision — it is NOT live and the action is NOT complete. The system event itself contains the exact ::document[…] directive and instructions inline — follow them verbatim, briefly acknowledge, and ask what the user wants to do. Do NOT manufacture ::document[…] directives on your own outside of this restore flow — they belong in finalize_document/list_documents tool output and in restore system events only. Do NOT preemptively call approve_document or reject_document on your own initiative — the restored proposed version is approved/rejected the same way as any other proposed version: via UI, or by the user signaling it in their next chat message (in which case follow the normal chat-based approval protocol and call approve_document/reject_document). CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request. The PE-facing summary for an internal document is generated automatically by the backend during finalize_document — you do not need to (and must not) create a separate "PECP" document yourself. After approving, rejecting, or restoring a document, STOP and wait for the user's next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the action. Only create documents when the user explicitly asks for them.`,
+    behavioralGuidance: `NEVER re-read a document after patching — patches are atomic and confirmed. If you authored or patched this document earlier in the same conversation, skip read_document and patch directly — your own content is authoritative. Before patching an existing document, call begin_document(mode="edit") so there is an active draft. ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? 'Patch edits may include optional endLine only to narrow the search window.' : 'Patch edits have exactly three fields: startLine, oldContent, and newContent.'} When copying text from read_document into oldContent, strip the leading "N: " line-number prefix — it is display-only and must not appear in oldContent. Batch independent edits into a single patch_document call. When an earlier edit heavily shifts later line numbers, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: When you receive a <system> event indicating a RESTORE, the selected content has been saved as a new PROPOSED version awaiting the user's decision — it is NOT live and the action is NOT complete. The system event itself contains the exact ::document[…] directive and instructions inline — follow them verbatim, briefly acknowledge, and ask what the user wants to do. Do NOT manufacture ::document[…] directives on your own outside of this restore flow — they belong in finalize_document/list_documents tool output and in restore system events only. Do NOT preemptively call approve_document or reject_document on your own initiative — the restored proposed version is approved/rejected the same way as any other proposed version: via UI, or by the user signaling it in their next chat message (in which case follow the normal chat-based approval protocol and call approve_document/reject_document). CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request. The PE-facing summary for an internal document is generated automatically by the backend during finalize_document — you do not need to (and must not) create a separate "PECP" document yourself. After approving, rejecting, or restoring a document, STOP and wait for the user's next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the action. Only create documents when the user explicitly asks for them. CRITICAL: When a document tool returns an error with multiple concrete recovery paths (name conflict, not found, mode mismatch, etc.), NEVER silently recover or decide on your own. Call request_user_decision with a clear question and the concrete named options, then act on the user's choice.`,
     tools: [
         'begin_document',
         'write_document',
@@ -324,12 +330,12 @@ You MUST call finalize_document when done or content will be lost.`,
                 const isDeleted = existing?.currentStatus === 'deleted';
                 if (mode === 'create' && existing && !isDeleted) {
                     return {
-                        error: `Document "${normalizedName}" already exists. Use mode="edit" to modify it.`,
+                        error: `Document "${normalizedName}" already exists. Call request_user_decision with options edit_existing ("Edit the existing document") and create_new ("Create with a different name"). Do NOT decide on your own.`,
                     };
                 }
                 if (mode === 'edit' && !existing) {
                     return {
-                        error: `Document "${normalizedName}" does not exist. Use mode="create" for new documents.`,
+                        error: `Document "${normalizedName}" does not exist. Call request_user_decision with options create ("Create a new document with this name") and pick_existing ("Show existing documents and let me pick"). Do NOT decide on your own.`,
                     };
                 }
 
@@ -587,28 +593,19 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         }
                     }
 
-                    // ── Embedding + AI content classification (fire-and-forget, non-blocking) ────────
+                    // ── Embedding (fire-and-forget, non-blocking) ────────
                     if (embeddingQueue && (ctx.projectId || ctx.chatId)) {
-                        const classifyAndEmbed = async () => {
-                            const generateAiContent = rCtx
-                                ? await shouldGenerateAiContent(rCtx, draft.name, draft.title)
-                                : true;
-
-                            await embeddingQueue.send({
+                        const embedPromise = embeddingQueue
+                            .send({
                                 type: 'index_artifact_version',
                                 projectId: ctx.projectId ?? null,
                                 chatId: ctx.chatId ?? null,
                                 versionId: result.versionId,
                                 content: draft.content,
                                 documentName: draft.name,
-                                is_ai_content: generateAiContent,
                                 previewAlias: ctx.previewAlias,
-                            });
-                        };
-
-                        const embedPromise = classifyAndEmbed().catch((err) =>
-                            console.error('[finalize_document] Classify/embed error:', err),
-                        );
+                            })
+                            .catch((err) => console.error('[finalize_document] Embed error:', err));
 
                         rCtx?.eCtx?.waitUntil(embedPromise);
                     }
@@ -712,7 +709,7 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                 const doc = await findDocumentByName(em, scope, normalizedName);
                 if (!doc) {
                     return {
-                        error: `Document "${normalizedName}" not found. Use begin_document to create it.`,
+                        error: `Document "${normalizedName}" not found. Call request_user_decision with options create_new ("Create a new document with this name"), search ("Search for a similar document first"), and pick_from_list ("Show me the existing documents"). Do NOT silently guess a different name.`,
                     };
                 }
 
@@ -890,7 +887,7 @@ If the user's message combines approval with another request (e.g., "approved, n
 
 **ERROR HANDLING:** If this tool returns an error, you MUST NOT claim the document was approved. NEVER forward raw error details to the user — instead, communicate naturally (e.g., "This document needs to be revised before it can be approved. Let me update it for you.") and take the appropriate recovery action (revise the document).
 
-This triggers AI content generation (YAML) for internal documents and queues embedding indexing.`,
+This queues embedding indexing for the approved version.`,
             parameters: ApproveDocumentParams,
             executor: async (input: z.infer<typeof ApproveDocumentParams>, ctx: DocumentToolsContext, eCtx?: Ctx) => {
                 const { name } = input;

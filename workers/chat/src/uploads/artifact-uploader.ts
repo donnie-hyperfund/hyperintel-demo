@@ -625,7 +625,6 @@ async function queueEmbedding(
             versionId,
             content,
             documentName,
-            is_ai_content: false,
             previewAlias: ctx.previewAlias,
         });
     } catch (error) {

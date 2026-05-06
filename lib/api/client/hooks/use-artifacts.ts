@@ -36,6 +36,16 @@ export function useFetchArtifacts(
     );
 }
 
+export function useFetchArtifact(artifactId: string | undefined, config?: SWRConfiguration<CamelCaseDto<ArtifactDto>>) {
+    const { getToken } = useAuth();
+
+    return useSWR<CamelCaseDto<ArtifactDto>>(
+        artifactId ? artifactKeys.detail(artifactId) : null,
+        () => createArtifactApi(getToken).getById(artifactId!),
+        { revalidateOnFocus: false, ...config },
+    );
+}
+
 export function useFetchArtifactsInfinite(
     documentType: DocumentType | undefined,
     params: InfinitePaginationParams & ArtifactListFilterParams = { limit: 20 },

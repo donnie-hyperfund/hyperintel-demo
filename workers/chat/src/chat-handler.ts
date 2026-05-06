@@ -26,6 +26,7 @@ import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, Draf
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
+import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
 import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
@@ -150,6 +151,7 @@ function getChatToolsAndGroups() {
             ...createKnowledgeTools(),
             ...createWebScrapeTools(),
             ...createPhaseTransitionTools(),
+            ...createUserDecisionTools(),
         ],
         toolGroups: [
             PromptManagementToolGroup,
@@ -158,6 +160,7 @@ function getChatToolsAndGroups() {
             KnowledgeSearchToolGroup,
             WebScrapeToolGroup,
             PhaseTransitionToolGroup,
+            UserDecisionToolGroup,
         ],
     };
 }
@@ -506,7 +509,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         const createdVersionIds: string[] = [];
 
         // Create combined agent context
-        const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext = {
+        const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             loadedPrompts: new Set<string>(savedPrompts),
             em: em!,
             projectId: chat.project!.id,
@@ -515,6 +518,10 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             embeddingQueue: ctx.env.EMBEDDING_QUEUE,
             previewAlias: ctx.previewAlias,
             createdVersionIds,
+            // UserDecisionContext — the request_user_decision tool emits the prompt event
+            // through this same pusher and long-polls the DO for the user's click.
+            pusher,
+            streamDO,
             // The PECP generator (called from finalize_document for internal docs) pushes
             // summary_* events through the same SSE pusher the main agent uses.
             pushStreamEvents: pusher.push,
@@ -583,6 +590,9 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                             localPath,
                             `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}`,
                         ),
+                    behavioralGuidance: [
+                        'DECISION ESCALATION: Use `request_user_decision` for GENUINE ambiguity only — multiple valid paths where the user must pick (project type at ambiguous initiation, persona disambiguation, framework branching, deliverable type, intent ambiguity, tool errors with multiple named recovery paths). Do NOT silently pick yourself, and do NOT ask in plain text when concrete options exist. FORBIDDEN: (1) refusal-disguise — presenting alternatives when the user already gave an unambiguous command (that is Authority Inversion in tool-call form; if execution is blocked, say so plainly); (2) false ambiguity — asking about details a competent SME can reasonably default. Pre-flight test: "Could a competent SME proceed without clarification?" If yes, proceed. After the user clicks, act on the choice immediately without re-confirming.',
+                    ],
                     statusUpdates: { enabled: true },
                     preprocessContext,
                     abortSignal: abortController.signal,

@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { ArtifactPreviewPanel } from '@/app/(dashboard)/[project-id]/(chat)/_components/artifact-preview-panel';
+import { FilePreviewPanel } from '@/app/(dashboard)/[project-id]/(chat)/_components/file-preview-panel';
 import ProjectArtifactsPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/project-artifacts-panel';
 import ResourcesPanel from '@/app/(dashboard)/[project-id]/(chat)/_components/resources-panel';
 import { PhaseHeader } from '@/components/layouts/dashboard-layout/phase-header';
@@ -58,6 +59,7 @@ export default function PhaseChatInterface() {
     }, [scrollTo, router, checkProjectEntry]);
 
     const activePanel = panelState?.panel;
+    const isActivePanelWide = activePanel === 'artifact-preview' || activePanel === 'file-preview';
 
     return (
         <ResizablePanelWrapper
@@ -77,12 +79,19 @@ export default function PhaseChatInterface() {
                             artifactId={panelState.artifactId}
                         />
                     )}
+                    {panelState?.panel === 'file-preview' && (
+                        <FilePreviewPanel
+                            onClose={closePanel}
+                            artifactId={panelState.artifactId}
+                            version={panelState.version}
+                        />
+                    )}
                     {activePanel === 'artifacts' && <ProjectArtifactsPanel onClose={closePanel} />}
                     {activePanel === 'resources' && <ResourcesPanel onClose={closePanel} />}
                 </>
             }
-            rightPaneDefaultSize={activePanel === 'artifact-preview' ? 35 : 25}
-            rightPaneMaxSize={activePanel === 'artifact-preview' ? 80 : 30}
+            rightPaneDefaultSize={isActivePanelWide ? 35 : 25}
+            rightPaneMaxSize={isActivePanelWide ? 80 : 30}
         />
     );
 }

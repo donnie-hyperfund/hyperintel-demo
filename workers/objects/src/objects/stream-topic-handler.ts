@@ -24,6 +24,16 @@ export interface ChatStreamDOStub {
     abort(): Promise<void>;
     toolApprove(toolCallId: string): Promise<void>;
     toolReject(toolCallId: string): Promise<void>;
+    /**
+     * Resolve a pending user-decision long-poll.
+     * `freeText` is populated when the user picked "Other" and typed a custom answer.
+     */
+    decisionSelect(toolCallId: string, value: string, freeText?: string): Promise<void>;
+    /**
+     * Dismiss a pending user-decision long-poll without picking — resolves it
+     * with `null` (the agent's tool gets the cancelled path).
+     */
+    decisionDismiss(toolCallId: string): Promise<void>;
 }
 
 // ============================================================================

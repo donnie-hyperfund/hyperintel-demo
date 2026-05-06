@@ -2,10 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { approveArtifactHandler, approveArtifactProgrammatic } from './artifact-approver';
 
-vi.mock('./tools/documents/document-classifier', () => ({
-    shouldGenerateAiContent: vi.fn(async () => false),
-}));
-
 vi.mock('@/lib/artifacts/publish', () => ({
     publishArtifactToUserScope: vi.fn(),
 }));
@@ -32,7 +28,6 @@ function buildVersion(documentType = 'Other', summaryInternal: string | null = '
         version: 2,
         title: 'Report',
         content: 'content',
-        ai_content: null,
         status: 'proposed',
         status_changed_at: null,
         status_changed_by: null,
@@ -149,7 +144,7 @@ describe('artifact approval system events', () => {
 
         const result = await approveArtifactHandler({ versionId: 'version-1' }, ctx);
 
-        expect(result).toMatchObject({ success: true, status: 'approved', yamlGenerated: false });
+        expect(result).toMatchObject({ success: true, status: 'approved' });
         expect(version.status).toBe('approved');
         expect(artifact.current_version).toBe(version);
         expect(persisted.at(-1)).toMatchObject({

@@ -15,7 +15,7 @@ import { ArtifactListItemSkeleton } from '@/modules/artifacts/components/artifac
 import { useProjectResourceMutationSync } from '@/modules/file-uploads/hooks/use-project-resource-mutation-sync';
 import { useUploadEntries } from '@/modules/file-uploads/hooks/use-upload-entries';
 import { mergeByDate } from '@/modules/file-uploads/utils/merge-resource-list';
-import { ResourceItem } from './resource-item';
+import { ResourceListItem } from './resource-list-item';
 import { UploadingResourceItem } from './uploading-resource-item';
 
 type ResourceListParams = PageParams<'/[project-id]'>;
@@ -110,7 +110,7 @@ export function ResourceList() {
                         status={item.entry.status}
                     />
                 ) : (
-                    <ResourceItem
+                    <ResourceListItem
                         key={item.artifact.id}
                         artifact={item.artifact}
                         onRemove={handleRemove}

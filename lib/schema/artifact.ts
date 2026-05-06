@@ -109,6 +109,15 @@ export const ListArtifactVersionsQuerySchema = z.object({
 });
 export type ListArtifactVersionsQueryDto = z.infer<typeof ListArtifactVersionsQuerySchema>;
 
+export const ArtifactFileDtoSchema = z.object({
+    id: z.string().uuid(),
+    original_name: z.string(),
+    mime_type: z.string(),
+    size_bytes: z.number(),
+    status: z.enum(['pending_upload', 'uploaded', 'processing', 'processed', 'error']),
+});
+export type ArtifactFileDto = z.infer<typeof ArtifactFileDtoSchema>;
+
 export const ArtifactVersionDtoSchema = z.object({
     id: z.string().uuid(),
     chat: z
@@ -128,6 +137,7 @@ export const ArtifactVersionDtoSchema = z.object({
     metadata: z.record(z.unknown()).nullable().optional(),
     /** PE-facing summary of the internal document version (replaces the old separate PECP artifact). */
     summary_internal: z.string().nullable().optional(),
+    file: ArtifactFileDtoSchema.nullable().optional(),
     created_at: z.union([z.string(), z.date()]),
     updated_at: z.union([z.string(), z.date()]).nullable().optional(),
 });
