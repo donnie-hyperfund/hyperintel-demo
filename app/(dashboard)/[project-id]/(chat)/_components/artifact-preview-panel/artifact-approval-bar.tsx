@@ -2,6 +2,7 @@
 
 import { Check, Loader2, X as XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ShimmerText } from '@/components/ui/shimmer-text';
 import { useArtifactApproval } from '@/modules/artifacts/hooks/use-artifact-approval';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
@@ -11,6 +12,7 @@ type ArtifactApprovalBarProps = {
     artifactId: string;
     version: number;
     disabled?: boolean;
+    isStreaming?: boolean;
     onProcessingChange?: (isProcessing: boolean) => void;
 };
 
@@ -18,6 +20,7 @@ export function ArtifactApprovalBar({
     artifactId,
     version,
     disabled = false,
+    isStreaming = false,
     onProcessingChange,
 }: ArtifactApprovalBarProps) {
     const artifact = useArtifact(artifactId, version);
@@ -34,15 +37,21 @@ export function ArtifactApprovalBar({
         artifactKey,
         version,
         artifactVersionId,
-        disabled: disabled || alreadyProcessing,
+        disabled: disabled || isStreaming || alreadyProcessing || !artifactVersionId,
         onProcessingChange,
     });
 
-    if (!artifact || !artifactKey || !artifactVersionId) return null;
+    if (!artifact || !artifactKey) return null;
 
     return (
         <div className="border-t border-border px-4 pt-4 pb-6 space-y-2.5">
-            <p className="text-xs text-muted-foreground text-center">This document is awaiting your approval.</p>
+            <p className="text-xs text-muted-foreground text-center w-full">
+                {isStreaming ? (
+                    <ShimmerText duration={4}>Generating… approve or reject once complete.</ShimmerText>
+                ) : (
+                    'This document is awaiting your approval.'
+                )}
+            </p>
             <div className="flex items-center justify-center gap-2">
                 <Button size="sm" variant="outline" onClick={reject} disabled={isProcessing}>
                     {isRejecting ? <Loader2 className="size-3 animate-spin mr-1" /> : <XIcon className="size-3 mr-1" />}

@@ -1,9 +1,10 @@
 'use client';
 
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
+import { ShimmerText } from '@/components/ui/shimmer-text';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import {
@@ -85,13 +86,10 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         artifact.proposedVersion && artifact.currentVersion ? artifact.currentVersion.content : undefined;
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
-    const canApprove =
-        activeVersion?.status === 'proposed' &&
-        !isStreaming &&
-        !!artifactId &&
-        !!artifactKey &&
-        !isLastMessageStreaming;
-    const showApprovalBar = canApprove && (!activeVersion?.isInternal || hasSummary);
+    const isApprovalLocked = isStreaming || !!isLastMessageStreaming;
+    const isProposedVersion = activeVersion?.status === 'proposed' && !!artifactId && !!artifactKey;
+    const canApprove = isProposedVersion && !isApprovalLocked;
+    const showApprovalBar = isProposedVersion && (!activeVersion?.isInternal || hasSummary);
     const showInternalActions = canApprove && !!activeVersion?.isInternal && !hasSummary;
     const canDelete =
         !!artifactKey && !!activeVersion?.isUploaded && !isStreaming && activeVersion?.status !== 'deleted';
@@ -245,8 +243,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                                 contentLength={content.length}
                             />
                         ) : (
-                            <div className="flex items-center gap-2 text-md font-medium text-muted-foreground">
-                                <Loader2 className="size-5 animate-spin" />
+                            <ShimmerText className="text-md font-medium text-muted-foreground" duration={4}>
                                 {isProcessingDelete
                                     ? 'Deleting...'
                                     : isLinkingToProject
@@ -254,7 +251,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                                       : activeVersion?.status === 'proposed'
                                         ? 'Processing...'
                                         : 'Making changes...'}
-                            </div>
+                            </ShimmerText>
                         )}
                     </div>
                 )}
@@ -282,7 +279,8 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                 <ArtifactApprovalBar
                     artifactId={artifactId}
                     version={version}
-                    disabled={isUpdating}
+                    disabled={isUpdating || !!isLastMessageStreaming}
+                    isStreaming={isStreaming}
                     onProcessingChange={setIsProcessingApproval}
                 />
             )}
