@@ -10,6 +10,7 @@ import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { handleListChatArtifacts } from '@/lib/chats/handlers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactEmbeddingEntity } from '@/lib/orm/entities/artifacts/artifact-embedding.entity';
 import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
@@ -457,6 +458,34 @@ function findArtifactForOwner(
         .getSingleResult();
 }
 
+function serializeArtifactFile(file?: ArtifactFileEntity): Record<string, unknown> | null {
+    if (!file) return null;
+    return {
+        id: file.id,
+        original_name: file.original_name,
+        mime_type: file.mime_type,
+        size_bytes: file.size_bytes,
+        status: file.status,
+    };
+}
+
+async function loadFilesForVersions(em: SqlEntityManager, versionIds: string[]) {
+    if (!versionIds.length) return new Map<string, ArtifactFileEntity>();
+    const files = await em.find(ArtifactFileEntity, {
+        artifact_version: { $in: versionIds },
+        status: { $ne: 'pending_upload' },
+    });
+    return new Map(files.map((f) => [f.artifact_version.id, f]));
+}
+
+function versionWithFile(
+    version: ArtifactVersionEntity | null | undefined,
+    fileByVersion: Map<string, ArtifactFileEntity>,
+) {
+    if (!version) return undefined;
+    return { ...wrap(version).toJSON(), file: serializeArtifactFile(fileByVersion.get(version.id)) };
+}
+
 export async function handleGetArtifact(req: NextRequest, artifactId: string, user: UserEntity): Promise<NextResponse> {
     const { em } = await getOrm();
     const query = GetArtifactQuerySchema.parse(Object.fromEntries(req.nextUrl.searchParams));
@@ -473,10 +502,16 @@ export async function handleGetArtifact(req: NextRequest, artifactId: string, us
 
     if (query.version !== undefined && !requestedVersion) return ARTIFACT_ERRORS.VERSION_NOT_FOUND();
 
+    const versionIds = [artifact.current_version?.id, proposedVersion?.id, requestedVersion?.id].filter(
+        Boolean,
+    ) as string[];
+    const fileByVersion = await loadFilesForVersions(em, versionIds);
+
     return NextResponse.json({
         ...wrap(artifact).toJSON(),
-        proposed_version: proposedVersion ? wrap(proposedVersion).toJSON() : undefined,
-        loaded_version: requestedVersion ? wrap(requestedVersion).toJSON() : undefined,
+        current_version: versionWithFile(artifact.current_version, fileByVersion),
+        proposed_version: versionWithFile(proposedVersion, fileByVersion),
+        loaded_version: versionWithFile(requestedVersion, fileByVersion),
     });
 }
 
@@ -674,11 +709,15 @@ export async function handleListResources(
     const artifactIds = nodes.map((a: ArtifactEntity) => a.id);
     const proposedMap = await loadVersionsForArtifacts(em, artifactIds, 'proposed');
 
+    const cvIds = nodes.map((a: ArtifactEntity) => a.current_version?.id).filter(Boolean) as string[];
+    const fileByVersion = await loadFilesForVersions(em, cvIds);
+
     const data = nodes.map((a: ArtifactEntity) => {
         const ownerId = typeof a.user === 'object' && a.user ? a.user.id : a.user;
         const proposed = proposedMap.get(a.id);
         return {
             ...wrap(a).toJSON(),
+            current_version: versionWithFile(a.current_version, fileByVersion),
             proposed_version: proposed ? wrap(proposed).toJSON() : undefined,
             is_own: ownerId === user.id,
         };
@@ -781,6 +820,10 @@ export async function handleRemoveProjectResource(
     }
 
     await em.transactional(async (txEm) => {
+        await Promise.all([
+            txEm.nativeDelete(ArtifactEmbeddingEntity, { artifact_version: { artifact: artifact.id } }),
+            txEm.nativeDelete(ArtifactFileEntity, { artifact_version: { artifact: artifact.id } }),
+        ]);
         await txEm.nativeDelete(ArtifactVersionEntity, { artifact: artifact.id });
         await txEm.nativeDelete(ArtifactEntity, { id: artifact.id });
     });

@@ -4,6 +4,7 @@ import { createContext, type ReactNode, useCallback, useContext, useState } from
 
 export type PanelState =
     | { panel: 'artifact-preview'; artifactId: string; version: number }
+    | { panel: 'file-preview'; artifactId: string; version: number }
     | { panel: 'artifacts' }
     | { panel: 'resources' }
     | null;

@@ -56,6 +56,7 @@
         "@clerk/backend": "^2.29.5",
         "@clerk/nextjs": "^6.36.5",
         "@clerk/themes": "^2.4.46",
+        "@embedpdf/react-pdf-viewer": "^2.14.1",
         "@hono/clerk-auth": "^3.0.3",
         "@hono/zod-validator": "^0.7.6",
         "@hookform/resolvers": "^3.10.0",

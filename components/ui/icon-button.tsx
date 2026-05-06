@@ -30,11 +30,13 @@ function IconButton({
     className,
     variant,
     size,
+    rounded = false,
     asChild = false,
     ...props
 }: React.ComponentProps<'button'> &
     VariantProps<typeof iconButtonVariants> & {
         asChild?: boolean;
+        rounded?: boolean;
     }) {
     const Comp = asChild ? Slot : 'button';
 
@@ -42,7 +44,7 @@ function IconButton({
         <Comp
             type="button"
             data-slot="icon-button"
-            className={cn(iconButtonVariants({ variant, size, className }))}
+            className={cn(iconButtonVariants({ variant, size, className }), rounded && 'rounded-full')}
             {...props}
         />
     );
