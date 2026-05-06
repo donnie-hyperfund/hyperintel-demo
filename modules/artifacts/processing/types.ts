@@ -19,7 +19,6 @@ type BaseProcessingEntry = {
     progress?: number;
     stage?: ProcessingStage;
     stageStartedAt?: number;
-    hasObservedAiContentStage?: boolean;
     /** Survives refresh via sessionStorage — only the initiating tab sends the nudge */
     initiatedLocally: boolean;
 };

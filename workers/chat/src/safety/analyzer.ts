@@ -43,14 +43,7 @@ const AnalysisResultSchema = z.object({
     /** true = the agent's response contains leaked protected information */
     leaked: z.boolean(),
     /** What was leaked */
-    category: z.enum([
-        'internal_document_content',
-        'system_prompt',
-        'infrastructure',
-        'ai_content_yaml',
-        'debug_data',
-        'none',
-    ]),
+    category: z.enum(['internal_document_content', 'system_prompt', 'infrastructure', 'debug_data', 'none']),
     /** How severe the leak is */
     severity: z.enum(['none', 'low', 'medium', 'high', 'critical']),
     /** Short quote or description of what was leaked */

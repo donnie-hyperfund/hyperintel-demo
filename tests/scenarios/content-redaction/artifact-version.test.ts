@@ -2,8 +2,7 @@
  * Tests that ArtifactVersionEntity serialization conditionally redacts content
  * based on the is_internal flag.
  *
- * - ai_content is ALWAYS stripped regardless of is_internal
- * - is_internal=true (default): content is also stripped
+ * - is_internal=true (default): content is stripped
  * - is_internal=false: content is exposed
  *
  * Uses a minimal MikroORM instance (no DB) to verify toJSON() behavior.
@@ -44,7 +43,6 @@ function createVersion(
         id: string;
         version: number;
         content: string;
-        ai_content: string;
         status: string;
         rejection_reason: string;
         is_internal: boolean;
@@ -56,7 +54,6 @@ function createVersion(
         version: 1,
         title: 'Test Artifact',
         content: 'document body',
-        ai_content: 'AI-generated YAML',
         status: 'approved',
         artifact: '00000000-0000-0000-0000-000000000099' as any,
         created_at: now,
@@ -69,11 +66,6 @@ describe('ArtifactVersionEntity serialization', () => {
         it('redacts content', () => {
             const json = wrap(createVersion()).toJSON();
             expect(json.content).toBeUndefined();
-        });
-
-        it('redacts ai_content', () => {
-            const json = wrap(createVersion()).toJSON();
-            expect(json.ai_content).toBeUndefined();
         });
 
         it('defaults to is_internal=true when not specified', () => {
@@ -101,11 +93,6 @@ describe('ArtifactVersionEntity serialization', () => {
         it('exposes content', () => {
             const json = wrap(createVersion({ is_internal: false })).toJSON();
             expect(json.content).toBe('document body');
-        });
-
-        it('still redacts ai_content', () => {
-            const json = wrap(createVersion({ is_internal: false })).toJSON();
-            expect(json.ai_content).toBeUndefined();
         });
 
         it('exposes non-sensitive fields', () => {

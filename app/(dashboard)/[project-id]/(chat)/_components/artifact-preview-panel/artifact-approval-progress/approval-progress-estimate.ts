@@ -1,4 +1,4 @@
-import { DOCUMENT_CHAR_ESTIMATES, type DocumentType, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
+import { DOCUMENT_CHAR_ESTIMATES, type DocumentType } from '@/lib/schema/artifact';
 import type { ProcessingEntry, ProcessingStage } from '@/modules/artifacts/processing/types';
 
 const MAX_UNCONFIRMED_PROGRESS = 97;
@@ -8,8 +8,6 @@ type ProgressRange = readonly [number, number];
 
 const STAGE_CAP_RANGES: Record<ProcessingStage, ProgressRange> = {
     queued: [7, 10],
-    classifying: [20, 24],
-    'generating-ai-content': [82, 86],
     saving: [86, 89],
     publishing: [87, 90],
     indexing: [91, 94],
@@ -18,36 +16,19 @@ const STAGE_CAP_RANGES: Record<ProcessingStage, ProgressRange> = {
 
 const STAGE_START_RANGES: Record<ProcessingStage, ProgressRange> = {
     queued: [3, 5],
-    classifying: [9, 13],
-    'generating-ai-content': [23, 29],
     saving: [58, 66],
     publishing: [82, 86],
     indexing: [87, 91],
     finalizing: [93, 95],
 };
 
-const STAGE_DURATIONS_MS = {
+const STAGE_DURATIONS_MS: Record<ProcessingStage, number> = {
     queued: 1200,
-    classifying: 4500,
     saving: 3500,
     publishing: 3500,
     indexing: 3500,
     finalizing: 8000,
-} satisfies Record<Exclude<ProcessingStage, 'generating-ai-content'>, number>;
-
-const AI_CONTENT_PREPARATION_REFERENCE = {
-    documentType: 'Genesis DNA',
-    totalApprovalMs: 90_000,
-    minMs: 45_000,
-    maxMs: 180_000,
-} satisfies {
-    documentType: DocumentType;
-    totalApprovalMs: number;
-    minMs: number;
-    maxMs: number;
 };
-
-const AI_CONTENT_DOCUMENT_TYPES = new Set<DocumentType>(INTERNAL_DOCUMENTS);
 
 type StageProgressInput = {
     stage: ProcessingStage;
@@ -76,15 +57,9 @@ type StageFallbackStateInput = StageFallbackInput & {
     startedAt: number;
 };
 
-type StageDurationInput = ApprovalWorkInput & {
-    stage: ProcessingStage;
-};
-
-type ExpectationInput = ApprovalWorkInput & {
+type ExpectationInput = {
     elapsedMs: number;
     isConfirmed: boolean;
-    stage: ProcessingStage;
-    hasObservedAiContentStage?: boolean;
 };
 
 type ApprovalTimingLabels = {
@@ -111,10 +86,6 @@ function clamp(value: number, min: number, max: number): number {
 
 function easeOutQuad(ratio: number): number {
     return 1 - (1 - ratio) ** 2;
-}
-
-function easeInOutSine(ratio: number): number {
-    return -(Math.cos(Math.PI * ratio) - 1) / 2;
 }
 
 function getHashRatio(input: string): number {
@@ -149,91 +120,30 @@ function getStageCap({ stage, operationKey }: StageProgressInput): number {
 function getBaseApprovalDurationMs(): number {
     return (
         STAGE_DURATIONS_MS.queued +
-        STAGE_DURATIONS_MS.classifying +
         STAGE_DURATIONS_MS.saving +
         STAGE_DURATIONS_MS.indexing +
         STAGE_DURATIONS_MS.finalizing
     );
 }
 
-function getAiContentPreparationDurationMs({ contentLength, documentType }: ApprovalWorkInput): number {
-    const workSize = getApprovalWorkSize({ contentLength, documentType });
-    const referenceWorkSize = DOCUMENT_CHAR_ESTIMATES[AI_CONTENT_PREPARATION_REFERENCE.documentType];
-    const referenceDuration = AI_CONTENT_PREPARATION_REFERENCE.totalApprovalMs - getBaseApprovalDurationMs();
-    const sizeBasedDuration = referenceDuration * (workSize / referenceWorkSize);
-
-    return clamp(sizeBasedDuration, AI_CONTENT_PREPARATION_REFERENCE.minMs, AI_CONTENT_PREPARATION_REFERENCE.maxMs);
-}
-
-function getStageDurationMs({ stage, contentLength, documentType }: StageDurationInput): number {
-    if (stage === 'generating-ai-content') {
-        return getAiContentPreparationDurationMs({ contentLength, documentType });
-    }
-
+function getStageDurationMs({ stage }: { stage: ProcessingStage }): number {
     return STAGE_DURATIONS_MS[stage];
 }
 
-function getStageProgressRatio({
-    stage,
-    durationMs,
-    stageElapsedMs,
-}: {
-    stage: ProcessingStage;
-    durationMs: number;
-    stageElapsedMs: number;
-}): number {
-    const ratio = clamp(stageElapsedMs / durationMs, 0, 1);
-    if (stage === 'generating-ai-content') return easeInOutSine(ratio);
-    return easeOutQuad(ratio);
-}
-
-function shouldIncludeAiContentPreparation({
-    stage,
-    hasObservedAiContentStage,
-    documentType,
-    isInternal,
-}: {
-    stage: ProcessingStage;
-    hasObservedAiContentStage?: boolean;
-    documentType?: DocumentType;
-    isInternal?: boolean;
-}): boolean {
-    return (
-        stage === 'generating-ai-content' ||
-        !!hasObservedAiContentStage ||
-        isInternal === true ||
-        (!!documentType && AI_CONTENT_DOCUMENT_TYPES.has(documentType))
-    );
-}
-
-function getExpectedApprovalDurationMs({
-    stage,
-    hasObservedAiContentStage,
-    contentLength,
-    documentType,
-    isInternal,
-}: ApprovalWorkInput & { stage: ProcessingStage; hasObservedAiContentStage?: boolean }): number {
-    const baseDuration = getBaseApprovalDurationMs();
-
-    if (!shouldIncludeAiContentPreparation({ stage, hasObservedAiContentStage, documentType, isInternal })) {
-        return baseDuration;
-    }
-
-    return baseDuration + getAiContentPreparationDurationMs({ contentLength, documentType });
+function getStageProgressRatio({ durationMs, stageElapsedMs }: { durationMs: number; stageElapsedMs: number }): number {
+    return easeOutQuad(clamp(stageElapsedMs / durationMs, 0, 1));
 }
 
 export function getApprovalProgress({
     stage,
     stageElapsedMs,
     backendProgress,
-    contentLength,
-    documentType,
     operationKey,
 }: ApprovalProgressInput): number {
     const floor = getStageStart({ stage, backendProgress, operationKey });
     const cap = Math.max(floor, getStageCap({ stage, operationKey }));
-    const durationMs = getStageDurationMs({ stage, contentLength, documentType });
-    const ratio = getStageProgressRatio({ stage, durationMs, stageElapsedMs });
+    const durationMs = getStageDurationMs({ stage });
+    const ratio = getStageProgressRatio({ durationMs, stageElapsedMs });
     const estimatedProgress = floor + ratio * (cap - floor);
 
     return clamp(Math.round(estimatedProgress), 4, MAX_UNCONFIRMED_PROGRESS);
@@ -241,8 +151,6 @@ export function getApprovalProgress({
 
 export function getFallbackApprovalStage({ elapsedMs }: StageFallbackInput): ProcessingStage {
     if (elapsedMs < STAGE_DURATIONS_MS.queued) return 'queued';
-    if (elapsedMs < STAGE_DURATIONS_MS.queued + STAGE_DURATIONS_MS.classifying) return 'classifying';
-
     if (elapsedMs < 9000) return 'saving';
     if (elapsedMs < 13_000) return 'indexing';
     return 'finalizing';
@@ -254,12 +162,7 @@ function getFallbackApprovalStageState({ elapsedMs, startedAt }: StageFallbackSt
 } {
     if (elapsedMs < STAGE_DURATIONS_MS.queued) return { stage: 'queued', stageStartedAt: startedAt };
 
-    const classifyingStartedAt = startedAt + STAGE_DURATIONS_MS.queued;
-    if (elapsedMs < STAGE_DURATIONS_MS.queued + STAGE_DURATIONS_MS.classifying) {
-        return { stage: 'classifying', stageStartedAt: classifyingStartedAt };
-    }
-
-    const savingStartedAt = startedAt + STAGE_DURATIONS_MS.queued + STAGE_DURATIONS_MS.classifying;
+    const savingStartedAt = startedAt + STAGE_DURATIONS_MS.queued;
     if (elapsedMs < 9000) return { stage: 'saving', stageStartedAt: savingStartedAt };
 
     const indexingStartedAt = startedAt + 9000;
@@ -274,24 +177,10 @@ function getInitialExpectationLabel(expectedDurationMs: number): string {
     return 'Can take a minute or two';
 }
 
-export function getApprovalTimingLabels({
-    elapsedMs,
-    isConfirmed,
-    stage,
-    hasObservedAiContentStage,
-    contentLength,
-    documentType,
-    isInternal,
-}: ExpectationInput): ApprovalTimingLabels {
+export function getApprovalTimingLabels({ elapsedMs, isConfirmed }: ExpectationInput): ApprovalTimingLabels {
     if (isConfirmed) return { expectationLabel: 'Confirmed' };
 
-    const expectedDurationMs = getExpectedApprovalDurationMs({
-        stage,
-        hasObservedAiContentStage,
-        contentLength,
-        documentType,
-        isInternal,
-    });
+    const expectedDurationMs = getBaseApprovalDurationMs();
     const expectationLabel = getInitialExpectationLabel(expectedDurationMs);
 
     if (elapsedMs < 8000) return { expectationLabel };
@@ -336,15 +225,7 @@ export function getApprovalProgressState({
     const progress = isConfirmed
         ? 100
         : clamp(Math.max(entry?.progress ?? 0, estimatedProgress), 4, MAX_UNCONFIRMED_PROGRESS);
-    const timingLabels = getApprovalTimingLabels({
-        elapsedMs,
-        isConfirmed,
-        stage,
-        hasObservedAiContentStage: entry?.hasObservedAiContentStage,
-        contentLength,
-        documentType,
-        isInternal,
-    });
+    const timingLabels = getApprovalTimingLabels({ elapsedMs, isConfirmed });
 
     return {
         stage,

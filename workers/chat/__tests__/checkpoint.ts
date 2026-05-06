@@ -44,7 +44,6 @@ interface CheckpointArtifact {
         version: number;
         title?: string;
         content?: string;
-        ai_content?: string;
         status: string;
         is_internal: boolean;
         document_type: string;
@@ -182,7 +181,6 @@ export async function saveCheckpoint(
                 version: v.version,
                 title: v.title,
                 ...(v.content && { content: v.content }),
-                ...(v.ai_content && { ai_content: v.ai_content }),
                 status: v.status,
                 is_internal: v.is_internal,
                 document_type: v.document_type,
@@ -277,7 +275,6 @@ export async function loadCheckpoint(
                 version: ver.version,
                 title: ver.title ?? art.title ?? art.key,
                 ...(ver.content && { content: ver.content }),
-                ...(ver.ai_content && { ai_content: ver.ai_content }),
                 status: ver.status as any,
                 is_internal: ver.is_internal,
                 document_type: ver.document_type as any,
