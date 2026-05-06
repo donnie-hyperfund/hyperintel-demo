@@ -89,6 +89,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         handleSubmit,
         reset,
         watch,
+        setValue,
         formState: { errors },
     } = useForm<ChatMessageFormValues>({
         resolver: zodResolver(chatMessageFormSchema),
@@ -246,9 +247,37 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                     return new File([f], name, { type: f.type });
                 });
                 addFiles(named, { source: 'paste' });
+                return;
+            }
+
+            // Rich content paste (e.g. from Notion) — extract clean text from HTML
+            // to avoid markdown image references like ![...](attachment:...) breaking the message
+            const html = e.clipboardData.getData('text/html');
+            if (html) {
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const cleanText = doc.body.textContent || '';
+
+                if (cleanText) {
+                    e.preventDefault();
+                    const textarea = textareaRef.current;
+                    if (textarea) {
+                        const start = textarea.selectionStart ?? 0;
+                        const end = textarea.selectionEnd ?? 0;
+                        const current = message || '';
+                        const newValue = current.slice(0, start) + cleanText + current.slice(end);
+                        setValue('message', newValue);
+                        saveDraft(newValue);
+                        // Set cursor position after inserted text
+                        requestAnimationFrame(() => {
+                            textarea.selectionStart = start + cleanText.length;
+                            textarea.selectionEnd = start + cleanText.length;
+                            textareaRef.current?.updateTextareaHeight();
+                        });
+                    }
+                }
             }
         },
-        [addFiles, isAwaitingStream],
+        [addFiles, isAwaitingStream, message, setValue, saveDraft],
     );
 
     const handleContainerClick = useCallback(() => {
