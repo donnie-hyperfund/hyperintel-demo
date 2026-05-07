@@ -4,7 +4,6 @@ import { ChevronDown } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
-import { ShimmerText } from '@/components/ui/shimmer-text';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import {
     getLatestArtifactVersion,
@@ -16,13 +15,14 @@ import type { Artifact } from '@/modules/chat/types';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
-import { ArtifactApprovalProgress } from './artifact-approval-progress';
 import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
+import { ArtifactPreviewOverlay } from './artifact-preview-overlay';
 import { ArtifactVersionHistoryDialog } from './artifact-version-history-dialog';
 import { DiffControlBar } from './diff-control-bar';
 import { InternalDocumentActions } from './internal-document-actions';
 import { InternalDocumentContent } from './internal-document-content';
+import { useArtifactOverlayState } from './use-artifact-overlay-state';
 import { useArtifactScroll } from './use-artifact-scroll';
 
 type ArtifactViewerProps = {
@@ -50,7 +50,7 @@ const diffDirectives: Record<string, DirectiveHandler> = {
 /** Reusable artifact viewer with header and markdown content */
 export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: ArtifactViewerProps) => {
     const [isDiffVisible, setIsDiffVisible] = useState(false);
-    const [isProcessingApproval, setIsProcessingApproval] = useState(false);
+    const [processingAction, setProcessingAction] = useState<'approve' | 'reject' | null>(null);
     const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
     const {
@@ -69,6 +69,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const title = getLatestArtifactVersionTitle(artifact);
     const isStreaming = !!artifact.isStreaming;
     const isUpdating = !!artifact.isUpdating;
+    const isSummaryStreaming = !!artifact.isSummaryStreaming;
 
     const activeVersion = getLatestArtifactVersion(artifact);
     const content = getLatestArtifactVersionContent(artifact);
@@ -95,15 +96,14 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
     const hasEntryForVersion = !!(activeVersion?.id && hasProcessingEntry(activeVersion.id));
     const processingEntry = activeVersion?.id ? getProcessingEntry(activeVersion.id) : undefined;
-    const showProcessingOverlay = processingEntry?.status === 'processing';
-    const showCompletionOverlay = processingEntry?.action === 'approve' && processingEntry.status === 'completed';
-    const showApprovalProgress =
-        !isProcessingDelete &&
-        !isLinkingToProject &&
-        ((processingEntry?.action === 'approve' && (showProcessingOverlay || showCompletionOverlay)) ||
-            (!processingEntry && isProcessingApproval));
-    const showPreviewOverlay =
-        isUpdating || isProcessingApproval || isProcessingDelete || showProcessingOverlay || showCompletionOverlay;
+    const overlayState = useArtifactOverlayState({
+        isProcessingDelete,
+        isLinkingToProject,
+        processingAction,
+        processingEntry,
+        isUpdating,
+        isSummaryStreaming,
+    });
 
     // Suppress this artifact's entry from the status bar while the preview panel is open
     useEffect(() => {
@@ -163,7 +163,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                             artifactId={artifactId}
                             version={version}
                             disabled={isUpdating}
-                            onProcessingChange={setIsProcessingApproval}
+                            onProcessingChange={setProcessingAction}
                         />
                     )}
                 </InternalDocumentContent>
@@ -215,28 +215,13 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                     {renderContent()}
                 </div>
 
-                {/* Preview overlay */}
-                {showPreviewOverlay && (
-                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-xs">
-                        {showApprovalProgress ? (
-                            <ArtifactApprovalProgress
-                                entry={processingEntry}
-                                documentType={activeVersion?.documentType}
-                                isInternal={activeVersion?.isInternal}
-                                contentLength={content.length}
-                            />
-                        ) : (
-                            <ShimmerText className="text-md font-medium text-muted-foreground" duration={4}>
-                                {isProcessingDelete
-                                    ? 'Deleting...'
-                                    : isLinkingToProject
-                                      ? 'Adding to Project Intel...'
-                                      : activeVersion?.status === 'proposed'
-                                        ? 'Processing...'
-                                        : 'Making changes...'}
-                            </ShimmerText>
-                        )}
-                    </div>
+                {overlayState && (
+                    <ArtifactPreviewOverlay
+                        state={overlayState}
+                        documentType={activeVersion?.documentType}
+                        isInternal={activeVersion?.isInternal}
+                        contentLength={content.length}
+                    />
                 )}
 
                 {/* Scroll to bottom button */}
@@ -264,7 +249,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                     version={version}
                     disabled={isUpdating || !!isLastMessageStreaming}
                     isStreaming={isStreaming}
-                    onProcessingChange={setIsProcessingApproval}
+                    onProcessingChange={setProcessingAction}
                 />
             )}
         </div>

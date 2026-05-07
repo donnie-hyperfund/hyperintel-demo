@@ -10,7 +10,7 @@ type InternalDocumentActionsProps = {
     artifactId: string;
     version: number;
     disabled?: boolean;
-    onProcessingChange?: (isProcessing: boolean) => void;
+    onProcessingChange?: (action: 'approve' | 'reject' | null) => void;
 };
 
 export function InternalDocumentActions({
