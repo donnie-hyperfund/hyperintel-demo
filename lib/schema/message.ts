@@ -158,6 +158,17 @@ export const CreateMessageBodySchema = z.object({
 });
 export type CreateMessageBodyDto = z.infer<typeof CreateMessageBodySchema>;
 
+export const SetMessageFeedbackBodySchema = z.object({
+    feedback_score: z.boolean().nullable(),
+    feedback: z.string().nullable().optional(),
+});
+export type SetMessageFeedbackBodyDto = z.infer<typeof SetMessageFeedbackBodySchema>;
+
+export const SetMessageFeedbackResponseSchema = z.object({
+    ok: z.literal(true),
+});
+export type SetMessageFeedbackResponseDto = z.infer<typeof SetMessageFeedbackResponseSchema>;
+
 export const ChatDtoSchema = z.object({
     id: z.string().uuid(),
     type: z.string().optional(),

@@ -12,7 +12,7 @@ import { createProxyError } from '@/lib/api/proxy-error';
 
 const KEEPALIVE_INTERVAL_MS = 10_000; // 10s alarm heartbeat
 
-export class GenerationProxyDO extends DurableObject<Env> {
+export class GenerationProxyDO extends DurableObject<ObjectsEnv> {
     /**
      * Start a proxied generation.
      *

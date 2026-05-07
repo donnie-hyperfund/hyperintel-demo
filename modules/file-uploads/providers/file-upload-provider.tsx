@@ -245,7 +245,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 throw new Error(err.message || 'Presign failed');
             }
 
-            const presignData: { uploadUrl: string; fileId: string } = await presignRes.json();
+            const presignData = await presignRes.json();
             updateEntry(entryId, { imageFileId: presignData.fileId });
 
             const mimeType = IMAGE_MIME_TYPES[ext] ?? 'application/octet-stream';
@@ -680,7 +680,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         throw new Error(err.message || 'Upload failed');
                     }
 
-                    const resData: { artifactId?: string } = await res.json();
+                    const resData = await res.json();
                     if (resData.artifactId) {
                         if (isStaged) {
                             stagedArtifactIdsRef.current = [...stagedArtifactIdsRef.current, resData.artifactId];

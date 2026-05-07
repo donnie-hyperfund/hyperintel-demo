@@ -32,13 +32,13 @@ type SocketAttachment = {
  *
  * UG has ZERO domain-specific knowledge — all logic is delegated to handlers.
  */
-export class UserGateway extends DurableObject<Env> {
+export class UserGateway extends DurableObject<ObjectsEnv> {
     private handlers = new Map<string, TopicHandler>();
     /** Preview branch alias — propagated to topic handlers for DB resolution on dev */
     private previewAlias: string | null = null;
     private aliasLoaded = false;
 
-    constructor(ctx: DurableObjectState, env: Env) {
+    constructor(ctx: DurableObjectState, env: ObjectsEnv) {
         super(ctx, env);
         // Auto-respond to "ping" with "pong" without waking the DO
         this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));

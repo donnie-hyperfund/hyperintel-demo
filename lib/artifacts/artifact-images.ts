@@ -5,6 +5,8 @@
  * - `signArtifactImageKeys` — batch-sign R2 keys for reading (chat worker)
  */
 
+/// <reference types="@cloudflare/workers-types" />
+
 import type { ContentPart } from '@/common/ai/inference/types';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';

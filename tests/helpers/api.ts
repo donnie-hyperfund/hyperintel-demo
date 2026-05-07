@@ -8,13 +8,13 @@
  * but for Next.js App Router handlers instead of NestJS.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server';
 
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
-type RouteHandler = (
+type RouteHandler<TParams extends Record<string, string> = Record<string, string>> = (
 	req: NextRequest,
-	ctx: { params: Promise<Record<string, string>> },
+	ctx: { params: Promise<TParams> },
 ) => Promise<NextResponse>;
 
 type CallResult = {
@@ -31,14 +31,14 @@ type CallResult = {
  *   const { status, body } = await callRoute(GET, "/api/artifacts", { projectId: "..." });
  *   expect(status).toBe(200);
  */
-export async function callRoute(
-	handler: RouteHandler,
+export async function callRoute<TParams extends Record<string, string> = Record<string, string>>(
+	handler: RouteHandler<TParams>,
 	url: string,
-	params: Record<string, string> = {},
+	params: TParams = {} as TParams,
 	options?: { method?: Method; body?: unknown },
 ): Promise<CallResult> {
 	const method = options?.method ?? "GET";
-	const init: RequestInit = { method };
+	const init: ConstructorParameters<typeof NextRequest>[1] = { method };
 
 	if (options?.body) {
 		init.body = JSON.stringify(options.body);

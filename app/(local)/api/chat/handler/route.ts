@@ -5,7 +5,6 @@ import { getOrCreateRequestId, withRequestIdHeader } from '@/lib/api/request-id'
 import { initNextjsWorkerContext } from '@/lib/local/context';
 import { SendChatActionSchema } from '@/lib/schema/chat';
 import { chatActionHandler } from '@/workers/chat/src/chat-handler';
-import type { Ctx } from '@/workers/chat/src/context';
 
 export async function POST(req: NextRequest) {
     const requestId = getOrCreateRequestId(req.headers);
@@ -25,7 +24,7 @@ export async function POST(req: NextRequest) {
         );
     }
 
-    const ctx = (await initNextjsWorkerContext({ skipAI: false })) as Ctx;
+    const ctx = await initNextjsWorkerContext<ChatEnv>({ skipAI: false });
     ctx.requestId = requestId;
     // Pass no-op onEvent to get direct result (not SSE stream — no proxy DO locally)
     const result = await chatActionHandler(parsed.data, ctx, { onEvent: () => {} });

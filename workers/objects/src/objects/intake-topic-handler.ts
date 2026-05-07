@@ -70,7 +70,7 @@ export class IntakeTopicHandler extends StreamTopicHandler {
      * Permission: user owns the intake chat directly (not via project).
      * Intake chats have type = 'intake' and are linked to user via user_id.
      */
-    async checkPermission(userId: string, chatId: string, env: Env): Promise<boolean> {
+    async checkPermission(userId: string, chatId: string, env: ObjectsEnv): Promise<boolean> {
         const sql = await this.getSql(env);
         const rows = await sql`
 			SELECT 1 FROM chats c
@@ -85,7 +85,12 @@ export class IntakeTopicHandler extends StreamTopicHandler {
     // ACTION HANDLING
     // ========================================================================
 
-    async handleAction(_userId: string, action: string, payload: unknown, env: Env): Promise<ActionResult | void> {
+    async handleAction(
+        _userId: string,
+        action: string,
+        payload: unknown,
+        env: ObjectsEnv,
+    ): Promise<ActionResult | void> {
         switch (action) {
             case 'registerStream': {
                 const {

@@ -1,6 +1,8 @@
 import { ChevronLeftIcon, ChevronRightIcon, MoreHorizontalIcon } from 'lucide-react';
 import * as React from 'react';
-import { Button, buttonVariants } from '@/components/ui/button';
+import type { VariantProps } from 'class-variance-authority';
+import { buttonVariants } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { cn } from '@/lib/utils';
 
 function Pagination({ className, ...props }: React.ComponentProps<'nav'>) {
@@ -27,10 +29,30 @@ function PaginationItem({ ...props }: React.ComponentProps<'li'>) {
 
 type PaginationLinkProps = {
     isActive?: boolean;
-} & Pick<React.ComponentProps<typeof Button>, 'size'> &
+    size?: NonNullable<VariantProps<typeof buttonVariants>['size']> | 'square';
+} &
     React.ComponentProps<'a'>;
 
-function PaginationLink({ className, isActive, size = 'icon', ...props }: PaginationLinkProps) {
+function PaginationLink({ className, isActive, size = 'square', ...props }: PaginationLinkProps) {
+    const variant = isActive ? 'outline' : 'ghost';
+
+    if (size === 'square') {
+        return (
+            <IconButton
+                asChild
+                variant={isActive ? 'outline' : 'unstyled'}
+                className={cn('text-sm font-medium hover:bg-neutral-300/5 hover:text-accent-foreground', className)}
+            >
+                <a
+                    aria-current={isActive ? 'page' : undefined}
+                    data-slot="pagination-link"
+                    data-active={isActive}
+                    {...props}
+                />
+            </IconButton>
+        );
+    }
+
     return (
         <a
             aria-current={isActive ? 'page' : undefined}
@@ -38,7 +60,7 @@ function PaginationLink({ className, isActive, size = 'icon', ...props }: Pagina
             data-active={isActive}
             className={cn(
                 buttonVariants({
-                    variant: isActive ? 'outline' : 'ghost',
+                    variant,
                     size,
                 }),
                 className,

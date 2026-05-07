@@ -52,7 +52,7 @@ describe('loadChatHistory', () => {
 			find: vi.fn().mockResolvedValue([]),
 		};
 
-		const history = await loadChatHistory(em as any, 'chat-1', {} as Env);
+        const history = await loadChatHistory(em as any, 'chat-1', {} as ChatEnv);
 
 		expect(history).toHaveLength(1);
 		expect(history[0].role).toBe('assistant');

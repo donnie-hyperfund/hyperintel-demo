@@ -26,7 +26,7 @@ import { OpenRouter } from '@openrouter/sdk';
 import { chatActionHandler } from '../src/chat-handler';
 import type { ChatActionResult, ChatHandlerOptions } from '../src/chat-handler';
 import type { Ctx } from '../src/context';
-import type { StreamEvent } from '../src/utils/stream';
+import type { StreamEvent } from '@/lib/schema/stream';
 
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
@@ -207,7 +207,7 @@ export class TestSession {
 		]);
 
 		const turn: TurnResult = {
-			userMessageId: result.userMessageId,
+			userMessageId: result.userMessageId ?? '',
 			agentMessageId: result.agentMessageId,
 			events,
 		};
@@ -227,7 +227,7 @@ export class TestSession {
 				console.log(`[TOOL INPUT] ${event.tool}: ${JSON.stringify(event.input)}`);
 				break;
 			case 'tool_result':
-				console.log(`[TOOL RESULT] ${event.tool} success=${event.success}${!event.success ? ` result=${event.result}` : ''}`);
+				console.log(`[TOOL RESULT] ${event.id} success=${event.success}${!event.success ? ` result=${event.result}` : ''}`);
 				break;
 			case 'error':
 				console.log(`[ERROR] ${event.error}`);

@@ -21,14 +21,16 @@ export const resourceKeys = {
     list: (params?: ResourceListParams) => [...resourceKeys.lists(), params] as const,
 };
 
-export function getResourceListInfiniteKey({
-    limit = 20,
-    approvedOnly,
-    documentType,
-    excludeProjectId,
-    search,
-    ownership,
-}: Omit<ResourceListParams, 'page'>) {
+export function getResourceListInfiniteKey(paramsOrLimit: Omit<ResourceListParams, 'page'> | number = {}) {
+    const {
+        limit = 20,
+        approvedOnly,
+        documentType,
+        excludeProjectId,
+        search,
+        ownership,
+    } = typeof paramsOrLimit === 'number' ? { limit: paramsOrLimit } : paramsOrLimit;
+
     return (pageIndex: number, previousPageData: PaginatedResponse<CamelCaseDto<ArtifactDto>> | null) => {
         if (previousPageData && pageIndex >= previousPageData.pagination.totalPages) return null;
         return resourceKeys.list({

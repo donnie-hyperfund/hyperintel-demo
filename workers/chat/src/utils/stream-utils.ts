@@ -372,7 +372,7 @@ export function createEventCollector(): { enqueue: (data: object | string) => bo
  * For user messages with attached images, generates signed URLs and
  * builds multimodal ContentPart[] content.
  */
-export async function loadChatHistory(em: any, chatId: string, env?: Env) {
+export async function loadChatHistory(em: any, chatId: string, env?: ChatEnv) {
     // Load messages and image files in parallel
     const [dbMessages, imageFiles] = await Promise.all([
         em

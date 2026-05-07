@@ -1297,11 +1297,12 @@ export function ChatProvider({
                 const result = await response.json();
 
                 // Reconcile client-side user message ID with server-assigned ID
-                if (result.userMessageId) {
+                const userMessageId = 'userMessageId' in result ? result.userMessageId : undefined;
+                if (userMessageId) {
                     setState((prev) => ({
                         ...prev,
                         messages: prev.messages.map((m) =>
-                            m.id === userMessage.id ? { ...m, id: result.userMessageId, tempId: m.tempId || m.id } : m,
+                            m.id === userMessage.id ? { ...m, id: userMessageId, tempId: m.tempId || m.id } : m,
                         ),
                     }));
                 }
@@ -1369,7 +1370,7 @@ export function ChatProvider({
             // If the backend skipped the nudge (no pending system event to respond to),
             // reset isGenerating — no SSE stream will fire to reset it otherwise.
             const body = await response.json().catch(() => null);
-            if (body?.nudge === 'skipped') {
+            if (body && 'nudge' in body && body.nudge === 'skipped') {
                 setState((prev) => ({ ...prev, isGenerating: false }));
             }
         } catch (error) {

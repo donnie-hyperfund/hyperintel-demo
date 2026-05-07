@@ -3,9 +3,10 @@
  *
  * Usage - types are inferred from projectDeps:
  * ```ts
- * const ctx = await initNextjsWorkerContext();                    // full context
+ * const ctx = await initNextjsWorkerContext();                    // full context, defaults env to ChatEnv
  * const ctx = await initNextjsWorkerContext({ skipAuth: true });  // no user
  * const ctx = await initNextjsWorkerContext({ optionalAuth: true }); // user | null
+ * const ctx = await initNextjsWorkerContext<EmbeddingEnv>();      // local bridge for a specific worker env
  * ```
  */
 
@@ -65,12 +66,18 @@ const projectDeps = {
  * Wraps the base factory to lazily start the dev WS server on first call.
  */
 const _baseFactory = createContextFactory(projectDeps);
-export const initNextjsWorkerContext: typeof _baseFactory = ((...args: any[]) => {
-    ensureDevWsServer();
-    return (_baseFactory as any)(...args);
-}) as any;
 
-// Type alias for common use
-export type ProjectContext = InferredLocalContext<typeof projectDeps>;
+export type ProjectContext<TEnv extends object = ChatEnv> = Omit<InferredLocalContext<typeof projectDeps>, 'env'> & {
+    env: TEnv;
+    previewAlias?: string | null;
+    requestId?: string | null;
+};
+
+export async function initNextjsWorkerContext<TEnv extends object = ChatEnv>(
+    config?: ContextConfig,
+): Promise<ProjectContext<TEnv>> {
+    ensureDevWsServer();
+    return (await _baseFactory(config as any)) as ProjectContext<TEnv>;
+}
 
 export type { ContextConfig };

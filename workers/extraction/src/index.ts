@@ -59,12 +59,12 @@ function resolveFiletype(mimeType: string, originalName: string): Filetype | nul
 // ============================================================================
 
 export interface ExtractionContext {
-    env: Env;
+    env: ExtractionEnv;
     em: EntityManager;
     reducto?: Reducto;
 }
 
-function extractDocument(fileBytes: ArrayBuffer, filetype: Filetype, env: Env): Promise<RustExtractResponse> {
+function extractDocument(fileBytes: ArrayBuffer, filetype: Filetype, env: ExtractionEnv): Promise<RustExtractResponse> {
     switch (filetype) {
         case 'docx':
         case 'pptx':
@@ -95,7 +95,7 @@ interface RustExtractResponse {
 async function extractViaRustWorker(
     fileBytes: ArrayBuffer,
     filetype: Filetype,
-    env: Env,
+    env: ExtractionEnv,
 ): Promise<RustExtractResponse> {
     const response = await env.EXTRACT_RUST.fetch('http://extract-rust/extract/v2', {
         method: 'POST',
@@ -502,7 +502,7 @@ async function markFileFailed(em: EntityManager, fileId: string, reason: string)
 // HTTP HANDLER
 // ============================================================================
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: ExtractionEnv }>();
 
 app.get('/', (c) => c.json({ status: 'ok', worker: 'extraction' }));
 app.get('/health', (c) => c.json({ status: 'healthy' }));
@@ -556,7 +556,11 @@ app.post('/extract', async (c) => {
 // QUEUE CONSUMER
 // ============================================================================
 
-async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext): Promise<void> {
+async function handleQueueBatch(
+    batch: MessageBatch<unknown>,
+    env: ExtractionEnv,
+    _ctx: ExecutionContext,
+): Promise<void> {
     console.log(`[extraction/queue] Processing batch of ${batch.messages.length} messages`);
 
     // Cache contexts per preview alias (different branches need different DB connections)

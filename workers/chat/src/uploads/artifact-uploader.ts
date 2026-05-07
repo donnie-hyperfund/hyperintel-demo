@@ -128,7 +128,7 @@ function normalizeTextUploadContent(filename: string, content: string): string {
     return extracted || cleaned;
 }
 
-function getBucketName(env: Env): string {
+function getBucketName(env: ChatEnv): string {
     return env.ENV === 'dev' ? 'hi-artifacts-dev' : 'hi-artifacts';
 }
 

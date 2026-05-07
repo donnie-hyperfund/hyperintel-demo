@@ -276,7 +276,7 @@ export function buildArtifactImageContentParts(markdown: string, signedUrls: Map
 // ---------------------------------------------------------------------------
 
 function parseDataUri(uri: string): { bytes: ArrayBuffer; contentType: string } {
-	const match = uri.match(/^data:([^;]+);base64,(.+)$/s);
+	const match = uri.match(new RegExp('^data:([^;]+);base64,(.+)$', 's'));
 	if (!match) throw new Error(`Invalid data URI: ${uri.slice(0, 80)}...`);
 	const contentType = match[1];
 	const base64 = match[2];

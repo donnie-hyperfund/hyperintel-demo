@@ -1,16 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { initNextjsWorkerContext } from '@/lib/local/context';
+import { AbortActionSchema } from '@/lib/schema/chat';
 
 export async function POST(req: NextRequest) {
-    const { chatId, agentMessageId } = await req.json();
-    if (!agentMessageId || typeof agentMessageId !== 'string') {
-        return NextResponse.json({ error: 'agentMessageId required' }, { status: 400 });
-    }
-    if (!chatId || typeof chatId !== 'string') {
-        return NextResponse.json({ error: 'chatId required' }, { status: 400 });
+    const parsed = AbortActionSchema.safeParse(await req.json());
+    if (!parsed.success) {
+        return NextResponse.json({ error: 'Invalid data', details: parsed.error.message }, { status: 400 });
     }
 
-    const ctx = await initNextjsWorkerContext({ skipAuth: true, skipDatabase: true, skipAI: true });
+    const { chatId, agentMessageId } = parsed.data;
+    const ctx = await initNextjsWorkerContext<ChatEnv>({ skipAuth: true, skipDatabase: true, skipAI: true });
     const streamDO = ctx.env.CHAT_STREAM_DO.get(ctx.env.CHAT_STREAM_DO.idFromName(agentMessageId));
     await streamDO.abort(chatId);
 

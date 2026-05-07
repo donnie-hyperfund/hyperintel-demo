@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: ObjectsEnv }>();
 
 app.get('/', (c) => c.json({ status: 'ok', worker: 'objects' }));
 app.get('/health', (c) => c.json({ status: 'healthy' }));

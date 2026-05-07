@@ -203,7 +203,7 @@ export function useRestoreProjectArtifactVersion(projectId: string | undefined, 
                 throw new Error(error.message || 'Failed to restore artifact');
             }
 
-            const result = (await response.json()) as RestoreArtifactResponseDto;
+            const result = await response.json();
 
             if (projectId) {
                 globalMutate(serializeProjectArtifactListKey(projectId));
@@ -260,7 +260,7 @@ export function useUploadProjectArtifact(projectId: string, chatId: string | nul
                 const error = await response.json();
                 // Only trust messages with codes we control — everything else is opaque
                 if (isKnownUploadError(error.code)) {
-                    throw new UploadValidationError(error.code, error.message);
+                    throw new UploadValidationError(error.code, error.message ?? 'Upload failed');
                 }
                 throw new Error(error.message || 'Upload failed');
             }

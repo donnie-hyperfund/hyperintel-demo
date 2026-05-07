@@ -1,12 +1,16 @@
+import { typedFetch, type TypedResponse } from '@/lib/api/client/fetch';
 import { getWorkerUrl } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
 import { frontendEnv } from '@/lib/env';
-import type { ImportArtifactsActionDto } from '@/lib/schema/project';
+import type { ImportArtifactsActionDto, ImportResultDto } from '@/lib/schema/project';
 
-export const importArtifacts = (data: ImportArtifactsActionDto, accessToken: string) => {
+export const importArtifacts = (
+    data: ImportArtifactsActionDto,
+    accessToken: string,
+): Promise<TypedResponse<ImportResultDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ImportAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -15,7 +19,7 @@ export const importArtifacts = (data: ImportArtifactsActionDto, accessToken: str
             body: JSON.stringify(data),
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.ImportAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.ImportAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

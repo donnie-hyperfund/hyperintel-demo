@@ -4,6 +4,7 @@ import { Code, FileCode, Layers, Loader2, MessageSquare } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { typedFetch } from '@/lib/api/client/fetch';
 import { cn } from '@/lib/utils';
 
 type Message = {
@@ -104,7 +105,7 @@ export default function ChatInterface() {
         // Simulate AI responses for both panels
         try {
             const responses = await Promise.all([
-                fetch('/api/chat', {
+                typedFetch<{ message: string }, { message: string }>('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -112,7 +113,7 @@ export default function ChatInterface() {
                         conversationId: 'left',
                     }),
                 }),
-                fetch('/api/chat', {
+                typedFetch<{ message: string }, { message: string }>('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
