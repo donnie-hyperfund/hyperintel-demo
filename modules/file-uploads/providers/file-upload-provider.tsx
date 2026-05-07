@@ -141,6 +141,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     const uploadArtifactViaPresign = useCallback(
         async (file: File, entryId: string, token: string, isStaged: boolean, ext: string) => {
+            if (isImageExtension(ext)) {
+                resolveImageDimensions(file).then((dims) => {
+                    if (dims) updateEntry(entryId, { imageWidth: dims.width, imageHeight: dims.height });
+                });
+            }
+
             const presignRes = await presignUpload(
                 {
                     filename: file.name,

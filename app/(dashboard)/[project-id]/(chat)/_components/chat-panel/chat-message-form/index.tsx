@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { ApiClientError } from '@/lib/api/client/types';
 import { IS_DEV } from '@/lib/config';
+import { getFileExtension } from '@/lib/files';
+import { isImageExtension } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
 import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -133,6 +135,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             name: entry.name,
             size: entry.size,
             imageFileId: entry.imageFileId,
+            artifactFileId: entry.fileId,
             imageWidth: entry.imageWidth,
             imageHeight: entry.imageHeight,
         }));
@@ -155,6 +158,12 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                           const attrs = [`size=${f.size}`];
                           if (f.imageFileId) {
                               attrs.push(`fileid=${f.imageFileId}`, 'type=image');
+                              if (f.imageWidth && f.imageHeight) attrs.push(`w=${f.imageWidth}`, `h=${f.imageHeight}`);
+                          } else if (
+                              f.artifactFileId &&
+                              isImageExtension(`.${getFileExtension(f.name).toLowerCase()}`)
+                          ) {
+                              attrs.push(`artifactfileid=${f.artifactFileId}`, 'type=image');
                               if (f.imageWidth && f.imageHeight) attrs.push(`w=${f.imageWidth}`, `h=${f.imageHeight}`);
                           }
                           return `::upload[${f.name}]{${attrs.join(' ')}}`;
