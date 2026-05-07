@@ -14,7 +14,7 @@ const sendActionMock = vi.fn();
 const sendIntakeActionMock = vi.fn();
 const associateUploadsMock = vi.fn();
 const summarizeMock = vi.fn();
-const openPanelMock = vi.fn();
+const pushPanelMock = vi.fn();
 const createApiClientMock = vi.fn();
 const hasPendingNudgeMock = vi.fn();
 const clearPendingNudgeMock = vi.fn();
@@ -101,7 +101,15 @@ vi.mock('@/lib/websocket/provider', () => ({
 
 const closePanelMock = vi.fn();
 vi.mock('@/modules/chat/providers/active-panel-provider', () => ({
-    useActivePanelContext: () => ({ openPanel: openPanelMock, closePanel: closePanelMock, panelState: null }),
+    useActivePanelContext: () => ({
+        pushPanel: pushPanelMock,
+        closePanel: closePanelMock,
+        pushPanel: vi.fn(),
+        popPanel: vi.fn(),
+        togglePanel: vi.fn(),
+        canGoBack: false,
+        panelState: null,
+    }),
 }));
 
 const setSelectedModelMock = vi.fn();
@@ -182,7 +190,7 @@ describe('ChatProvider', () => {
         sendIntakeActionMock.mockReset();
         associateUploadsMock.mockReset();
         summarizeMock.mockReset();
-        openPanelMock.mockReset();
+        pushPanelMock.mockReset();
         closePanelMock.mockReset();
         setSelectedModelMock.mockReset();
         setIsChangingModelMock.mockReset();

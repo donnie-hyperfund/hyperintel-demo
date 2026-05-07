@@ -42,7 +42,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     });
 
     const { addArtifact, updateArtifact } = useArtifactActions();
-    const { openPanel } = useActivePanelContext();
+    const { pushPanel } = useActivePanelContext();
 
     const artifacts = useMemo(() => {
         if (!data) return [];
@@ -63,7 +63,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
             const version = artifact.version;
 
             addArtifact({ id: localId, key: artifact.key, isLoading: true }, version);
-            openPanel({ panel: 'artifact-preview', artifactId: localId, version });
+            pushPanel({ panel: 'artifact-preview', artifactId: localId, version });
 
             try {
                 const api = createProjectArtifactApi(getToken);
@@ -73,7 +73,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
                 updateArtifact(localId, { isLoading: false }, version);
             }
         },
-        [projectId, getToken, addArtifact, updateArtifact, openPanel],
+        [projectId, getToken, addArtifact, updateArtifact, pushPanel],
     );
 
     const handleArtifactClick = useCallback(

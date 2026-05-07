@@ -189,7 +189,7 @@ export function ChatProvider({
     const artifactContext = useArtifactActions();
     const { hasPendingNudge, clearPendingNudge } = useArtifactProcessing();
 
-    const { openPanel, closePanel, panelState } = useActivePanelContext();
+    const { pushPanel, closePanel, panelState } = useActivePanelContext();
     const panelStateRef = useRef(panelState);
     panelStateRef.current = panelState;
     const { getToken } = useAuth();
@@ -431,9 +431,9 @@ export function ChatProvider({
     const handleArtifactOpen = useCallback(
         (artifactId: string, version: number) => {
             if (state.isSummarizing) return;
-            openPanel({ panel: 'artifact-preview', artifactId, version });
+            pushPanel({ panel: 'artifact-preview', artifactId, version }, { reset: true });
         },
-        [openPanel, state.isSummarizing],
+        [pushPanel, state.isSummarizing],
     );
 
     const fetchArtifact = useCallback(

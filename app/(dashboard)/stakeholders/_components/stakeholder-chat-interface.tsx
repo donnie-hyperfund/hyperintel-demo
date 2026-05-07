@@ -11,7 +11,7 @@ type StakeholderChatInterfaceProps = {
 };
 
 export function StakeholderChatInterface({ title }: StakeholderChatInterfaceProps) {
-    const { panelState, closePanel } = useActivePanelContext();
+    const { panelState, popPanel } = useActivePanelContext();
 
     return (
         <ResizablePanelWrapper
@@ -29,7 +29,7 @@ export function StakeholderChatInterface({ title }: StakeholderChatInterfaceProp
                     <ArtifactPreviewPanel
                         version={panelState.version}
                         artifactId={panelState.artifactId}
-                        onClose={closePanel}
+                        onClose={popPanel}
                     />
                 )
             }

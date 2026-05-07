@@ -22,7 +22,7 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
         projectId,
         state: { phaseIndex },
     } = useChatContext();
-    const { openPanel } = useActivePanelContext();
+    const { pushPanel } = useActivePanelContext();
     const { addArtifact, updateArtifact, getArtifact } = useArtifactActions();
 
     const handleClick = useCallback(async () => {
@@ -31,12 +31,12 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
 
         const cached = getArtifact(cbKey, cbVersion);
         if (cached) {
-            openPanel({ panel: 'artifact-preview', artifactId: cbKey, version: cbVersion });
+            pushPanel({ panel: 'artifact-preview', artifactId: cbKey, version: cbVersion }, { reset: true });
             return;
         }
 
         addArtifact({ id: cbKey, key: cbKey, isLoading: true }, cbVersion);
-        openPanel({ panel: 'artifact-preview', artifactId: cbKey, version: cbVersion });
+        pushPanel({ panel: 'artifact-preview', artifactId: cbKey, version: cbVersion }, { reset: true });
 
         try {
             const fetched = projectId
@@ -61,7 +61,7 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
         } catch {
             updateArtifact(cbKey, { isLoading: false }, cbVersion);
         }
-    }, [phaseIndex, getArtifact, addArtifact, updateArtifact, openPanel, projectId, getToken]);
+    }, [phaseIndex, getArtifact, addArtifact, updateArtifact, pushPanel, projectId, getToken]);
 
     return (
         <Pill
