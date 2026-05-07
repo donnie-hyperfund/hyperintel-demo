@@ -11,7 +11,7 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
-import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
+import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
@@ -44,6 +44,11 @@ import { pickInferenceParams } from './utils/pick-inference-params';
 import { captureWorkerPostHogEvent } from './utils/posthog';
 import { preprocessContext } from './utils/preprocess-context';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
+import {
+    buildReasoningVisibilityGuidance,
+    getPresetReasoningPromptMode,
+    inferReasoningPromptMode,
+} from './utils/reasoning-visibility-guidance';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
     cleanupStreamDO,
@@ -131,6 +136,10 @@ You have access to web_search for real-time information. Use it when you need cu
 
 const COMPLETION_BRIEF_GUIDANCE = `## Completion Briefs
 Before generating a Completion Brief, always call the \`completion_brief\` tool first. It loads the template and provides current phase context and document statuses.`;
+
+function buildServerToolsGuidance(reasoningPromptMode: ReasoningPromptMode): string {
+    return `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}\n\n${buildReasoningVisibilityGuidance(reasoningPromptMode)}`;
+}
 
 // ============================================================================
 // SECURITY BOUNDARY
@@ -229,6 +238,7 @@ export type PreparedChatGenerationInput = ChatToolsAndGroups & {
     initialSystemPrompt: string;
     localPath: string | null;
     estimatedTokens: number;
+    reasoningPromptMode?: ReasoningPromptMode;
 };
 
 export async function prepareChatGenerationInput({
@@ -256,11 +266,19 @@ export async function prepareChatGenerationInput({
             : localPromptsSetting
         : null;
 
+    const presetId = data.model ?? getDefaultPresetId(ctx.env);
+    const resolvedPreset = resolveModelPreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
+    const reasoningPromptMode = options.overrideInference
+        ? inferReasoningPromptMode(options.overrideInference)
+        : resolvedPreset
+          ? getPresetReasoningPromptMode(resolvedPreset)
+          : 'internal-only';
+
     const initialSystemPrompt = await buildSystemPrompt(
         ctx,
         new Set<string>(savedPrompts),
         localPath,
-        `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}`,
+        buildServerToolsGuidance(reasoningPromptMode),
     );
     const { allTools, toolGroups } = getChatToolsAndGroups();
     const estimatedTokens = estimateInferenceInputTokens({
@@ -288,6 +306,7 @@ export async function prepareChatGenerationInput({
         initialSystemPrompt,
         localPath,
         estimatedTokens,
+        reasoningPromptMode,
         // Image sends need a reload after image files are linked to the persisted user message
         // so loadChatHistory can attach signed image URLs.
         ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
@@ -544,18 +563,27 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             },
         };
 
-        const { allTools, initialSystemPrompt, localPath, toolGroups } = preparedInput;
+        const {
+            allTools,
+            initialSystemPrompt,
+            localPath,
+            toolGroups,
+            reasoningPromptMode: preparedReasoningPromptMode,
+        } = preparedInput;
 
         // Refresh OpenRouter pricing cache if stale (non-blocking background fetch)
         if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
 
         // Determine inference params via preset resolution
         const presetId = data.model ?? getDefaultPresetId(ctx.env);
-        const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
-        if (!resolved) {
+        const resolvedPreset = resolveModelPreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
+        if (!resolvedPreset) {
             throw new Error(`Preset '${presetId}' is not available`);
         }
-        const defaultInference = withCommonParams(resolved, { searchEnabled: true });
+        const defaultInference = withCommonParams(resolvedPreset.inference, { searchEnabled: true });
+        const selectedReasoningPromptMode = options.overrideInference
+            ? inferReasoningPromptMode(options.overrideInference)
+            : getPresetReasoningPromptMode(resolvedPreset);
 
         const { inferenceParams, effectivePresetOverride } = pickInferenceParams({
             defaultInference,
@@ -566,13 +594,27 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             overrideInference: options.overrideInference,
         });
 
+        const effectiveReasoningPromptMode: ReasoningPromptMode =
+            effectivePresetOverride === 'sonnet-4.6'
+                ? 'native'
+                : (preparedReasoningPromptMode ?? selectedReasoningPromptMode);
+        const systemPromptForRun =
+            effectiveReasoningPromptMode === preparedReasoningPromptMode
+                ? initialSystemPrompt
+                : await buildSystemPrompt(
+                      ctx,
+                      new Set<string>(savedPrompts),
+                      localPath,
+                      buildServerToolsGuidance(effectiveReasoningPromptMode),
+                  );
+
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
             agentCtx,
             ctx,
             {
                 ...inferenceParams,
-                instructions: initialSystemPrompt,
+                instructions: systemPromptForRun,
                 context: allMessages,
                 countReasoningAsContent: true,
                 contentThreshold: 5,
@@ -588,7 +630,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                             ctx,
                             agentCtx.loadedPrompts,
                             localPath,
-                            `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}`,
+                            buildServerToolsGuidance(effectiveReasoningPromptMode),
                         ),
                     behavioralGuidance: [
                         'DECISION ESCALATION: Use `request_user_decision` for GENUINE ambiguity only — multiple valid paths where the user must pick (project type at ambiguous initiation, persona disambiguation, framework branching, deliverable type, intent ambiguity, tool errors with multiple named recovery paths). Do NOT silently pick yourself, and do NOT ask in plain text when concrete options exist. FORBIDDEN: (1) refusal-disguise — presenting alternatives when the user already gave an unambiguous command (that is Authority Inversion in tool-call form; if execution is blocked, say so plainly); (2) false ambiguity — asking about details a competent SME can reasonably default. Pre-flight test: "Could a competent SME proceed without clarification?" If yes, proceed. After the user clicks, act on the choice immediately without re-confirming.',
@@ -752,7 +794,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                             }
                         }
 
-                        const usedPromptTokens = estimateTextTokens(initialSystemPrompt);
+                        const usedPromptTokens = estimateTextTokens(systemPromptForRun);
                         const toolTokens = estimateToolTokens(allTools, toolGroups);
                         const usedTokens = usedContextTokens + usedPromptTokens + toolTokens.toolDefTokens;
                         const tokenBreakdown: TokenBreakdown = {
