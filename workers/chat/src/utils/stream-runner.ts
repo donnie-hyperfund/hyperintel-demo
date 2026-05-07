@@ -13,7 +13,14 @@ import type { Ctx } from '../context';
 import type { DraftManager } from '../tools/documents';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
 import { createDocumentEventHandler, type DocumentContext } from './document-events';
-import { createEventCollector, createPusher, handleCommonStreamEvent, type Pusher, wireAbort } from './stream-utils';
+import {
+    type CommonStreamEventOpts,
+    createEventCollector,
+    createPusher,
+    handleCommonStreamEvent,
+    type Pusher,
+    wireAbort,
+} from './stream-utils';
 
 // ============================================================================
 // STREAM INFRASTRUCTURE SETUP
@@ -61,6 +68,8 @@ export interface StreamLoopConfig {
     onSpecificEvent: (event: AgentStreamEvent) => void | Promise<void>;
     /** Test event tap — receives doc events and drained common events */
     onEvent?: (event: StreamEvent) => void;
+    /** Options forwarded to handleCommonStreamEvent (e.g. draft-internal callback for input redaction). */
+    commonEventOpts?: CommonStreamEventOpts;
 }
 
 /**
@@ -82,7 +91,7 @@ export async function runStreamLoop(config: StreamLoopConfig): Promise<void> {
 
         await docEvents.handle(event);
 
-        if (handleCommonStreamEvent(collector.enqueue, event, state)) {
+        if (handleCommonStreamEvent(collector.enqueue, event, state, config.commonEventOpts)) {
             const events = collector.drain();
             const combined = [...pendingDocEvents.splice(0), ...events];
             if (combined.length > 0) {

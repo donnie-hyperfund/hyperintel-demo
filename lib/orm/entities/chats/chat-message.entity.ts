@@ -5,6 +5,19 @@ import { hasGroup } from '@/common/orm/serialization';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 
+/**
+ * Defense-in-depth: redact toolOutput + block.content for write/patch/edit_document.
+ *
+ * Today these tools return only stats ({ charsAdded, linesNow, ... }) — no content —
+ * so redacting them is not strictly necessary. Kept on as a kill-switch in case a
+ * future executor change leaks content into the result. Flip to false to preserve
+ * tool stats in chat history (e.g. for debugging or analytics).
+ *
+ * Note: toolInput (which DOES carry content via write_document.content / patch edits)
+ * is always redacted for internal docs regardless of this flag.
+ */
+const REDACT_DOC_WRITE_TOOL_OUTPUT = true;
+
 @Entity({ tableName: 'chat_messages' })
 export class ChatMessageEntity extends IdCreatedColumns {
     @Property({ type: 'text' })
@@ -70,19 +83,35 @@ export class ChatMessageEntity extends IdCreatedColumns {
     }
 
     /**
-     * Redact write_document/edit_document tool call blocks from chat messages.
-     * Always unconditional — the real content lives on ArtifactVersionEntity
-     * which handles is_internal visibility via its own toJSON().
+     * Redact content-bearing document tool_call blocks from chat messages.
+     *
+     * write/patch/edit_document: input + output may contain content the model wrote.
+     * Public docs (metadata.internal === false) preserved; internal/legacy fail closed and redact all three fields.
+     * read_document: public reads preserved; internal/legacy fail closed and redact output + image refs.
      */
-    private redactBlocks(blocks: StreamBlock[]): StreamBlock[] {
+    private redactBlocks(
+        blocks: StreamBlock[],
+        redactDocWriteOutput: boolean = REDACT_DOC_WRITE_TOOL_OUTPUT,
+    ): StreamBlock[] {
         return blocks.map((b) => {
-            if (b.type === 'tool_call' && ['write_document', 'edit_document', 'patch_document'].includes(b.toolName)) {
+            if (b.type !== 'tool_call') return b;
+            if (['write_document', 'edit_document', 'patch_document'].includes(b.toolName)) {
+                if ((b as any).metadata?.internal === false) return b;
                 return {
                     ...b,
-                    content: 'REDACTED',
                     toolInput: 'REDACTED',
-                    toolOutput: 'REDACTED',
+                    ...(redactDocWriteOutput && {
+                        content: 'REDACTED',
+                        toolOutput: 'REDACTED',
+                    }),
                 };
+            }
+            if (b.toolName === 'read_document') {
+                if ((b as any).metadata?.internal === false) return b;
+                const wiped: any = { ...b, content: 'REDACTED', toolOutput: 'REDACTED' };
+                delete wiped.toolImageRefs;
+                delete wiped.toolContentParts;
+                return wiped;
             }
             return b;
         });

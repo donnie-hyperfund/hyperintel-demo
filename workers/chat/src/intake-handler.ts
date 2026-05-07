@@ -501,6 +501,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             stream,
             push: pusher.push,
             docEventsCtx: { em: em!, draftManager: agentCtx.draftManager },
+            commonEventOpts: {
+                isCurrentDraftInternal: () => agentCtx.draftManager.getCurrent()?.is_internal === true,
+            },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);

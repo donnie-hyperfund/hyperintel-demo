@@ -670,6 +670,9 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             stream,
             push: pusher.push,
             docEventsCtx: { em: em!, projectId: agentCtx.projectId, draftManager: agentCtx.draftManager },
+            commonEventOpts: {
+                isCurrentDraftInternal: () => agentCtx.draftManager.getCurrent()?.is_internal === true,
+            },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);

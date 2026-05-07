@@ -26,7 +26,7 @@ export type DocumentEvent =
           type: 'document_start';
           name: string;
           title: string;
-          mode: 'create' | 'edit';
+          mode: 'create' | 'edit' | 'replace';
           isInternal: boolean;
           pendingVersion: number;
           documentType?: DocumentType;
@@ -35,6 +35,7 @@ export type DocumentEvent =
           loadedVersion?: number;
           nextVersion?: number;
           rejectionReason?: string;
+          loadedContent?: string;
       }
     | { type: 'document_delta'; name: string; content: string }
     | { type: 'document_progress'; name: string; progress: number }
@@ -48,10 +49,10 @@ export type DocumentEvent =
     | {
           type: 'document_complete';
           name: string;
-          version: number;
+          version?: number;
           lines: number;
           action: string;
-          status: 'proposed';
+          status: 'proposed' | 'aborted';
           supersededVersion?: number;
           summaryPending?: boolean;
       };
@@ -171,6 +172,14 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         startEvent.rejectionReason = result.rejectionReason;
                     }
 
+                    // For non-internal edit-mode starts, include the loaded base content so the DO snapshot can replay subsequent edits correctly on reconnect. Skipped for internal docs (would store internal content in DO state) and for create/replace (draft starts empty anyway).
+                    if (!activeDoc.isInternal && startEvent.mode === 'edit') {
+                        const loaded = ctx.draftManager?.getCurrent()?.content;
+                        if (typeof loaded === 'string') {
+                            startEvent.loadedContent = loaded;
+                        }
+                    }
+
                     emit(startEvent);
                 }
 
@@ -190,7 +199,23 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                 }
 
                 // finalize_document: emit document_complete and clear state
-                if (result.version !== undefined && result.lines !== undefined) {
+                if (result.action === 'aborted' && result.lines !== undefined) {
+                    const name = result.name || activeDoc?.name;
+                    if (name) {
+                        emit({
+                            type: 'document_complete',
+                            name,
+                            lines: result.lines,
+                            action: 'aborted',
+                            status: 'aborted',
+                        });
+                    }
+                    activeDoc = null;
+                    writeParser = null;
+                    accumulatedChars = 0;
+                    estimatedChars = 0;
+                    lastEmittedProgress = 0;
+                } else if (result.version !== undefined && result.lines !== undefined) {
                     const name = result.name || activeDoc?.name;
                     if (name) {
                         const completeEvent: DocumentEvent = {
@@ -221,7 +246,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
             }
 
             case 'tool_call_delta': {
-                // write_document: stream the content field
+                // write_document: stream the content field. Replacement semantics are known from begin_document(mode="replace").
                 if (event.tool === 'write_document' && activeDoc) {
                     if (!writeParser) {
                         writeParser = createStreamFieldParser({
