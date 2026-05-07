@@ -1,8 +1,7 @@
 'use client';
 
-import { ChevronDown } from 'lucide-react';
+import { AnimatePresence } from 'motion/react';
 import { useEffect, useMemo, useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import {
@@ -14,6 +13,7 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import type { Artifact } from '@/modules/chat/types';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
+import { ScrollToBottomButton } from '../scroll-to-bottom-button';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
 import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
@@ -214,7 +214,6 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                 <div ref={containerRef} className="h-full overflow-y-auto">
                     {renderContent()}
                 </div>
-
                 {overlayState && (
                     <ArtifactPreviewOverlay
                         state={overlayState}
@@ -223,18 +222,15 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                         contentLength={content.length}
                     />
                 )}
-
-                {/* Scroll to bottom button */}
-                {!isAtBottom && content.length > 0 && (
-                    <Button
-                        onClick={() => scrollToBottom()}
-                        variant="secondary"
-                        className="size-10 absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-xl z-10"
-                        aria-label="Scroll to bottom"
-                    >
-                        <ChevronDown className="size-4" />
-                    </Button>
-                )}
+                <AnimatePresence>
+                    {!isAtBottom && (summaryContent || content).length > 0 && (
+                        <ScrollToBottomButton
+                            key="artifact-scroll-to-bottom"
+                            onClick={() => scrollToBottom()}
+                            className="absolute bottom-6 left-1/2 z-10 -translate-x-1/2"
+                        />
+                    )}
+                </AnimatePresence>
             </div>
 
             {/* Diff controls bar */}

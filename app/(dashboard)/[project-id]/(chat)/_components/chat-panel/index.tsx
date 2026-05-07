@@ -1,10 +1,13 @@
 'use client';
 
+import { AnimatePresence } from 'motion/react';
+import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { DevSlot } from '@/lib/dev-slots';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { FileDropOverlay } from '@/modules/file-uploads/components/file-drop-overlay';
 import { FileUploadProvider } from '@/modules/file-uploads/providers/file-upload-provider';
+import { ScrollToBottomButton } from '../scroll-to-bottom-button';
 import ChatConversation from './chat-conversation/chat-conversation';
 import { ChatEmptyTitle } from './chat-conversation/chat-empty-title';
 import ChatMessageForm from './chat-message-form';
@@ -50,10 +53,15 @@ function ChatPanelContent({
     const {
         chatType,
         pendingDecisions,
-        state: { tokenUsage },
+        state: { messages, tokenUsage, isLoading },
     } = useChatContext();
     const isPhaseChat = chatType === 'phase';
     const hasPendingDecision = pendingDecisions.length > 0;
+
+    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
+        threshold: 100,
+    });
+    const showScrollToBottom = !isAtBottom && messages.length > 0;
 
     if (isEmpty) {
         const content = (
@@ -79,10 +87,19 @@ function ChatPanelContent({
             {HeaderComponent}
 
             <div className="flex min-h-0 flex-1 flex-col">
-                <ChatConversation />
+                <ChatConversation containerRef={containerRef} />
                 <div className="relative z-10 -mt-6 shrink-0">
-                    <div className="pointer-events-none absolute inset-x-0 bottom-full z-20">
-                        <ChatStatusPill className="pointer-events-auto mb-3" />
+                    <div className="pointer-events-none absolute inset-x-0 bottom-full z-20 flex flex-col items-center gap-3 pb-3">
+                        <AnimatePresence>
+                            {showScrollToBottom && (
+                                <ScrollToBottomButton
+                                    key="chat-scroll-to-bottom"
+                                    onClick={() => scrollToBottom()}
+                                    className="pointer-events-auto"
+                                />
+                            )}
+                        </AnimatePresence>
+                        <ChatStatusPill className="pointer-events-auto" />
                     </div>
                     {hasPendingDecision && <DecisionPrompt />}
                     {/* Hidden, not unmounted — prevents the form's motion entrance from re-firing on every decision resolve. */}
