@@ -48,7 +48,7 @@ export function ArtifactApprovalProgress({
     return (
         <div className="w-full max-w-sm space-y-4 px-6 text-center">
             <div className="mx-auto flex size-11 items-center justify-center rounded-full border border-border bg-background/40">
-                <Loader2 className={cn('size-5 animate-spin', isReject ? 'text-destructive/50' : 'text-primary')} />
+                <Loader2 className={cn('size-5 animate-spin', isReject ? 'text-red-400/80' : 'text-primary')} />
             </div>
 
             <div className="space-y-1.5">
@@ -65,10 +65,7 @@ export function ArtifactApprovalProgress({
             <div className="space-y-2">
                 <Progress
                     value={progress}
-                    className={cn(
-                        'h-1.5',
-                        isReject && 'bg-destructive/10 *:data-[slot=progress-indicator]:bg-destructive/40',
-                    )}
+                    className={cn('h-1.5', isReject && 'bg-zinc-600/40 *:data-[slot=progress-indicator]:bg-red-500/60')}
                 />
                 <div className="flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
                     <span className="tabular-nums">{progressLabel}</span>
