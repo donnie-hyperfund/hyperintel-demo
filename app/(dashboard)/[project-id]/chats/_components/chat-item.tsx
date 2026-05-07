@@ -19,7 +19,6 @@ type ChatItemProps = {
 
 type ChatItemContentProps = {
     title: string;
-    phaseNumber: number;
     timeAgo: string | null;
 };
 
@@ -42,11 +41,11 @@ export const ChatItem = ({ chat, projectId, phaseNumber, onEdit }: ChatItemProps
             )}
         >
             {href && <Link href={href} className="absolute inset-0 rounded-[inherit]" aria-label={title} />}
-            <ChatItemContent title={title} phaseNumber={phaseNumber} timeAgo={timeAgo} />
+            <ChatItemContent title={title} timeAgo={timeAgo} />
             <RenameButton
                 onClick={() => onEdit(chat.id)}
                 className={cn(
-                    'absolute right-3.5 top-3.5 z-10 text-neutral-400 transition-opacity md:right-5 md:top-5',
+                    'absolute right-3.5 top-1/2 -translate-y-1/2 z-10 text-neutral-400 transition-opacity md:right-5',
                     'opacity-0 group-hover:opacity-100',
                 )}
             />
@@ -54,13 +53,12 @@ export const ChatItem = ({ chat, projectId, phaseNumber, onEdit }: ChatItemProps
     );
 };
 
-function ChatItemContent({ title, phaseNumber, timeAgo }: ChatItemContentProps) {
+function ChatItemContent({ title, timeAgo }: ChatItemContentProps) {
     return (
         <>
             <div className="mb-1.5 pr-8">
                 <div className="truncate text-sm font-medium md:text-md">{title}</div>
             </div>
-            <div className="mb-3 text-xs text-neutral-500 md:text-sm">Phase {phaseNumber}</div>
             {timeAgo && <div className="text-xs text-neutral-500">Last message {timeAgo}</div>}
         </>
     );
