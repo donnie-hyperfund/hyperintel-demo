@@ -246,7 +246,12 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         if (!doc) return;
         doc.content += item.content;
         const ac = optsRef.current.artifactContext;
-        ac?.updateArtifact(doc.artifactId, { proposedVersion: { content: doc.content } }, doc.version);
+        // Drop the "waiting" state once deltas actually appear — content is now visibly streaming.
+        ac?.updateArtifact(
+            doc.artifactId,
+            { proposedVersion: { content: doc.content }, isUpdating: false },
+            doc.version,
+        );
     };
     const docDripRef = useRef(new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()));
 
