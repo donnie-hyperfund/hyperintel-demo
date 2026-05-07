@@ -11,7 +11,7 @@ type CompanyChatInterfaceProps = {
 };
 
 export function CompanyChatInterface({ title }: CompanyChatInterfaceProps) {
-    const { panelState, closePanel } = useActivePanelContext();
+    const { panelState, popPanel } = useActivePanelContext();
 
     return (
         <ResizablePanelWrapper
@@ -29,7 +29,7 @@ export function CompanyChatInterface({ title }: CompanyChatInterfaceProps) {
                     <ArtifactPreviewPanel
                         version={panelState.version}
                         artifactId={panelState.artifactId}
-                        onClose={closePanel}
+                        onClose={popPanel}
                     />
                 )
             }
