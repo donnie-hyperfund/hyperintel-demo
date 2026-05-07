@@ -29,7 +29,7 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
 
     const containerRef = useRef<T | null>(null);
     const followRef = useRef(initialFollow);
-    const [isAtBottom, setIsAtBottom] = useState(true);
+    const [isAtBottom, setIsAtBottom] = useState(false);
 
     const scrollToBottom = useCallback(
         (opts?: { behavior?: ScrollBehavior }) => {

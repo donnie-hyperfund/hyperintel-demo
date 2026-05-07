@@ -123,7 +123,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     }, [canShowDiff, previousContent, content]);
 
     const { containerRef, isAtBottom, scrollToBottom } = useArtifactScroll({
-        artifactId,
+        artifactKey,
         versionNumber: activeVersion?.version,
         content,
         summaryContent,

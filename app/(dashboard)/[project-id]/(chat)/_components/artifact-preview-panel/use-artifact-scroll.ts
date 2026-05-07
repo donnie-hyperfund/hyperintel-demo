@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { type UseAutoScrollReturn, useAutoScroll } from '@/hooks/use-auto-scroll';
 
 type UseArtifactScrollProps = {
-    artifactId: string;
+    artifactKey: string;
     versionNumber: number | undefined;
     content: string;
     summaryContent: string;
@@ -17,7 +17,7 @@ type UseArtifactScrollReturn = Pick<
 >;
 
 export function useArtifactScroll({
-    artifactId,
+    artifactKey,
     versionNumber,
     content,
     summaryContent,
@@ -28,23 +28,23 @@ export function useArtifactScroll({
         disabled: true,
     });
 
-    const prevArtifactIdRef = useRef(artifactId);
+    const prevArtifactKeyRef = useRef(artifactKey);
     const prevVersionRef = useRef(versionNumber);
     const prevStreamingRef = useRef(isStreaming);
 
     useLayoutEffect(() => {
-        const prevId = prevArtifactIdRef.current;
+        const prevKey = prevArtifactKeyRef.current;
         const prevStreaming = prevStreamingRef.current;
-        prevArtifactIdRef.current = artifactId;
+        prevArtifactKeyRef.current = artifactKey;
         prevStreamingRef.current = isStreaming;
 
-        if (prevId !== artifactId) {
+        if (prevKey !== artifactKey) {
             if (isStreaming) scrollToBottom({ behavior: 'instant' });
             else scrollToTop({ behavior: 'instant' });
             return;
         }
         if (!prevStreaming && isStreaming) scrollToBottom({ behavior: 'instant' });
-    }, [artifactId, isStreaming, scrollToBottom, scrollToTop]);
+    }, [artifactKey, isStreaming, scrollToBottom, scrollToTop]);
 
     useLayoutEffect(() => {
         const prev = prevVersionRef.current;
