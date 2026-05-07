@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { ApiClientError } from '@/lib/api/client/types';
 import { IS_DEV } from '@/lib/config';
+import { getFileExtension } from '@/lib/files';
+import { isImageExtension } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
 import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -28,9 +30,9 @@ import { getContextBypassForChat, setContextBypassForChat } from '@/modules/chat
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ContextHardStopModal } from '../../context-hard-stop-modal';
 import { ContextWarningModal } from '../../context-warning-modal';
-import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
 import { FilePreviewItem } from './file-preview-item/file-preview-item';
+import { ImageUploadModeSelector } from './image-upload-mode-selector';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 import { SwitchModelSelector } from './switch-model-selector';
 
@@ -89,6 +91,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         handleSubmit,
         reset,
         watch,
+        setValue,
         formState: { errors },
     } = useForm<ChatMessageFormValues>({
         resolver: zodResolver(chatMessageFormSchema),
@@ -132,6 +135,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             name: entry.name,
             size: entry.size,
             imageFileId: entry.imageFileId,
+            artifactFileId: entry.fileId,
             imageWidth: entry.imageWidth,
             imageHeight: entry.imageHeight,
         }));
@@ -154,6 +158,12 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                           const attrs = [`size=${f.size}`];
                           if (f.imageFileId) {
                               attrs.push(`fileid=${f.imageFileId}`, 'type=image');
+                              if (f.imageWidth && f.imageHeight) attrs.push(`w=${f.imageWidth}`, `h=${f.imageHeight}`);
+                          } else if (
+                              f.artifactFileId &&
+                              isImageExtension(`.${getFileExtension(f.name).toLowerCase()}`)
+                          ) {
+                              attrs.push(`artifactfileid=${f.artifactFileId}`, 'type=image');
                               if (f.imageWidth && f.imageHeight) attrs.push(`w=${f.imageWidth}`, `h=${f.imageHeight}`);
                           }
                           return `::upload[${f.name}]{${attrs.join(' ')}}`;
@@ -246,9 +256,37 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                     return new File([f], name, { type: f.type });
                 });
                 addFiles(named, { source: 'paste' });
+                return;
+            }
+
+            // Rich content paste (e.g. from Notion) — extract clean text from HTML
+            // to avoid markdown image references like ![...](attachment:...) breaking the message
+            const html = e.clipboardData.getData('text/html');
+            if (html) {
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const cleanText = doc.body.textContent || '';
+
+                if (cleanText) {
+                    e.preventDefault();
+                    const textarea = textareaRef.current;
+                    if (textarea) {
+                        const start = textarea.selectionStart ?? 0;
+                        const end = textarea.selectionEnd ?? 0;
+                        const current = message || '';
+                        const newValue = current.slice(0, start) + cleanText + current.slice(end);
+                        setValue('message', newValue);
+                        saveDraft(newValue);
+                        // Set cursor position after inserted text
+                        requestAnimationFrame(() => {
+                            textarea.selectionStart = start + cleanText.length;
+                            textarea.selectionEnd = start + cleanText.length;
+                            textareaRef.current?.updateTextareaHeight();
+                        });
+                    }
+                }
             }
         },
-        [addFiles, isAwaitingStream],
+        [addFiles, isAwaitingStream, message, setValue, saveDraft],
     );
 
     const handleContainerClick = useCallback(() => {
@@ -361,6 +399,8 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                             />
 
                             {(chatId || chatType !== 'phase') && <AttachFileButton disabled={isAwaitingStream} />}
+
+                            <ImageUploadModeSelector disabled={isBusy} />
 
                             <div className="flex items-end gap-2 ml-auto">
                                 {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
