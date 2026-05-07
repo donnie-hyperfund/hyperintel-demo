@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { getProjectPageData } from '@/lib/api/server/page-data';
-import { formatNewPhaseTitle, formatPageTitle } from '@/lib/metadata/page-title';
+import { formatNewPhaseTitle } from '@/lib/metadata/page-title';
 
 type ChatPageParams = PageProps<'/[project-id]'>;
 
@@ -12,7 +12,7 @@ export async function generateMetadata({ params, searchParams }: ChatPageParams)
     if (!project) return {};
 
     return {
-        title: sp.new ? formatNewPhaseTitle(project.name) : formatPageTitle(project.name),
+        title: sp.new ? formatNewPhaseTitle(project.name) : project.name,
     };
 }
 

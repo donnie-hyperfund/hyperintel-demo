@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
-import { formatPageTitle } from '@/lib/metadata/page-title';
 
 export const metadata: Metadata = {
-    title: formatPageTitle('Launch Pad'),
+    title: 'Launch Pad',
 };
 
 type LayoutProps = {

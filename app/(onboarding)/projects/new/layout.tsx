@@ -5,11 +5,10 @@ import { unstable_serialize } from 'swr/infinite';
 import { assertAuthPage } from '@/lib/api/auth-guard';
 import { getResourceListInfiniteKey } from '@/lib/api/client/fetchers/resources';
 import { fetchResources } from '@/lib/api/server/fetchers/resources';
-import { formatPageTitle } from '@/lib/metadata/page-title';
 import { ProjectCreationWizardProvider } from './_providers/project-creation-wizard-provider';
 
 export const metadata: Metadata = {
-    title: formatPageTitle('Create a new project'),
+    title: 'Create a new project',
 };
 
 export default async function NewProjectLayout({ children }: { children: React.ReactNode }) {
