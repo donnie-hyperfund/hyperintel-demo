@@ -28,9 +28,9 @@ import { getContextBypassForChat, setContextBypassForChat } from '@/modules/chat
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ContextHardStopModal } from '../../context-hard-stop-modal';
 import { ContextWarningModal } from '../../context-warning-modal';
-import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
 import { FilePreviewItem } from './file-preview-item/file-preview-item';
+import { ImageUploadModeSelector } from './image-upload-mode-selector';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 import { SwitchModelSelector } from './switch-model-selector';
 
@@ -390,6 +390,8 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                             />
 
                             {(chatId || chatType !== 'phase') && <AttachFileButton disabled={isAwaitingStream} />}
+
+                            <ImageUploadModeSelector disabled={isBusy} />
 
                             <div className="flex items-end gap-2 ml-auto">
                                 {IS_DEV && <SwitchModelSelector disabled={isBusy} />}

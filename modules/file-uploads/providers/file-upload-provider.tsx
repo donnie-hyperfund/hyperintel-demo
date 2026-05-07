@@ -3,16 +3,6 @@
 import { useAuth } from '@clerk/nextjs';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useSWRConfig } from 'swr';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
 import type { PaginatedResponse } from '@/lib/api/client/types';
@@ -58,14 +48,9 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
     '.webp': 'image/webp',
 };
 
-export const PROMPT_IMAGE_UPLOAD_INTENT = false;
-
 type UploadBatch = { pendingIds: Set<string>; total: number; firstName: string };
-type ImageUploadIntent = 'artifact' | 'chat-image';
-type PendingImageIntent = { fileName: string } | null;
+export type ImageUploadIntent = 'artifact' | 'chat-image';
 type AddFilesOptions = { source?: 'paste' };
-
-const IMAGE_UPLOAD_INTENT_STORAGE_KEY = 'image-upload-intent';
 
 export type FileUploadContextValue = {
     files: FileEntry[];
@@ -81,6 +66,12 @@ export type FileUploadContextValue = {
     consumeStagedImageFileIds: () => string[];
     /** Consume chat-input draft artifact IDs — every chat-input upload, whether staged or already scoped. */
     consumeDraftArtifactIds: () => string[];
+    /** Current image upload mode. */
+    imageUploadMode: ImageUploadIntent;
+    /** Switch image upload mode. Re-uploads existing image entries via the new path. */
+    switchImageUploadMode: (mode: ImageUploadIntent) => void;
+    /** True while images are being re-uploaded after a mode switch. */
+    isSwitchingImageMode: boolean;
 };
 
 const FileUploadContext = createContext<FileUploadContextValue | null>(null);
@@ -99,8 +90,10 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     const [files, setFiles] = useState<FileEntry[]>(() => initialPersistedState?.entries ?? []);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [pendingImageIntent, setPendingImageIntent] = useState<PendingImageIntent>(null);
-    const [rememberImageIntent, setRememberImageIntent] = useState(false);
+    const [imageUploadMode, setImageUploadMode] = useState<ImageUploadIntent>(
+        () => initialPersistedState?.imageUploadMode ?? 'artifact',
+    );
+    const [isSwitchingImageMode, setIsSwitchingImageMode] = useState(false);
     const filesRef = useRef(files);
     filesRef.current = files;
     const stagedArtifactIdsRef = useRef<string[]>([]);
@@ -111,8 +104,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     const batchesRef = useRef<UploadBatch[]>([]);
     const pollingEntryIdsRef = useRef<Set<string>>(new Set());
-    const resolveImageIntentRef = useRef<((intent: ImageUploadIntent) => void) | null>(null);
-
     const invalidateResources = useCallback(() => {
         if (scope?.projectId) {
             globalMutate(serializeProjectResourceListKey(scope.projectId));
@@ -271,37 +262,9 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         [finalizeEntry, scope?.chatId, updateEntry],
     );
 
-    const resolveImageUploadIntent = useCallback(
-        async (file: File): Promise<ImageUploadIntent> => {
-            if (!trackAsPending) return 'artifact';
-            if (!PROMPT_IMAGE_UPLOAD_INTENT) return 'artifact';
-
-            const rememberedIntent = sessionStorage.getItem(IMAGE_UPLOAD_INTENT_STORAGE_KEY);
-            if (rememberedIntent === 'artifact' || rememberedIntent === 'chat-image') {
-                return rememberedIntent;
-            }
-
-            return await new Promise<ImageUploadIntent>((resolve) => {
-                resolveImageIntentRef.current = resolve;
-                setRememberImageIntent(false);
-                setPendingImageIntent({ fileName: file.name });
-            });
-        },
-        [trackAsPending],
-    );
-
-    const handleImageIntentSelect = useCallback(
-        (intent: ImageUploadIntent) => {
-            if (rememberImageIntent) {
-                sessionStorage.setItem(IMAGE_UPLOAD_INTENT_STORAGE_KEY, intent);
-            }
-
-            setPendingImageIntent(null);
-            resolveImageIntentRef.current?.(intent);
-            resolveImageIntentRef.current = null;
-        },
-        [rememberImageIntent],
-    );
+    const updateImageUploadMode = useCallback((mode: ImageUploadIntent) => {
+        setImageUploadMode(mode);
+    }, []);
 
     const upsertFileEntry = useCallback((incoming: FileEntry) => {
         setFiles((prev) => {
@@ -410,8 +373,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 fileId: rest.fileId ?? presignData?.fileId,
             }));
 
-        writePersistedUploadState(uploadsStorageKey, { entries: persistable });
-    }, [files, uploadsStorageKey]);
+        writePersistedUploadState(uploadsStorageKey, { entries: persistable, imageUploadMode });
+    }, [files, uploadsStorageKey, imageUploadMode]);
 
     // Re-populate staged + draft refs from restored entries so that consume*() returns correct IDs
     // on send after a page refresh. Staged = subset that needed association. Draft = every
@@ -505,6 +468,103 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         [getToken, invalidateResources, pruneRemovedArtifactsFromResourceCache],
     );
 
+    const switchImageUploadMode = useCallback(
+        async (mode: ImageUploadIntent) => {
+            const prevMode = imageUploadMode;
+            updateImageUploadMode(mode);
+
+            if (!prevMode || prevMode === mode) return;
+
+            const token = await getToken();
+            if (!token) return;
+
+            const imageEntries = filesRef.current.filter((entry) => {
+                const ext = `.${entry.name.split('.').pop()?.toLowerCase()}`;
+                if (!isImageExtension(ext)) return false;
+                if (entry.status === 'uploading' || entry.status === 'processing') return false;
+                if (!entry.file) return false;
+                return true;
+            });
+
+            if (imageEntries.length === 0) return;
+
+            const entriesWithoutBlob = filesRef.current.filter((entry) => {
+                const ext = `.${entry.name.split('.').pop()?.toLowerCase()}`;
+                return isImageExtension(ext) && entry.status === 'ready' && !entry.file;
+            });
+
+            if (entriesWithoutBlob.length > 0) {
+                toast({
+                    title: 'Some images could not be re-uploaded',
+                    description: 'Images restored from a previous session cannot be switched.',
+                    variant: 'destructive',
+                });
+            }
+
+            const isStaged = !scope?.projectId && !scope?.chatId;
+            setIsSwitchingImageMode(true);
+
+            try {
+                for (const entry of imageEntries) {
+                    const ext = `.${entry.name.split('.').pop()?.toLowerCase()}`;
+                    const file = entry.file!;
+
+                    // Clean up old upload refs
+                    if (entry.artifactId) {
+                        stagedArtifactIdsRef.current = stagedArtifactIdsRef.current.filter(
+                            (id) => id !== entry.artifactId,
+                        );
+                        draftArtifactIdsRef.current = draftArtifactIdsRef.current.filter(
+                            (id) => id !== entry.artifactId,
+                        );
+                    }
+                    if (entry.imageFileId) {
+                        stagedImageFileIdsRef.current = stagedImageFileIdsRef.current.filter(
+                            (id) => id !== entry.imageFileId,
+                        );
+                    }
+
+                    // Reset entry state
+                    updateEntry(entry.id, {
+                        status: 'uploading',
+                        artifactId: undefined,
+                        imageFileId: undefined,
+                        fileId: undefined,
+                        presignData: undefined,
+                        requiresAssociation: undefined,
+                    });
+
+                    try {
+                        // Delete old artifact if switching from artifact mode
+                        if (prevMode === 'artifact' && entry.artifactId) {
+                            deleteArtifact({ artifactId: entry.artifactId }, token).catch(() => {});
+                        }
+
+                        if (mode === 'chat-image') {
+                            await uploadChatImage(file, entry.id, token, ext);
+                        } else {
+                            await uploadArtifactViaPresign(file, entry.id, token, isStaged, ext);
+                        }
+                    } catch (err) {
+                        failEntry(entry.id, err instanceof Error ? err.message : undefined);
+                    }
+                }
+            } finally {
+                setIsSwitchingImageMode(false);
+            }
+        },
+        [
+            imageUploadMode,
+            updateImageUploadMode,
+            getToken,
+            scope,
+            updateEntry,
+            uploadChatImage,
+            uploadArtifactViaPresign,
+            failEntry,
+        ],
+    );
+
     const pollFileStatus = useCallback(
         async (fileId: string, entryId: string) => {
             let failures = 0;
@@ -591,17 +651,9 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 const token = await getToken();
                 if (!token) throw new Error('Not authenticated');
 
-                if (isImageExtension(ext)) {
-                    if (options?.source === 'paste') {
-                        await uploadChatImage(file, entryId, token, ext);
-                        return;
-                    }
-
-                    const imageIntent = await resolveImageUploadIntent(file);
-                    if (imageIntent === 'chat-image') {
-                        await uploadChatImage(file, entryId, token, ext);
-                        return;
-                    }
+                if (isImageExtension(ext) && trackAsPending && imageUploadMode === 'chat-image') {
+                    await uploadChatImage(file, entryId, token, ext);
+                    return;
                 }
 
                 if (isBinaryArtifactExtension(ext) || isImageExtension(ext)) {
@@ -641,15 +693,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 failEntry(entryId, err instanceof Error ? err.message : undefined);
             }
         },
-        [
-            failEntry,
-            getToken,
-            resolveImageUploadIntent,
-            scope,
-            trackAsPending,
-            uploadArtifactViaPresign,
-            uploadChatImage,
-        ],
+        [failEntry, getToken, imageUploadMode, scope, trackAsPending, uploadArtifactViaPresign, uploadChatImage],
     );
 
     const addFiles = useCallback(
@@ -823,31 +867,25 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     }, [files, pollFileStatus]);
 
     return (
-        <>
-            <FileUploadContext.Provider
-                value={{
-                    files,
-                    addFiles,
-                    removeFile,
-                    clearFiles,
-                    submitFiles,
-                    waitForArtifactsReady,
-                    isSubmitting,
-                    consumeStagedArtifactIds,
-                    consumeStagedImageFileIds,
-                    consumeDraftArtifactIds,
-                }}
-            >
-                {children}
-            </FileUploadContext.Provider>
-            <ImageUploadIntentDialog
-                open={PROMPT_IMAGE_UPLOAD_INTENT && pendingImageIntent !== null}
-                fileName={pendingImageIntent?.fileName ?? ''}
-                remember={rememberImageIntent}
-                onRememberChange={setRememberImageIntent}
-                onSelect={handleImageIntentSelect}
-            />
-        </>
+        <FileUploadContext.Provider
+            value={{
+                files,
+                addFiles,
+                removeFile,
+                clearFiles,
+                submitFiles,
+                waitForArtifactsReady,
+                isSubmitting,
+                consumeStagedArtifactIds,
+                consumeStagedImageFileIds,
+                consumeDraftArtifactIds,
+                imageUploadMode,
+                switchImageUploadMode,
+                isSwitchingImageMode,
+            }}
+        >
+            {children}
+        </FileUploadContext.Provider>
     );
 }
 
@@ -857,50 +895,4 @@ export function useFileUploadContext(): FileUploadContextValue {
         throw new Error('useFileUploadContext must be used within a FileUploadProvider');
     }
     return context;
-}
-
-type ImageUploadIntentDialogProps = {
-    open: boolean;
-    fileName: string;
-    remember: boolean;
-    onRememberChange: (remember: boolean) => void;
-    onSelect: (intent: ImageUploadIntent) => void;
-};
-
-function ImageUploadIntentDialog({
-    open,
-    fileName,
-    remember,
-    onRememberChange,
-    onSelect,
-}: ImageUploadIntentDialogProps) {
-    const rememberId = 'image-upload-intent-remember';
-
-    return (
-        <Dialog open={open}>
-            <DialogContent showCloseButton={false} onInteractOutside={(e) => e.preventDefault()}>
-                <DialogHeader>
-                    <DialogTitle>Upload image</DialogTitle>
-                    <DialogDescription>
-                        Choose whether {fileName ? `"${fileName}"` : 'this image'} should be uploaded as a document or
-                        attached to the message.
-                    </DialogDescription>
-                </DialogHeader>
-                <label htmlFor={rememberId} className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                        id={rememberId}
-                        checked={remember}
-                        onCheckedChange={(checked) => onRememberChange(checked === true)}
-                    />
-                    Remember for this session
-                </label>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onSelect('chat-image')}>
-                        Attach to message
-                    </Button>
-                    <Button onClick={() => onSelect('artifact')}>Upload as document</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
 }
