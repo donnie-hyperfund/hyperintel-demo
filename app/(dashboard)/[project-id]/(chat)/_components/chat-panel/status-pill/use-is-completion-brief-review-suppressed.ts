@@ -1,21 +1,27 @@
 import { getCompletionBriefKey } from '@/lib/artifacts/utils';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
+import { useProposedCompletionBrief } from './use-proposed-completion-brief';
 
 export function useIsCompletionBriefReviewSuppressed(phaseIndex: number | null): boolean {
     const completionBriefKey = getCompletionBriefKey((phaseIndex ?? 0) + 1);
     const { panelState } = useActivePanelContext();
     const { visibleEntries } = useArtifactProcessing();
+    const proposedCompletionBrief = useProposedCompletionBrief(completionBriefKey);
 
-    const isReviewingCompletionBrief =
-        panelState?.panel === 'artifact-preview' && panelState.artifactId === completionBriefKey;
+    if (!proposedCompletionBrief) return false;
 
-    const isApprovingOrRejectingCompletionBrief = visibleEntries.some(
+    const isReviewingProposedCompletionBrief =
+        panelState?.panel === 'artifact-preview' &&
+        panelState.artifactId === completionBriefKey &&
+        panelState.version === proposedCompletionBrief.versionNumber;
+
+    const isApprovingOrRejectingProposedCompletionBrief = visibleEntries.some(
         (entry) =>
-            entry.artifactId === completionBriefKey &&
+            entry.versionId === proposedCompletionBrief.versionId &&
             (entry.action === 'approve' || entry.action === 'reject') &&
             entry.status !== 'failed',
     );
 
-    return isReviewingCompletionBrief || isApprovingOrRejectingCompletionBrief;
+    return isReviewingProposedCompletionBrief || isApprovingOrRejectingProposedCompletionBrief;
 }

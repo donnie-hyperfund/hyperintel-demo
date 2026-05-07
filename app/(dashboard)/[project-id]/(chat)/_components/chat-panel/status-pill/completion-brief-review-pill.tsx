@@ -8,22 +8,14 @@ import { getCompletionBriefKey } from '@/lib/artifacts/utils';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
-import type { Artifact } from '@/modules/chat/types';
 import { Pill } from './pill';
+import { useProposedCompletionBrief } from './use-proposed-completion-brief';
 
 const REVIEW_GRADIENT = 'linear-gradient(90deg, rgba(34,197,94,0.9), rgba(249,115,22,0.75), rgba(34,197,94,0.9))';
 
 type CompletionBriefReviewPillProps = {
     className?: string;
 };
-
-function getLatestCachedSlot(slots: Record<string, Artifact> | undefined): number | null {
-    if (!slots) return null;
-    const numericSlots = Object.keys(slots)
-        .map(Number)
-        .filter((slot) => Number.isFinite(slot));
-    return numericSlots.length > 0 ? Math.max(...numericSlots) : null;
-}
 
 export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPillProps) {
     const { getToken } = useAuth();
@@ -32,17 +24,16 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
         state: { phaseIndex },
     } = useChatContext();
     const { openPanel } = useActivePanelContext();
-    const { addArtifact, getStore } = useArtifactActions();
+    const { addArtifact } = useArtifactActions();
+    const completionBriefKey = getCompletionBriefKey((phaseIndex ?? 0) + 1);
+    const proposedCompletionBrief = useProposedCompletionBrief(completionBriefKey);
 
     const handleClick = useCallback(async () => {
-        const completionBriefKey = getCompletionBriefKey((phaseIndex ?? 0) + 1);
-
-        const cachedLatestVersion = getLatestCachedSlot(getStore()[completionBriefKey]);
-        if (cachedLatestVersion !== null) {
+        if (proposedCompletionBrief) {
             openPanel({
                 panel: 'artifact-preview',
                 artifactId: completionBriefKey,
-                version: cachedLatestVersion,
+                version: proposedCompletionBrief.versionNumber,
             });
             return;
         }
@@ -54,7 +45,6 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
             if (!fetched) return;
 
             const latestVersion = fetched.proposedVersion?.version ?? fetched.currentVersion?.version ?? 1;
-
             addArtifact(
                 {
                     id: completionBriefKey,
@@ -73,7 +63,7 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
         } catch (error) {
             console.error('Failed to load completion brief', error);
         }
-    }, [phaseIndex, getStore, addArtifact, openPanel, projectId, getToken]);
+    }, [proposedCompletionBrief, completionBriefKey, projectId, getToken, addArtifact, openPanel]);
 
     return (
         <Pill
