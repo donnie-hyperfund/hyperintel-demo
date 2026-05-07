@@ -1,11 +1,10 @@
 'use client';
 
 import { ChevronDown } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { ShimmerText } from '@/components/ui/shimmer-text';
-import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import {
     getLatestArtifactVersion,
@@ -24,6 +23,7 @@ import { ArtifactVersionHistoryDialog } from './artifact-version-history-dialog'
 import { DiffControlBar } from './diff-control-bar';
 import { InternalDocumentActions } from './internal-document-actions';
 import { InternalDocumentContent } from './internal-document-content';
+import { useArtifactScroll } from './use-artifact-scroll';
 
 type ArtifactViewerProps = {
     artifact: Artifact;
@@ -49,7 +49,6 @@ const diffDirectives: Record<string, DirectiveHandler> = {
 
 /** Reusable artifact viewer with header and markdown content */
 export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: ArtifactViewerProps) => {
-    const prevTitleRef = useRef<string | null>(null);
     const [isDiffVisible, setIsDiffVisible] = useState(false);
     const [isProcessingApproval, setIsProcessingApproval] = useState(false);
     const [isProcessingDelete, setIsProcessingDelete] = useState(false);
@@ -123,31 +122,15 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         return computeDiffWithDirectives(previousContent, content);
     }, [canShowDiff, previousContent, content]);
 
-    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content, summaryContent], {
-        threshold: 100,
-        disabled: !isStreaming,
+    const { containerRef, isAtBottom, scrollToBottom } = useArtifactScroll({
+        artifactId,
+        versionNumber: activeVersion?.version,
+        content,
+        summaryContent,
+        isStreaming,
     });
 
     const toggleDiffVisibility = () => setIsDiffVisible((prev) => !prev);
-
-    // Scroll to top when a new artifact is loaded (title changes and not streaming)
-    useEffect(() => {
-        if (!isStreaming && containerRef.current && prevTitleRef.current !== title) {
-            containerRef.current.scrollTo({ top: 0, behavior: 'instant' });
-        }
-        prevTitleRef.current = title;
-    }, [isStreaming, title, containerRef]);
-
-    // Re-pin to bottom when the approval bar appears below the scroll container — its height
-    // shrinks the visible region and would otherwise hide the last lines of content.
-    const prevShowApprovalBarRef = useRef(showApprovalBar);
-    useLayoutEffect(() => {
-        const container = containerRef.current;
-        const becameVisible = showApprovalBar && !prevShowApprovalBarRef.current;
-        prevShowApprovalBarRef.current = showApprovalBar;
-        if (!container || !becameVisible || !isAtBottom) return;
-        container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
-    }, [showApprovalBar, isAtBottom, containerRef]);
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
@@ -259,7 +242,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                 {/* Scroll to bottom button */}
                 {!isAtBottom && content.length > 0 && (
                     <Button
-                        onClick={() => scrollToBottom({ behavior: 'smooth' })}
+                        onClick={() => scrollToBottom()}
                         variant="secondary"
                         className="size-10 absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-xl z-10"
                         aria-label="Scroll to bottom"
