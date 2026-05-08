@@ -39,6 +39,10 @@ import { useUserEvents } from '../hooks/use-user-events';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, SummaryStatus } from '../types';
 import { pickDisplaySafeMessageMetadata } from '../utils/message-metadata';
 
+function isContextLimitStreamError(metadata: Message['metadata'] | undefined): boolean {
+    return metadata?.error?.code === 'CONTEXT_TOO_LONG';
+}
+
 export type BaseChatContextValue = {
     state: ChatState;
     /** API client for chat operations */
@@ -657,6 +661,7 @@ export function ChatProvider({
                 : undefined;
             const doneMessageMetadata = pickDisplaySafeMessageMetadata(doneMeta);
             const hasTerminalError = status === 'error' || Boolean(isNormalDone && terminalEvent.error);
+            const isContextLimitError = isNormalDone && isContextLimitStreamError(doneMessageMetadata);
 
             setState((prev) => {
                 const targetMessageId = completedAgentMessageId ?? prev.activeResponseId;
@@ -666,6 +671,10 @@ export function ChatProvider({
                     ...prev,
                     isGenerating: isCurrentActiveStream ? false : prev.isGenerating,
                     activeResponseId: isCurrentActiveStream ? null : prev.activeResponseId,
+                    ...(isContextLimitError && {
+                        hardStopModalState: chatType === 'phase' ? 'idle' : prev.hardStopModalState,
+                        showContextLimitAlert: chatType === 'phase' ? prev.showContextLimitAlert : true,
+                    }),
                     tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
                     totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
                     hasPendingChanges: isNormalDone
@@ -678,7 +687,7 @@ export function ChatProvider({
                                   ...msg,
                                   isStreaming: false,
                                   status: undefined,
-                                  ...(hasTerminalError && { isError: true }),
+                                  ...(hasTerminalError && !isContextLimitError && { isError: true }),
                                   ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
                                   ...(doneMessageMetadata &&
                                       Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
@@ -1127,29 +1136,6 @@ export function ChatProvider({
     // ========================================================================
     // SEND MESSAGE
     // ========================================================================
-
-    const associatePendingUploads = useCallback(
-        async (chatIdToUse: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
-            if (!opts?.stagedArtifactIds?.length && !opts?.imageFileIds?.length) return;
-
-            const accessToken = (await getToken()) ?? '';
-            const associationResponse = await associateUploads(
-                {
-                    ...(opts?.stagedArtifactIds?.length ? { artifactIds: opts.stagedArtifactIds } : {}),
-                    ...(opts?.imageFileIds?.length ? { imageFileIds: opts.imageFileIds } : {}),
-                    chatId: chatIdToUse,
-                    ...(projectId ? { projectId } : {}),
-                },
-                accessToken,
-            );
-
-            if (!associationResponse.ok) {
-                const errorText = await associationResponse.text().catch(() => 'Unknown error');
-                throw new Error(`Associate uploads failed: ${associationResponse.status} - ${errorText}`);
-            }
-        },
-        [getToken, projectId],
-    );
 
     /** Send a message - creates chat if needed, triggers server-side generation via WS */
     const sendMessage = useCallback(
