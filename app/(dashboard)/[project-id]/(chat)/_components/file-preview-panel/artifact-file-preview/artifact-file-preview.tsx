@@ -38,7 +38,10 @@ export function ArtifactFilePreview({ artifactId, onClose }: ArtifactFilePreview
             <div className="flex flex-col h-full bg-neutral-975 overflow-hidden">
                 <ArtifactFilePreviewHeader title="Error" artifactId={artifactId} onClose={onClose} />
                 <div className="flex-1 flex items-center justify-center">
-                    <EmptyState title="Failed to load" description={error?.message ?? 'Unknown error'} />
+                    <EmptyState
+                        title="Failed to load"
+                        description="We were unable to load this file. Please try again later."
+                    />
                 </div>
             </div>
         );
