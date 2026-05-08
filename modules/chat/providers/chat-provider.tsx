@@ -386,19 +386,25 @@ export function ChatProvider({
                 ? (v: number) => api.projectArtifacts.getByKey(projectId, keyId, v)
                 : (v: number) => api.artifacts.getByKey(keyId, v);
 
+            const slots = artifactContext.getStore()[keyId] ?? {};
+            const stalePrevProposedVersions = Object.entries(slots)
+                .map(([slot, data]) => [Number(slot), data] as const)
+                .filter(([slot, data]) => slot !== version && getLatestArtifactVersion(data)?.status === 'proposed')
+                .map(([slot]) => slot);
+
+            const targets = [...new Set([version, ...stalePrevProposedVersions])];
+
             try {
-                const allVersions = Array.from({ length: version }, (_, i) => version - i);
-                const results = await Promise.all(allVersions.map((v) => fetcher(v).catch(() => null)));
+                const results = await Promise.all(targets.map((v) => fetcher(v).catch(() => null)));
 
                 for (const data of results) {
-                    if (data) {
-                        artifactContext.updateArtifact(
-                            keyId,
-                            { ...data, id: keyId, key: data.key || keyId },
-                            getLatestArtifactVersion(data)?.version,
-                            { merge: false },
-                        );
-                    }
+                    if (!data) continue;
+                    artifactContext.updateArtifact(
+                        keyId,
+                        { ...data, id: keyId, key: data.key || keyId },
+                        getLatestArtifactVersion(data)?.version,
+                        { merge: false },
+                    );
                 }
             } catch {
                 // SWR revalidation will still keep the list up to date
