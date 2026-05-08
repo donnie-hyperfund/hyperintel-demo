@@ -14,7 +14,7 @@ import type { DocumentType } from '@/lib/schema/artifact';
 import { downloadBlob } from '@/lib/utils';
 import { getDocumentTypeIcon } from '@/modules/artifacts/utils';
 
-type FilePreviewHeaderProps = {
+type ArtifactFilePreviewHeaderProps = {
     title: string;
     documentType?: DocumentType;
     artifactId: string;
@@ -25,7 +25,7 @@ type FilePreviewHeaderProps = {
     onClose: () => void;
 };
 
-export function FilePreviewHeader({
+export function ArtifactFilePreviewHeader({
     title,
     documentType,
     artifactId,
@@ -34,7 +34,7 @@ export function FilePreviewHeader({
     content,
     isUploaded,
     onClose,
-}: FilePreviewHeaderProps) {
+}: ArtifactFilePreviewHeaderProps) {
     const { getToken } = useAuth();
     const { 'project-id': projectId } = useParams<{ 'project-id': string }>();
     const { mutate: globalMutate } = useSWRConfig();

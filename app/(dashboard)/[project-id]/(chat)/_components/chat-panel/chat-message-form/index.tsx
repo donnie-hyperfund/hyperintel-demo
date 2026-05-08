@@ -136,6 +136,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             size: entry.size,
             imageFileId: entry.imageFileId,
             artifactFileId: entry.fileId,
+            artifactId: entry.artifactId,
             imageWidth: entry.imageWidth,
             imageHeight: entry.imageHeight,
         }));
@@ -156,6 +157,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 ? uploadedFiles
                       .map((f) => {
                           const attrs = [`size=${f.size}`];
+                          if (f.artifactId) attrs.push(`artifactid=${f.artifactId}`);
                           if (f.imageFileId) {
                               attrs.push(`fileid=${f.imageFileId}`, 'type=image');
                               if (f.imageWidth && f.imageHeight) attrs.push(`w=${f.imageWidth}`, `h=${f.imageHeight}`);

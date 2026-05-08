@@ -55,7 +55,6 @@ export function ResourceListItem({ artifact, onRemove, isHighlighted = false, it
         pushPanel({
             panel: 'file-preview',
             artifactId: artifact.id,
-            version: artifact.version,
         });
     };
 

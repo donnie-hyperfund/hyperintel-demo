@@ -12,7 +12,7 @@ describe('panelReducer', () => {
     const artifacts: NonNullable<PanelState> = { panel: 'artifacts' };
     const resources: NonNullable<PanelState> = { panel: 'resources' };
     const preview: NonNullable<PanelState> = { panel: 'artifact-preview', artifactId: 'a1', version: 1 };
-    const filePreview: NonNullable<PanelState> = { panel: 'file-preview', artifactId: 'f1', version: 2 };
+    const filePreview: NonNullable<PanelState> = { panel: 'file-preview', artifactId: 'f1' };
 
     it('PUSH appends to the stack', () => {
         expect(panelReducer([], { type: 'PUSH', panel: artifacts })).toEqual([artifacts]);
@@ -82,8 +82,8 @@ describe('ActivePanelProvider', () => {
         expect(result.current.panelState).toEqual({ panel: 'resources' });
         expect(result.current.canGoBack).toBe(false);
 
-        act(() => result.current.pushPanel({ panel: 'file-preview', artifactId: 'f1', version: 1 }));
-        expect(result.current.panelState).toEqual({ panel: 'file-preview', artifactId: 'f1', version: 1 });
+        act(() => result.current.pushPanel({ panel: 'file-preview', artifactId: 'f1' }));
+        expect(result.current.panelState).toEqual({ panel: 'file-preview', artifactId: 'f1' });
         expect(result.current.canGoBack).toBe(true);
     });
 
