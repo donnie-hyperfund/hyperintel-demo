@@ -82,8 +82,9 @@ export default function PhaseChatInterface() {
                     {panelState?.panel === 'file-preview' && (
                         <FilePreviewPanel
                             onClose={popPanel}
-                            artifactId={panelState.artifactId}
-                            version={panelState.version}
+                            {...('artifactId' in panelState
+                                ? { artifactId: panelState.artifactId }
+                                : { fileUrl: panelState.fileUrl, fileName: panelState.fileName, mimeType: panelState.mimeType })}
                         />
                     )}
                     {activePanel === 'artifacts' && <ProjectArtifactsPanel onClose={closePanel} />}

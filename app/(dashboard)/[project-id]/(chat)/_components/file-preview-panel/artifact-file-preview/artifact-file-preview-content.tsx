@@ -13,12 +13,12 @@ type ArtifactFile = {
     status: string;
 };
 
-type FilePreviewPanelContentProps = {
+type ArtifactFilePreviewContentProps = {
     file?: ArtifactFile | null;
     content?: string | null;
 };
 
-export function FilePreviewPanelContent({ file, content }: FilePreviewPanelContentProps) {
+export function ArtifactFilePreviewContent({ file, content }: ArtifactFilePreviewContentProps) {
     const { url, isLoading, error } = useArtifactFileUrl(file?.id);
 
     if (file?.id && isLoading) {
