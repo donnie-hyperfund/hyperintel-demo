@@ -143,6 +143,38 @@ describe('chat context limit preflight', () => {
             }),
         );
     });
+
+    it('includes the Completion Brief template in preflight for CB generation requests', async () => {
+        getPromptContentMock.mockImplementation((_ctx, slug: string) => {
+            if (slug === 'pma/completion-brief') return Promise.resolve('completion brief template');
+            return Promise.resolve('prompt');
+        });
+
+        const em = {
+            findOneOrFail: vi.fn().mockResolvedValue({ id: 'chat-1', metadata: {}, project: {} }),
+            create: vi.fn(),
+            persist: vi.fn(),
+            flush: vi.fn(),
+        };
+        const ctx = {
+            em,
+            env: {},
+            user: { userId: 'user-1' },
+        };
+
+        await chatActionHandler(
+            { chatId: 'chat-1', message: 'Please generate the Completion Brief for this phase.', model: 'sonnet' },
+            ctx as any,
+            { useLocalPrompts: true },
+        );
+
+        expect(getPromptContentMock).toHaveBeenCalledWith(expect.anything(), 'pma/completion-brief', 'zlocal/prompts');
+        expect(estimateInferenceInputTokensMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                instructions: expect.stringContaining('completion brief template'),
+            }),
+        );
+    });
 });
 
 describe('phase chat preflight — context gates', () => {
