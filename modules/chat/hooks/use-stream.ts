@@ -841,6 +841,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         );
                                     });
                                 }
+
+                                if (!doc.isInternal) {
+                                    o.onArtifactOpen?.(doc.name, doc.pendingVersion);
+                                }
                             }
                         }
 
