@@ -3,8 +3,9 @@
 import { cva } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { type RefObject, useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { TypingIndicator } from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel/chat-conversation/typing-indicator';
+import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { IS_DEV } from '@/lib/config';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -14,8 +15,13 @@ import { ChatMessage } from '../chat-message/chat-message';
 import { SystemEventMessage } from '../chat-message/system-event-message';
 import { ChatEmptyState, type ChatEmptyStateProps } from './chat-empty-state';
 
+export type ChatScrollState = {
+    isAtBottom: boolean;
+    scrollToBottom: () => void;
+};
+
 type ChatConversationProps = {
-    containerRef: RefObject<HTMLDivElement | null>;
+    onScrollStateChange: (state: ChatScrollState) => void;
     emptyState?: ChatEmptyStateProps;
 };
 
@@ -29,7 +35,7 @@ const messageContainerVariants = cva('w-full min-w-0', {
     },
 });
 
-function ChatConversation({ containerRef, emptyState }: ChatConversationProps) {
+function ChatConversation({ onScrollStateChange, emptyState }: ChatConversationProps) {
     const { state, pagination, loadMoreMessages, chatId } = useChatContext();
     const { messages, isGenerating, isLoading } = state;
     const { target: scrollTarget, foundRef: scrollTargetFoundRef } = useScrollTargetContext();
@@ -38,6 +44,14 @@ function ChatConversation({ containerRef, emptyState }: ChatConversationProps) {
     // Deferred-send wait: uploads are being processed post-chat-migration before the POST fires.
     // The optimistic user message is intentionally deferred, so we render an info badge in its place.
     const isWaitingOnUploads = isGenerating && files.some((f) => f.status === 'processing');
+
+    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
+        threshold: 100,
+    });
+
+    useEffect(() => {
+        onScrollStateChange({ isAtBottom, scrollToBottom });
+    }, [isAtBottom, scrollToBottom, onScrollStateChange]);
 
     // Track previous scroll height to maintain position after loading more
     const prevScrollHeightRef = useRef<number>(0);

@@ -29,7 +29,7 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
 
     const containerRef = useRef<T | null>(null);
     const followRef = useRef(initialFollow);
-    const [isAtBottom, setIsAtBottom] = useState(false);
+    const [isAtBottom, setIsAtBottom] = useState(true);
 
     const scrollToBottom = useCallback(
         (opts?: { behavior?: ScrollBehavior }) => {
@@ -64,47 +64,54 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
         let prevScrollHeight = container.scrollHeight;
 
         const handleScroll = () => {
+            const { scrollTop, scrollHeight } = container;
+
+            // Must run sync — RAF would settle too late to beat a concurrent auto-pin.
+            // scrollHeight check: shrinkage means browser-clamped scrollTop, not user up-scroll.
+            if (scrollTop < prevScrollTop && scrollHeight >= prevScrollHeight) {
+                followRef.current = false;
+            }
+
             if (ticking) return;
             ticking = true;
             requestAnimationFrame(() => {
-                const { scrollTop, scrollHeight, clientHeight } = container;
-                const distance = scrollHeight - scrollTop - clientHeight;
+                const { scrollTop: top, scrollHeight: height, clientHeight } = container;
+                const distance = height - top - clientHeight;
                 const atBottom = distance <= threshold;
 
-                if (atBottom) {
-                    followRef.current = true;
-                } else if (scrollTop < prevScrollTop && scrollHeight >= prevScrollHeight) {
-                    // Only count as a user up-scroll if scrollHeight didn't shrink — a shrink
-                    // means the browser clamped scrollTop involuntarily.
-                    followRef.current = false;
-                }
+                if (atBottom) followRef.current = true;
 
                 setIsAtBottom(atBottom);
-                prevScrollTop = scrollTop;
-                prevScrollHeight = scrollHeight;
+                prevScrollTop = top;
+                prevScrollHeight = height;
                 ticking = false;
             });
         };
 
         container.addEventListener('scroll', handleScroll, { passive: true });
-        return () => container.removeEventListener('scroll', handleScroll);
-    }, [threshold]);
 
-    useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
         const observer = new ResizeObserver(() => {
-            if (!followRef.current) return;
-            container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
+            if (followRef.current) {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
+            }
+            handleScroll();
         });
         observer.observe(container);
-        return () => observer.disconnect();
-    }, []);
+
+        handleScroll();
+
+        return () => {
+            container.removeEventListener('scroll', handleScroll);
+            observer.disconnect();
+        };
+    }, [threshold]);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (disabled || !followRef.current) return;
         requestAnimationFrame(() => {
+            // Re-check — followRef can flip between the outer check and this frame.
+            if (!followRef.current) return;
             const container = containerRef.current;
             if (!container) return;
             container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });

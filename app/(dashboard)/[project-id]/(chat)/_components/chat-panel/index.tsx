@@ -1,14 +1,14 @@
 'use client';
 
 import { AnimatePresence } from 'motion/react';
-import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { useState } from 'react';
 import { DevSlot } from '@/lib/dev-slots';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { FileDropOverlay } from '@/modules/file-uploads/components/file-drop-overlay';
 import { FileUploadProvider } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ScrollToBottomButton } from '../scroll-to-bottom-button';
-import ChatConversation from './chat-conversation/chat-conversation';
+import ChatConversation, { type ChatScrollState } from './chat-conversation/chat-conversation';
 import { ChatEmptyTitle } from './chat-conversation/chat-empty-title';
 import ChatMessageForm from './chat-message-form';
 import { ContextUsageIndicator } from './context-usage-indicator';
@@ -53,15 +53,16 @@ function ChatPanelContent({
     const {
         chatType,
         pendingDecisions,
-        state: { messages, tokenUsage, isLoading },
+        state: { messages, tokenUsage },
     } = useChatContext();
     const isPhaseChat = chatType === 'phase';
     const hasPendingDecision = pendingDecisions.length > 0;
 
-    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([messages, isLoading], {
-        threshold: 100,
+    const [scrollState, setScrollState] = useState<ChatScrollState>({
+        isAtBottom: true,
+        scrollToBottom: () => {},
     });
-    const showScrollToBottom = !isAtBottom && messages.length > 0;
+    const showScrollToBottom = !scrollState.isAtBottom && messages.length > 0;
 
     if (isEmpty) {
         const content = (
@@ -87,14 +88,14 @@ function ChatPanelContent({
             {HeaderComponent}
 
             <div className="flex min-h-0 flex-1 flex-col">
-                <ChatConversation containerRef={containerRef} />
+                <ChatConversation onScrollStateChange={setScrollState} />
                 <div className="relative z-10 -mt-6 shrink-0">
                     <div className="pointer-events-none absolute inset-x-0 bottom-full z-20 flex flex-col items-center gap-3 pb-3">
                         <AnimatePresence>
                             {showScrollToBottom && (
                                 <ScrollToBottomButton
                                     key="chat-scroll-to-bottom"
-                                    onClick={() => scrollToBottom()}
+                                    onClick={scrollState.scrollToBottom}
                                     className="pointer-events-auto"
                                 />
                             )}
