@@ -588,6 +588,57 @@ describe('ChatProvider', () => {
         consoleSpy.mockRestore();
     });
 
+    it('opens the hard-stop modal for streamed context-length errors', async () => {
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        await waitFor(() => {
+            expect(wsMock.on).toHaveBeenCalledWith('message', expect.any(Function));
+        });
+
+        act(() => {
+            wsMessageHandler?.({
+                type: 'stream_started',
+                topic: 'chat:chat-initial',
+                agentMessageId: 'agent-1',
+                userMessageId: 'user-1',
+            });
+        });
+
+        expect(result.current.state.activeResponseId).toBe('agent-1');
+        expect(result.current.state.messages.at(-1)).toMatchObject({
+            id: 'agent-1',
+            role: 'assistant',
+            isStreaming: true,
+        });
+
+        act(() => {
+            wsMessageHandler?.({
+                type: 'stream_event',
+                topic: 'chat:chat-initial',
+                agentMessageId: 'agent-1',
+                event: {
+                    type: 'done',
+                    error: 'CONTEXT_TOO_LONG',
+                    messageMetadata: {
+                        error: { code: 'CONTEXT_TOO_LONG', retryable: false },
+                    },
+                },
+            });
+        });
+
+        expect(result.current.state.hardStopModalState).toBe('idle');
+        expect(result.current.state.showContextLimitAlert).toBe(false);
+        expect(result.current.state.activeResponseId).toBeNull();
+        expect(result.current.state.messages.at(-1)).toMatchObject({
+            id: 'agent-1',
+            isStreaming: false,
+            metadata: { error: { code: 'CONTEXT_TOO_LONG', retryable: false } },
+        });
+        expect(result.current.state.messages.at(-1)?.isError).toBeUndefined();
+    });
+
     it('includes projectId when associating uploads after creating a new phase chat', async () => {
         apiMock.chats.create.mockResolvedValue({
             id: 'chat-1',
