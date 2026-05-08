@@ -162,6 +162,9 @@ You have access to web_search for real-time information. Use it when you need cu
 const COMPLETION_BRIEF_GUIDANCE = `## Completion Briefs
 Before generating a Completion Brief, always call the \`completion_brief\` tool first. It loads the template and provides current phase context and document statuses.`;
 
+const COMPLETION_BRIEF_REQUEST_PATTERN =
+    /\b(?:completion\s+brief|cb)\b[\s\S]{0,120}\b(?:generate|create|draft|write|prepare|produce)\b|\b(?:generate|create|draft|write|prepare|produce)\b[\s\S]{0,120}\b(?:completion\s+brief|cb)\b/i;
+
 // ============================================================================
 // SECURITY BOUNDARY
 // ============================================================================
@@ -250,6 +253,10 @@ async function buildSystemPrompt(
     return systemPrompt;
 }
 
+function isCompletionBriefRequest(message: string | null): boolean {
+    return typeof message === 'string' && COMPLETION_BRIEF_REQUEST_PATTERN.test(message);
+}
+
 type ChatToolsAndGroups = ReturnType<typeof getChatToolsAndGroups>;
 
 type PreparedChatGenerationInput = ChatToolsAndGroups & {
@@ -283,9 +290,14 @@ async function prepareChatGenerationInput({
             : localPromptsSetting
         : null;
 
+    const promptsForEstimate = new Set<string>(savedPrompts);
+    if (isCompletionBriefRequest(data.message)) {
+        promptsForEstimate.add('pma/completion-brief');
+    }
+
     const initialSystemPrompt = await buildSystemPrompt(
         ctx,
-        new Set<string>(savedPrompts),
+        promptsForEstimate,
         localPath,
         `${WEB_SEARCH_GUIDANCE}\n\n${COMPLETION_BRIEF_GUIDANCE}`,
     );
