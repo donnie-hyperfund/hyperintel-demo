@@ -8,7 +8,7 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function StakeholderChatInterface() {
-    const { panelState, closePanel } = useActivePanelContext();
+    const { panelState, popPanel } = useActivePanelContext();
     const { chatId } = useChatContext();
     const title = chatId ? 'Stakeholder chat' : 'New stakeholder';
 
@@ -28,7 +28,7 @@ export function StakeholderChatInterface() {
                     <ArtifactPreviewPanel
                         version={panelState.version}
                         artifactId={panelState.artifactId}
-                        onClose={closePanel}
+                        onClose={popPanel}
                     />
                 )
             }

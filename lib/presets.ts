@@ -12,8 +12,11 @@ export type ModelPreset = {
     label: string;
     description?: string;
     inference: ParamsWithType;
+    reasoningPromptMode?: ReasoningPromptMode;
     pricing?: ModelPricing;
 };
+
+export type ReasoningPromptMode = 'native' | 'thinking-tags' | 'internal-only';
 
 // Anthropic prompt-cache rate factors (applied as multipliers of inputPer1M):
 //   read        = 0.10× base input
@@ -38,6 +41,7 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.HAIKU, reasoning: false },
         },
+        reasoningPromptMode: 'internal-only',
         pricing: {
             inputPer1M: 1,
             outputPer1M: 5,
@@ -52,6 +56,7 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.SONNET, reasoning: true, reasoningBudget: 8000 },
         },
+        reasoningPromptMode: 'native',
         pricing: {
             inputPer1M: 3,
             outputPer1M: 15,
@@ -66,6 +71,7 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.Anthropic,
             params: { model: ANTHROPIC_MODELS.OPUS, reasoning: { effort: 'high' } },
         },
+        reasoningPromptMode: 'native',
         pricing: {
             inputPer1M: 5,
             outputPer1M: 25,
@@ -81,6 +87,7 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.OpenRouter,
             params: { model: COMMON_MODELS.GPT_5_4, reasoning: true },
         },
+        reasoningPromptMode: 'native',
     },
     {
         id: 'gpt-5.4-oai',
@@ -94,6 +101,7 @@ const BASE_PRESETS: ModelPreset[] = [
                 useResponsesAPI: true,
             },
         },
+        reasoningPromptMode: 'native',
         pricing: {
             inputPer1M: 2.5,
             outputPer1M: 15,
@@ -107,6 +115,7 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.OpenRouter,
             params: { model: COMMON_MODELS.GEMINI_FLASH_3, reasoning: true },
         },
+        reasoningPromptMode: 'native',
     },
     {
         id: 'qwen',
@@ -116,6 +125,7 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.OpenRouter,
             params: { model: COMMON_MODELS.QWEN_3_5, reasoning: true },
         },
+        reasoningPromptMode: 'thinking-tags',
     },
     {
         id: 'qwen-local',
@@ -133,6 +143,7 @@ const BASE_PRESETS: ModelPreset[] = [
                 // Q4_K_S is good
             },
         },
+        reasoningPromptMode: 'thinking-tags',
     },
     {
         id: 'qwen-local-9b',
@@ -148,6 +159,7 @@ const BASE_PRESETS: ModelPreset[] = [
                 // Q4_K_M is good
             },
         },
+        reasoningPromptMode: 'thinking-tags',
     },
 ];
 
@@ -203,6 +215,13 @@ export function getAvailablePresets(allowed?: string, blocked?: string): ModelPr
  * Resolve a preset ID to its ParamsWithType. Returns null if not found or not allowed.
  */
 export function resolvePreset(presetId: string, allowed?: string, blocked?: string): ParamsWithType | null {
+    return resolveModelPreset(presetId, allowed, blocked)?.inference ?? null;
+}
+
+/**
+ * Resolve a preset ID to the full preset metadata. Returns null if not found or not allowed.
+ */
+export function resolveModelPreset(presetId: string, allowed?: string, blocked?: string): ModelPreset | null {
     const available = getAvailablePresets(allowed, blocked);
-    return available.find((p) => p.id === presetId)?.inference ?? null;
+    return available.find((p) => p.id === presetId) ?? null;
 }

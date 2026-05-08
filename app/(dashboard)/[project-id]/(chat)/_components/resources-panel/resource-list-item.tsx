@@ -42,7 +42,7 @@ type ResourceListItemProps = {
 
 export function ResourceListItem({ artifact, onRemove, isHighlighted = false, itemRef }: ResourceListItemProps) {
     const [isRemoving, setIsRemoving] = useState(false);
-    const { openPanel } = useActivePanelContext();
+    const { pushPanel } = useActivePanelContext();
     const version = getLatestArtifactVersion(artifact);
     const docType = getArtifactDocumentType(artifact);
     const alwaysAttached = isPublicImport(artifact);
@@ -52,7 +52,7 @@ export function ResourceListItem({ artifact, onRemove, isHighlighted = false, it
     const fileName = file?.originalName ?? artifact.key;
 
     const handlePreview = () => {
-        openPanel({
+        pushPanel({
             panel: 'file-preview',
             artifactId: artifact.id,
             version: artifact.version,

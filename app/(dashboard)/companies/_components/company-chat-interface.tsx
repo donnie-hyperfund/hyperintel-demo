@@ -8,7 +8,7 @@ import { useActivePanelContext } from '@/modules/chat/providers/active-panel-pro
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 
 export function CompanyChatInterface() {
-    const { panelState, closePanel } = useActivePanelContext();
+    const { panelState, popPanel } = useActivePanelContext();
     const { chatId } = useChatContext();
     const title = chatId ? 'Company chat' : 'New company';
 
@@ -28,7 +28,7 @@ export function CompanyChatInterface() {
                     <ArtifactPreviewPanel
                         version={panelState.version}
                         artifactId={panelState.artifactId}
-                        onClose={closePanel}
+                        onClose={popPanel}
                     />
                 )
             }

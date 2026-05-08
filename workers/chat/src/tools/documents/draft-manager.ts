@@ -34,9 +34,9 @@ export interface DraftSession {
  *
  * Flow:
  * 1. begin_document → creates draft, sets as current
- * 2. write_document → appends to current draft
- * 3. edit_draft → modifies current draft
- * 4. finalize_document → commits current draft, clears it
+ * 2. write_document → appends content to current draft
+ * 3. patch_document → applies line-based edits to current draft
+ * 4. finalize_document → commits draft as proposed version (or aborts)
  */
 export class DraftManager {
     /** The currently active draft (one at a time due to sequential execution) */

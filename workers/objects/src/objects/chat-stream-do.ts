@@ -83,7 +83,7 @@ export class ChatStreamDO extends DurableObject<Env> {
     private displayStatus: string | null = null;
 
     // --- In-memory state (lost on hibernation) ---
-    private abortResolve: ((value: 'abort' | 'done') => void) | null = null;
+    private abortResolve: ((value: 'abort' | 'timeout' | 'done') => void) | null = null;
     private approvalResolvers = new Map<string, (approved: boolean) => void>();
     private decisionResolvers = new Map<string, (result: DecisionResult | null) => void>();
     private initialized = false;
@@ -236,6 +236,14 @@ export class ChatStreamDO extends DurableObject<Env> {
                 break;
             }
 
+            case 'tool_call_complete': {
+                const toolBlock = this.blocks.find((b) => b.type === 'tool_call' && b.toolCallId === event.id);
+                if (toolBlock && toolBlock.type === 'tool_call') {
+                    toolBlock.toolInput = event.input;
+                }
+                break;
+            }
+
             case 'tool_result': {
                 const toolBlock = this.blocks.find((b) => b.type === 'tool_call' && b.toolCallId === event.id);
                 if (toolBlock && toolBlock.type === 'tool_call') {
@@ -285,13 +293,18 @@ export class ChatStreamDO extends DurableObject<Env> {
 
             // --- Documents/artifacts ---
             case 'document_start': {
+                // Defense-in-depth: only honor loadedContent for non-internal edit mode, regardless of what the producer sent. Guards against future producers/refactors leaking content into DO state for internal docs or non-edit modes.
+                const allowLoadedContent = event.mode === 'edit' && event.isInternal !== true;
+                const baseContent = allowLoadedContent ? (event.loadedContent ?? '') : '';
                 this.activeDocuments.set(event.name, {
                     name: event.name,
                     title: event.title ?? event.name,
                     mode: event.mode ?? 'create',
                     pendingVersion: event.pendingVersion,
                     loadedVersion: event.loadedVersion,
-                    content: '',
+                    // content mutates with deltas/edits; loadedContent preserved separately for reconnect diff UI.
+                    content: baseContent,
+                    loadedContent: allowLoadedContent ? baseContent : undefined,
                     documentType: event.documentType,
                     isInternal: event.isInternal,
                 });
@@ -305,7 +318,7 @@ export class ChatStreamDO extends DurableObject<Env> {
             }
 
             case 'document_edit': {
-                // Forward iteration: AppliedEdit coords are post-prev-edits.
+                // Applied edits are emitted in replay-safe order.
                 const doc = this.activeDocuments.get(event.name);
                 if (doc) {
                     let lines = doc.content.split('\n');

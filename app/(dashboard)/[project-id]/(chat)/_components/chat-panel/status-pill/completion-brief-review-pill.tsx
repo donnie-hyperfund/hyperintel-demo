@@ -23,18 +23,21 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
         projectId,
         state: { phaseIndex },
     } = useChatContext();
-    const { openPanel } = useActivePanelContext();
+    const { pushPanel } = useActivePanelContext();
     const { addArtifact } = useArtifactActions();
     const completionBriefKey = getCompletionBriefKey((phaseIndex ?? 0) + 1);
     const proposedCompletionBrief = useProposedCompletionBrief(completionBriefKey);
 
     const handleClick = useCallback(async () => {
         if (proposedCompletionBrief) {
-            openPanel({
-                panel: 'artifact-preview',
-                artifactId: completionBriefKey,
-                version: proposedCompletionBrief.versionNumber,
-            });
+            pushPanel(
+                {
+                    panel: 'artifact-preview',
+                    artifactId: completionBriefKey,
+                    version: proposedCompletionBrief.versionNumber,
+                },
+                { reset: true },
+            );
             return;
         }
 
@@ -55,15 +58,18 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
                 },
                 latestVersion,
             );
-            openPanel({
-                panel: 'artifact-preview',
-                artifactId: completionBriefKey,
-                version: latestVersion,
-            });
+            pushPanel(
+                {
+                    panel: 'artifact-preview',
+                    artifactId: completionBriefKey,
+                    version: latestVersion,
+                },
+                { reset: true },
+            );
         } catch (error) {
             console.error('Failed to load completion brief', error);
         }
-    }, [proposedCompletionBrief, completionBriefKey, projectId, getToken, addArtifact, openPanel]);
+    }, [proposedCompletionBrief, completionBriefKey, projectId, getToken, addArtifact, pushPanel]);
 
     return (
         <Pill

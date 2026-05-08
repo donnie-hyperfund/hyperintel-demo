@@ -7,7 +7,7 @@
 
 import { runAgentStream } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
-import { extractInferenceMetadata, type ParamsWithType, withCommonParams } from '@common/ai/inference';
+import { extractInferenceMetadata, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
 import type { ContextMessage } from '@common/ai/inference/types';
 import { PublicError } from '@common/common/error.helpers';
@@ -16,7 +16,7 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
-import { getDefaultPresetId, resolvePreset } from '@/lib/presets';
+import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from '@/lib/presets';
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
@@ -45,6 +45,12 @@ import {
     logWorkerError,
 } from './utils/error-metadata';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
+import {
+    buildReasoningVisibilityGuidance,
+    getEffectiveReasoningPromptMode,
+    getPresetReasoningPromptMode,
+    inferReasoningPromptMode,
+} from './utils/reasoning-visibility-guidance';
 import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import {
     cleanupStreamDO,
@@ -86,6 +92,7 @@ async function buildIntakeSystemPrompt(
     framework: 'cpf' | 'hpf',
     category: string | undefined,
     localPath: string | null = null,
+    reasoningPromptMode: ReasoningPromptMode = 'internal-only',
 ): Promise<string> {
     const slug = `${framework}/system-prompt`;
     const promptContent = await getPromptContent(ctx, slug, localPath);
@@ -124,6 +131,8 @@ When you have gathered sufficient information, create the document using the doc
 
 3. Call \`finalize_document\` to save. You MUST call this or the content will be lost.`;
 
+    systemPrompt += `\n\n---\n\n${buildReasoningVisibilityGuidance(reasoningPromptMode)}`;
+
     return systemPrompt;
 }
 
@@ -133,6 +142,7 @@ type PreparedIntakeGenerationInput = IntakeToolsAndGroups & {
     contextMessages?: ContextMessage[];
     systemPrompt: string;
     estimatedTokens: number;
+    reasoningPromptMode: ReasoningPromptMode;
 };
 
 async function prepareIntakeGenerationInput({
@@ -161,7 +171,19 @@ async function prepareIntakeGenerationInput({
             ? DEFAULT_LOCAL_PROMPTS_PATH
             : localPromptsSetting
         : null;
-    const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath);
+    const presetId = data.model ?? getDefaultPresetId(ctx.env);
+    const resolvedPreset = resolveModelPreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
+    const defaultInference = resolvedPreset ? withCommonParams(resolvedPreset.inference, { reasoning: false }) : null;
+    const reasoningPromptMode = options.overrideInference
+        ? inferReasoningPromptMode(options.overrideInference)
+        : defaultInference
+          ? getEffectiveReasoningPromptMode(
+                defaultInference,
+                resolvedPreset ? getPresetReasoningPromptMode(resolvedPreset) : undefined,
+            )
+          : 'internal-only';
+
+    const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath, reasoningPromptMode);
     const { allTools, toolGroups } = getIntakeToolsAndGroups();
     const estimatedTokens = estimateInferenceInputTokens({
         instructions: systemPrompt,
@@ -184,6 +206,7 @@ async function prepareIntakeGenerationInput({
         toolGroups,
         systemPrompt,
         estimatedTokens,
+        reasoningPromptMode,
         ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
     };
 }
@@ -417,11 +440,11 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         if (ctx.orouterSdk) ensurePricingCache(ctx.orouterSdk);
 
         const presetId = data.model ?? getDefaultPresetId(ctx.env);
-        const resolved = resolvePreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
-        if (!resolved) {
+        const resolvedPreset = resolveModelPreset(presetId, ctx.env.ALLOWED_PRESETS, ctx.env.BLOCKED_PRESETS);
+        if (!resolvedPreset) {
             throw new Error(`Preset '${presetId}' is not available`);
         }
-        const defaultInference = withCommonParams(resolved, { reasoning: false });
+        const defaultInference = withCommonParams(resolvedPreset.inference, { reasoning: false });
         const inferenceParams = options.overrideInference ?? defaultInference;
 
         const { allTools, systemPrompt, toolGroups } = preparedInput;
@@ -478,6 +501,9 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             stream,
             push: pusher.push,
             docEventsCtx: { em: em!, draftManager: agentCtx.draftManager },
+            commonEventOpts: {
+                isCurrentDraftInternal: () => agentCtx.draftManager.getCurrent()?.is_internal === true,
+            },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);

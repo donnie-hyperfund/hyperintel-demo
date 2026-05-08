@@ -47,7 +47,7 @@ export function ArtifactIndicator({
 }: ArtifactIndicatorProps) {
     const { getToken } = useAuth();
 
-    const { panelState, openPanel, closePanel } = useActivePanelContext();
+    const { panelState, pushPanel, closePanel } = useActivePanelContext();
     const { addArtifact, updateArtifact } = useArtifactActions();
     const { projectId } = useChatContext();
     const { target: scrollTarget, markFound, clear: clearScrollTarget } = useScrollTargetContext();
@@ -68,12 +68,12 @@ export function ArtifactIndicator({
 
     const openArtifactPreview = useCallback(async () => {
         if (artifact) {
-            openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
+            pushPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion }, { reset: true });
             return;
         }
 
         addArtifact({ id: documentName, key: documentName, isLoading: true }, documentVersion);
-        openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
+        pushPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion }, { reset: true });
 
         try {
             const fetchedArtifact = projectId
@@ -99,7 +99,7 @@ export function ArtifactIndicator({
             console.error('Failed to fetch artifact:', error);
             updateArtifact(documentName, { isLoading: false }, documentVersion);
         }
-    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, openPanel, projectId]);
+    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, pushPanel, projectId]);
 
     const handleClick = () => {
         if (isSelected) {
