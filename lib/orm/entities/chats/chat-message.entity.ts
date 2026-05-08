@@ -1,7 +1,7 @@
 import { Entity, ManyToOne, Property, wrap } from '@mikro-orm/core';
 import type { StreamBlock } from '@/common/ai/agent/types';
-import type { Nullable } from '@/common/orm/utils';
 import { hasGroup } from '@/common/orm/serialization';
+import type { Nullable } from '@/common/orm/utils';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { IdCreatedColumns } from '@/lib/orm/entities/columns.entity';
 

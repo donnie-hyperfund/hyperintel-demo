@@ -13,7 +13,7 @@ export function processKatexInMarkdown(markdown: string) {
 }
 
 // Your LaTeX preprocessing function
-function normalizeCustomMathTags(input: string): string {
+function _normalizeCustomMathTags(input: string): string {
     return (
         input
             // Convert [/math]...[/math] to $$...$$

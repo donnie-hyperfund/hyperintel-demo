@@ -106,7 +106,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const pollingEntryIdsRef = useRef<Set<string>>(new Set());
     const invalidateResources = useCallback(() => {
         if (scope?.projectId) {
-            globalMutate(serializeProjectResourceListKey(scope.projectId));
+            void globalMutate(serializeProjectResourceListKey(scope.projectId));
         }
     }, [globalMutate, scope?.projectId]);
 
@@ -737,7 +737,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 queueMicrotask(() => {
                     entries.forEach((entry) => {
                         if (entry.file) {
-                            startEagerUpload(entry.file, entry.id, options);
+                            void startEagerUpload(entry.file, entry.id, options);
                         }
                     });
                 });

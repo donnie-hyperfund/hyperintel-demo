@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { IS_DEV } from '@/lib/config';
 import { handleGetMessage, handleSetMessageFeedback } from '@/lib/chats/handlers';
+import { IS_DEV } from '@/lib/config';
 import { SetMessageFeedbackBodySchema } from '@/lib/schema/message';
 
 export async function GET(

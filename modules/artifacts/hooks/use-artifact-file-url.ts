@@ -31,7 +31,7 @@ export function useArtifactFileUrl(fileId: string | undefined) {
         setIsLoading(true);
         setError(null);
 
-        (async () => {
+        void (async () => {
             try {
                 // 1. Check disk cache
                 const cached = await fileCache.get(fileId);

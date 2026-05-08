@@ -59,10 +59,10 @@ export function ModelSelectionProvider({ children, projectId }: ModelSelectionPr
         (presetId: string) => {
             setSelectedModel(presetId);
             if (projectId) {
-                createProjectApi(getToken)
+                void createProjectApi(getToken)
                     .update(projectId, { preferred_model: presetId })
                     .then(() => {
-                        globalMutate(
+                        void globalMutate(
                             projectKeys.detail(projectId),
                             (prev: Record<string, unknown> | undefined) =>
                                 prev ? { ...prev, preferredModel: presetId } : prev,

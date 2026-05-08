@@ -30,6 +30,8 @@
         "tsc:tests": "node node_modules/typescript/bin/tsc --noEmit -p tests/tsconfig.json",
         "tsc:all": "node scripts/run-tsc-all.mjs",
         "tsc:coverage": "node scripts/check-tsconfig-coverage.mjs",
+        "check:type-escapes": "node scripts/audit-type-escapes.mjs",
+        "check:import-boundaries": "node scripts/check-import-boundaries.mjs",
         "db:compile-jit": "pnpm run tsn common/orm/compile-orm.ts",
         "db:compile": "pnpm run db:compile-metadata && pnpm run db:compile-jit",
         "db:gen-entity": "npx mikro-orm generate-entities --save --path=lib/orm/entities/gen/ --schema=public -- ",
@@ -172,7 +174,7 @@
         "zod-to-json-schema": "^3.25.1"
     },
     "devDependencies": {
-        "@biomejs/biome": "^2.3.10",
+        "@biomejs/biome": "^2.4.14",
         "@cloudflare/workers-types": "^4.20260111.0",
         "@mikro-orm/cli": "6.4.16",
         "@mikro-orm/entity-generator": "6.4.16",

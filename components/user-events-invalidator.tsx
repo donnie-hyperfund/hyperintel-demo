@@ -18,10 +18,10 @@ export function UserEventsInvalidator() {
                 switch (eventType) {
                     case 'artifact_version_created':
                     case 'artifact_version_updated':
-                        mutate((key: string) => key.includes('"artifacts"'));
+                        void mutate((key: string) => key.includes('"artifacts"'));
                         break;
                     case 'chat_created':
-                        mutate((key: string) => key.includes('"chats"'));
+                        void mutate((key: string) => key.includes('"chats"'));
                         break;
                     case 'project_created':
                     case 'project_archived':

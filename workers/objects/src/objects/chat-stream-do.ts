@@ -393,7 +393,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
      */
     private queueBroadcast(messages: unknown[]) {
         this.broadcastQueue.push(messages);
-        this.drainBroadcastQueue();
+        void this.drainBroadcastQueue();
     }
 
     /**

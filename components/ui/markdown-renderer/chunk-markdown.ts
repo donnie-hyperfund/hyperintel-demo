@@ -76,7 +76,7 @@ export function chunkMarkdown(markdown: string): MarkdownChunk[] {
                     if (subSize > 0 && subSize + rowSize > TARGET_CHUNK_SIZE) {
                         pushChunk(subStart, rowStart);
                         const last = chunks[chunks.length - 1];
-                        last.content = headerStr + '\n' + last.content;
+                        last.content = `${headerStr}\n${last.content}`;
                         last.prefixLength = headerStr.length + 1;
                         subStart = rowStart;
                         subSize = 0;
@@ -86,7 +86,7 @@ export function chunkMarkdown(markdown: string): MarkdownChunk[] {
                 if (subStart < end) {
                     pushChunk(subStart, end);
                     const last = chunks[chunks.length - 1];
-                    last.content = headerStr + '\n' + last.content;
+                    last.content = `${headerStr}\n${last.content}`;
                     last.prefixLength = headerStr.length + 1;
                 }
                 continue;

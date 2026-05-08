@@ -1,4 +1,4 @@
-import { typedFetch, type TypedResponse } from '@/lib/api/client/fetch';
+import { type TypedResponse, typedFetch } from '@/lib/api/client/fetch';
 import { getWorkerUrl } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
 import { frontendEnv } from '@/lib/env';

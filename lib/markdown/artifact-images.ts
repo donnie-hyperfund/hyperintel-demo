@@ -8,11 +8,11 @@
  * rather than using remark-stringify, to avoid formatting normalization.
  */
 
-import type { ContentPart } from '@/common/ai/inference/types';
 import type { Image, Root } from 'mdast';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
 import { visit } from 'unist-util-visit';
+import type { ContentPart } from '@/common/ai/inference/types';
 import { inferImageMimeType } from '@/lib/schema/artifact';
 
 const ARTIFACT_IMAGE_SCHEME = 'artifact-image://';

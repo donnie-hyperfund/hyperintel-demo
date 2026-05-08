@@ -57,7 +57,7 @@ export class GenerationProxyDO extends DurableObject<ObjectsEnv> {
                 // Start background consumption + keep-alive alarms
                 await this.ctx.storage.put('__stream_active', true);
                 await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_INTERVAL_MS);
-                this.consumeStream(reader);
+                void this.consumeStream(reader);
 
                 return ids;
             }

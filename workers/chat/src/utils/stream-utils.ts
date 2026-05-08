@@ -35,7 +35,7 @@ import {
  */
 export function wireAbort(streamDO: ChatStreamDOStub): AbortController {
     const abortController = new AbortController();
-    (async () => {
+    void (async () => {
         try {
             let signal: 'abort' | 'timeout' | 'done';
             do {

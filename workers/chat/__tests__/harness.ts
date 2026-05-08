@@ -235,6 +235,8 @@ export class TestSession {
 			case 'done':
 				console.log(`\n[DONE] outputType=${event.outputType ?? 'text'}`);
 				break;
+			default:
+				break;
 		}
 	}
 

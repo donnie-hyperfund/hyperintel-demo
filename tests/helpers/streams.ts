@@ -59,6 +59,10 @@ function parseSSEChunk(buffer: string): ParsedSSEChunk {
             case 'retry':
                 currentMessage.retry = Number.parseInt(value, 10);
                 break;
+            default:
+                // TODO log?
+                // throw new Error(`Unknown toast action: ${String((action as any).type)}`);
+                break;
         }
     }
     return { messages, remainder };
@@ -99,7 +103,6 @@ export async function collectStreamEvents(response: Response): Promise<StreamEve
 
     const reader = body.getReader();
 
-    // biome-ignore lint/correctness/noConstantCondition: intentional infinite loop
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -138,7 +141,6 @@ export async function consumeStream(response: Response, onEvent: (event: StreamE
     const decoder = new TextDecoder();
     const reader = body.getReader();
 
-    // biome-ignore lint/correctness/noConstantCondition: intentional infinite loop
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;

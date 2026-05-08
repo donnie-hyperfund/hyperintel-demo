@@ -268,7 +268,6 @@ export async function processChunksWithImages(
 // MESSAGE PROCESSING
 // ============================================================================
 
-// biome-ignore lint/suspicious/useAwait: delegates to async processExtraction
 export async function processMessage(
     message: ExtractionQueueMessage,
     ctx: ExtractionContext,

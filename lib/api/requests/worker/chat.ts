@@ -1,4 +1,4 @@
-import { typedFetch, type EmptyResponseDto, type TypedResponse } from '@/lib/api/client/fetch';
+import { type EmptyResponseDto, type TypedResponse, typedFetch } from '@/lib/api/client/fetch';
 import { getWorkerUrl, toFormData } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
 import { frontendEnv } from '@/lib/env';
@@ -10,8 +10,8 @@ import {
     type ConfirmUploadResponseDto,
     type DeleteArtifactDto,
     type ExportFormat,
-    type PresignUploadResponseDto,
     type PresignUploadDto,
+    type PresignUploadResponseDto,
     RejectArtifactActionDto,
     RestoreArtifactActionDto,
     type RestoreArtifactResponseDto,

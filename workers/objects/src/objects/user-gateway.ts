@@ -1,11 +1,12 @@
+/** biome-ignore-all lint/suspicious/useAwait: noise */
 import { DurableObject } from 'cloudflare:workers';
 import { createClerkClient } from '@clerk/backend';
+import { ClientAction, type ClientMessage, ClientMessageSchema, ServerMsg } from '@/lib/schema/ws-protocol';
 import { PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
-import { ClientAction, ServerMsg, ClientMessageSchema, type ClientMessage } from '@/lib/schema/ws-protocol';
-import type { TopicHandler, ActionResult } from './topic-handler';
 import { ChatTopicHandler } from './chat-topic-handler';
 import { IntakeTopicHandler } from './intake-topic-handler';
 import { StreamTopicHandler } from './stream-topic-handler';
+import type { TopicHandler } from './topic-handler';
 
 // ---------------------------------------------------------------------------
 // Socket attachment — stored per-WebSocket, survives hibernation
@@ -143,6 +144,7 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
     async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string) {
         try {
             if (typeof message !== 'string') {
+                // biome-ignore lint/style/noParameterAssign: meh
                 message = new TextDecoder().decode(message);
             }
             // Ignore "pong" (auto-response echo)
@@ -330,6 +332,8 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
                 this.handleSessionUpdate(ws, attachment, msg.accessToken);
                 return;
             }
+            default:
+                break;
         }
     }
 

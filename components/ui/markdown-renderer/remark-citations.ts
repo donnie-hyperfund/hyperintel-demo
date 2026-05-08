@@ -1,4 +1,4 @@
-import type { Root, Text, PhrasingContent } from 'mdast';
+import type { PhrasingContent, Root } from 'mdast';
 import { visit } from 'unist-util-visit';
 import type { GlobalCitation } from './citations';
 

@@ -333,7 +333,7 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
     const perPage = queryData.limit ?? 20;
 
     // Shared filter builder — applies ownership + query filters to any chat query builder
-    // biome-ignore lint/suspicious/noExplicitAny: MikroORM QB generics vary by select/join shape
+    // _biome-ignore lint/suspicious/noExplicitAny: MikroORM QB generics vary by select/join shape
     function applyFilters(qb: any) {
         if (projectId) {
             qb.where({ 'p.id': projectId, 'p.user': user.id, 'p.archived_at': null });

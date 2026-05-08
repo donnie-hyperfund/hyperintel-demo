@@ -121,6 +121,8 @@ export const reducer = (state: State, action: Action): State => {
                 ...state,
                 toasts: state.toasts.filter((t) => t.id !== action.toastId),
             };
+        default:
+            throw new Error(`Unknown toast action: ${String((action as any).type)}`);
     }
 };
 
@@ -186,4 +188,4 @@ function useToast() {
     };
 }
 
-export { useToast, toast };
+export { toast, useToast };

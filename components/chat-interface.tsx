@@ -188,6 +188,7 @@ export default function ChatInterface() {
                                     : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
                             )}
                             title={item.label}
+                            type="button"
                         >
                             <item.icon className="w-5 h-5 flex-shrink-0" />
                             {sidebarExpanded && <span className="text-sm">{item.label}</span>}
@@ -413,7 +414,7 @@ export default function ChatInterface() {
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
-                                    handleSend();
+                                    void handleSend();
                                 }
                             }}
                             placeholder="Type your message..."

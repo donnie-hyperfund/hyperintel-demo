@@ -7,9 +7,9 @@
 
 /// <reference types="@cloudflare/workers-types" />
 
-import type { ContentPart } from '@/common/ai/inference/types';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { ContentPart } from '@/common/ai/inference/types';
 import { buildArtifactImageContentParts, extractArtifactImageRefs } from '@/lib/markdown/artifact-images';
 import { createWorkerS3Client } from '@/lib/vendor/r2';
 

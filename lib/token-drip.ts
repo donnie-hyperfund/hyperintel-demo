@@ -66,7 +66,7 @@ export class TokenDrip<T> {
 	enqueue(itemOrItems: T | T[]): void {
 		const count = Array.isArray(itemOrItems) ? itemOrItems.length : 1;
 		if (Array.isArray(itemOrItems)) {
-			for (let i = 0; i < itemOrItems.length; i++) this.queue.push(itemOrItems[i]);
+			for (const item of itemOrItems) this.queue.push(item);
 		} else {
 			this.queue.push(itemOrItems);
 		}

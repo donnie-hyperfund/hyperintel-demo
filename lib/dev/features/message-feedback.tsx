@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
 import { Copy, FileJson, Loader2, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import {
 	Dialog,
 	DialogContent,
@@ -10,9 +11,8 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import type { DevSlotProps } from '@/lib/dev-slots';
 import { devSlots } from '@/lib/dev/dev-slots';
+import type { DevSlotProps } from '@/lib/dev-slots';
 
 type Props = DevSlotProps['message-actions'];
 
@@ -95,7 +95,8 @@ function MessageFeedback({ chatId, messageId, content, role, blocks, feedbackSco
 			// Already down — toggle off
 			if (!chatId) return;
 			setFeedback((prev) => ({ ...prev, score: null, comment: null, saving: true }));
-			saveFeedback(chatId, messageId, null, null).then(() => {
+			// TODO: handle save rejection so the saving state cannot get stuck.
+			void saveFeedback(chatId, messageId, null, null).then(() => {
 				setFeedback((prev) => ({ ...prev, saving: false }));
 			});
 			return;
@@ -128,6 +129,7 @@ function MessageFeedback({ chatId, messageId, content, role, blocks, feedbackSco
 					</span>
 				)}
 				{!isUser && (
+					// biome-ignore lint/complexity/noUselessFragments: it's not useless
 					<>
 						{feedback.saving ? (
 							<span className="inline-flex items-center justify-center p-1 text-neutral-500">

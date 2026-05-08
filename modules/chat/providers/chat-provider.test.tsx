@@ -104,7 +104,6 @@ vi.mock('@/modules/chat/providers/active-panel-provider', () => ({
     useActivePanelContext: () => ({
         pushPanel: pushPanelMock,
         closePanel: closePanelMock,
-        pushPanel: vi.fn(),
         popPanel: vi.fn(),
         togglePanel: vi.fn(),
         canGoBack: false,

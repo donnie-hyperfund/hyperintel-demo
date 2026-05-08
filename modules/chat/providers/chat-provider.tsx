@@ -361,7 +361,8 @@ export function ChatProvider({
     const revalidateArtifactByKeyAndVersion = useCallback(
         async (keyId: string, version: number) => {
             if (projectId) {
-                globalMutate(serializeProjectArtifactListKey(projectId));
+                // TODO void correct?
+                void globalMutate(serializeProjectArtifactListKey(projectId));
             }
 
             const fetcher = projectId
@@ -1091,7 +1092,8 @@ export function ChatProvider({
     // Auto-load messages when an initial chat ID is provided
     useEffect(() => {
         if (initialChatId) {
-            loadMessages();
+            // TODO void correct?
+            void loadMessages();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialChatId]);
@@ -1128,7 +1130,7 @@ export function ChatProvider({
     // SEND MESSAGE
     // ========================================================================
 
-    const associatePendingUploads = useCallback(
+    const _associatePendingUploads = useCallback(
         async (chatIdToUse: string, opts?: { stagedArtifactIds?: string[]; imageFileIds?: string[] }) => {
             if (!opts?.stagedArtifactIds?.length && !opts?.imageFileIds?.length) return;
 
@@ -1524,7 +1526,8 @@ export function ChatProvider({
                 await api.chats.updateModel(chatId, presetId);
                 // Backend propagated to project — keep SWR cache in sync for next new-chat init
                 if (projectId) {
-                    globalMutate(
+                    // TODO void correct?
+                    void globalMutate(
                         projectKeys.detail(projectId),
                         (prev: Record<string, unknown> | undefined) =>
                             prev ? { ...prev, preferredModel: presetId } : prev,

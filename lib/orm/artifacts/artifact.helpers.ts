@@ -4,7 +4,6 @@ import type { EntityManager } from '@mikro-orm/postgresql';
 import type { OpenRouter } from '@openrouter/sdk';
 import type OpenAI from 'openai';
 import type { Nullable } from '@/common/orm/utils';
-import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import type { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import type { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';

@@ -60,7 +60,7 @@ export function FilePreviewHeader({
             const token = await getToken();
             if (token) await deleteArtifact({ artifactId }, token);
             if (projectId) {
-                globalMutate(
+                void globalMutate(
                     (key) =>
                         Array.isArray(key) && key[0] === projectResourceKeys.all(projectId)[0] && key[1] === projectId,
                 );
