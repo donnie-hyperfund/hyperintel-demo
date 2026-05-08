@@ -21,7 +21,7 @@ import {
     summarize,
 } from '@/lib/api/requests/worker/chat';
 import type { ChatDto, ChatMessageDto } from '@/lib/schema/message';
-import type { PendingDecision, StreamEvent, StreamStatus } from '@/lib/schema/stream';
+import type { PendingDecision, StreamEvent, StreamStatus, TokenUsage } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
 import { draftKey } from '@/lib/storage/storage-keys';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
@@ -74,6 +74,8 @@ export type BaseChatContextValue = {
     openChat: (chatId: string) => Promise<void>;
     /** Reset provider state for the routed new-chat page */
     startNewChat: () => void;
+    /** Seed metadata fields from a server-fetched chat — bridges the gap before openChat resolves. */
+    seedChatState: (chatId: string, chat: SeedableChatData) => void;
     /** Summarize the current chat and prepare the new phase */
     summarizeChat: () => void;
     /** Cancel an in-progress summarization */
@@ -169,6 +171,15 @@ type InitialChatStateOptions = {
     initialMessages?: Message[];
     cached?: Partial<CamelCaseDto<ChatDto>>;
     isLoading?: boolean;
+};
+
+export type SeedableChatData = {
+    name?: string | null;
+    phaseIndex?: number;
+    tokenUsage?: TokenUsage | null;
+    totalCost?: number | null;
+    hasPendingChanges?: boolean;
+    completionBriefStatus?: string | null;
 };
 
 function createInitialPagination(): PaginationState {
@@ -1133,6 +1144,19 @@ export function ChatProvider({
         setState(createInitialChatState());
     }, []);
 
+    const seedChatState = useCallback((seedChatId: string, chat: SeedableChatData) => {
+        if (loadedChatIdRef.current === seedChatId) return;
+        setState((prev) => ({
+            ...prev,
+            phaseIndex: chat.phaseIndex ?? prev.phaseIndex,
+            phaseName: chat.name ?? prev.phaseName,
+            tokenUsage: chat.tokenUsage ?? prev.tokenUsage,
+            totalCost: chat.totalCost ?? prev.totalCost,
+            hasPendingChanges: chat.hasPendingChanges ?? prev.hasPendingChanges,
+            completionBriefStatus: chat.completionBriefStatus ?? prev.completionBriefStatus,
+        }));
+    }, []);
+
     // Keep reconnect ref in sync with loadMessages
     loadMessagesRef.current = loadMessages;
 
@@ -1634,6 +1658,7 @@ export function ChatProvider({
                 setChatId,
                 openChat,
                 startNewChat,
+                seedChatState,
                 summarizeChat,
                 cancelSummary,
                 clearPendingChanges,

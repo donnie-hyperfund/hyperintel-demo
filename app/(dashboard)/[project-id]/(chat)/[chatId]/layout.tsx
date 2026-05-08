@@ -1,10 +1,8 @@
-import camelcaseKeys from 'camelcase-keys';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { SWRConfig, unstable_serialize } from 'swr';
-import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { getChatPageData } from '@/lib/api/server/page-data';
 import { formatPhaseTitle } from '@/lib/metadata/page-title';
+import { ChatStateSeed } from '../_components/chat-state-seed';
 
 type ChatLayoutProps = LayoutProps<'/[project-id]/[chatId]'>;
 
@@ -25,9 +23,20 @@ export default async function ChatLayout({ children, params }: ChatLayoutProps) 
 
     if (!chat) notFound();
 
-    const fallback: Record<string, unknown> = {
-        [unstable_serialize(chatKeys.detail(chatId))]: camelcaseKeys(chat, { deep: true }),
-    };
-
-    return <SWRConfig value={{ fallback }}>{children}</SWRConfig>;
+    return (
+        <>
+            <ChatStateSeed
+                chatId={chatId}
+                chat={{
+                    name: chat.name,
+                    phaseIndex: chat.phase_index,
+                    tokenUsage: chat.token_usage,
+                    totalCost: chat.total_cost,
+                    hasPendingChanges: chat.has_pending_changes,
+                    completionBriefStatus: chat.completion_brief_status,
+                }}
+            />
+            {children}
+        </>
+    );
 }

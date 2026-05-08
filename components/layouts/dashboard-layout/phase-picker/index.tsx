@@ -20,9 +20,10 @@ type PhasePickerProps = {
     projectId?: string;
     currentChatId?: string;
     currentPhaseIndex?: number | null;
+    currentPhaseName?: string;
 };
 
-export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: PhasePickerProps) => {
+export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex, currentPhaseName }: PhasePickerProps) => {
     const [open, setOpen] = useState(false);
     const [editingChatId, setEditingChatId] = useState<string | null>(null);
     const [editingInitialName, setEditingInitialName] = useState('');
@@ -45,7 +46,8 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex }: Pha
     const currentChat = chats.find((chat) => chat.id === currentChatId);
     const phaseIndex = currentChat?.phaseIndex ?? currentPhaseIndex;
     const isNewChat = !currentChatId && phaseIndex == null;
-    const phaseName = currentChat?.name ?? (typeof phaseIndex === 'number' ? `Phase ${phaseIndex + 1}` : null);
+    const phaseName =
+        currentChat?.name ?? currentPhaseName ?? (typeof phaseIndex === 'number' ? `Phase ${phaseIndex + 1}` : null);
 
     const [sentryRef, { rootRef }] = useInfiniteScroll({
         loading: isLoading,
