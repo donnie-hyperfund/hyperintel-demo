@@ -43,14 +43,6 @@ function isContextLimitStreamError(metadata: Message['metadata'] | undefined): b
     return metadata?.error?.code === 'CONTEXT_TOO_LONG';
 }
 
-function shouldTreatStreamErrorAsContextLimit(
-    metadata: Message['metadata'] | undefined,
-    contextOverflow: ChatState['contextOverflow'],
-): boolean {
-    if (isContextLimitStreamError(metadata)) return true;
-    return contextOverflow === 'hard' && metadata?.error?.code === 'INVALID_REQUEST';
-}
-
 export type BaseChatContextValue = {
     state: ChatState;
     /** API client for chat operations */
@@ -669,12 +661,11 @@ export function ChatProvider({
                 : undefined;
             const doneMessageMetadata = pickDisplaySafeMessageMetadata(doneMeta);
             const hasTerminalError = status === 'error' || Boolean(isNormalDone && terminalEvent.error);
+            const isContextLimitError = isNormalDone && isContextLimitStreamError(doneMessageMetadata);
 
             setState((prev) => {
                 const targetMessageId = completedAgentMessageId ?? prev.activeResponseId;
                 const isCurrentActiveStream = !!targetMessageId && prev.activeResponseId === targetMessageId;
-                const isContextLimitError =
-                    isNormalDone && shouldTreatStreamErrorAsContextLimit(doneMessageMetadata, prev.contextOverflow);
 
                 return {
                     ...prev,
