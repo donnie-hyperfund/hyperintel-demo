@@ -83,7 +83,7 @@ export function PdfViewer({ src, viewportGap = 0 }: PdfViewerProps) {
                                             <Scroller
                                                 documentId={activeDocumentId}
                                                 renderPage={({ width, height, pageIndex }) => (
-                                                    <div style={{ width, height }}>
+                                                    <div className="bg-white" style={{ width, height }}>
                                                         <TransparentRenderLayer
                                                             documentId={activeDocumentId}
                                                             pageIndex={pageIndex}
