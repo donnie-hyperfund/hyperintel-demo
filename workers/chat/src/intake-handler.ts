@@ -5,7 +5,7 @@
  * Kept alive by GenerationProxyDO. Events delivered via UserGateway WS.
  */
 
-import { runAgentStream } from '@common/ai/agent';
+import { runAgentStream, shapeContextForInference } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
 import { extractInferenceMetadata, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
@@ -185,9 +185,14 @@ async function prepareIntakeGenerationInput({
 
     const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath, reasoningPromptMode);
     const { allTools, toolGroups } = getIntakeToolsAndGroups();
+    const shapedForEstimate = shapeContextForInference({
+        history: estimationContextMessages,
+        tools: allTools,
+        ctx: null,
+    });
     const estimatedTokens = estimateInferenceInputTokens({
         instructions: systemPrompt,
-        context: estimationContextMessages,
+        context: shapedForEstimate,
         tools: allTools,
         toolGroups,
     });
@@ -454,6 +459,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             ctx,
             {
                 ...inferenceParams,
+                cacheId: chat.id,
                 instructions: systemPrompt,
                 context: allMessages,
                 countReasoningAsContent: true,

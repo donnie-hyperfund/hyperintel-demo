@@ -16,6 +16,7 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
+import type { ToolCallStreamBlock } from '@common/ai/agent/types';
 import type { QueueAdapter } from '@common/common/queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
@@ -286,6 +287,64 @@ const RejectDocumentParams = z.object({
     reason: z.string().min(1).describe('Reason for rejection - feedback for the author on what needs to change.'),
 });
 
+function parseToolOutputObject(block: ToolCallStreamBlock): Record<string, unknown> | null {
+    if (typeof block.toolOutput !== 'string') return null;
+    try {
+        const parsed = JSON.parse(block.toolOutput);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? parsed as Record<string, unknown>
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+function textStats(value: unknown): { chars: number; lines: number } {
+    if (typeof value !== 'string') return { chars: 0, lines: 0 };
+    return { chars: value.length, lines: countLines(value) };
+}
+
+function collapsePatchDocument(block: ToolCallStreamBlock): { toolInput?: unknown } {
+    const input = block.toolInput as { edits?: unknown } | undefined;
+    const edits = Array.isArray(input?.edits) ? input.edits : [];
+
+    return {
+        toolInput: {
+            editsCount: edits.length,
+            edits: edits.map((rawEdit) => {
+                const edit = rawEdit && typeof rawEdit === 'object'
+                    ? rawEdit as Record<string, unknown>
+                    : {};
+                const oldStats = textStats(edit.oldContent);
+                const newStats = textStats(edit.newContent);
+                return {
+                    startLine: edit.startLine,
+                    ...(edit.endLine != null && { endLine: edit.endLine }),
+                    oldContentLines: oldStats.lines,
+                    oldContentChars: oldStats.chars,
+                    newContentLines: newStats.lines,
+                    newContentChars: newStats.chars,
+                };
+            }),
+        },
+    };
+}
+
+function collapseReadDocument(block: ToolCallStreamBlock): { toolOutput?: string } {
+    const output = parseToolOutputObject(block);
+    if (!output || !Object.prototype.hasOwnProperty.call(output, 'content')) return {};
+
+    const contentStats = textStats(output.content);
+    const collapsed = { ...output };
+    delete collapsed.content;
+    collapsed.contentCollapsed = true;
+    collapsed.contentLines = contentStats.lines;
+    collapsed.contentChars = contentStats.chars;
+    collapsed.recallHint = 'Use recall_tool_call with this tool_call_id to retrieve the full document content.';
+
+    return { toolOutput: JSON.stringify(collapsed) };
+}
+
 // ============================================================================
 // TOOL FACTORY
 // ============================================================================
@@ -483,6 +542,7 @@ Requires an active draft started with begin_document.
 Content is appended to the active draft. For full rewrites of existing documents, start with begin_document(mode="replace") so the draft is empty before writing.
 Content streams to the UI in real-time.`,
             parameters: WriteDocumentParams,
+            collapseFields: ['input.content'],
             executor: (input: z.infer<typeof WriteDocumentParams>, ctx: DocumentToolsContext) => {
                 const { content } = input;
                 const { draftManager } = ctx;
@@ -520,6 +580,7 @@ ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '`endLine` is optional; use it only t
 IMPORTANT: \`read_document\` shows lines prefixed with \`N: \` (e.g. \`5: some text\`) — that prefix is display-only. Do NOT include it in \`oldContent\`; copy only the line text after \`N: \`.
 Edits are atomic - all succeed or none apply. No need to read_document between patches.`,
             parameters: PatchDocumentParams,
+            collapseResult: collapsePatchDocument,
             executor: (
                 input: z.infer<typeof PatchDocumentParams>,
                 ctx: DocumentToolsContext,
@@ -740,6 +801,7 @@ Version options:
 
 Embedded images are included by default. Pass skipImages: true for text-only output.`,
             parameters: ReadDocumentParams,
+            collapseResult: collapseReadDocument,
             executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
                 const { name, version: versionMode, startLine, endLine, skipImages } = input;
                 const { em, draftManager } = ctx;

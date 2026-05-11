@@ -1,4 +1,5 @@
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
+import type { ToolCallStreamBlock } from '@common/ai/agent/types';
 import { embedTexts } from '@common/ai/embeddings';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type OpenAI from 'openai';
@@ -127,6 +128,33 @@ const SearchKnowledgeParams = z.object({
         .describe(`Include embedded images in results. Default: ${SEARCH_KNOWLEDGE_INCLUDE_IMAGES_DEFAULT}.`),
 });
 
+function collapseKnowledgeSearch(block: ToolCallStreamBlock): { toolOutput?: string } {
+    const output = block.toolOutput;
+    if (typeof output !== 'string' || output.length < 1000) return {};
+
+    const sections = [...output.matchAll(/^##\s+(.+?)\s+\((.+?)\)\n\*\*Relevance:\*\*\s+(.+)$/gm)]
+        .map((match) => ({
+            title: match[1],
+            key: match[2],
+            relevance: match[3],
+        }));
+    const headingCount = (output.match(/^##\s+/gm) ?? []).length;
+
+    const input = block.toolInput as { query?: unknown; limit?: unknown; includeImages?: unknown } | undefined;
+    return {
+        toolOutput: JSON.stringify({
+            query: typeof input?.query === 'string' ? input.query : undefined,
+            limit: input?.limit,
+            includeImages: input?.includeImages,
+            resultCount: Math.max(sections.length, headingCount),
+            results: sections,
+            outputCollapsed: true,
+            originalChars: output.length,
+            recallHint: 'Use recall_tool_call with this tool_call_id to retrieve the full search result chunks.',
+        }),
+    };
+}
+
 export const KnowledgeSearchToolGroup: AgentToolGroup = {
     slug: 'knowledge',
     name: 'Knowledge Base',
@@ -157,6 +185,7 @@ export function createKnowledgeTools() {
             description:
                 'Search knowledge base using semantic similarity. Use this to find relevant information from previously created or uploaded documents and artifacts. Results may include images from documents. Set includeImages: false for text-only search.',
             parameters: SearchKnowledgeParams,
+            collapseResult: collapseKnowledgeSearch,
             executor: async (
                 input: { query: string; limit?: number; includeImages?: boolean },
                 ctx: KnowledgeSearchContext,
