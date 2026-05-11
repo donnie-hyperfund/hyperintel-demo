@@ -17,17 +17,10 @@ const SHORT_LABELS: Record<ImageUploadIntent, string> = {
 export function ImageUploadModeSelector({ disabled }: { disabled: boolean }) {
     const { imageUploadMode, switchImageUploadMode, files, isSwitchingImageMode } = useFileUploadContext();
 
-    const hasImages = files.some((f) => {
-        const ext = `.${f.name.split('.').pop()?.toLowerCase()}`;
-        return isImageExtension(ext);
-    });
-
     const hasImagesLoading = files.some((f) => {
         const ext = `.${f.name.split('.').pop()?.toLowerCase()}`;
         return isImageExtension(ext) && f.status !== 'ready';
     });
-
-    if (!hasImages) return null;
 
     const shouldShowLoader = isSwitchingImageMode || hasImagesLoading;
 
