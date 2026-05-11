@@ -54,6 +54,8 @@ export function ArtifactFilePreview({ artifactId, onClose }: ArtifactFilePreview
                 documentType={version?.documentType}
                 artifactId={artifactId}
                 fileName={file?.originalName}
+                fileId={file?.id}
+                mimeType={file?.mimeType}
                 fileUrl={fileUrl}
                 content={version?.content}
                 isUploaded={version?.isUploaded}
