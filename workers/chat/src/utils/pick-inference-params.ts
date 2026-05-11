@@ -39,7 +39,12 @@ export function pickInferenceParams({
 
     const sonnet46Inference: ParamsWithType = {
         paramsType: AIParamsType.Anthropic,
-        params: { model: ANTHROPIC_MODELS.SONNET_4_6, searchEnabled: true, reasoning: { effort: 'medium' } },
+        params: {
+            model: ANTHROPIC_MODELS.SONNET_4_6,
+            searchEnabled: true,
+            reasoning: { effort: 'medium' },
+            betas: { context1m: true },
+        },
     };
 
     const inferenceParams = overrideInference ?? (shouldUseSonnet46 ? sonnet46Inference : defaultInference);

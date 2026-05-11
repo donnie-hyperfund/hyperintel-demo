@@ -50,11 +50,16 @@ const BASE_PRESETS: ModelPreset[] = [
     },
     {
         id: 'sonnet',
-        label: 'Sonnet 4.5',
+        label: 'Sonnet 4.6',
         description: 'Balanced',
         inference: {
             paramsType: AIParamsType.Anthropic,
-            params: { model: ANTHROPIC_MODELS.SONNET, reasoning: true, reasoningBudget: 8000 },
+            params: {
+                model: ANTHROPIC_MODELS.SONNET_4_6,
+                reasoning: true,
+                reasoningBudget: 8000,
+                betas: { context1m: true },
+            },
         },
         reasoningPromptMode: 'native',
         pricing: {
