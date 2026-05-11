@@ -120,14 +120,13 @@ export async function runSummarizer(ctx: SummarizerContext, deps: SummarizerDeps
         const documents = extractDocuments(messages);
         const basePrompt = await getSummarizerPrompt(workerCtx);
 
-        // Reinforcement — the summary text must NOT contain Section 13 / the Next-Phase
-        // Initialization Blurb. The blurb is delivered separately via the `generate_blurb`
-        // terminal tool call.
+        // Reinforcement — the summary text must NOT contain the Next-Phase Initialization
+        // Blurb. The blurb is delivered separately via the `generate_blurb` terminal tool call.
         const BLURB_REINFORCEMENT = `## Summary Content Rule
 
-The summary text (Output 1) MUST NOT contain the Next-Phase Initialization Blurb (Section 13 of the Completion Brief). Do NOT paste it, rephrase it, quote it, or include a "Next-Phase Initialization Blurb" heading followed by its content anywhere in the summary.
+The summary text (Output 1) MUST NOT contain the Next-Phase Initialization Blurb. Do NOT paste it, rephrase it, quote it, or include a "Next-Phase Initialization Blurb" heading followed by its content anywhere in the summary.
 
-The blurb is delivered separately via the \`generate_blurb\` tool. After finishing the summary text, call \`generate_blurb\` EXACTLY ONCE with Section 13 copied VERBATIM as the \`blurb\` parameter — raw content only (no header, no intro phrase, no surrounding commentary). This is a TERMINAL action and ends the run.`;
+The blurb is delivered separately via the \`generate_blurb\` tool. After finishing the summary text, call \`generate_blurb\` EXACTLY ONCE with the contents of the "NEXT-PHASE INITIALIZATION BLURB" section (the inner code block) copied VERBATIM as the \`blurb\` parameter — raw content only (no header, no intro phrase, no surrounding commentary). This is a TERMINAL action and ends the run.`;
 
         let instructions = `${basePrompt}\n\n---\n\n${BLURB_REINFORCEMENT}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
 
@@ -155,9 +154,9 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             }
         }
 
-        // Fetch the approved Completion Brief content — Section 13 (the Next-Phase Initialization Blurb)
-        // is emitted separately by the agent via the `generate_blurb` terminal tool; it MUST NOT appear
-        // in the summary text. The CB is attached here only as reference material.
+        // Fetch the approved Completion Brief content — the Next-Phase Initialization Blurb
+        // section is emitted separately by the agent via the `generate_blurb` terminal tool;
+        // it MUST NOT appear in the summary text. The CB is attached here only as reference material.
         if (chat.completion_brief) {
             const cbArtifact = await em!.findOne(
                 ArtifactEntity,
@@ -166,7 +165,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
             );
             const cbContent = cbArtifact?.current_version?.content;
             if (cbContent) {
-                instructions += `\n\n## Approved Completion Brief (reference)\n\nThe following is the approved Completion Brief for this phase. Section 13 is the "Next-Phase Initialization Blurb" — use it verbatim as the \`blurb\` parameter when you call the \`generate_blurb\` tool (per the OUTPUT CONTRACT above). Do not echo it in the summary text.\n\n${cbContent}`;
+                instructions += `\n\n## Approved Completion Brief (reference)\n\nThe following is the approved Completion Brief for this phase. Locate the section titled "NEXT-PHASE INITIALIZATION BLURB" (it contains a code block with the next-phase seed message). Use the contents of that code block verbatim as the \`blurb\` parameter when you call the \`generate_blurb\` tool (per the OUTPUT CONTRACT above). Do not echo it in the summary text.\n\n${cbContent}`;
             }
         }
 
@@ -180,7 +179,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         historyMessages.push({
             role: 'user' as const,
             content:
-                'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. After the summary, call the generate_blurb tool with the Next-Phase Initialization Blurb (Section 13 of the Completion Brief) verbatim as its input.',
+                'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. After the summary, call the generate_blurb tool with the contents of the "NEXT-PHASE INITIALIZATION BLURB" section from the Completion Brief verbatim as its input.',
         });
 
         const blurbTools = createBlurbTools();
