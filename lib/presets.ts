@@ -72,7 +72,6 @@ const BASE_PRESETS: ModelPreset[] = [
             params: {
                 model: ANTHROPIC_MODELS.SONNET_4_6,
                 reasoning: { effort: 'medium' },
-                betas: { context1m: true },
             },
         },
         reasoningPromptMode: 'native',
