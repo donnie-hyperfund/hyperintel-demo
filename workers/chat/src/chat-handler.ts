@@ -29,6 +29,7 @@ import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/ph
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
+import { looksLikeCompletionBriefIntent } from './utils/cb-intent';
 import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
 import { type ContextOverflowState, evaluateContextGate, maybeRecordContextOverflow } from './utils/context-overflow';
@@ -274,9 +275,14 @@ export async function prepareChatGenerationInput({
           ? getPresetReasoningPromptMode(resolvedPreset)
           : 'internal-only';
 
+    const promptsForEstimate = new Set<string>(savedPrompts);
+    if (looksLikeCompletionBriefIntent(data.message) || data.force_brief) {
+        promptsForEstimate.add('pma/completion-brief');
+    }
+
     const initialSystemPrompt = await buildSystemPrompt(
         ctx,
-        new Set<string>(savedPrompts),
+        promptsForEstimate,
         localPath,
         buildServerToolsGuidance(reasoningPromptMode),
     );
