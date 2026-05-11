@@ -49,6 +49,21 @@ const BASE_PRESETS: ModelPreset[] = [
         },
     },
     {
+        id: 'sonnet45',
+        label: 'Sonnet 4.5',
+        description: 'Balanced',
+        inference: {
+            paramsType: AIParamsType.Anthropic,
+            params: { model: ANTHROPIC_MODELS.SONNET, reasoning: true, reasoningBudget: 8000 },
+        },
+        reasoningPromptMode: 'native',
+        pricing: {
+            inputPer1M: 3,
+            outputPer1M: 15,
+            ...ANTHROPIC_CACHE,
+        },
+    },
+    {
         id: 'sonnet',
         label: 'Sonnet 4.6',
         description: 'Balanced',
@@ -56,8 +71,7 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.Anthropic,
             params: {
                 model: ANTHROPIC_MODELS.SONNET_4_6,
-                reasoning: true,
-                reasoningBudget: 8000,
+                reasoning: { effort: 'medium' },
                 betas: { context1m: true },
             },
         },
