@@ -105,7 +105,7 @@
 				}
 			]
 		},
-		"experimental": {
+		"exp": {
 			"vars": {
 				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
@@ -114,7 +114,7 @@
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
 				"WORKER_NAME": "hi-services",
-				"WORKER_NAME_FULL": "hi-services-experimental"
+				"WORKER_NAME_FULL": "hi-services-exp"
 			},
 			"secrets_store_secrets": [
 				{
@@ -133,12 +133,12 @@
 					{
 						"name": "USER_GATEWAY",
 						"class_name": "UserGateway",
-						"script_name": "hi-objects-experimental"
+						"script_name": "hi-objects-exp"
 					},
 					{
 						"name": "CHAT_STREAM_DO",
 						"class_name": "ChatStreamDO",
-						"script_name": "hi-objects-experimental"
+						"script_name": "hi-objects-exp"
 					}
 				]
 			},

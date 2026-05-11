@@ -8,8 +8,8 @@ workers_dev = false
 [env.dev]
 name = "hi-extract-rust-dev"
 
-[env.experimental]
-name = "hi-extract-rust-experimental"
+[env.exp]
+name = "hi-extract-rust-exp"
 
 [build]
 command = "cargo install -q \"worker-build@^0.7\" && worker-build --release"

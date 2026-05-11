@@ -9,8 +9,8 @@ envs:
     suffix: ""
   dev:
     suffix: "-dev"
-  experimental:
-    suffix: "-experimental"
+  exp:
+    suffix: "-exp"
     inherits: dev
 
 # All available secrets with per-env secret_name mappings

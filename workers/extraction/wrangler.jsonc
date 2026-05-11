@@ -201,7 +201,7 @@
 				}
 			]
 		},
-		"experimental": {
+		"exp": {
 			"vars": {
 				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
@@ -210,7 +210,7 @@
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
 				"WORKER_NAME": "hi-extraction",
-				"WORKER_NAME_FULL": "hi-extraction-experimental"
+				"WORKER_NAME_FULL": "hi-extraction-exp"
 			},
 			"secrets_store_secrets": [
 				{
@@ -262,19 +262,19 @@
 			"services": [
 				{
 					"binding": "EXTRACT_RUST",
-					"service": "hi-extract-rust-experimental"
+					"service": "hi-extract-rust-exp"
 				}
 			],
 			"queues": {
 				"producers": [
 					{
-						"queue": "hi-embedding-queue-experimental",
+						"queue": "hi-embedding-queue-exp",
 						"binding": "EMBEDDING_QUEUE"
 					}
 				],
 				"consumers": [
 					{
-						"queue": "hi-extraction-queue-experimental",
+						"queue": "hi-extraction-queue-exp",
 						"max_batch_size": 5,
 						"max_batch_timeout": 10
 					}

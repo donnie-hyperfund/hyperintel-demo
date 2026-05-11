@@ -271,7 +271,7 @@
 				}
 			]
 		},
-		"experimental": {
+		"exp": {
 			"vars": {
 				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
@@ -282,7 +282,7 @@
 				"CHAT_OUTPUT_SAFETY_ENABLED": "false",
 				"POSTHOG_HOST": "https://us.i.posthog.com",
 				"WORKER_NAME": "hi-chat",
-				"WORKER_NAME_FULL": "hi-chat-experimental"
+				"WORKER_NAME_FULL": "hi-chat-exp"
 			},
 			"secrets_store_secrets": [
 				{
@@ -351,28 +351,28 @@
 					{
 						"name": "USER_GATEWAY",
 						"class_name": "UserGateway",
-						"script_name": "hi-objects-experimental"
+						"script_name": "hi-objects-exp"
 					},
 					{
 						"name": "CHAT_STREAM_DO",
 						"class_name": "ChatStreamDO",
-						"script_name": "hi-objects-experimental"
+						"script_name": "hi-objects-exp"
 					},
 					{
 						"name": "GENERATION_PROXY",
 						"class_name": "GenerationProxyDO",
-						"script_name": "hi-objects-experimental"
+						"script_name": "hi-objects-exp"
 					}
 				]
 			},
 			"queues": {
 				"producers": [
 					{
-						"queue": "hi-embedding-queue-experimental",
+						"queue": "hi-embedding-queue-exp",
 						"binding": "EMBEDDING_QUEUE"
 					},
 					{
-						"queue": "hi-extraction-queue-experimental",
+						"queue": "hi-extraction-queue-exp",
 						"binding": "EXTRACTION_QUEUE"
 					}
 				]

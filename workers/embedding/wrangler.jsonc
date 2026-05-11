@@ -125,7 +125,7 @@
 				}
 			]
 		},
-		"experimental": {
+		"exp": {
 			"vars": {
 				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
@@ -134,7 +134,7 @@
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
 				"WORKER_NAME": "hi-embedding",
-				"WORKER_NAME_FULL": "hi-embedding-experimental"
+				"WORKER_NAME_FULL": "hi-embedding-exp"
 			},
 			"secrets_store_secrets": [
 				{
@@ -166,7 +166,7 @@
 			"queues": {
 				"consumers": [
 					{
-						"queue": "hi-embedding-queue-experimental",
+						"queue": "hi-embedding-queue-exp",
 						"max_batch_size": 10,
 						"max_batch_timeout": 5
 					}

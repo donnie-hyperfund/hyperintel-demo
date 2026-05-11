@@ -124,7 +124,7 @@
 				}
 			]
 		},
-		"experimental": {
+		"exp": {
 			"vars": {
 				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
@@ -133,7 +133,7 @@
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
 				"WORKER_NAME": "hi-objects",
-				"WORKER_NAME_FULL": "hi-objects-experimental"
+				"WORKER_NAME_FULL": "hi-objects-exp"
 			},
 			"secrets_store_secrets": [
 				{
