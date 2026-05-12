@@ -1,9 +1,9 @@
-name: Deploy Exp
+name: Deploy Dexp
 
 on:
   push:
     branches:
-      - exp
+      - dexp
   workflow_dispatch:
 
 concurrency:
@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy-exp:
+  deploy-dexp:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,16 +23,16 @@ jobs:
       - name: Compile ORM
         run: pnpm run db:compile
         env:
-          DATABASE_URL: ${{ secrets.NEON_PROD_DATABASE_URL }}
-          DATABASE_URL_DIRECT: ${{ secrets.NEON_PROD_DATABASE_URL_DIRECT }}
+          DATABASE_URL: ${{ secrets.NEON_MAIN_DATABASE_URL }}
+          DATABASE_URL_DIRECT: ${{ secrets.NEON_MAIN_DATABASE_URL_DIRECT }}
 
       - name: Run migrations
         run: pnpm run db:migration:up
         env:
-          DATABASE_URL: ${{ secrets.NEON_PROD_DATABASE_URL }}
-          DATABASE_URL_DIRECT: ${{ secrets.NEON_PROD_DATABASE_URL_DIRECT }}
+          DATABASE_URL: ${{ secrets.NEON_MAIN_DATABASE_URL }}
+          DATABASE_URL_DIRECT: ${{ secrets.NEON_MAIN_DATABASE_URL_DIRECT }}
 
-      - name: Deploy exp workers
+      - name: Deploy dexp workers
         run: |
           failed=0
           for dir in workers/*/; do
@@ -40,7 +40,7 @@ jobs:
             [[ "$name" == _common || "$name" == node_modules ]] && continue
             [[ ! -f "$dir/wrangler.jsonc" ]] && continue
             echo "::group::Deploying $name"
-            if ! npx wrangler deploy --env=exp --config "$dir/wrangler.jsonc"; then
+            if ! npx wrangler deploy --env=dexp --config "$dir/wrangler.jsonc"; then
               echo "::error::Failed to deploy $name"
               failed=1
             fi

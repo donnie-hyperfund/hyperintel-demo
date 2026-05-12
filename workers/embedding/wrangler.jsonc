@@ -194,7 +194,7 @@
 				{
 					"binding": "DATABASE_URL",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "DEXP_HI_DATABASE_URL"
+					"secret_name": "DEV_HI_DATABASE_URL"
 				},
 				{
 					"binding": "OPENAI_KEY",
