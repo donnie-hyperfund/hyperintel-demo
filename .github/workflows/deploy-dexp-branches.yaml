@@ -1,13 +1,8 @@
-name: Dev Preview
+name: Deploy Dexp Branches
 
 on:
   push:
-    branches-ignore:
-      - main
-      - prod
-      - exp
-      - dexp
-      - 'exp-*'
+    branches:
       - 'dexp-*'
 
 concurrency:
@@ -15,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy-preview:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +32,7 @@ jobs:
         with:
           project_id: ${{ vars.NEON_PROJECT_ID }}
           branch_name: preview/${{ github.ref_name }}
+          parent: ${{ vars.NEON_DEXP_PARENT_BRANCH }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
       - name: Compile ORM
@@ -51,7 +47,7 @@ jobs:
           DATABASE_URL: ${{ steps.neon.outputs.db_url_pooled }}
           DATABASE_URL_DIRECT: ${{ steps.neon.outputs.db_url }}
 
-      - name: Deploy Worker previews
+      - name: Deploy Workers
         run: |
           # Write the branch→db mapping to KV
           npx wrangler kv key put "${{ steps.branch.outputs.cf_alias }}" "${{ steps.neon.outputs.db_host_pooled }}" \
@@ -61,10 +57,16 @@ jobs:
           for dir in workers/*/; do
             name=$(basename "$dir")
             [[ "$name" == _common || "$name" == node_modules || "$name" == objects ]] && continue
-            [[ ! -f "$dir/wrangler.jsonc" ]] && continue
-            echo "::group::Deploying $name"
-            if ! npx wrangler versions upload --env=dev \
-              --config "$dir/wrangler.jsonc" \
+            if [[ -f "$dir/wrangler.jsonc" ]]; then
+              config="$dir/wrangler.jsonc"
+            elif [[ -f "$dir/wrangler.toml" ]]; then
+              config="$dir/wrangler.toml"
+            else
+              continue
+            fi
+            echo "::group::Deploying $name (env=dexp)"
+            if ! npx wrangler versions upload --env=dexp \
+              --config "$config" \
               --preview-alias "${{ steps.branch.outputs.cf_alias }}"; then
               echo "::error::Failed to deploy $name"
               failed=1

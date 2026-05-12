@@ -1,10 +1,10 @@
-name: Deploy Exp
+name: Deploy Exp / Dexp
 
 on:
   push:
     branches:
-      - 'exp-*'
-      - 'dexp-*'
+      - exp
+      - dexp
   workflow_dispatch:
     inputs:
       target_env:
@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy-exp:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,27 +35,40 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TARGET="${{ inputs.target_env }}"
-          elif [[ "${GITHUB_REF_NAME}" == dexp-* ]]; then
-            TARGET="dexp"
           else
-            TARGET="exp"
+            TARGET="${GITHUB_REF_NAME}"
+          fi
+          if [[ "$TARGET" != "exp" && "$TARGET" != "dexp" ]]; then
+            echo "::error::Invalid target env: $TARGET"
+            exit 1
           fi
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
           echo "Deploying to env: $TARGET"
 
+      - name: Resolve DB secrets
+        id: db
+        run: |
+          if [[ "${{ steps.env.outputs.target }}" == "exp" ]]; then
+            echo "url=${{ secrets.NEON_PROD_DATABASE_URL }}" >> "$GITHUB_OUTPUT"
+            echo "direct=${{ secrets.NEON_PROD_DATABASE_URL_DIRECT }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${{ secrets.NEON_DEXP_DATABASE_URL }}" >> "$GITHUB_OUTPUT"
+            echo "direct=${{ secrets.NEON_DEXP_DATABASE_URL_DIRECT }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Compile ORM
         run: pnpm run db:compile
         env:
-          DATABASE_URL: ${{ secrets.NEON_MAIN_DATABASE_URL }}
-          DATABASE_URL_DIRECT: ${{ secrets.NEON_MAIN_DATABASE_URL_DIRECT }}
+          DATABASE_URL: ${{ steps.db.outputs.url }}
+          DATABASE_URL_DIRECT: ${{ steps.db.outputs.direct }}
 
       - name: Run migrations
         run: pnpm run db:migration:up
         env:
-          DATABASE_URL: ${{ secrets.NEON_MAIN_DATABASE_URL }}
-          DATABASE_URL_DIRECT: ${{ secrets.NEON_MAIN_DATABASE_URL_DIRECT }}
+          DATABASE_URL: ${{ steps.db.outputs.url }}
+          DATABASE_URL_DIRECT: ${{ steps.db.outputs.direct }}
 
-      - name: Deploy workers
+      - name: Deploy Workers
         run: |
           failed=0
           for dir in workers/*/; do

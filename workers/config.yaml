@@ -23,6 +23,8 @@ secrets:
   DATABASE_URL:
     production: HI_DATABASE_URL # TODO ...
     dev: DEV_HI_DATABASE_URL
+    exp: HI_DATABASE_URL          # exp uses prod DB
+    dexp: DEXP_HI_DATABASE_URL    # dexp has its own DB
   CLERK_SECRET_KEY:
     production: CLERK_SECRET_KEY
     dev: DEV_CLERK_SECRET_KEY
