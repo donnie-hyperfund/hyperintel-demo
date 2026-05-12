@@ -1,7 +1,9 @@
 import { spawnSync } from 'node:child_process';
 
+const useCi = process.argv.includes('--ci');
+
 const commands = [
-    ['pnpm', ['run', 'tsc:check']],
+    ['pnpm', ['run', useCi ? 'tsc:check:ci' : 'tsc:check']],
     ['pnpm', ['run', 'tsc:local']],
     ['pnpm', ['run', 'tsc:workers']],
     ['pnpm', ['run', 'tsc:worker-tests']],
