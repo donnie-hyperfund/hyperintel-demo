@@ -13,8 +13,8 @@ declare namespace Cloudflare {
 		WORKER_NAME: string;
 		WORKER_NAME_FULL: string;
 		ENV: string;
-		USER_GATEWAY: DurableObjectNamespace<import('../objects/src/index').UserGateway>;
-		CHAT_STREAM_DO: DurableObjectNamespace<import('../objects/src/index').ChatStreamDO>;
+		USER_GATEWAY: DurableObjectNamespace /* UserGateway from hi-objects */;
+		CHAT_STREAM_DO: DurableObjectNamespace /* ChatStreamDO from hi-objects */;
 		DATABASE_URL: SecretsStoreSecret;
 		CLERK_SECRET_KEY: SecretsStoreSecret;
 	}
