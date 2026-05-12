@@ -72,8 +72,21 @@
   "exclude": [
     "node_modules",
     "tools",
+    "worker-env-types.d.ts",
+    "lib/local",
+    "lib/local/**",
+    "common/common/local*.ts",
+    "common/common/local*.tsx",
     "workers",
     "tests",
+    ".claude/worktrees",
+    ".claude/worktrees/**",
+    ".codex/worktrees",
+    ".codex/worktrees/**",
+    ".codex/**/worktrees",
+    ".codex/**/worktrees/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
     ".next/dev/types",
     "app/*local*"
   ]

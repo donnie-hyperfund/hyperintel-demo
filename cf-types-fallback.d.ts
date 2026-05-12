@@ -14,14 +14,19 @@ declare type Fetcher = any;
 declare type Ai = any;
 declare type DurableObjectState = any;
 declare type DurableObjectStub = any;
-declare type DurableObjectStorage = any;
+declare interface DurableObjectStorage {
+    get<T = unknown>(key: string): Promise<T | undefined>;
+    put(key: string, value: unknown): Promise<void>;
+    delete(key: string): Promise<boolean>;
+}
 declare type WebSocketPair = any;
-declare type WebSocketRequestResponsePair = any;
-
-// Env is declared in each worker's worker-configuration.d.ts (excluded from root tsc).
-// Fallback so chat worker source files (pulled in via app/(local) imports) compile.
-declare interface Env {}
+declare class WebSocketRequestResponsePair {
+    constructor(request: string, response: string);
+}
+declare type SecretsStoreSecret = {
+    get(): Promise<string>;
+};
 
 interface SubtleCrypto {
-    timingSafeEqual(a: ArrayBuffer, b: ArrayBuffer): boolean;
+    timingSafeEqual(a: ArrayBufferView, b: ArrayBufferView): boolean;
 }

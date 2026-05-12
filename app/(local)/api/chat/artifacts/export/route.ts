@@ -17,6 +17,6 @@ export async function GET(req: NextRequest) {
         }).getNextResponse();
     }
 
-    const ctx = await initNextjsWorkerContext({ skipAI: true });
+    const ctx = await initNextjsWorkerContext<ChatEnv>({ skipAI: true });
     return await exportArtifactHandler(parsed.data, ctx);
 }

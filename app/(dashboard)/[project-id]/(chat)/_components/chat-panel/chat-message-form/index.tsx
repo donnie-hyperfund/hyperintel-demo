@@ -235,7 +235,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             if (!isSubmitDisabled) {
-                handleSubmit(onFormSubmit)();
+                void handleSubmit(onFormSubmit)();
             }
         }
     };
@@ -316,7 +316,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             if (dontRemindAgain && chatId) setContextBypassForChat(chatId);
             dismissContextWarningModal();
             bypassContextWarningRef.current = true;
-            handleSubmit(onFormSubmit)();
+            void handleSubmit(onFormSubmit)();
         },
         [chatId, dismissContextWarningModal, handleSubmit, onFormSubmit],
     );
@@ -386,7 +386,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                 ref={mergedRef}
                                 value={message || ''}
                                 onChange={(event) => {
-                                    onChange(event);
+                                    void onChange(event);
                                     saveDraft(event.target.value);
                                 }}
                                 onBlur={onBlur}

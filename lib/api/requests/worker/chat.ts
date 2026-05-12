@@ -1,3 +1,4 @@
+import { type EmptyResponseDto, type TypedResponse, typedFetch } from '@/lib/api/client/fetch';
 import { getWorkerUrl, toFormData } from '@/lib/api/requests/worker/common';
 import { CHAT_EP, WORKERS, WORKERS_LOCAL_ENDPOINTS } from '@/lib/constants/routes';
 import { frontendEnv } from '@/lib/env';
@@ -6,18 +7,31 @@ import {
     type AssociateUploadsDto,
     type ClearDraftsDto,
     type ConfirmUploadDto,
+    type ConfirmUploadResponseDto,
     type DeleteArtifactDto,
     type ExportFormat,
     type PresignUploadDto,
+    type PresignUploadResponseDto,
     RejectArtifactActionDto,
     RestoreArtifactActionDto,
+    type RestoreArtifactResponseDto,
+    type UploadArtifactResponseDto,
 } from '@/lib/schema/artifact';
-import { AbortActionDto, SendChatActionDto, SummarizeActionDto } from '@/lib/schema/chat';
+import {
+    AbortActionDto,
+    SendChatActionDto,
+    type SendChatActionResponseDto,
+    SummarizeActionDto,
+    type SummarizeActionResponseDto,
+} from '@/lib/schema/chat';
 
-export const sendIntakeAction = (data: SendChatActionDto, accessToken: string) => {
+export const sendIntakeAction = (
+    data: SendChatActionDto,
+    accessToken: string,
+): Promise<TypedResponse<SendChatActionResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.IntakeAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -26,7 +40,7 @@ export const sendIntakeAction = (data: SendChatActionDto, accessToken: string) =
             body: JSON.stringify(data),
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.IntakeAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.IntakeAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -35,10 +49,13 @@ export const sendIntakeAction = (data: SendChatActionDto, accessToken: string) =
     });
 };
 
-export const sendAction = (data: SendChatActionDto, accessToken: string) => {
+export const sendAction = (
+    data: SendChatActionDto,
+    accessToken: string,
+): Promise<TypedResponse<SendChatActionResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ChatAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -47,7 +64,7 @@ export const sendAction = (data: SendChatActionDto, accessToken: string) => {
             body: JSON.stringify(data),
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.ChatAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.ChatAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -56,10 +73,10 @@ export const sendAction = (data: SendChatActionDto, accessToken: string) => {
     });
 };
 
-export const abort = (data: AbortActionDto, accessToken: string) => {
+export const abort = (data: AbortActionDto, accessToken: string): Promise<TypedResponse<EmptyResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.AbortAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -68,7 +85,7 @@ export const abort = (data: AbortActionDto, accessToken: string) => {
             body: JSON.stringify(data),
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.AbortAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.AbortAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -77,10 +94,13 @@ export const abort = (data: AbortActionDto, accessToken: string) => {
     });
 };
 
-export const summarize = (data: SummarizeActionDto, accessToken: string) => {
+export const summarize = (
+    data: SummarizeActionDto,
+    accessToken: string,
+): Promise<TypedResponse<SummarizeActionResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.SummarizeAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -89,7 +109,7 @@ export const summarize = (data: SummarizeActionDto, accessToken: string) => {
             body: JSON.stringify(data),
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.SummarizeAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.SummarizeAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -98,10 +118,13 @@ export const summarize = (data: SummarizeActionDto, accessToken: string) => {
     });
 };
 
-export const approveArtifact = (data: ApproveArtifactActionDto, accessToken: string) => {
+export const approveArtifact = (
+    data: ApproveArtifactActionDto,
+    accessToken: string,
+): Promise<TypedResponse<EmptyResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ApproveAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -111,7 +134,7 @@ export const approveArtifact = (data: ApproveArtifactActionDto, accessToken: str
             keepalive: true,
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.ApproveAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.ApproveAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -121,10 +144,13 @@ export const approveArtifact = (data: ApproveArtifactActionDto, accessToken: str
     });
 };
 
-export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: string) => {
+export const rejectArtifact = (
+    data: RejectArtifactActionDto,
+    accessToken: string,
+): Promise<TypedResponse<EmptyResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.RejectAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -134,7 +160,7 @@ export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: strin
             keepalive: true,
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.RejectAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.RejectAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -144,10 +170,13 @@ export const rejectArtifact = (data: RejectArtifactActionDto, accessToken: strin
     });
 };
 
-export const restoreArtifact = (data: RestoreArtifactActionDto, accessToken: string) => {
+export const restoreArtifact = (
+    data: RestoreArtifactActionDto,
+    accessToken: string,
+): Promise<TypedResponse<RestoreArtifactResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.RestoreAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -157,7 +186,7 @@ export const restoreArtifact = (data: RestoreArtifactActionDto, accessToken: str
             keepalive: true,
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.RestoreAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.RestoreAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -177,27 +206,30 @@ export const uploadArtifact = (
         source?: 'chat-input' | 'project-resources';
     },
     accessToken: string,
-) => {
+): Promise<TypedResponse<UploadArtifactResponseDto>> => {
     const body = toFormData(data);
 
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.UploadAction);
-        return fetch(workerUrl, {
+        return typedFetch<UploadArtifactResponseDto>(workerUrl, {
             method: 'POST',
             headers: { Authorization: `Bearer ${accessToken}` },
             body,
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.UploadAction, {
+    return typedFetch<UploadArtifactResponseDto>(WORKERS_LOCAL_ENDPOINTS.UploadAction, {
         method: 'POST',
         body,
     });
 };
 
-export const presignUpload = (data: PresignUploadDto, accessToken: string) => {
+export const presignUpload = (
+    data: PresignUploadDto,
+    accessToken: string,
+): Promise<TypedResponse<PresignUploadResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.PresignAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -206,17 +238,20 @@ export const presignUpload = (data: PresignUploadDto, accessToken: string) => {
             body: JSON.stringify(data),
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.PresignAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.PresignAction, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     });
 };
 
-export const confirmUpload = (data: ConfirmUploadDto, accessToken: string) => {
+export const confirmUpload = (
+    data: ConfirmUploadDto,
+    accessToken: string,
+): Promise<TypedResponse<ConfirmUploadResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ConfirmAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -225,7 +260,7 @@ export const confirmUpload = (data: ConfirmUploadDto, accessToken: string) => {
             body: JSON.stringify(data),
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.ConfirmAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.ConfirmAction, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -255,11 +290,16 @@ export function getArtifactImageUrl(key: string): string {
 
 export type PresignImageUploadDto = { filename: string; fileSize: number; chatId?: string };
 export type ConfirmImageUploadDto = { fileId: string };
+export type PresignImageUploadResponseDto = { uploadUrl: string; fileId: string; storageKey: string };
+export type ConfirmImageUploadResponseDto = { success: true; fileId: string };
 
-export const presignImageUpload = (data: PresignImageUploadDto, accessToken: string) => {
+export const presignImageUpload = (
+    data: PresignImageUploadDto,
+    accessToken: string,
+): Promise<TypedResponse<PresignImageUploadResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ImagePresignAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -268,17 +308,20 @@ export const presignImageUpload = (data: PresignImageUploadDto, accessToken: str
             body: JSON.stringify(data),
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.ImagePresignAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.ImagePresignAction, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
     });
 };
 
-export const confirmImageUpload = (data: ConfirmImageUploadDto, accessToken: string) => {
+export const confirmImageUpload = (
+    data: ConfirmImageUploadDto,
+    accessToken: string,
+): Promise<TypedResponse<ConfirmImageUploadResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ImageConfirmAction);
-        return fetch(workerUrl, {
+        return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -287,7 +330,7 @@ export const confirmImageUpload = (data: ConfirmImageUploadDto, accessToken: str
             body: JSON.stringify(data),
         });
     }
-    return fetch(WORKERS_LOCAL_ENDPOINTS.ImageConfirmAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.ImageConfirmAction, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -351,14 +394,18 @@ export const deleteArtifact = (data: DeleteArtifactDto, accessToken: string) => 
     });
 };
 
-export const exportArtifact = (artifactVersionId: string, accessToken: string, format: ExportFormat = 'docx') => {
+export const exportArtifact = (
+    artifactVersionId: string,
+    accessToken: string,
+    format: ExportFormat = 'docx',
+): Promise<TypedResponse<EmptyResponseDto>> => {
     const params = new URLSearchParams({ artifactVersionId, format });
 
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const base = getWorkerUrl(WORKERS.Chat, CHAT_EP.ExportAction);
-        return fetch(`${base}?${params}`, {
+        return typedFetch(`${base}?${params}`, {
             headers: { Authorization: `Bearer ${accessToken}` },
         });
     }
-    return fetch(`${WORKERS_LOCAL_ENDPOINTS.ExportAction}?${params}`);
+    return typedFetch(`${WORKERS_LOCAL_ENDPOINTS.ExportAction}?${params}`);
 };

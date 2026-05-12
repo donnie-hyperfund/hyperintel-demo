@@ -1,6 +1,6 @@
 import { BroadcastChannel, createLeaderElection, type LeaderElector } from 'broadcast-channel';
-import { WebsocketClient } from './base';
 import { ClientAction } from '@/lib/schema/ws-protocol';
+import { WebsocketClient } from './base';
 
 // ============================================================================
 // CROSS-TAB MESSAGE TYPES (over BroadcastChannel)
@@ -460,6 +460,8 @@ export class SharedWebsocketClient extends WebsocketClient {
                     this.bc.postMessage({ cmd: 'connected' });
                 }
                 break;
+            default:
+                break;
         }
     }
 
@@ -496,6 +498,8 @@ export class SharedWebsocketClient extends WebsocketClient {
                 if (this.isConnected) {
                     this.markDisconnected(false);
                 }
+                break;
+            default:
                 break;
         }
     }

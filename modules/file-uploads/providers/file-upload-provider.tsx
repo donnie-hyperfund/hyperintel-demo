@@ -143,7 +143,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
 
     const invalidateResources = useCallback(() => {
         if (projectId) {
-            globalMutate(serializeProjectResourceListKey(projectId));
+            void globalMutate(serializeProjectResourceListKey(projectId));
         }
     }, [globalMutate, projectId]);
 
@@ -270,7 +270,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                 throw new Error(err.message || 'Presign failed');
             }
 
-            const presignData: { uploadUrl: string; fileId: string } = await presignRes.json();
+            const presignData = await presignRes.json();
             updateEntry(entryId, { imageFileId: presignData.fileId });
 
             const mimeType = IMAGE_MIME_TYPES[ext] ?? 'application/octet-stream';
@@ -714,7 +714,7 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
                 queueMicrotask(() => {
                     entries.forEach((entry) => {
                         if (entry.file) {
-                            startEagerUpload(entry.file, entry.id, options);
+                            void startEagerUpload(entry.file, entry.id, options);
                         }
                     });
                 });

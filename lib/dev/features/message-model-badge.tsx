@@ -1,7 +1,7 @@
 'use client';
 
-import type { DevSlotProps } from '@/lib/dev-slots';
 import { devSlots } from '@/lib/dev/dev-slots';
+import type { DevSlotProps } from '@/lib/dev-slots';
 import { useModelSelection } from '@/modules/chat/providers/model-selection-provider';
 
 type Props = DevSlotProps['message-actions'];

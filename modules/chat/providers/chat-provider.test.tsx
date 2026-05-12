@@ -22,7 +22,13 @@ const onChatCreatedMock = vi.fn();
 
 let selectedModelMock = 'sonnet';
 let fallbackMock: Record<string, unknown> = {};
-let wsMessageHandler: ((message: unknown) => void) | null = null;
+let wsMessageHandlers: Array<(message: unknown) => void> = [];
+
+function emitWsMessage(message: unknown) {
+    for (const handler of wsMessageHandlers) {
+        handler(message);
+    }
+}
 
 const cacheMock = new Map();
 const artifactContextMock = {
@@ -196,13 +202,15 @@ describe('ChatProvider', () => {
         hasPendingNudgeMock.mockReset();
         hasPendingNudgeMock.mockReturnValue(false);
         clearPendingNudgeMock.mockReset();
-        wsMessageHandler = null;
+        wsMessageHandlers = [];
         wsMock.send.mockReset();
         wsMock.subscribe.mockReset().mockReturnValue(vi.fn());
         wsMock.on.mockReset().mockImplementation((event: string, handler: (message: unknown) => void) => {
-            if (event === 'message') wsMessageHandler = handler;
+            if (event === 'message') wsMessageHandlers.push(handler);
         });
-        wsMock.off.mockReset();
+        wsMock.off.mockReset().mockImplementation((event: string, handler: (message: unknown) => void) => {
+            if (event === 'message') wsMessageHandlers = wsMessageHandlers.filter((h) => h !== handler);
+        });
 
         cacheMock.clear();
         artifactContextMock.addArtifact.mockReset();
@@ -600,7 +608,7 @@ describe('ChatProvider', () => {
         });
 
         act(() => {
-            wsMessageHandler?.({
+            emitWsMessage({
                 type: 'stream_started',
                 topic: 'chat:chat-initial',
                 agentMessageId: 'agent-1',
@@ -608,15 +616,17 @@ describe('ChatProvider', () => {
             });
         });
 
-        expect(result.current.state.activeResponseId).toBe('agent-1');
-        expect(result.current.state.messages.at(-1)).toMatchObject({
-            id: 'agent-1',
-            role: 'assistant',
-            isStreaming: true,
+        await waitFor(() => {
+            expect(result.current.state.activeResponseId).toBe('agent-1');
+            expect(result.current.state.messages.at(-1)).toMatchObject({
+                id: 'agent-1',
+                role: 'assistant',
+                isStreaming: true,
+            });
         });
 
         act(() => {
-            wsMessageHandler?.({
+            emitWsMessage({
                 type: 'stream_event',
                 topic: 'chat:chat-initial',
                 agentMessageId: 'agent-1',
@@ -658,7 +668,7 @@ describe('ChatProvider', () => {
         });
 
         act(() => {
-            wsMessageHandler?.({
+            emitWsMessage({
                 type: 'stream_started',
                 topic: 'chat:chat-initial',
                 agentMessageId: 'agent-invalid-request',
@@ -666,8 +676,17 @@ describe('ChatProvider', () => {
             });
         });
 
+        await waitFor(() => {
+            expect(result.current.state.activeResponseId).toBe('agent-invalid-request');
+            expect(result.current.state.messages.at(-1)).toMatchObject({
+                id: 'agent-invalid-request',
+                role: 'assistant',
+                isStreaming: true,
+            });
+        });
+
         act(() => {
-            wsMessageHandler?.({
+            emitWsMessage({
                 type: 'stream_event',
                 topic: 'chat:chat-initial',
                 agentMessageId: 'agent-invalid-request',
@@ -820,7 +839,7 @@ describe('ChatProvider', () => {
         });
 
         act(() => {
-            wsMessageHandler?.({
+            emitWsMessage({
                 type: 'user_event',
                 eventType: 'context_limit_transition_update',
                 payload: {

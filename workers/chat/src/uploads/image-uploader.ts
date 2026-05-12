@@ -28,7 +28,7 @@ function getExtension(filename: string): string {
     return filename.slice(filename.lastIndexOf('.')).toLowerCase();
 }
 
-function getBucketName(env: Env): string {
+function getBucketName(env: ChatEnv): string {
     return env.ENV === 'dev' ? 'hi-user-images-dev' : 'hi-user-images';
 }
 
@@ -211,7 +211,10 @@ export async function associateImagesInternal(
  * Generate signed GET URLs for image files.
  * Called when building LLM context to create temporary readable URLs.
  */
-export async function generateSignedImageUrls(env: Env, files: ChatMessageFileEntity[]): Promise<Map<string, string>> {
+export async function generateSignedImageUrls(
+    env: ChatEnv,
+    files: ChatMessageFileEntity[],
+): Promise<Map<string, string>> {
     if (files.length === 0) return new Map();
 
     const s3 = await createWorkerS3Client(env);

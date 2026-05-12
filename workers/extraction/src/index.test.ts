@@ -66,7 +66,10 @@ describe('processChunksWithImages', () => {
 
 		expect(imageRefs).toHaveLength(2);
 		expect(content).toMatch(
-			/Intro text\s+Figure summary\s+!\[Figure summary\]\(artifact-image:\/\/[^)]+\)\s+Between text\s+Figure summary\s+!\[Figure summary\]\(artifact-image:\/\/[^)]+\)\s+Closing text/s,
+			new RegExp(
+				'Intro text\\s+Figure summary\\s+!\\[Figure summary\\]\\(artifact-image://[^)]+\\)\\s+Between text\\s+Figure summary\\s+!\\[Figure summary\\]\\(artifact-image://[^)]+\\)\\s+Closing text',
+				's',
+			),
 		);
 	});
 });
@@ -121,7 +124,7 @@ describe('processMessage image uploads', () => {
 			{
 				env: {
 					ARTIFACTS_BUCKET: { get: bucketGet } as unknown as R2Bucket,
-				} as Env,
+				} as ExtractionEnv,
 				em: em as any,
 			},
 			'[test]',

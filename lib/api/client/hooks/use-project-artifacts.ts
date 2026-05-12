@@ -26,7 +26,6 @@ import { isKnownUploadError, UploadValidationError, validateArtifactFile } from 
 import type {
     ArtifactDto,
     ArtifactVersionHistoryResponseDto,
-    RestoreArtifactResponseDto,
     UploadArtifactResponseDto,
 } from '@/lib/schema/artifact';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
@@ -144,7 +143,7 @@ export function useApproveProjectArtifactVersion(
             }
 
             if (projectId) {
-                globalMutate(serializeProjectArtifactListKey(projectId));
+                void globalMutate(serializeProjectArtifactListKey(projectId));
                 return createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, artifactVersion);
             }
             return createArtifactApi(getToken).getByKey(artifactKey, artifactVersion);
@@ -174,7 +173,7 @@ export function useRejectProjectArtifactVersion(
             }
 
             if (projectId) {
-                globalMutate(serializeProjectArtifactListKey(projectId));
+                void globalMutate(serializeProjectArtifactListKey(projectId));
                 return createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, artifactVersion);
             }
             return createArtifactApi(getToken).getByKey(artifactKey, artifactVersion);
@@ -203,14 +202,14 @@ export function useRestoreProjectArtifactVersion(projectId: string | undefined, 
                 throw new Error(error.message || 'Failed to restore artifact');
             }
 
-            const result = (await response.json()) as RestoreArtifactResponseDto;
+            const result = await response.json();
 
             if (projectId) {
-                globalMutate(serializeProjectArtifactListKey(projectId));
-                globalMutate(projectArtifactKeys.history(projectId, artifactKey));
-                globalMutate(projectArtifactKeys.byKey(projectId, artifactKey));
+                void globalMutate(serializeProjectArtifactListKey(projectId));
+                void globalMutate(projectArtifactKeys.history(projectId, artifactKey));
+                void globalMutate(projectArtifactKeys.byKey(projectId, artifactKey));
             } else {
-                globalMutate((key) => Array.isArray(key) && key[0] === artifactKeys.all[0]);
+                void globalMutate((key) => Array.isArray(key) && key[0] === artifactKeys.all[0]);
             }
 
             const artifact = projectId
@@ -231,7 +230,7 @@ export function useDeleteProjectArtifact(projectId: string, artifactKey: string)
             const api = createProjectArtifactApi(getToken);
             const artifact = await api.getByKey(projectId, artifactKey);
             const result = await api.delete(projectId, artifact.id);
-            globalMutate(serializeProjectArtifactListKey(projectId));
+            void globalMutate(serializeProjectArtifactListKey(projectId));
             return result;
         },
     );
@@ -260,12 +259,12 @@ export function useUploadProjectArtifact(projectId: string, chatId: string | nul
                 const error = await response.json();
                 // Only trust messages with codes we control — everything else is opaque
                 if (isKnownUploadError(error.code)) {
-                    throw new UploadValidationError(error.code, error.message);
+                    throw new UploadValidationError(error.code, error.message ?? 'Upload failed');
                 }
                 throw new Error(error.message || 'Upload failed');
             }
 
-            globalMutate(serializeProjectResourceListKey(projectId));
+            void globalMutate(serializeProjectResourceListKey(projectId));
             return response.json();
         },
     );

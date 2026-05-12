@@ -64,7 +64,7 @@ const SK_DISPLAY_STATUS = 'displayStatus';
  * Lifecycle: created via init() → push() loop → done() → finalize().
  * Dead-man's switch alarm fires if Worker crashes mid-stream.
  */
-export class ChatStreamDO extends DurableObject<Env> {
+export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     // --- Persisted state (survives hibernation via ctx.storage) ---
     private blocks: StreamBlock[] = [];
     private activeDocuments = new Map<string, ActiveDocument>();
@@ -393,7 +393,7 @@ export class ChatStreamDO extends DurableObject<Env> {
      */
     private queueBroadcast(messages: unknown[]) {
         this.broadcastQueue.push(messages);
-        this.drainBroadcastQueue();
+        void this.drainBroadcastQueue();
     }
 
     /**

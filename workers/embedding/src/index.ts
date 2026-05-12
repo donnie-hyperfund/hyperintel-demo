@@ -96,7 +96,7 @@ export async function processMessage(
 // HTTP HANDLER (health checks, manual triggers)
 // ============================================================================
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: EmbeddingEnv }>();
 
 app.get('/', (c) => {
     return c.json({ status: 'ok', worker: 'embedding' });
@@ -171,7 +171,11 @@ app.post('/enqueue', async (c) => {
 // QUEUE CONSUMER
 // ============================================================================
 
-async function handleQueueBatch(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext): Promise<void> {
+async function handleQueueBatch(
+    batch: MessageBatch<unknown>,
+    env: EmbeddingEnv,
+    _ctx: ExecutionContext,
+): Promise<void> {
     console.log(`[embedding/queue] Processing batch of ${batch.messages.length} messages`);
 
     // Cache contexts per preview alias (different branches need different DB connections)

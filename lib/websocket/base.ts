@@ -1,6 +1,6 @@
+import { emitDevHook } from '@/lib/dev-hooks-stub';
 import type { ClientMessage, ServerMessage } from '@/lib/schema/ws-protocol';
 import { ClientAction } from '@/lib/schema/ws-protocol';
-import { emitDevHook } from '@/lib/dev-hooks-stub';
 
 // ============================================================================
 // TYPED EVENT EMITTER (inline — no external dependency)

@@ -21,7 +21,7 @@ const BATCH_SIZE = 100;
  * valid resting state for staged uploads awaiting association (post-deferred-extraction fix).
  * Staged-orphan cleanup is handled separately in processStaleStagedArtifactsBatch.
  */
-async function processArtifactBatch(em: SqlEntityManager, env: Env, cutoff: Date): Promise<number> {
+async function processArtifactBatch(em: SqlEntityManager, env: ChatEnv, cutoff: Date): Promise<number> {
     const staleFiles = await em.find(
         ArtifactFileEntity,
         {
@@ -84,7 +84,7 @@ async function processArtifactBatch(em: SqlEntityManager, env: Env, cutoff: Date
  * Post-fix, extraction is deferred for staged uploads so those objects shouldn't exist.
  * Any pre-fix leftovers need a separate R2-listing sweep.
  */
-async function processStaleStagedArtifactsBatch(em: SqlEntityManager, env: Env, cutoff: Date): Promise<number> {
+async function processStaleStagedArtifactsBatch(em: SqlEntityManager, env: ChatEnv, cutoff: Date): Promise<number> {
     const staleArtifacts = await em.find(
         ArtifactEntity,
         {
@@ -132,7 +132,7 @@ async function processStaleStagedArtifactsBatch(em: SqlEntityManager, env: Env, 
  *   - R2 objects with no matching DB row (partial-write / race at upload or associate time).
  *     Would require a listing-based sweep, not the DB-driven one below.
  */
-async function processImageBatch(em: SqlEntityManager, env: Env, cutoff: Date): Promise<number> {
+async function processImageBatch(em: SqlEntityManager, env: ChatEnv, cutoff: Date): Promise<number> {
     const staleFiles = await em.find(
         ChatMessageFileEntity,
         {
@@ -154,7 +154,7 @@ async function processImageBatch(em: SqlEntityManager, env: Env, cutoff: Date): 
     return staleFiles.length;
 }
 
-export async function cleanupStaleUploads(env: Env) {
+export async function cleanupStaleUploads(env: ChatEnv) {
     const ctx = await initInferredContext(env, {}, { withOrm: true });
     const cutoff = new Date(Date.now() - STALE_THRESHOLD_MS);
     let totalArtifacts = 0;

@@ -268,15 +268,15 @@ describe('API: artifact list includes deleted with status', () => {
         const { GET } = await import('@/app/api/projects/[projectId]/artifacts/route');
         const res = await GET(req(`/api/projects/${projectId}/artifacts`), { params: Promise.resolve({ projectId }) });
         expect(res.status).toBe(200);
-        const body = await res.json();
-        const artifact = body.data?.find((a: any) => a.key === DOC);
+        const body: any = await res.json();
+        const artifact = body.data?.find((a) => a.key === DOC);
         expect(artifact).toBeDefined();
     });
 
-    it('GET /projects/:pid/artifacts/:aid — returns deleted artifact', async () => {
-        const { GET } = await import('@/app/api/projects/[projectId]/artifacts/[artifactId]/route');
-        const res = await GET(req(`/api/projects/${projectId}/artifacts/${artifactId}`), {
-            params: Promise.resolve({ projectId, artifactId }),
+    it('GET /artifacts/:aid — returns deleted artifact', async () => {
+        const { GET } = await import('@/app/api/artifacts/[artifactId]/route');
+        const res = await GET(req(`/api/artifacts/${artifactId}`), {
+            params: Promise.resolve({ artifactId }),
         });
         expect(res.status).toBe(200);
     });
@@ -287,7 +287,7 @@ describe('API: artifact list includes deleted with status', () => {
             params: Promise.resolve({ projectId }),
         });
         expect(res.status).toBe(200);
-        const body = await res.json();
+        const body: any = await res.json();
         expect(body.key).toBe(DOC);
     });
 });
@@ -301,14 +301,15 @@ describe('API: chat summary reflects deleted artifacts', () => {
     });
 
     it('GET /chats/:cid — includes deleted artifact in documents with deleted status', async () => {
-        const { GET } = await import('@/app/api/projects/[projectId]/chats/[chatId]/route');
-        const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}`), {
-            params: Promise.resolve({ projectId, chatId }),
+        const { GET } = await import('@/app/api/chats/[chatId]/route');
+        const res = await GET(req(`/api/chats/${chatId}`), {
+            params: Promise.resolve({ chatId }),
         });
         expect(res.status).toBe(200);
-        const body = await res.json();
-        const doc = body.documents?.find((d: any) => d.key === DOC);
+        const body: any = await res.json();
+        const doc = body.documents?.find((d) => d.key === DOC);
         expect(doc).toBeDefined();
+        if (!doc) throw new Error('Expected deleted artifact document in chat summary');
         expect(doc.status).toBe('deleted');
     });
 });
@@ -332,14 +333,15 @@ describe('API: restored artifact appears normally', () => {
     });
 
     it('GET /chats/:cid — restored artifact has approved status', async () => {
-        const { GET } = await import('@/app/api/projects/[projectId]/chats/[chatId]/route');
-        const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}`), {
-            params: Promise.resolve({ projectId, chatId }),
+        const { GET } = await import('@/app/api/chats/[chatId]/route');
+        const res = await GET(req(`/api/chats/${chatId}`), {
+            params: Promise.resolve({ chatId }),
         });
         expect(res.status).toBe(200);
-        const body = await res.json();
-        const doc = body.documents?.find((d: any) => d.key === DOC);
+        const body: any = await res.json();
+        const doc = body.documents?.find((d) => d.key === DOC);
         expect(doc).toBeDefined();
+        if (!doc) throw new Error('Expected restored artifact document in chat summary');
         expect(doc.status).toBe('approved');
     });
 });

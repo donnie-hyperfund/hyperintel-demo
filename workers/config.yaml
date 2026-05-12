@@ -115,7 +115,7 @@ package_scripts:
   dev: "wrangler dev"
   start: "wrangler dev"
   test: "vitest"
-  typegen: "wrangler types --include-runtime=false --strict-vars=false"
+  typegen: "tsx ../_common/config/typegen.ts"
 
 # Wrangler defaults
 wrangler_defaults:
