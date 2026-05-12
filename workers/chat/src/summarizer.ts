@@ -208,6 +208,7 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
                 toolGroups: [BlurbToolGroup],
                 config: {
                     preprocessContext,
+                    autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
                     abortSignal: abortController.signal,
                 },
             },
