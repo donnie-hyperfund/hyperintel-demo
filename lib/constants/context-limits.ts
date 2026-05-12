@@ -6,6 +6,6 @@
  * CONTEXT_GATE_HARD_TOKENS: hard gate — phase transition required.
  */
 
-export const MAX_CONTEXT_TOKENS = 200_000;
-export const CONTEXT_GATE_WARNING_TOKENS = 180_000;
-export const CONTEXT_GATE_HARD_TOKENS = 300_000;
+export const MAX_CONTEXT_TOKENS = 1_000_000;
+export const CONTEXT_GATE_WARNING_TOKENS = 800_000;
+export const CONTEXT_GATE_HARD_TOKENS = 900_000;

@@ -105,7 +105,6 @@ vi.mock('@/modules/chat/providers/active-panel-provider', () => ({
     useActivePanelContext: () => ({
         pushPanel: pushPanelMock,
         closePanel: closePanelMock,
-        pushPanel: vi.fn(),
         popPanel: vi.fn(),
         togglePanel: vi.fn(),
         canGoBack: false,
@@ -589,6 +588,106 @@ describe('ChatProvider', () => {
         expect(result.current.state.hardStopModalState).toBe('already-transitioned');
         expect(result.current.state.hardStopExistingNextChatId).toBe('chat-next');
         consoleSpy.mockRestore();
+    });
+
+    it('opens the hard-stop modal for streamed context-length errors', async () => {
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        await waitFor(() => {
+            expect(wsMock.on).toHaveBeenCalledWith('message', expect.any(Function));
+        });
+
+        act(() => {
+            wsMessageHandler?.({
+                type: 'stream_started',
+                topic: 'chat:chat-initial',
+                agentMessageId: 'agent-1',
+                userMessageId: 'user-1',
+            });
+        });
+
+        expect(result.current.state.activeResponseId).toBe('agent-1');
+        expect(result.current.state.messages.at(-1)).toMatchObject({
+            id: 'agent-1',
+            role: 'assistant',
+            isStreaming: true,
+        });
+
+        act(() => {
+            wsMessageHandler?.({
+                type: 'stream_event',
+                topic: 'chat:chat-initial',
+                agentMessageId: 'agent-1',
+                event: {
+                    type: 'done',
+                    error: 'CONTEXT_TOO_LONG',
+                    messageMetadata: {
+                        error: { code: 'CONTEXT_TOO_LONG', retryable: false },
+                    },
+                },
+            });
+        });
+
+        expect(result.current.state.hardStopModalState).toBe('idle');
+        expect(result.current.state.showContextLimitAlert).toBe(false);
+        expect(result.current.state.activeResponseId).toBeNull();
+        expect(result.current.state.messages.at(-1)).toMatchObject({
+            id: 'agent-1',
+            isStreaming: false,
+            metadata: { error: { code: 'CONTEXT_TOO_LONG', retryable: false } },
+        });
+        expect(result.current.state.messages.at(-1)?.isError).toBeUndefined();
+    });
+
+    it('opens the hard-stop modal for invalid request streamed errors when context is already hard-overflowed', async () => {
+        apiMock.chats.get.mockResolvedValue({
+            tokenUsage: null,
+            hasPendingChanges: false,
+            phaseIndex: 1,
+            metadata: { contextOverflow: 'hard' },
+        });
+
+        const { result } = renderHook(() => useChatContext<'phase'>(), {
+            wrapper: phaseWithInitialChatWrapper,
+        });
+
+        await waitFor(() => {
+            expect(result.current.state.contextOverflow).toBe('hard');
+        });
+
+        act(() => {
+            wsMessageHandler?.({
+                type: 'stream_started',
+                topic: 'chat:chat-initial',
+                agentMessageId: 'agent-invalid-request',
+                userMessageId: 'user-1',
+            });
+        });
+
+        act(() => {
+            wsMessageHandler?.({
+                type: 'stream_event',
+                topic: 'chat:chat-initial',
+                agentMessageId: 'agent-invalid-request',
+                event: {
+                    type: 'done',
+                    error: 'INVALID_REQUEST',
+                    messageMetadata: {
+                        error: { code: 'INVALID_REQUEST', retryable: false },
+                    },
+                },
+            });
+        });
+
+        expect(result.current.state.hardStopModalState).toBe('idle');
+        expect(result.current.state.messages.at(-1)).toMatchObject({
+            id: 'agent-invalid-request',
+            isStreaming: false,
+            metadata: { error: { code: 'INVALID_REQUEST', retryable: false } },
+        });
+        expect(result.current.state.messages.at(-1)?.isError).toBeUndefined();
     });
 
     it('includes projectId when associating uploads after creating a new phase chat', async () => {

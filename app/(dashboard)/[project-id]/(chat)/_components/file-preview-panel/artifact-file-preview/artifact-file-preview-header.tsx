@@ -7,6 +7,7 @@ import { useCallback, useState } from 'react';
 import { useSWRConfig } from 'swr';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { IconButton } from '@/components/ui/icon-button';
+import { ImageThumbnail } from '@/components/ui/image-thumbnail';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { projectResourceKeys } from '@/lib/api/client/fetchers/project-resources';
 import { deleteArtifact } from '@/lib/api/requests/worker/chat';
@@ -19,6 +20,8 @@ type ArtifactFilePreviewHeaderProps = {
     documentType?: DocumentType;
     artifactId: string;
     fileName?: string;
+    fileId?: string;
+    mimeType?: string;
     fileUrl?: string | null;
     content?: string | null;
     isUploaded?: boolean;
@@ -30,6 +33,8 @@ export function ArtifactFilePreviewHeader({
     documentType,
     artifactId,
     fileName,
+    fileId,
+    mimeType,
     fileUrl,
     content,
     isUploaded,
@@ -76,7 +81,7 @@ export function ArtifactFilePreviewHeader({
     return (
         <div className="flex items-center justify-between gap-2 h-14 px-4 border-b border-border">
             <div className="flex items-center gap-3 min-w-0">
-                <HeaderIcon fileName={fileName} documentType={documentType} />
+                <HeaderIcon fileName={fileName} fileId={fileId} mimeType={mimeType} documentType={documentType} />
                 <span title={title} className="line-clamp-1 text-sm font-medium">
                     {title}
                 </span>
@@ -113,10 +118,16 @@ export function ArtifactFilePreviewHeader({
 
 type HeaderIconProps = {
     fileName?: string;
+    fileId?: string;
+    mimeType?: string;
     documentType?: DocumentType;
 };
 
-function HeaderIcon({ fileName, documentType }: HeaderIconProps) {
+function HeaderIcon({ fileName, fileId, mimeType, documentType }: HeaderIconProps) {
+    if (fileId && mimeType?.startsWith('image/')) {
+        return <ImageThumbnail fileId={fileId} />;
+    }
+
     if (fileName) {
         return <FileTypeIcon filename={fileName} size={20} className="shrink-0" />;
     }

@@ -7,6 +7,7 @@ import { type Ref, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { IconButton } from '@/components/ui/icon-button';
+import { ImageThumbnail } from '@/components/ui/image-thumbnail';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { CamelCaseDto } from '@/lib/api/client/types';
@@ -48,7 +49,7 @@ export function ResourceListItem({ artifact, onRemove, isHighlighted = false, it
     const alwaysAttached = isPublicImport(artifact);
     const href = getResourceRoute(artifact);
     const isUploaded = version?.isUploaded === true;
-    const file = (version as any)?.file as { originalName?: string } | undefined;
+    const file = (version as any)?.file as { id?: string; originalName?: string; mimeType?: string } | undefined;
     const fileName = file?.originalName ?? artifact.key;
 
     const handlePreview = () => {
@@ -74,7 +75,7 @@ export function ResourceListItem({ artifact, onRemove, isHighlighted = false, it
     return (
         <div ref={itemRef} className={cn('group relative rounded-lg', isHighlighted && 'highlight-pulse')}>
             <ResourceListItemContainer href={href} onClick={href ? undefined : handlePreview} title={title}>
-                <ResourceListItemIcon isUploaded={isUploaded} fileName={fileName} documentType={docType} />
+                <ResourceListItemIcon isUploaded={isUploaded} fileName={fileName} documentType={docType} file={file} />
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                         <span className="line-clamp-1 text-sm font-medium">{title}</span>
@@ -132,9 +133,14 @@ type ResourceListItemIconProps = {
     isUploaded: boolean;
     fileName: string;
     documentType?: string;
+    file?: { id?: string; mimeType?: string };
 };
 
-function ResourceListItemIcon({ isUploaded, fileName, documentType }: ResourceListItemIconProps) {
+function ResourceListItemIcon({ isUploaded, fileName, documentType, file }: ResourceListItemIconProps) {
+    if (isUploaded && file?.id && file.mimeType?.startsWith('image/')) {
+        return <ImageThumbnail fileId={file.id} className="mt-0.5" />;
+    }
+
     if (isUploaded) {
         return <FileTypeIcon filename={fileName} size={20} className="shrink-0 mt-0.5" />;
     }

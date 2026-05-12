@@ -38,6 +38,18 @@ import { useUserEvents } from '../hooks/use-user-events';
 import type { ChatState, ChatType, Message, PaginationState, StreamBlock, SummaryStatus } from '../types';
 import { pickDisplaySafeMessageMetadata } from '../utils/message-metadata';
 
+function isContextLimitStreamError(metadata: Message['metadata'] | undefined): boolean {
+    return metadata?.error?.code === 'CONTEXT_TOO_LONG';
+}
+
+function shouldTreatStreamErrorAsContextLimit(
+    metadata: Message['metadata'] | undefined,
+    contextOverflow: ChatState['contextOverflow'],
+): boolean {
+    if (isContextLimitStreamError(metadata)) return true;
+    return contextOverflow === 'hard' && metadata?.error?.code === 'INVALID_REQUEST';
+}
+
 export type BaseChatContextValue = {
     state: ChatState;
     /** API client for chat operations */
@@ -685,11 +697,17 @@ export function ChatProvider({
             setState((prev) => {
                 const targetMessageId = completedAgentMessageId ?? prev.activeResponseId;
                 const isCurrentActiveStream = !!targetMessageId && prev.activeResponseId === targetMessageId;
+                const isContextLimitError =
+                    isNormalDone && shouldTreatStreamErrorAsContextLimit(doneMessageMetadata, prev.contextOverflow);
 
                 return {
                     ...prev,
                     isGenerating: isCurrentActiveStream ? false : prev.isGenerating,
                     activeResponseId: isCurrentActiveStream ? null : prev.activeResponseId,
+                    ...(isContextLimitError && {
+                        hardStopModalState: chatType === 'phase' ? 'idle' : prev.hardStopModalState,
+                        showContextLimitAlert: chatType === 'phase' ? prev.showContextLimitAlert : true,
+                    }),
                     tokenUsage: isNormalDone ? (terminalEvent.tokenUsage ?? prev.tokenUsage) : prev.tokenUsage,
                     totalCost: isNormalDone ? (terminalEvent.totalCost ?? prev.totalCost) : prev.totalCost,
                     hasPendingChanges: isNormalDone
@@ -702,7 +720,7 @@ export function ChatProvider({
                                   ...msg,
                                   isStreaming: false,
                                   status: undefined,
-                                  ...(hasTerminalError && { isError: true }),
+                                  ...(hasTerminalError && !isContextLimitError && { isError: true }),
                                   ...(status === 'aborted' && !msg.isRetracted && { isAborted: true }),
                                   ...(doneMessageMetadata &&
                                       Object.keys(doneMessageMetadata).length > 0 && { metadata: doneMessageMetadata }),
