@@ -1,29 +1,17 @@
 'use client';
 
-import { useUser } from '@clerk/nextjs';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
-import { useRouter } from 'nextjs-toploader/app';
 import { ProjectItem, ProjectItemSkeleton } from '@/app/(dashboard)/projects/_components/project-item';
 import { Button } from '@/components/ui/button';
-import { useFetchProjects } from '@/lib/api/client/hooks/use-projects';
+import { useOpenProject } from '@/hooks/use-open-project';
+import { useRecentProjects } from '@/lib/api/client/hooks/use-recent-projects';
 import type { CamelCaseDto } from '@/lib/api/client/types';
-import { setCurrentProjectCookie } from '@/lib/cookies/project';
 import type { ProjectDto } from '@/lib/schema/project';
 
 export function RecentProjectsSection() {
-    const router = useRouter();
-    const { user } = useUser();
-    const { data, isLoading, error } = useFetchProjects({ page: 1, limit: 6, status: 'active' });
-
-    const projects = data?.data ?? [];
-    const total = data?.pagination.total ?? 0;
-
-    const openProject = (project: CamelCaseDto<ProjectDto>) => {
-        if (!user?.id) return;
-        setCurrentProjectCookie(user.id, project.id);
-        router.push(`/${project.id}`);
-    };
+    const { projects, total, isLoading, error } = useRecentProjects();
+    const { openProject } = useOpenProject();
 
     const renderContent = () => {
         if (isLoading) return <ProjectsLoading />;
