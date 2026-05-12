@@ -2,7 +2,7 @@ import 'server-only';
 
 import { cache } from 'react';
 import { assertAuthPage } from '@/lib/api/auth-guard';
-import { fetchChat } from '@/lib/api/server/fetchers/chats';
+import { fetchChat, fetchIntakeChat, type IntakeFramework } from '@/lib/api/server/fetchers/chats';
 import { fetchProject } from '@/lib/api/server/fetchers/projects';
 
 export const getPageUser = cache(async () => assertAuthPage());
@@ -19,4 +19,11 @@ export const getChatPageData = cache(async (projectId: string, chatId: string) =
     const chat = project ? await fetchChat(projectId, chatId, user) : null;
 
     return { user, project, chat };
+});
+
+export const getIntakeChatPageData = cache(async (chatId: string, framework: IntakeFramework) => {
+    const user = await getPageUser();
+    const chat = await fetchIntakeChat({ chatId, framework, user });
+
+    return { user, chat };
 });

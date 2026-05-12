@@ -60,6 +60,31 @@ export async function fetchChats(
     return createPaginatedResponse(mappedNodes, totalCount, page, limit);
 }
 
+export type IntakeFramework = 'cpf' | 'hpf';
+
+export async function fetchIntakeChat({
+    chatId,
+    framework,
+    user,
+}: {
+    chatId: string;
+    framework: IntakeFramework;
+    user: UserEntity;
+}): Promise<ChatEntity | null> {
+    const { em } = await getOrm();
+
+    return em
+        .createQueryBuilder(ChatEntity, 'c')
+        .select('c.*')
+        .where({
+            'c.id': chatId,
+            'c.user': user.id,
+            'c.type': 'intake',
+        })
+        .andWhere(sql`c.metadata->>'framework' = ${framework}`)
+        .getSingleResult();
+}
+
 export async function fetchChat(projectId: string, chatId: string, user: UserEntity): Promise<ChatDto | null> {
     const { em } = await getOrm();
 

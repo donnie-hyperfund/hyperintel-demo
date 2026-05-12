@@ -2,7 +2,9 @@
 
 import { useRouter } from 'next/navigation';
 import { type ReactNode, Suspense, useCallback } from 'react';
+import { buildProjectOriginQuery } from '@/lib/intake/project-origin';
 import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
+import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
 import type { Message } from '../types';
 import { ActivePanelProvider } from './active-panel-provider';
@@ -37,6 +39,7 @@ export function ChatModule({
     buildCreatedChatHref,
 }: ChatModuleProps) {
     const router = useRouter();
+    const { origin } = useOptionalProjectOrigin();
 
     const buildChatRoute = useCallback(
         (nextChatId: string) => {
@@ -49,9 +52,10 @@ export function ChatModule({
                 return `/${projectId}/${nextChatId}`;
             }
 
-            return `/${chatType === 'company' ? 'companies' : 'stakeholders'}/${nextChatId}`;
+            const basePath = `/${chatType === 'company' ? 'companies' : 'stakeholders'}/${nextChatId}`;
+            return origin ? `${basePath}?${buildProjectOriginQuery(origin)}` : basePath;
         },
-        [buildCreatedChatHref, chatType, projectId],
+        [buildCreatedChatHref, chatType, projectId, origin],
     );
 
     const handleChatCreated = useCallback(

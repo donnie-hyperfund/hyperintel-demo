@@ -1,10 +1,6 @@
-import { type ReactNode, Suspense } from 'react';
+import type { ReactNode } from 'react';
 import { StakeholderChatShell } from './_components/stakeholder-chat-shell';
 
 export default function StakeholderChatLayout({ children }: { children: ReactNode }) {
-    return (
-        <Suspense>
-            <StakeholderChatShell>{children}</StakeholderChatShell>
-        </Suspense>
-    );
+    return <StakeholderChatShell>{children}</StakeholderChatShell>;
 }

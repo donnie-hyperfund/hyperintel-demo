@@ -1,36 +1,18 @@
 'use client';
 
-import { useParams, useSearchParams } from 'next/navigation';
-import { type ReactNode, Suspense, useEffect, useMemo } from 'react';
+import { type ReactNode, Suspense } from 'react';
 import { StakeholderChatInterface } from '@/app/(dashboard)/stakeholders/_components/stakeholder-chat-interface';
-import { buildProjectOriginQuery, parseProjectOrigin } from '@/lib/intake/project-origin';
+import { useRouteChatId } from '@/modules/chat/hooks/use-route-chat-id';
 import { ChatModule } from '@/modules/chat/providers/chat-module';
-import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { IntakeRouteSync } from '@/modules/intake/components/intake-route-sync';
 import { ProjectOriginProvider } from '@/modules/intake/providers/project-origin-provider';
 
-type RouteParams = Record<string, string | string[] | undefined>;
-
-function readRouteChatId(params: RouteParams): string | undefined {
-    return typeof params.chatId === 'string' ? params.chatId : undefined;
-}
-
 export function StakeholderChatShell({ children }: { children: ReactNode }) {
-    const params = useParams<RouteParams>();
-    const searchParams = useSearchParams();
-    const initialChatId = readRouteChatId(params);
-    const origin = useMemo(() => parseProjectOrigin(searchParams), [searchParams]);
-    const buildCreatedChatHref = useMemo(
-        () => (origin ? (chatId: string) => `/stakeholders/${chatId}?${buildProjectOriginQuery(origin)}` : undefined),
-        [origin],
-    );
+    const initialChatId = useRouteChatId();
 
     return (
-        <ProjectOriginProvider origin={origin} resourceType="stakeholder">
-            <ChatModule
-                chatType="stakeholder"
-                initialChatId={initialChatId}
-                buildCreatedChatHref={buildCreatedChatHref}
-            >
+        <ProjectOriginProvider resourceType="stakeholder">
+            <ChatModule chatType="stakeholder" initialChatId={initialChatId}>
                 <Suspense fallback={null}>
                     <IntakeRouteSync />
                 </Suspense>
@@ -39,20 +21,4 @@ export function StakeholderChatShell({ children }: { children: ReactNode }) {
             </ChatModule>
         </ProjectOriginProvider>
     );
-}
-
-function IntakeRouteSync() {
-    const params = useParams<RouteParams>();
-    const { openChat, startNewChat } = useChatContext<'stakeholder'>();
-    const chatId = readRouteChatId(params);
-
-    useEffect(() => {
-        if (chatId) {
-            void openChat(chatId);
-            return;
-        }
-        startNewChat();
-    }, [chatId, openChat, startNewChat]);
-
-    return null;
 }
