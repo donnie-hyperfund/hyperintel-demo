@@ -32,6 +32,9 @@ jobs:
             - name: Typecheck
               run: pnpm run tsc:check:ci
 
+            - name: Restore generated Next env file
+              run: git checkout -- next-env.d.ts
+
             - name: Get changed files
               id: changed
               run: |
