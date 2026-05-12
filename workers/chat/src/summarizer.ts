@@ -57,23 +57,13 @@ export interface SummarizerDeps {
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
 
-function getSummarizerInferenceParams(contextTokens: number): ParamsWithType {
-    if (contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS) {
-        return {
-            paramsType: AIParamsType.Anthropic,
-            params: {
-                model: ANTHROPIC_MODELS.SONNET_4_6,
-                reasoning: { exclude: true, effort: 'medium' },
-            },
-        };
-    }
-
+function getSummarizerInferenceParams(_contextTokens: number): ParamsWithType {
     return {
         paramsType: AIParamsType.Anthropic,
         params: {
-            model: ANTHROPIC_MODELS.SONNET,
-            reasoning: true,
-            reasoningBudget: 8000,
+            model: ANTHROPIC_MODELS.SONNET_4_6,
+            reasoning: { exclude: true, effort: 'medium' },
+            maxTokens: 64_000,
         },
     };
 }
