@@ -124,7 +124,7 @@
 				}
 			]
 		},
-		"experimental": {
+		"exp": {
 			"vars": {
 				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
 				"ENV": "dev",
@@ -133,7 +133,53 @@
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
 				"WORKER_NAME": "hi-objects",
-				"WORKER_NAME_FULL": "hi-objects-experimental"
+				"WORKER_NAME_FULL": "hi-objects-exp"
+			},
+			"secrets_store_secrets": [
+				{
+					"binding": "DATABASE_URL",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "HI_DATABASE_URL"
+				},
+				{
+					"binding": "CLERK_SECRET_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "DEV_CLERK_SECRET_KEY"
+				}
+			],
+			"durable_objects": {
+				"bindings": [
+					{
+						"name": "USER_GATEWAY",
+						"class_name": "UserGateway"
+					},
+					{
+						"name": "CHAT_STREAM_DO",
+						"class_name": "ChatStreamDO"
+					},
+					{
+						"name": "GENERATION_PROXY",
+						"class_name": "GenerationProxyDO"
+					}
+				]
+			},
+			"kv_namespaces": [
+				{
+					"binding": "PREVIEW_DB_MAP",
+					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			]
+		},
+		"dexp": {
+			"vars": {
+				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
+				"ENV": "dev",
+				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
+				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
+				"LANGFUSE_ENVIRONMENT": "development",
+				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
+				"WORKER_NAME": "hi-objects",
+				"WORKER_NAME_FULL": "hi-objects-dexp"
 			},
 			"secrets_store_secrets": [
 				{
