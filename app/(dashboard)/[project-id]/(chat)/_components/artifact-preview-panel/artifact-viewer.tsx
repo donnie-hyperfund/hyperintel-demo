@@ -95,7 +95,9 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const showInternalActions = canApprove && !!activeVersion?.isInternal && !hasSummary;
     const canDelete =
         !!artifactKey && !!activeVersion?.isUploaded && !isStreaming && activeVersion?.status !== 'deleted';
-    const canShowDiff = !!previousContent && previousContent !== content && !isStreaming;
+    const isProposed = activeVersion?.status === 'proposed';
+    const canShowDiff =
+        isProposed && !activeVersion?.isInternal && !!previousContent && previousContent !== content && !isStreaming;
     const hasEntryForVersion = !!(activeVersion?.id && hasProcessingEntry(activeVersion.id));
     const processingEntry = activeVersion?.id ? getProcessingEntry(activeVersion.id) : undefined;
     const showProcessingOverlay = processingEntry?.status === 'processing';
@@ -119,6 +121,10 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         if (!activeVersion?.id) return;
         reconcileVersionStatus({ versionId: activeVersion.id, status: activeVersion.status ?? null });
     }, [activeVersion?.id, activeVersion?.status, reconcileVersionStatus]);
+
+    useEffect(() => {
+        if (!isProposed) setIsDiffVisible(false);
+    }, [isProposed]);
 
     const diffData = useMemo(() => {
         if (!canShowDiff || !previousContent) return null;

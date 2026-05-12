@@ -15,7 +15,7 @@ type ProjectCookieValue = {
 };
 
 export function setCurrentProjectCookie(userId: string, projectId: string): void {
-    setCookie(CURRENT_PROJECT_COOKIE_NAME, `${userId}:${projectId}`, COOKIE_OPTIONS);
+    void setCookie(CURRENT_PROJECT_COOKIE_NAME, `${userId}:${projectId}`, COOKIE_OPTIONS);
 }
 
 export function getCurrentProjectFromCookie(): ProjectCookieValue | null {
@@ -38,5 +38,5 @@ export function parseProjectCookie(value: string | undefined): ProjectCookieValu
 }
 
 export function clearCurrentProjectCookie(): void {
-    deleteCookie(CURRENT_PROJECT_COOKIE_NAME, { path: '/' });
+    void deleteCookie(CURRENT_PROJECT_COOKIE_NAME, { path: '/' });
 }

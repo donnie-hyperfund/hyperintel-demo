@@ -33,8 +33,21 @@
         "objects/src/**/*.ts",
         "embedding/worker-configuration.d.ts",
         "embedding/src/**/*.ts",
+        "extraction/worker-configuration.d.ts",
+        "extraction/src/**/*.ts",
         "services/worker-configuration.d.ts",
-        "services/src/**/*.ts"
+        "services/src/**/*.ts",
+        "runtime-config.ts",
+        "_common/**/*.ts",
+        "**/vitest.config.ts"
     ],
-    "exclude": ["*/test"]
+    "exclude": [
+        "*/test",
+        "../.claude/worktrees",
+        "../.claude/worktrees/**",
+        "../.codex/worktrees",
+        "../.codex/worktrees/**",
+        "../.codex/**/worktrees",
+        "../.codex/**/worktrees/**"
+    ]
 }

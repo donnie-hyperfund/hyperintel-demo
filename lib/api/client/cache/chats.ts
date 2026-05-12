@@ -11,7 +11,7 @@ export function insertChatToCache(
     for (const key of cache.keys()) {
         if (!key.includes('"chats"') || !key.includes('"list"') || !key.includes(projectId)) continue;
 
-        mutate(
+        void mutate(
             key,
             (current: PaginatedResponse<CamelCaseDto<ChatDto>>[] | undefined) => {
                 if (!current || current.length === 0) return current;

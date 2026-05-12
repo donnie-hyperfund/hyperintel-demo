@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { typedFetch } from '@/lib/api/client/fetch';
 import { createBlobCache } from '@/lib/cache/blob-cache';
 
 const fileCache = createBlobCache('artifact-files', {
@@ -30,7 +31,7 @@ export function useArtifactFileUrl(fileId: string | undefined) {
         setIsLoading(true);
         setError(null);
 
-        (async () => {
+        void (async () => {
             try {
                 // 1. Check disk cache
                 const cached = await fileCache.get(fileId);
@@ -43,7 +44,7 @@ export function useArtifactFileUrl(fileId: string | undefined) {
                 }
 
                 // 2. Fetch signed URL from API
-                const res = await fetch(`/api/artifacts/files/${fileId}/url`);
+                const res = await typedFetch<{ url: string }>(`/api/artifacts/files/${fileId}/url`);
                 if (!res.ok) throw new Error('Failed to fetch file URL');
                 const { url: signedUrl } = await res.json();
 

@@ -106,7 +106,7 @@ export function ArtifactIndicator({
             closePanel();
             return;
         }
-        openArtifactPreview();
+        void openArtifactPreview();
     };
 
     useEffect(() => {
@@ -119,7 +119,7 @@ export function ArtifactIndicator({
         let raf1: number | undefined;
         let raf2: number | undefined;
 
-        openArtifactPreview();
+        void openArtifactPreview();
 
         // Double-rAF waits for React commit + browser paint,
         //    so the ResizablePanelGroup layout has settled before we scroll

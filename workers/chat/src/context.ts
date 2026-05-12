@@ -1,6 +1,6 @@
 import { AuthedInferredContext } from '@worker/context.helpers';
 
-export type Ctx = AuthedInferredContext<Env> & {
+export type Ctx = AuthedInferredContext<ChatEnv> & {
     eCtx?: ExecutionContext;
     /** Preview branch alias — set on dev, used for DO name suffixing and DB resolution */
     previewAlias?: string | null;

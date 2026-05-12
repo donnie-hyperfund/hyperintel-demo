@@ -11,6 +11,7 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { clearDatabase, closeTestOrm, getTestEm } from '@/tests/helpers/db';
+import { getToolResult } from '@/tests/helpers/tool-result';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import {
 	buildArtifactImageContentParts,
@@ -177,10 +178,10 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 			makeDocCtx(),
 			fakeCtx,
 		);
+		const toolResult = getToolResult(result);
 
-		// Should be a plain response (no wrapped result shape)
-		expect(result.content).toContain('Just text, no images here.');
-		expect(result.source).toBeDefined();
+		expect(toolResult.content).toContain('Just text, no images here.');
+		expect(toolResult.source).toBeDefined();
 		expect(result).not.toHaveProperty('imageRefs');
 		expect(result).not.toHaveProperty('contentParts');
 	});
@@ -203,6 +204,7 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 		expect(result).toHaveProperty('result');
 		expect(result).toHaveProperty('imageRefs');
 		expect(result).toHaveProperty('contentParts');
+		const toolResult = getToolResult(result);
 
 		// imageRefs: full artifact-image:// URIs in order
 		expect(result.imageRefs).toEqual([
@@ -211,7 +213,7 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 		]);
 
 		// result.content keeps artifact-image:// refs (stable for DB + CC replacement)
-		const content = result.result.content as string;
+		const content = toolResult.content as string;
 		expect(content).toContain('artifact-image://uploads/project/p1/ver-001/images/arch.png');
 		expect(content).toContain('artifact-image://uploads/project/p1/ver-001/images/flow.jpg');
 		expect(content).toContain('Figure 1 shows the architecture overview.');
@@ -267,8 +269,9 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 			makeDocCtx(),
 			fakeCtx,
 		);
+		const toolResult = getToolResult(result);
 
-		expect(result.content).toContain('artifact-image://uploads/project/p1/ver-001/images/arch.png');
+		expect(toolResult.content).toContain('artifact-image://uploads/project/p1/ver-001/images/arch.png');
 		expect(result).not.toHaveProperty('imageRefs');
 		expect(result).not.toHaveProperty('contentParts');
 		expect(vi.mocked(hydrateArtifactImages)).not.toHaveBeenCalled();
@@ -301,10 +304,11 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 			ctxWithDraft,
 			fakeCtx,
 		);
+		const draftToolResult = getToolResult(draftResult);
 
-		expect(draftResult.source).toBe('editing_draft');
+		expect(draftToolResult.source).toBe('editing_draft');
 		// Should contain raw artifact-image:// refs — no resolution
-		expect(draftResult.content).toContain('artifact-image://');
+		expect(draftToolResult.content).toContain('artifact-image://');
 		expect(draftResult).not.toHaveProperty('imageRefs');
 		expect(draftResult).not.toHaveProperty('contentParts');
 	});
@@ -322,9 +326,10 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 			makeDocCtx(),
 			// no rCtx
 		);
+		const toolResult = getToolResult(result);
 
 		// Without rCtx, can't sign — falls through to plain response
-		expect(result.content).toContain('artifact-image://');
+		expect(toolResult.content).toContain('artifact-image://');
 		expect(result).not.toHaveProperty('imageRefs');
 		expect(result).not.toHaveProperty('contentParts');
 	});

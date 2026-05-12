@@ -24,7 +24,7 @@ async function ensureUser(clerkId: string, em: EntityManager): Promise<UserEntit
     const lastName = clerkUser?.lastName;
     const name = firstName && lastName ? `${firstName} ${lastName}` : (firstName ?? lastName ?? null);
 
-    const user = await em.upsert(
+    await em.upsert(
         UserEntity,
         {
             clerkId,

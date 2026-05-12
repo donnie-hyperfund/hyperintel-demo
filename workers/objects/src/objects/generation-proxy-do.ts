@@ -12,7 +12,7 @@ import { createProxyError } from '@/lib/api/proxy-error';
 
 const KEEPALIVE_INTERVAL_MS = 10_000; // 10s alarm heartbeat
 
-export class GenerationProxyDO extends DurableObject<Env> {
+export class GenerationProxyDO extends DurableObject<ObjectsEnv> {
     /**
      * Start a proxied generation.
      *
@@ -57,7 +57,7 @@ export class GenerationProxyDO extends DurableObject<Env> {
                 // Start background consumption + keep-alive alarms
                 await this.ctx.storage.put('__stream_active', true);
                 await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_INTERVAL_MS);
-                this.consumeStream(reader);
+                void this.consumeStream(reader);
 
                 return ids;
             }

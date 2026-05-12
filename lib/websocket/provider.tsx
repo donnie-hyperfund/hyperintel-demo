@@ -44,7 +44,8 @@ export function WebsocketProvider({ children }: { children: ReactNode }) {
             client.connect(token);
         };
 
-        connect();
+        // TODO: handle connection setup rejection instead of leaving an unhandled promise.
+        void connect();
 
         return () => {
             cancelled = true;

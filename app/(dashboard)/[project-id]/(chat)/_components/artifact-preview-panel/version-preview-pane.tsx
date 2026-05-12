@@ -20,7 +20,7 @@ export function VersionPreviewPane({
     error,
 }: VersionPreviewPaneProps) {
     return (
-        <div className="flex min-h-0 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-col">
             <div className="shrink-0 flex h-11 items-center border-b px-4 text-xs text-muted-foreground">
                 {selectedVersion ? (
                     <span>
@@ -30,7 +30,7 @@ export function VersionPreviewPane({
                     <span>Select a version to preview</span>
                 )}
             </div>
-            <ScrollArea className="flex-1 min-h-0">
+            <ScrollArea className="flex-1 min-h-0 [&>[data-slot=scroll-area-viewport]>div]:!block">
                 <div className="px-5 py-4">
                     {isLoading && (
                         <div className="flex min-h-52 items-center justify-center text-muted-foreground">

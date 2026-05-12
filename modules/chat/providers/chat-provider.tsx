@@ -373,7 +373,8 @@ export function ChatProvider({
     const revalidateArtifactByKeyAndVersion = useCallback(
         async (keyId: string, version: number) => {
             if (projectId) {
-                globalMutate(serializeProjectArtifactListKey(projectId));
+                // TODO void correct?
+                void globalMutate(serializeProjectArtifactListKey(projectId));
             }
 
             const fetcher = projectId
@@ -931,7 +932,11 @@ export function ChatProvider({
             setState((prev) => {
                 const msgId = s.agentMessageId!;
                 const existing = prev.messages.find((m) => m.id === msgId);
-                const hasErrorState = s.status === 'error' || !!s.error || !!existing?.isError;
+                const suppressGenericError =
+                    s.status === 'done' &&
+                    shouldTreatStreamErrorAsContextLimit(existing?.metadata, prev.contextOverflow);
+                const hasErrorState =
+                    !suppressGenericError && (s.status === 'error' || !!s.error || !!existing?.isError);
                 const streamMsg: Message = {
                     id: msgId,
                     role: 'assistant',
@@ -1109,7 +1114,8 @@ export function ChatProvider({
     // Auto-load messages when an initial chat ID is provided
     useEffect(() => {
         if (initialChatId) {
-            loadMessages();
+            // TODO void correct?
+            void loadMessages();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialChatId]);
@@ -1292,11 +1298,12 @@ export function ChatProvider({
                 const result = await response.json();
 
                 // Reconcile client-side user message ID with server-assigned ID
-                if (result.userMessageId) {
+                const userMessageId = 'userMessageId' in result ? result.userMessageId : undefined;
+                if (userMessageId) {
                     setState((prev) => ({
                         ...prev,
                         messages: prev.messages.map((m) =>
-                            m.id === userMessage.id ? { ...m, id: result.userMessageId, tempId: m.tempId || m.id } : m,
+                            m.id === userMessage.id ? { ...m, id: userMessageId, tempId: m.tempId || m.id } : m,
                         ),
                     }));
                 }
@@ -1364,7 +1371,7 @@ export function ChatProvider({
             // If the backend skipped the nudge (no pending system event to respond to),
             // reset isGenerating — no SSE stream will fire to reset it otherwise.
             const body = await response.json().catch(() => null);
-            if (body?.nudge === 'skipped') {
+            if (body && 'nudge' in body && body.nudge === 'skipped') {
                 setState((prev) => ({ ...prev, isGenerating: false }));
             }
         } catch (error) {
@@ -1518,7 +1525,8 @@ export function ChatProvider({
                 await api.chats.updateModel(chatId, presetId);
                 // Backend propagated to project — keep SWR cache in sync for next new-chat init
                 if (projectId) {
-                    globalMutate(
+                    // TODO void correct?
+                    void globalMutate(
                         projectKeys.detail(projectId),
                         (prev: Record<string, unknown> | undefined) =>
                             prev ? { ...prev, preferredModel: presetId } : prev,

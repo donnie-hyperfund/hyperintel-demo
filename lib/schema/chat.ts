@@ -21,6 +21,24 @@ export const SendChatActionSchema = z
 
 export type SendChatActionDto = z.infer<typeof SendChatActionSchema>;
 
+export const SendChatActionStartedResponseSchema = z.object({
+    userMessageId: z.string().uuid().optional(),
+    agentMessageId: z.string().uuid(),
+});
+export type SendChatActionStartedResponseDto = z.infer<typeof SendChatActionStartedResponseSchema>;
+
+export const SendChatActionSkippedResponseSchema = z.object({
+    ok: z.literal(true),
+    nudge: z.literal('skipped'),
+});
+export type SendChatActionSkippedResponseDto = z.infer<typeof SendChatActionSkippedResponseSchema>;
+
+export const SendChatActionResponseSchema = z.union([
+    SendChatActionStartedResponseSchema,
+    SendChatActionSkippedResponseSchema,
+]);
+export type SendChatActionResponseDto = z.infer<typeof SendChatActionResponseSchema>;
+
 export const AbortActionSchema = z.object({
     chatId: z.string().uuid(),
     agentMessageId: z.string(),
@@ -33,6 +51,11 @@ export const SummarizeActionSchema = z.object({
 });
 
 export type SummarizeActionDto = z.infer<typeof SummarizeActionSchema>;
+
+export const SummarizeActionResponseSchema = z.object({
+    agentMessageId: z.string().uuid(),
+});
+export type SummarizeActionResponseDto = z.infer<typeof SummarizeActionResponseSchema>;
 
 export const UpdateChatModelSchema = z.object({
     chatId: z.string().uuid(),

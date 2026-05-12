@@ -9,6 +9,7 @@ export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { DocumentType } from './artifact';
 import type { TokenBreakdown, TokenUsage } from './chat';
+
 export type { TokenBreakdown, TokenUsage };
 
 // ============================================================================

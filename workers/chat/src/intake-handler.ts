@@ -468,6 +468,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         'DECISION ESCALATION: Use `request_user_decision` for GENUINE ambiguity only — multiple valid paths where the user must pick (project type at ambiguous initiation, persona disambiguation, framework branching, deliverable type, intent ambiguity, tool errors with multiple named recovery paths). Do NOT silently pick yourself, and do NOT ask in plain text when concrete options exist. FORBIDDEN: (1) refusal-disguise — presenting alternatives when the user already gave an unambiguous command (that is Authority Inversion in tool-call form; if execution is blocked, say so plainly); (2) false ambiguity — asking about details a competent SME can reasonably default. Pre-flight test: "Could a competent SME proceed without clarification?" If yes, proceed. After the user clicks, act on the choice immediately without re-confirming.',
                     ],
                     statusUpdates: { enabled: true },
+                    autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
                     abortSignal: abortController.signal,
                     onTurnComplete: createOnTurnComplete(agentCtx),
                 },

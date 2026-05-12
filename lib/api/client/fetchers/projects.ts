@@ -30,7 +30,7 @@ export function getProjectListInfiniteKey(status?: ProjectListStatus, limit = 20
 
 export function invalidateProjectLists(globalMutate: ScopedMutator, affectedProjectId?: string) {
     revalidateProjectInfiniteLists(affectedProjectId);
-    globalMutate((key: unknown) => Array.isArray(key) && key[0] === projectKeys.all[0] && key[1] === 'list');
+    void globalMutate((key: unknown) => Array.isArray(key) && key[0] === projectKeys.all[0] && key[1] === 'list');
 }
 
 export function createProjectApi(getToken: TokenGetter) {

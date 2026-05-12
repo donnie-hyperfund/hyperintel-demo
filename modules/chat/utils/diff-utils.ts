@@ -186,7 +186,7 @@ function mergeIntoBlocks(lines: DiffLine[]): DiffBlock[] {
             }
             currentBlock = { type: line.type, content: line.content };
         } else {
-            currentBlock.content += '\n' + line.content;
+            currentBlock.content += `\n${line.content}`;
         }
     }
 

@@ -21,4 +21,7 @@ tests/pw/.results/
 tests/pw/.auth/
 playwright-report/
 blob-report/
+.claude/settings.local.json
 .claude/worktrees
+.codex/worktrees
+.codex/**/worktrees

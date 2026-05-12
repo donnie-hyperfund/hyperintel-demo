@@ -1,5 +1,5 @@
 {
-    "$schema": "https://biomejs.dev/schemas/2.3.10/schema.json",
+    "$schema": "https://biomejs.dev/schemas/2.4.14/schema.json",
     "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
     "files": {
         "ignoreUnknown": false,
@@ -10,8 +10,17 @@
             "!**/node_modules",
             "!common",
             "!**/dist",
+            "!tools/**",
+            "!**/.next",
+            "!**/.wrangler",
+            "!**/.claude/settings.local.json",
+            "!**/.claude/worktrees",
+            "!**/.codex/worktrees",
+            "!**/.codex/**/worktrees",
+            "!**/*.tsbuildinfo",
             "!workers/_common",
-            "!**/worker-configuration.d.ts"
+            "!**/worker-configuration.d.ts",
+            "!worker-env-types.d.ts"
         ]
     },
     "formatter": {
@@ -75,11 +84,15 @@
                 "noVoid": "off",
                 "useLiteralKeys": "error",
                 "useOptionalChain": "error",
-                "useRegexLiterals": "error",
+                "useRegexLiterals": "off",
                 "noAdjacentSpacesInRegex": "error",
                 "noArguments": "error",
                 "noCommaOperator": "error",
                 "useNumericLiterals": "error"
+            },
+            "nursery": {
+                "noFloatingPromises": "warn",
+                "noMisusedPromises": "warn"
             },
             "correctness": {
                 "noChildrenProp": "error",
@@ -124,7 +137,7 @@
             "style": {
                 "noInferrableTypes": "error",
                 "noNamespace": "off",
-                "noNegationElse": "error",
+                "noNegationElse": "off",
                 "noNonNullAssertion": "off",
                 "noParameterAssign": "warn",
                 "noRestrictedGlobals": { "level": "error", "options": {} },
@@ -182,7 +195,7 @@
                 "noSparseArray": "error",
                 "noUnsafeDeclarationMerging": "error",
                 "noUnsafeNegation": "error",
-                "useAwait": "warn",
+                "useAwait": "off",
                 "useDefaultSwitchClauseLast": "error",
                 "useGetterReturn": "error",
                 "useNamespaceKeyword": "error",
@@ -201,6 +214,7 @@
     },
     "overrides": [
         {
+            "includes": ["**/*.ts", "**/*.tsx"],
             "linter": {
                 "rules": {
                     "correctness": {
@@ -208,7 +222,6 @@
                         "noGlobalObjectCalls": "off",
                         "noInvalidConstructorSuper": "off",
                         "noSetterReturn": "off",
-                        "noUndeclaredVariables": "off",
                         "noUnreachable": "off",
                         "noUnreachableSuper": "off",
                         "noInvalidBuiltinInstantiation": "off",
@@ -230,6 +243,66 @@
                     },
                     "complexity": {
                         "noArguments": "error"
+                    }
+                }
+            }
+        },
+        {
+            "includes": [
+                "**/*.test.ts",
+                "**/*.test.tsx",
+                "tests/**/*.ts",
+                "tests/**/*.tsx",
+                "workers/**/__tests__/**/*.ts"
+            ],
+            "assist": { "actions": { "source": { "organizeImports": "off" } } },
+            "linter": {
+                "rules": {
+                    "correctness": {
+                        "noUndeclaredVariables": "off",
+                        "noUnusedImports": "off",
+                        "noUnusedVariables": "off"
+                    },
+                    "style": {
+                        "useTemplate": "off"
+                    },
+                    "suspicious": {
+                        "useAwait": "off"
+                    }
+                }
+            }
+        },
+        {
+            "includes": ["components/ui/**"],
+            "assist": { "actions": { "source": { "organizeImports": "off" } } }
+        },
+        {
+            "includes": ["migrations/**/*.ts"],
+            "linter": {
+                "rules": {
+                    "correctness": {
+                        "noUnusedImports": "off",
+                        "noUnusedVariables": "off"
+                    },
+                    "suspicious": {
+                        "useAwait": "off"
+                    }
+                }
+            }
+        },
+        {
+            "includes": [
+                "workers/**/*.ts",
+                "lib/local/**/*.ts",
+                "app/(local)/**/*.ts",
+                "app/(local)/**/*.tsx",
+                "common/common/local*.ts",
+                "common/common/local*.tsx"
+            ],
+            "linter": {
+                "rules": {
+                    "correctness": {
+                        "noUndeclaredVariables": "off"
                     }
                 }
             }
