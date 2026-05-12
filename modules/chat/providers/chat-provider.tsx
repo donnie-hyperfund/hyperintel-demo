@@ -933,8 +933,10 @@ export function ChatProvider({
                 const msgId = s.agentMessageId!;
                 const existing = prev.messages.find((m) => m.id === msgId);
                 const suppressGenericError =
-                    s.status === 'done' && shouldTreatStreamErrorAsContextLimit(existing?.metadata, prev.contextOverflow);
-                const hasErrorState = !suppressGenericError && (s.status === 'error' || !!s.error || !!existing?.isError);
+                    s.status === 'done' &&
+                    shouldTreatStreamErrorAsContextLimit(existing?.metadata, prev.contextOverflow);
+                const hasErrorState =
+                    !suppressGenericError && (s.status === 'error' || !!s.error || !!existing?.isError);
                 const streamMsg: Message = {
                     id: msgId,
                     role: 'assistant',

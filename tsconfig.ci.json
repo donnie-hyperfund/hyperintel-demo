@@ -1,12 +1,6 @@
 {
     "extends": "./tsconfig.json",
-    "include": [
-        "next-env.d.ts",
-        "**/*.ts",
-        "**/*.tsx",
-        ".next/types/routes.d.ts",
-        ".next/dev/types/routes.d.ts"
-    ],
+    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/routes.d.ts", ".next/dev/types/routes.d.ts"],
     "exclude": [
         "node_modules",
         "tools",
