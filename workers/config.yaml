@@ -12,6 +12,9 @@ envs:
   exp:
     suffix: "-exp"
     inherits: dev
+  dexp:
+    suffix: "-dexp"
+    inherits: dev
 
 # All available secrets with per-env secret_name mappings
 # Simple string = same name all envs

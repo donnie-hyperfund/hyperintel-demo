@@ -393,6 +393,129 @@
 					"bucket_name": "hi-user-images-dev"
 				}
 			]
+		},
+		"dexp": {
+			"vars": {
+				"CLERK_PUBLISHABLE_KEY": "pk_test_Y3Jpc3AtZXNjYXJnb3QtNzMuY2xlcmsuYWNjb3VudHMuZGV2JA",
+				"ENV": "dev",
+				"LANGFUSE_HOST": "https://us.cloud.langfuse.com",
+				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
+				"LANGFUSE_ENVIRONMENT": "development",
+				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
+				"CHAT_OUTPUT_SAFETY_ENABLED": "false",
+				"POSTHOG_HOST": "https://us.i.posthog.com",
+				"WORKER_NAME": "hi-chat",
+				"WORKER_NAME_FULL": "hi-chat-dexp"
+			},
+			"secrets_store_secrets": [
+				{
+					"binding": "DATABASE_URL",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "DEV_HI_DATABASE_URL"
+				},
+				{
+					"binding": "CLERK_SECRET_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "DEV_CLERK_SECRET_KEY"
+				},
+				{
+					"binding": "ANTHROPIC_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "HI_ANTHROPIC_API_KEY_DEV"
+				},
+				{
+					"binding": "OPENROUTER_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "DEV_OPENROUTER_API_KEY"
+				},
+				{
+					"binding": "OPENAI_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "OPENAI_KEY"
+				},
+				{
+					"binding": "LANGFUSE_SECRET_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "HI_LANGFUSE_SECRET_KEY"
+				},
+				{
+					"binding": "POSTHOG_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "POSTHOG_KEY"
+				},
+				{
+					"binding": "AUTH_SECRET",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "QUEUE_AUTH_SECRET"
+				},
+				{
+					"binding": "FIRECRAWL_API_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "FIRECRAWL_API_KEY"
+				},
+				{
+					"binding": "R2_ACCESS_KEY_ID",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "R2_ACCESS_KEY_ID"
+				},
+				{
+					"binding": "R2_SECRET_ACCESS_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "R2_SECRET_ACCESS_KEY"
+				},
+				{
+					"binding": "CF_ACCOUNT_ID",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "CF_ACCOUNT_ID"
+				}
+			],
+			"durable_objects": {
+				"bindings": [
+					{
+						"name": "USER_GATEWAY",
+						"class_name": "UserGateway",
+						"script_name": "hi-objects-dexp"
+					},
+					{
+						"name": "CHAT_STREAM_DO",
+						"class_name": "ChatStreamDO",
+						"script_name": "hi-objects-dexp"
+					},
+					{
+						"name": "GENERATION_PROXY",
+						"class_name": "GenerationProxyDO",
+						"script_name": "hi-objects-dexp"
+					}
+				]
+			},
+			"queues": {
+				"producers": [
+					{
+						"queue": "hi-embedding-queue-dexp",
+						"binding": "EMBEDDING_QUEUE"
+					},
+					{
+						"queue": "hi-extraction-queue-dexp",
+						"binding": "EXTRACTION_QUEUE"
+					}
+				]
+			},
+			"kv_namespaces": [
+				{
+					"binding": "PREVIEW_DB_MAP",
+					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "ARTIFACTS_BUCKET",
+					"bucket_name": "hi-artifacts-dev"
+				},
+				{
+					"binding": "USER_IMAGES_BUCKET",
+					"bucket_name": "hi-user-images-dev"
+				}
+			]
 		}
 	},
 	"alias": {

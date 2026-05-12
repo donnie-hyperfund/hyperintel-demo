@@ -6,6 +6,15 @@ on:
       - 'exp-*'
       - 'dexp-*'
   workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Target environment (exp or dexp)'
+        type: choice
+        required: true
+        default: exp
+        options:
+          - exp
+          - dexp
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,6 +30,19 @@ jobs:
         with:
           clone-token: ${{ secrets.CLONE_TOKEN }}
 
+      - name: Resolve target env
+        id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TARGET="${{ inputs.target_env }}"
+          elif [[ "${GITHUB_REF_NAME}" == dexp-* ]]; then
+            TARGET="dexp"
+          else
+            TARGET="exp"
+          fi
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Deploying to env: $TARGET"
+
       - name: Compile ORM
         run: pnpm run db:compile
         env:
@@ -33,20 +55,21 @@ jobs:
           DATABASE_URL: ${{ secrets.NEON_MAIN_DATABASE_URL }}
           DATABASE_URL_DIRECT: ${{ secrets.NEON_MAIN_DATABASE_URL_DIRECT }}
 
-      - name: Deploy exp workers
+      - name: Deploy workers
         run: |
           failed=0
           for dir in workers/*/; do
             name=$(basename "$dir")
             [[ "$name" == _common || "$name" == node_modules ]] && continue
-            [[ ! -f "$dir/wrangler.jsonc" && ! -f "$dir/wrangler.toml" ]] && continue
-            echo "::group::Deploying $name"
             if [[ -f "$dir/wrangler.jsonc" ]]; then
               config="$dir/wrangler.jsonc"
-            else
+            elif [[ -f "$dir/wrangler.toml" ]]; then
               config="$dir/wrangler.toml"
+            else
+              continue
             fi
-            if ! npx wrangler deploy --env=exp --config "$config"; then
+            echo "::group::Deploying $name (env=${{ steps.env.outputs.target }})"
+            if ! npx wrangler deploy --env="${{ steps.env.outputs.target }}" --config "$config"; then
               echo "::error::Failed to deploy $name"
               failed=1
             fi

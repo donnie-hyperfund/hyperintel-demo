@@ -11,5 +11,8 @@ name = "hi-extract-rust-dev"
 [env.exp]
 name = "hi-extract-rust-exp"
 
+[env.dexp]
+name = "hi-extract-rust-dexp"
+
 [build]
 command = "cargo install -q \"worker-build@^0.7\" && worker-build --release"
