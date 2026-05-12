@@ -456,7 +456,7 @@ export async function findDocumentByName(
         name: artifact.key,
         title: proposed?.title ?? artifact.current_version?.title ?? '',
         currentVersion: artifact.current_version?.version ?? null,
-        currentContent: artifact.current_version?.content ?? null,
+        currentContent,
         currentStatus: artifact.current_version?.status ?? null,
         currentDocumentType: artifact.current_version?.document_type ?? null,
         currentIsInternal: artifact.current_version?.is_internal ?? null,

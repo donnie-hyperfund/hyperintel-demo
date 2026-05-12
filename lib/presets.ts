@@ -96,6 +96,21 @@ const BASE_PRESETS: ModelPreset[] = [
             ...ANTHROPIC_CACHE,
         },
     },
+    {
+        id: 'opus45',
+        label: 'Opus 4.5',
+        description: 'Max quality',
+        inference: {
+            paramsType: AIParamsType.Anthropic,
+            params: { model: ANTHROPIC_MODELS.OPUS_4_5, reasoning: true, reasoningBudget: 8000 },
+        },
+        reasoningPromptMode: 'native',
+        pricing: {
+            inputPer1M: 5,
+            outputPer1M: 25,
+            ...ANTHROPIC_CACHE,
+        },
+    },
     //
     {
         id: 'gpt-5.4',

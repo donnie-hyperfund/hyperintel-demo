@@ -53,7 +53,7 @@ describe('loadChatHistory', () => {
             find: vi.fn().mockResolvedValue([]),
         };
 
-        const history = await loadChatHistory(em as any, 'chat-1', {} as Env);
+        const history = await loadChatHistory(em as any, 'chat-1', {} as ChatEnv);
 
         expect(history).toHaveLength(1);
         expect(history[0].role).toBe('assistant');
@@ -140,7 +140,7 @@ describe('loadChatHistory', () => {
             find: vi.fn().mockResolvedValue([]),
         };
 
-        const history = await loadChatHistory(em as any, 'chat-1', {} as Env);
+        const history = await loadChatHistory(em as any, 'chat-1', {} as ChatEnv);
 
         expect((history[0] as any).blocks.map((block: any) => block.turnIndex)).toEqual([3, 3, 3]);
         expect(expandToAnthropicMessages(history[0] as any, 'omit')).toEqual([

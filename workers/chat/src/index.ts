@@ -51,12 +51,12 @@ import {
 } from './uploads/image-uploader';
 import type { UserGatewayStub } from './utils/do-stubs';
 
-const app = new Hono<HonoEnv<Env>>({ strict: false });
+const app = new Hono<HonoEnv<ChatEnv>>({ strict: false });
 const UuidSchema = z.string().uuid();
 
 /** Build Ctx with preview alias + request ID resolved from the request */
 function ctxWithAlias(c: {
-    env: Env;
+    env: ChatEnv;
     req: { raw: Request };
     var: any;
     get: (key: 'requestId') => string | undefined;
@@ -380,7 +380,7 @@ app.get('/', (c) => {
 
 export default {
     fetch: app.fetch,
-    async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    async scheduled(_event: ScheduledEvent, env: ChatEnv, ctx: ExecutionContext) {
         ctx.waitUntil(cleanupStaleUploads(env));
     },
 };

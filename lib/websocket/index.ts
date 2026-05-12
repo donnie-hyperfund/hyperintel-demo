@@ -4,8 +4,8 @@ import { SharedWebsocketClient } from './shared';
 
 export { WebsocketClient } from './base';
 export { DirectWebsocketClient } from './direct';
+export { useWebsocket, WebsocketProvider } from './provider';
 export { SharedWebsocketClient } from './shared';
-export { WebsocketProvider, useWebsocket } from './provider';
 
 /** Create a WebSocket client. Pass `{ shared: true }` for multi-tab shared socket. */
 export function createWebsocketClient(url: string, opts?: { shared?: boolean }): WebsocketClient {

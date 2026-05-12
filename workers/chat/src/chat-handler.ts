@@ -15,6 +15,7 @@ import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from
 import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
+import { captureWorkerPostHogEvent } from '@/workers/_common/vendor/posthog';
 import { handleForceBrief } from './chat-brief-handler';
 import type { Ctx } from './context';
 import { createNoopSafetyMonitor, createSafetyMonitor } from './safety/analyzer';
@@ -42,7 +43,6 @@ import {
     logWorkerError,
 } from './utils/error-metadata';
 import { pickInferenceParams } from './utils/pick-inference-params';
-import { captureWorkerPostHogEvent } from './utils/posthog';
 import { preprocessContext } from './utils/preprocess-context';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import {
@@ -844,7 +844,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         await em!.flush();
 
                         ctx.eCtx?.waitUntil(
-                            captureWorkerPostHogEvent(ctx, 'worker_chat_turn_persisted', ctx.user.userId, {
+                            captureWorkerPostHogEvent(ctx.env, 'worker_chat_turn_persisted', ctx.user.userId, {
                                 project_id: chat.project?.id ?? null,
                                 project_name: chat.project?.name ?? null,
                                 chat_id: chatId,
@@ -974,7 +974,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             label: 'chat-handler',
         });
         ctx.eCtx?.waitUntil(
-            captureWorkerPostHogEvent(ctx, 'worker_chat_turn_failed', ctx.user.userId, {
+            captureWorkerPostHogEvent(ctx.env, 'worker_chat_turn_failed', ctx.user.userId, {
                 project_id: chat.project?.id ?? null,
                 project_name: chat.project?.name ?? null,
                 chat_id: chatId,

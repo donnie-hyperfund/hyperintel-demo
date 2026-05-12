@@ -2,12 +2,12 @@ import { backendEnv } from '@/app/api/env';
 import { LangfuseClient } from './client';
 import { LangfuseError, PromptEnvironment } from './types';
 
-export { LangfuseClient, LangfuseError, PromptEnvironment };
 export type {
     GetPromptOptions,
     LangfuseConfig,
     LangfusePrompt,
 } from './types';
+export { LangfuseClient, LangfuseError, PromptEnvironment };
 
 export function createLangfuseClient(): LangfuseClient | null {
     const secretKey = backendEnv.LANGFUSE_SECRET_KEY;

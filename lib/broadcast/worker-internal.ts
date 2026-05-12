@@ -29,7 +29,7 @@ export async function workerSystemAction(
 ): Promise<void> {
 	try {
 		if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS) {
-			const { workerEnv } = await import('@/lib/local/cf-env-secret-mock');
+			const { workerEnv } = await import('@/lib/local/cf-env-secret-mock' as string);
 			const ugNamespace = workerEnv.USER_GATEWAY as any;
 			if (!ugNamespace) return;
 			const ugId = ugNamespace.idFromName(userId);

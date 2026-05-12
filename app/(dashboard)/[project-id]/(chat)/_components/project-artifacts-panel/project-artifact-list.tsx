@@ -79,7 +79,7 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     const handleArtifactClick = useCallback(
         (artifact: CamelCaseDto<ArtifactDto>) => {
             if (!projectId) return;
-            openArtifactPreview(artifact);
+            void openArtifactPreview(artifact);
         },
         [projectId, openArtifactPreview],
     );

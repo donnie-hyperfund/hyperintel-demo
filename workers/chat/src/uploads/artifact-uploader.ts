@@ -128,7 +128,7 @@ function normalizeTextUploadContent(filename: string, content: string): string {
     return extracted || cleaned;
 }
 
-function getBucketName(env: Env): string {
+function getBucketName(env: ChatEnv): string {
     return env.ENV === 'dev' ? 'hi-artifacts-dev' : 'hi-artifacts';
 }
 
@@ -313,9 +313,11 @@ export async function uploadArtifactHandler(data: UploadArtifactDto, ctx: Ctx) {
         await queueEmbedding(ctx, result.versionId, content, uniqueKey, projectId, chatId);
     }
 
-    broadcastArtifactCreated(ctx, result, uniqueKey);
+    // TODO: decide whether upload broadcasts should be awaited or explicitly fire-and-forget.
+    void broadcastArtifactCreated(ctx, result, uniqueKey);
     if (projectId && source === 'project-resources') {
-        broadcastProjectResourceUploadUpdated(ctx, {
+        // TODO: decide whether upload broadcasts should be awaited or explicitly fire-and-forget.
+        void broadcastProjectResourceUploadUpdated(ctx, {
             projectId,
             entryId: clientEntryId ?? result.artifactId,
             artifactId: result.artifactId,
@@ -390,9 +392,11 @@ export async function presignUploadHandler(data: PresignUploadDto, ctx: Ctx) {
 
     const uploadUrl = await getSignedUrl(s3, command, { expiresIn: PRESIGN_EXPIRY_SECONDS });
 
-    broadcastArtifactCreated(ctx, result, uniqueKey);
+    // TODO: decide whether upload broadcasts should be awaited or explicitly fire-and-forget.
+    void broadcastArtifactCreated(ctx, result, uniqueKey);
     if (projectId && source === 'project-resources') {
-        broadcastProjectResourceUploadUpdated(ctx, {
+        // TODO: decide whether upload broadcasts should be awaited or explicitly fire-and-forget.
+        void broadcastProjectResourceUploadUpdated(ctx, {
             projectId,
             entryId: clientEntryId ?? result.artifactId,
             artifactId: result.artifactId,
@@ -445,7 +449,8 @@ export async function confirmUploadHandler(data: ConfirmUploadDto, ctx: Ctx) {
     });
 
     if (source === 'project-resources' && version.artifact.project?.id) {
-        broadcastProjectResourceUploadUpdated(ctx, {
+        // TODO: decide whether upload broadcasts should be awaited or explicitly fire-and-forget.
+        void broadcastProjectResourceUploadUpdated(ctx, {
             projectId: version.artifact.project.id,
             entryId: clientEntryId ?? version.artifact.id,
             artifactId: version.artifact.id,

@@ -4,7 +4,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { StreamEvent } from '../src/utils/stream';
+import type { StreamEvent } from '@/lib/schema/stream';
 import type { TurnResult } from './harness';
 
 const ERRORS_DIR = path.resolve(import.meta.dirname, '_errors');
@@ -63,18 +63,33 @@ export function getFailedTools(turn: TurnResult) {
 		.map((r) => ({ tool: getToolStarts(turn).find((s) => s.id === r.id)?.tool ?? r.id, result: r.result }));
 }
 
+function normalizeToolInput(input: Record<string, unknown> | string | undefined): Record<string, unknown> | null {
+    if (!input) return null;
+    if (typeof input !== 'string') return input;
+
+    try {
+        const parsed = JSON.parse(input);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            return parsed as Record<string, unknown>;
+        }
+    } catch {}
+
+    return { value: input };
+}
+
 /** Get the input/args for a specific tool call (from tool_call_complete events). */
 export function getToolInput(turn: TurnResult, toolName: string): Record<string, unknown> | null {
 	const completes = getEvents(turn, 'tool_call_complete');
 	const match = completes.find((e) => e.tool === toolName);
-	return match?.input ?? null;
+	return normalizeToolInput(match?.input);
 }
 
 /** Get all inputs for a tool (when called multiple times). */
 export function getAllToolInputs(turn: TurnResult, toolName: string): Record<string, unknown>[] {
 	return getEvents(turn, 'tool_call_complete')
 		.filter((e) => e.tool === toolName)
-		.map((e) => e.input);
+		.map((e) => normalizeToolInput(e.input))
+		.filter((input): input is Record<string, unknown> => input !== null);
 }
 
 // ============================================================================

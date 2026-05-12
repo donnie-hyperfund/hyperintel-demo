@@ -16,6 +16,7 @@ import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
+import type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { TurnResult } from './harness';
@@ -252,7 +253,7 @@ export async function loadCheckpoint(
             role: msg.role,
             content: msg.content,
             ...(msg.reasoning && { reasoning: msg.reasoning }),
-            ...(msg.blocks && { blocks: msg.blocks }),
+            ...(msg.blocks && { blocks: msg.blocks as StreamBlock[] }),
             ...(msg.metadata && { metadata: msg.metadata }),
             ...(msg.is_error && { is_error: true }),
             ...(msg.is_aborted && { is_aborted: true }),
@@ -266,7 +267,7 @@ export async function loadCheckpoint(
             version: art.version,
             project: projectId,
             ...(art.metadata && { metadata: art.metadata }),
-        });
+        } as any);
 
         for (const ver of art.versions) {
             em.create(ArtifactVersionEntity, {

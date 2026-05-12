@@ -1,11 +1,12 @@
+/** biome-ignore-all lint/suspicious/useAwait: noise */
 import { DurableObject } from 'cloudflare:workers';
 import { createClerkClient } from '@clerk/backend';
+import { ClientAction, type ClientMessage, ClientMessageSchema, ServerMsg } from '@/lib/schema/ws-protocol';
 import { PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
-import { ClientAction, ServerMsg, ClientMessageSchema, type ClientMessage } from '@/lib/schema/ws-protocol';
-import type { TopicHandler, ActionResult } from './topic-handler';
 import { ChatTopicHandler } from './chat-topic-handler';
 import { IntakeTopicHandler } from './intake-topic-handler';
 import { StreamTopicHandler } from './stream-topic-handler';
+import type { TopicHandler } from './topic-handler';
 
 // ---------------------------------------------------------------------------
 // Socket attachment — stored per-WebSocket, survives hibernation
@@ -32,13 +33,13 @@ type SocketAttachment = {
  *
  * UG has ZERO domain-specific knowledge — all logic is delegated to handlers.
  */
-export class UserGateway extends DurableObject<Env> {
+export class UserGateway extends DurableObject<ObjectsEnv> {
     private handlers = new Map<string, TopicHandler>();
     /** Preview branch alias — propagated to topic handlers for DB resolution on dev */
     private previewAlias: string | null = null;
     private aliasLoaded = false;
 
-    constructor(ctx: DurableObjectState, env: Env) {
+    constructor(ctx: DurableObjectState, env: ObjectsEnv) {
         super(ctx, env);
         // Auto-respond to "ping" with "pong" without waking the DO
         this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
@@ -143,6 +144,7 @@ export class UserGateway extends DurableObject<Env> {
     async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string) {
         try {
             if (typeof message !== 'string') {
+                // biome-ignore lint/style/noParameterAssign: meh
                 message = new TextDecoder().decode(message);
             }
             // Ignore "pong" (auto-response echo)
@@ -330,6 +332,8 @@ export class UserGateway extends DurableObject<Env> {
                 this.handleSessionUpdate(ws, attachment, msg.accessToken);
                 return;
             }
+            default:
+                break;
         }
     }
 
