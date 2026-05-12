@@ -33,13 +33,11 @@ export function createBlurbTools() {
     return [
         {
             name: 'generate_blurb' as const,
-            description: `Emit the Next-Phase Initialization Blurb as a separate output.
+            description: `REQUIRED TERMINAL ACTION — emits the Next-Phase Initialization Blurb that seeds the next phase chat.
 
-This is a TERMINAL tool — calling it ends the summarization immediately.
+You MUST call this tool EXACTLY ONCE at the end of every summarization run, AFTER writing the summary text. Failing to call it leaves the next phase with no initiation prompt and stalls the project.
 
-Call this tool EXACTLY ONCE, AFTER you have finished writing the full summary as your text response.
-
-The \`blurb\` parameter must contain the Next-Phase Initialization Blurb from Section 13 of the approved Completion Brief, copied verbatim. Do NOT include any header, intro phrase, or commentary — only the raw blurb content that should be used to initialize the next phase.`,
+The \`blurb\` parameter is the VERBATIM content from the code block inside the "NEXT-PHASE INITIALIZATION BLURB" section of the approved Completion Brief — no header, no fences, no commentary, no rephrasing. Copy it character-for-character.`,
             parameters: GenerateBlurbParams,
         },
     ] as const;
