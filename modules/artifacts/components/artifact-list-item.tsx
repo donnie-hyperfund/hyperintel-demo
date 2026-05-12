@@ -37,8 +37,8 @@ const iconSizeVariants = cva('shrink-0 text-neutral-500', {
 const skeletonVariants = cva('flex items-center border', {
     variants: {
         size: {
-            md: 'gap-5 rounded-xl p-5',
-            sm: 'rounded-lg p-3',
+            md: 'gap-5 rounded-3 p-5',
+            sm: 'gap-3.5 rounded-2 px-3.5 py-3 items-start',
         },
     },
     defaultVariants: { size: 'md' },
@@ -196,10 +196,10 @@ type ArtifactListItemSkeletonProps = VariantProps<typeof skeletonVariants>;
 export function ArtifactListItemSkeleton({ size = 'md' }: ArtifactListItemSkeletonProps) {
     return (
         <div className={skeletonVariants({ size })}>
-            {size === 'md' && <Skeleton className="size-6 shrink-0 rounded" />}
-            <div className="min-w-0 flex-1 space-y-2">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className={size === 'md' ? 'h-3 w-1/3' : 'h-3 w-1/2'} />
+            <Skeleton className={cn('shrink-0 rounded', size === 'md' ? 'size-5.5' : 'size-5 mt-0.5')} />
+            <div className="min-w-0 flex-1">
+                <Skeleton className="h-5 w-3/4" />
+                <Skeleton className={cn('h-4 mt-0.5', size === 'md' ? 'w-1/3' : 'w-1/2')} />
             </div>
         </div>
     );

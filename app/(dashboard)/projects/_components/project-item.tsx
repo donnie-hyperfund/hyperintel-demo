@@ -145,10 +145,10 @@ function ArchiveToggleButton({ isArchived, isMutating, onToggle, className }: Ar
 
 export const ProjectItemSkeleton = () => {
     return (
-        <div className="flex flex-col gap-2 rounded-2 border p-3.5 md:rounded-3 md:p-5">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-24" />
+        <div className="flex flex-col rounded-2 border p-3.5 md:rounded-3 md:p-5">
+            <Skeleton className="h-5 w-3/4 mb-1.5" />
+            <Skeleton className="h-4 w-full mb-3 md:h-5" />
+            <Skeleton className="h-4 w-32 mt-0.5" />
         </div>
     );
 };
