@@ -89,7 +89,11 @@ export const ArtifactListItem = ({
                     <span className="line-clamp-1 text-sm font-medium">
                         <HighlightText text={title} query={searchQuery ?? ''} />
                     </span>
-                    {isShared && <Badge variant="secondary">Shared</Badge>}
+                    {isShared && (
+                        <Badge variant="secondary" className="rounded px-1.5 py-0.25 text-[10px]">
+                            Shared
+                        </Badge>
+                    )}
                     {badge}
                     {shouldDisplayVersionInfo && (
                         <VersionStatusBadge status={artifactVersion?.status} isUploaded={artifactVersion?.isUploaded} />
@@ -150,7 +154,7 @@ function ArtifactListItemVersionMeta({ artifact }: ArtifactListItemVersionMetaPr
     const isInternal = artifactVersion?.isInternal === true;
 
     return (
-        <div className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
+        <div className="mt-1.5 flex items-center gap-1 text-xs text-neutral-500">
             <span>v{artifact.version}</span>
             {timeAgo && updatedAtFormatted && (
                 <>
@@ -199,7 +203,7 @@ export function ArtifactListItemSkeleton({ size = 'md' }: ArtifactListItemSkelet
             <Skeleton className={cn('shrink-0 rounded', size === 'md' ? 'size-5.5' : 'size-5 mt-0.5')} />
             <div className="min-w-0 flex-1">
                 <Skeleton className="h-5 w-3/4" />
-                <Skeleton className={cn('h-4 mt-0.5', size === 'md' ? 'w-1/3' : 'w-1/2')} />
+                <Skeleton className={cn('h-4 mt-1.5', size === 'md' ? 'w-1/3' : 'w-1/2')} />
             </div>
         </div>
     );
