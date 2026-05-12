@@ -120,15 +120,19 @@ export async function runSummarizer(ctx: SummarizerContext, deps: SummarizerDeps
         const documents = extractDocuments(messages);
         const basePrompt = await getSummarizerPrompt(workerCtx);
 
-        // Reinforcement — the summary text must NOT contain the Next-Phase Initialization
-        // Blurb. The blurb is delivered separately via the `generate_blurb` terminal tool call.
-        const BLURB_REINFORCEMENT = `## Summary Content Rule
+        // OUTPUT CONTRACT — placed at the TOP of instructions (strongest attention region).
+        // Models reliably skip terminal tool calls when the contract sits buried mid-prompt.
+        const OUTPUT_CONTRACT = `# OUTPUT CONTRACT — READ FIRST
 
-The summary text (Output 1) MUST NOT contain the Next-Phase Initialization Blurb. Do NOT paste it, rephrase it, quote it, or include a "Next-Phase Initialization Blurb" heading followed by its content anywhere in the summary.
+Your response for this turn MUST consist of exactly TWO parts, in this order:
 
-The blurb is delivered separately via the \`generate_blurb\` tool. After finishing the summary text, call \`generate_blurb\` EXACTLY ONCE with the contents of the "NEXT-PHASE INITIALIZATION BLURB" section (the inner code block) copied VERBATIM as the \`blurb\` parameter — raw content only (no header, no intro phrase, no surrounding commentary). This is a TERMINAL action and ends the run.`;
+1. **SUMMARY TEXT** (your normal text response) — a comprehensive recap of the conversation. This text MUST NOT contain the Next-Phase Initialization Blurb. Do not paste, rephrase, quote, or include any "Next-Phase Initialization Blurb" heading or its code-block content anywhere in the summary.
 
-        let instructions = `${basePrompt}\n\n---\n\n${BLURB_REINFORCEMENT}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
+2. **TOOL CALL** — immediately after the summary text, you MUST call the \`generate_blurb\` tool EXACTLY ONCE. The \`blurb\` parameter must contain the content of the code block under the "NEXT-PHASE INITIALIZATION BLURB" section of the approved Completion Brief (provided below as reference), copied VERBATIM — raw content only, no header, no surrounding commentary, no markdown fences.
+
+This contract is non-negotiable. The downstream pipeline reads the \`generate_blurb\` tool input as the literal seed message for the next phase. If you skip the tool call, the next phase starts blank and the project stalls. Calling \`generate_blurb\` is a TERMINAL action — it ends this run.`;
+
+        let instructions = `${OUTPUT_CONTRACT}\n\n---\n\n${basePrompt}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
 
         if (documents.length > 0) {
             instructions += `\n\n## Documents Created During This Conversation\n\n`;
@@ -178,8 +182,13 @@ The blurb is delivered separately via the \`generate_blurb\` tool. After finishi
         // Anthropic requires conversation to end with user message for model to respond.
         historyMessages.push({
             role: 'user' as const,
-            content:
-                'Please provide a comprehensive summary of this conversation as your text response. Do NOT include the Next-Phase Initialization Blurb in the summary text. After the summary, call the generate_blurb tool with the contents of the "NEXT-PHASE INITIALIZATION BLURB" section from the Completion Brief verbatim as its input.',
+            content: `Produce your output now per the OUTPUT CONTRACT.
+
+STEP 1 — Write the full phase summary as your text response. Do NOT include the Next-Phase Initialization Blurb here.
+
+STEP 2 — Immediately call the \`generate_blurb\` tool with the verbatim content of the code block from the "NEXT-PHASE INITIALIZATION BLURB" section of the approved Completion Brief above.
+
+Do not end your turn without calling \`generate_blurb\`. The tool call is required.`,
         });
 
         const blurbTools = createBlurbTools();
