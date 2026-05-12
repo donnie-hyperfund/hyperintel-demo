@@ -217,6 +217,7 @@ Do not end your turn without calling \`generate_blurb\`. The tool call is requir
                 toolGroups: [BlurbToolGroup],
                 config: {
                     preprocessContext,
+                    autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
                     abortSignal: abortController.signal,
                 },
             },
