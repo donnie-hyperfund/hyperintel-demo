@@ -48,6 +48,8 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex, curre
     const isNewChat = !currentChatId && phaseIndex == null;
     const phaseName =
         currentChat?.name ?? currentPhaseName ?? (typeof phaseIndex === 'number' ? `Phase ${phaseIndex + 1}` : null);
+    // chatId is in the URL but no phase data yet — server-seeded chat fetch hasn't pushed name/index through ChatStateSeed.
+    const isLoadingChat = !!currentChatId && !phaseName;
 
     const [sentryRef, { rootRef }] = useInfiniteScroll({
         loading: isLoading,
@@ -81,21 +83,32 @@ export const PhasePicker = ({ projectId, currentChatId, currentPhaseIndex, curre
             <PopoverTrigger asChild>
                 <button
                     type="button"
+                    disabled={isLoadingChat}
                     className={cn(
                         'group flex items-center gap-1.5 text-sm rounded-md px-2 py-1 min-w-0 transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground cursor-pointer',
                         (isNewChat || !currentChat?.name) && 'text-neutral-500',
                         currentChat?.name && 'text-foreground',
                     )}
                 >
-                    <Tooltip open={isTriggerTruncated ? undefined : false} delayDuration={750}>
-                        <TooltipTrigger asChild>
-                            <span ref={triggerNameRef} onMouseEnter={onTriggerMouseEnter} className="truncate max-w-60">
-                                {phaseName ?? 'New phase'}
-                            </span>
-                        </TooltipTrigger>
-                        <TooltipContent>{phaseName ?? 'New phase'}</TooltipContent>
-                    </Tooltip>
-                    <ChevronDown className="size-3.5 shrink-0 text-neutral-600 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                    {isLoadingChat ? (
+                        <span className="inline-block h-5 w-18 rounded-sm bg-accent animate-pulse" />
+                    ) : (
+                        <>
+                            <Tooltip open={isTriggerTruncated ? undefined : false} delayDuration={750}>
+                                <TooltipTrigger asChild>
+                                    <span
+                                        ref={triggerNameRef}
+                                        onMouseEnter={onTriggerMouseEnter}
+                                        className="truncate max-w-60"
+                                    >
+                                        {phaseName ?? 'New phase'}
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent>{phaseName ?? 'New phase'}</TooltipContent>
+                            </Tooltip>
+                            <ChevronDown className="size-3.5 shrink-0 text-neutral-600 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                        </>
+                    )}
                 </button>
             </PopoverTrigger>
             <PopoverContent align="start" className="max-w-80 p-0" onOpenAutoFocus={(event) => event.preventDefault()}>

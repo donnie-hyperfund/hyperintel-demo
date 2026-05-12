@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { type ReactNode, Suspense, useCallback } from 'react';
 import { buildProjectOriginQuery } from '@/lib/intake/project-origin';
+import { ChatLoader } from '@/modules/chat/components/chat-loader';
 import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
@@ -76,7 +77,7 @@ export function ChatModule({
                         initialMessages={initialMessages}
                         onChatCreated={handleChatCreated}
                     >
-                        <Suspense>
+                        <Suspense fallback={<ChatLoader />}>
                             <ScrollTargetProvider>{children}</ScrollTargetProvider>
                         </Suspense>
                     </ChatProvider>
