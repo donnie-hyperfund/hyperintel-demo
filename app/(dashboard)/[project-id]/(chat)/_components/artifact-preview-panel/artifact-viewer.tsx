@@ -4,6 +4,7 @@ import { AnimatePresence } from 'motion/react';
 import { useEffect, useMemo, useState } from 'react';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
+import type { ApprovalAction } from '@/modules/artifacts/processing/types';
 import {
     getLatestArtifactVersion,
     getLatestArtifactVersionContent,
@@ -50,7 +51,7 @@ const diffDirectives: Record<string, DirectiveHandler> = {
 /** Reusable artifact viewer with header and markdown content */
 export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: ArtifactViewerProps) => {
     const [isDiffVisible, setIsDiffVisible] = useState(false);
-    const [processingAction, setProcessingAction] = useState<'approve' | 'reject' | null>(null);
+    const [processingAction, setProcessingAction] = useState<ApprovalAction | null>(null);
     const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
     const {

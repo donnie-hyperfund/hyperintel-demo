@@ -18,6 +18,7 @@ import type {
 import { ServerMsg } from '@/lib/schema/ws-protocol';
 import { chunkText, TokenDrip } from '@/lib/token-drip';
 import { useWebsocket } from '@/lib/websocket/provider';
+import type { ApprovalAction } from '@/modules/artifacts/processing/types';
 import type { ArtifactContextValue, ArtifactUpdate } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersionContent, getLatestArtifactVersionTitle } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
@@ -57,7 +58,7 @@ type StreamingState = {
 };
 
 export type ToolDocumentDecision = {
-    action: 'approve' | 'reject';
+    action: ApprovalAction;
     artifactKey: string;
     version: number;
 };

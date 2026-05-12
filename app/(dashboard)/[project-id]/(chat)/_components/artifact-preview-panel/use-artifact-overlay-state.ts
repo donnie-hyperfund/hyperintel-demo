@@ -1,16 +1,16 @@
-import type { ApprovalProcessingEntry, ProcessingEntry } from '@/modules/artifacts/processing/types';
+import type { ApprovalAction, ApprovalProcessingEntry, ProcessingEntry } from '@/modules/artifacts/processing/types';
 
 export type ArtifactOverlayState =
     | { kind: 'delete' }
     | { kind: 'link' }
     | { kind: 'updating' }
-    | { kind: 'approval'; action: 'approve' | 'reject'; entry?: ApprovalProcessingEntry }
+    | { kind: 'approval'; action: ApprovalAction; entry?: ApprovalProcessingEntry }
     | null;
 
 type UseArtifactOverlayStateOptions = {
     isProcessingDelete: boolean;
     isLinkingToProject: boolean;
-    processingAction: 'approve' | 'reject' | null;
+    processingAction: ApprovalAction | null;
     processingEntry: ProcessingEntry | undefined;
     isUpdating: boolean;
     isSummaryStreaming: boolean;

@@ -1,11 +1,9 @@
-import type { ProcessingStage } from '@/modules/artifacts/processing/types';
+import type { ApprovalAction, ProcessingStage } from '@/modules/artifacts/processing/types';
 
 type StageCopy = {
     headline: string;
     details: string[];
 };
-
-type ProgressAction = 'approve' | 'reject';
 
 const APPROVE_STAGE_COPY: Record<ProcessingStage, StageCopy> = {
     queued: {
@@ -53,7 +51,7 @@ const REJECT_STAGE_COPY: Record<ProcessingStage, StageCopy> = {
     },
 };
 
-export const STAGE_COPY: Record<ProgressAction, Record<ProcessingStage, StageCopy>> = {
+export const STAGE_COPY: Record<ApprovalAction, Record<ProcessingStage, StageCopy>> = {
     approve: APPROVE_STAGE_COPY,
     reject: REJECT_STAGE_COPY,
 };

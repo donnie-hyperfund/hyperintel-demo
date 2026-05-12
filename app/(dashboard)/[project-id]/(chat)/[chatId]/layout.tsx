@@ -1,5 +1,8 @@
+import camelcaseKeys from 'camelcase-keys';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import { SWRConfig, unstable_serialize } from 'swr';
+import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { getChatPageData } from '@/lib/api/server/page-data';
 import { formatPhaseTitle } from '@/lib/metadata/page-title';
 import { ChatStateSeed } from '../_components/chat-state-seed';
@@ -23,8 +26,12 @@ export default async function ChatLayout({ children, params }: ChatLayoutProps) 
 
     if (!chat) notFound();
 
+    const fallback: Record<string, unknown> = {
+        [unstable_serialize(chatKeys.detail(chatId))]: camelcaseKeys(chat, { deep: true }),
+    };
+
     return (
-        <>
+        <SWRConfig value={{ fallback }}>
             <ChatStateSeed
                 chatId={chatId}
                 chat={{
@@ -37,6 +44,6 @@ export default async function ChatLayout({ children, params }: ChatLayoutProps) 
                 }}
             />
             {children}
-        </>
+        </SWRConfig>
     );
 }

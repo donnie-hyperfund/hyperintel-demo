@@ -6,6 +6,7 @@ import {
 } from '@/lib/api/client/hooks/use-project-artifacts';
 import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
+import type { ApprovalAction } from '@/modules/artifacts/processing/types';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
@@ -17,7 +18,7 @@ type UseArtifactApprovalOptions = {
     artifactVersionId: string;
     entityLabel?: string;
     disabled?: boolean;
-    onProcessingChange?: (action: 'approve' | 'reject' | null) => void;
+    onProcessingChange?: (action: ApprovalAction | null) => void;
 };
 
 export function useArtifactApproval({
@@ -55,7 +56,7 @@ export function useArtifactApproval({
 
     const isProcessing = isApproving || isRejecting || isLinkingToProject || disabled;
 
-    const registerProcessing = (action: 'approve' | 'reject') => {
+    const registerProcessing = (action: ApprovalAction) => {
         startProcessing({
             versionId: artifactVersionId,
             artifactId,

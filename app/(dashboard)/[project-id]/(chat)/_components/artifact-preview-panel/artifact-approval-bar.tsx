@@ -4,6 +4,7 @@ import { Check, Loader2, X as XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useArtifactApproval } from '@/modules/artifacts/hooks/use-artifact-approval';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
+import type { ApprovalAction } from '@/modules/artifacts/processing/types';
 import { useArtifact } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 
@@ -12,7 +13,7 @@ type ArtifactApprovalBarProps = {
     version: number;
     disabled?: boolean;
     isStreaming?: boolean;
-    onProcessingChange?: (action: 'approve' | 'reject' | null) => void;
+    onProcessingChange?: (action: ApprovalAction | null) => void;
 };
 
 export function ArtifactApprovalBar({

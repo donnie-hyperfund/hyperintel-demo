@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { ShimmerText } from '@/components/ui/shimmer-text';
 import type { DocumentType } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
-import type { ApprovalProcessingEntry } from '@/modules/artifacts/processing/types';
+import type { ApprovalAction, ApprovalProcessingEntry } from '@/modules/artifacts/processing/types';
 import { AnimatedApprovalText } from './animated-approval-text';
 import { STAGE_COPY } from './approval-progress-copy';
 import { useApprovalProgress } from './use-approval-progress';
@@ -13,7 +13,7 @@ import { usePulsedText } from './use-pulsed-text';
 import { useRotatingText } from './use-rotating-text';
 
 type ArtifactApprovalProgressProps = {
-    action: 'approve' | 'reject';
+    action: ApprovalAction;
     entry?: ApprovalProcessingEntry;
     documentType?: DocumentType;
     isInternal?: boolean;
