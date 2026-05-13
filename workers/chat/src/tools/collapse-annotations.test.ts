@@ -12,10 +12,7 @@ function getTool(tools: readonly any[], name: string) {
 }
 
 function collapseWithTool(tool: any, block: ToolCallStreamBlock): ToolCallStreamBlock {
-    const [message] = collapseHistoricalToolCalls(
-        [{ role: 'assistant', content: '', blocks: [block] } as any],
-        [tool],
-    );
+    const [message] = collapseHistoricalToolCalls([{ role: 'assistant', content: '', blocks: [block] } as any], [tool]);
     return (message as any).blocks[0] as ToolCallStreamBlock;
 }
 
@@ -36,11 +33,14 @@ function toolBlock(overrides: Partial<ToolCallStreamBlock>): ToolCallStreamBlock
 describe('tool collapse annotations', () => {
     it('collapses write_document input content', () => {
         const tool = getTool(createDocumentTools(), 'write_document');
-        const collapsed = collapseWithTool(tool, toolBlock({
-            toolName: 'write_document',
-            toolInput: { content: 'Large draft body', other: 'kept' },
-            toolOutput: JSON.stringify({ status: 'written', charsAdded: 16 }),
-        }));
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'write_document',
+                toolInput: { content: 'Large draft body', other: 'kept' },
+                toolOutput: JSON.stringify({ status: 'written', charsAdded: 16 }),
+            }),
+        );
 
         expect(collapsed.toolInput).toEqual({ other: 'kept' });
         expect(collapsed.toolOutput).toBe(JSON.stringify({ status: 'written', charsAdded: 16 }));
@@ -48,24 +48,27 @@ describe('tool collapse annotations', () => {
 
     it('collapses patch_document edit bodies into deterministic stats', () => {
         const tool = getTool(createDocumentTools(), 'patch_document');
-        const collapsed = collapseWithTool(tool, toolBlock({
-            toolName: 'patch_document',
-            toolInput: {
-                edits: [
-                    {
-                        startLine: 10,
-                        oldContent: 'old line 1\nold line 2',
-                        newContent: 'new line',
-                    },
-                    {
-                        startLine: 25,
-                        oldContent: 'remove me',
-                        newContent: 'replacement\nsecond line',
-                    },
-                ],
-            },
-            toolOutput: JSON.stringify({ status: 'edited', editsApplied: 2 }),
-        }));
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'patch_document',
+                toolInput: {
+                    edits: [
+                        {
+                            startLine: 10,
+                            oldContent: 'old line 1\nold line 2',
+                            newContent: 'new line',
+                        },
+                        {
+                            startLine: 25,
+                            oldContent: 'remove me',
+                            newContent: 'replacement\nsecond line',
+                        },
+                    ],
+                },
+                toolOutput: JSON.stringify({ status: 'edited', editsApplied: 2 }),
+            }),
+        );
 
         expect(collapsed.toolInput).toEqual({
             editsCount: 2,
@@ -92,20 +95,23 @@ describe('tool collapse annotations', () => {
 
     it('collapses read_document output content but keeps document metadata', () => {
         const tool = getTool(createDocumentTools(), 'read_document');
-        const collapsed = collapseWithTool(tool, toolBlock({
-            toolName: 'read_document',
-            toolInput: { name: 'report.md', version: 'latest' },
-            toolOutput: JSON.stringify({
-                source: 'approved',
-                name: 'report.md',
-                version: 3,
-                status: 'approved',
-                totalLines: 2,
-                viewport: { startLine: 1, endLine: 2 },
-                content: '1: first line\n2: second line',
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'read_document',
+                toolInput: { name: 'report.md', version: 'latest' },
+                toolOutput: JSON.stringify({
+                    source: 'approved',
+                    name: 'report.md',
+                    version: 3,
+                    status: 'approved',
+                    totalLines: 2,
+                    viewport: { startLine: 1, endLine: 2 },
+                    content: '1: first line\n2: second line',
+                }),
+                toolContentParts: [{ type: 'text', text: '1: first line\n2: second line' }],
             }),
-            toolContentParts: [{ type: 'text', text: '1: first line\n2: second line' }],
-        }));
+        );
 
         const output = JSON.parse(collapsed.toolOutput ?? '');
         expect(output).toMatchObject({
@@ -127,15 +133,18 @@ describe('tool collapse annotations', () => {
     it('collapses search_knowledge chunks into result headings', () => {
         const tool = getTool(createKnowledgeTools(), 'search_knowledge');
         const chunk = 'A'.repeat(600);
-        const collapsed = collapseWithTool(tool, toolBlock({
-            toolName: 'search_knowledge',
-            toolInput: { query: 'market sizing', limit: 2, includeImages: true },
-            toolOutput: [
-                `## Market Report (market.md)\n**Relevance:** 0.92\n\n${chunk}`,
-                `## Strategy Memo (strategy.md)\n**Relevance:** 0.84\n\n${chunk}`,
-            ].join('\n\n---\n\n'),
-            toolContentParts: [{ type: 'text', text: chunk }],
-        }));
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'search_knowledge',
+                toolInput: { query: 'market sizing', limit: 2, includeImages: true },
+                toolOutput: [
+                    `## Market Report (market.md)\n**Relevance:** 0.92\n\n${chunk}`,
+                    `## Strategy Memo (strategy.md)\n**Relevance:** 0.84\n\n${chunk}`,
+                ].join('\n\n---\n\n'),
+                toolContentParts: [{ type: 'text', text: chunk }],
+            }),
+        );
 
         const output = JSON.parse(collapsed.toolOutput ?? '');
         expect(output).toMatchObject({
@@ -156,14 +165,17 @@ describe('tool collapse annotations', () => {
     it('counts search_knowledge headings even when result metadata format changes', () => {
         const tool = getTool(createKnowledgeTools(), 'search_knowledge');
         const chunk = 'A'.repeat(600);
-        const collapsed = collapseWithTool(tool, toolBlock({
-            toolName: 'search_knowledge',
-            toolInput: { query: 'market sizing', limit: 2, includeImages: false },
-            toolOutput: [
-                `## Market Report\nScore: 0.92\n\n${chunk}`,
-                `## Strategy Memo\nScore: 0.84\n\n${chunk}`,
-            ].join('\n\n---\n\n'),
-        }));
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'search_knowledge',
+                toolInput: { query: 'market sizing', limit: 2, includeImages: false },
+                toolOutput: [
+                    `## Market Report\nScore: 0.92\n\n${chunk}`,
+                    `## Strategy Memo\nScore: 0.84\n\n${chunk}`,
+                ].join('\n\n---\n\n'),
+            }),
+        );
 
         const output = JSON.parse(collapsed.toolOutput ?? '');
         expect(output.resultCount).toBe(2);
@@ -174,11 +186,14 @@ describe('tool collapse annotations', () => {
     it('collapses scrape_page body into title/source metadata', () => {
         const tool = getTool(createWebScrapeTools(), 'scrape_page');
         const body = 'Long page body. '.repeat(100);
-        const collapsed = collapseWithTool(tool, toolBlock({
-            toolName: 'scrape_page',
-            toolInput: { url: 'https://example.com/report', format: 'markdown' },
-            toolOutput: `# Example Report\n> Summary\n\n**Source:** https://example.com/report\n\n---\n\n${body}`,
-        }));
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'scrape_page',
+                toolInput: { url: 'https://example.com/report', format: 'markdown' },
+                toolOutput: `# Example Report\n> Summary\n\n**Source:** https://example.com/report\n\n---\n\n${body}`,
+            }),
+        );
 
         const output = JSON.parse(collapsed.toolOutput ?? '');
         expect(output).toMatchObject({

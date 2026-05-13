@@ -332,7 +332,7 @@ function collapsePatchDocument(block: ToolCallStreamBlock): { toolInput?: unknow
 
 function collapseReadDocument(block: ToolCallStreamBlock): { toolOutput?: string } {
     const output = parseToolOutputObject(block);
-    if (!output || !Object.prototype.hasOwnProperty.call(output, 'content')) return {};
+    if (!output || !Object.hasOwn(output, 'content')) return {};
 
     const contentStats = textStats(output.content);
     const collapsed = { ...output };

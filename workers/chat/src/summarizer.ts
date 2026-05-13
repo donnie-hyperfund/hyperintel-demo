@@ -186,11 +186,7 @@ Do not end your turn without calling \`generate_blurb\`. The tool call is requir
 
         const blurbTools = createBlurbTools();
         // TODO: unify with getChatToolsAndGroups() so collapse config stays in sync
-        const collapseToolRegistry = [
-            ...createDocumentTools(),
-            ...createKnowledgeTools(),
-            ...createWebScrapeTools(),
-        ];
+        const collapseToolRegistry = [...createDocumentTools(), ...createKnowledgeTools(), ...createWebScrapeTools()];
         const shapedForEstimate = shapeContextForInference({
             history: historyMessages,
             tools: [...blurbTools],

@@ -132,12 +132,11 @@ function collapseKnowledgeSearch(block: ToolCallStreamBlock): { toolOutput?: str
     const output = block.toolOutput;
     if (typeof output !== 'string' || output.length < 1000) return {};
 
-    const sections = [...output.matchAll(/^##\s+(.+?)\s+\((.+?)\)\n\*\*Relevance:\*\*\s+(.+)$/gm)]
-        .map((match) => ({
-            title: match[1],
-            key: match[2],
-            relevance: match[3],
-        }));
+    const sections = [...output.matchAll(/^##\s+(.+?)\s+\((.+?)\)\n\*\*Relevance:\*\*\s+(.+)$/gm)].map((match) => ({
+        title: match[1],
+        key: match[2],
+        relevance: match[3],
+    }));
     const headingCount = (output.match(/^##\s+/gm) ?? []).length;
 
     const input = block.toolInput as { query?: unknown; limit?: unknown; includeImages?: unknown } | undefined;
