@@ -9,6 +9,7 @@ import type {
     StreamStatus,
 } from '@/lib/schema/stream';
 import { DECISION_DISMISSED_SENTINEL } from '@/lib/schema/stream';
+import { writeStreamMetric } from '@/workers/_common/vendor/analytics-engine';
 import createNeonSql from '@/workers/_common/vendor/neon';
 
 // Re-export shared types for consumers that imported from here
@@ -21,6 +22,18 @@ export type {
     StreamSnapshot,
     StreamStatus,
 } from '@/lib/schema/stream';
+
+export type StreamSubscribeResult = {
+    snapshot: StreamSnapshot;
+    /** High-water mark in the same coordinate as stream event `_seq`. */
+    seqHigh?: number;
+};
+
+type SequencedStreamMessage = {
+    topic: string;
+    type: 'stream_event' | 'stream_status';
+    agentMessageId: string;
+} & Record<string, unknown>;
 
 // ============================================================================
 // CONSTANTS
@@ -49,6 +62,7 @@ const SK_REASONING_BLOCK_ID = 'currentReasoningBlockId';
 const SK_TOPIC_PREFIX = 'topicPrefix';
 const SK_PREVIEW_ALIAS = 'previewAlias';
 const SK_DISPLAY_STATUS = 'displayStatus';
+const SK_BROADCAST_SEQ = 'broadcastSeq';
 
 // ============================================================================
 // CHAT STREAM DO
@@ -120,6 +134,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             topicPrefix,
             previewAlias,
             displayStatus,
+            broadcastSeq,
         ] = await Promise.all([
             this.ctx.storage.get<StreamBlock[]>(SK_BLOCKS),
             this.ctx.storage.get<[string, ActiveDocument][]>(SK_ACTIVE_DOCS),
@@ -134,6 +149,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             this.ctx.storage.get<string>(SK_TOPIC_PREFIX),
             this.ctx.storage.get<string | null>(SK_PREVIEW_ALIAS),
             this.ctx.storage.get<string | null>(SK_DISPLAY_STATUS),
+            this.ctx.storage.get<number>(SK_BROADCAST_SEQ),
         ]);
 
         if (blocks) this.blocks = blocks;
@@ -149,10 +165,12 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         if (topicPrefix) this.topicPrefix = topicPrefix;
         if (previewAlias) this.previewAlias = previewAlias;
         if (displayStatus) this.displayStatus = displayStatus;
+        if (typeof broadcastSeq === 'number') this.broadcastSeq = broadcastSeq;
     }
 
     /** Persist all mutable state to storage */
     private async persistState() {
+        const t0 = performance.now();
         await this.ctx.storage.put({
             [SK_BLOCKS]: this.blocks,
             [SK_ACTIVE_DOCS]: [...this.activeDocuments.entries()],
@@ -167,7 +185,9 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             [SK_TOPIC_PREFIX]: this.topicPrefix,
             [SK_PREVIEW_ALIAS]: this.previewAlias,
             [SK_DISPLAY_STATUS]: this.displayStatus,
+            [SK_BROADCAST_SEQ]: this.broadcastSeq,
         });
+        this.trackStreamMetric('persist_state', [performance.now() - t0]);
     }
 
     // ========================================================================
@@ -396,6 +416,25 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         void this.drainBroadcastQueue();
     }
 
+    private sequenced<T extends SequencedStreamMessage>(message: T): T & { _seq: number } {
+        return { ...message, _seq: this.broadcastSeq++ };
+    }
+
+    private async queueSequencedBroadcast(messages: SequencedStreamMessage[]) {
+        const sequencedMessages = messages.map((message) => this.sequenced(message));
+        await this.persistState();
+        this.queueBroadcast(sequencedMessages);
+    }
+
+    private trackStreamMetric(metric: string, doubles?: number[], blobs: Array<string | null | undefined> = []) {
+        writeStreamMetric(this.env, {
+            metric,
+            indexes: [this.agentMessageId || this.chatId],
+            blobs: [this.chatId, this.previewAlias, ...blobs],
+            doubles,
+        });
+    }
+
     /**
      * Serial drain — only one instance runs at a time (JS mutex via `isBroadcasting`).
      *
@@ -454,14 +493,13 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     }
 
     /** Queue a stream_status message for broadcast. */
-    private broadcastStatus(status: StreamStatus) {
-        this.queueBroadcast([
+    private async broadcastStatus(status: StreamStatus) {
+        await this.queueSequencedBroadcast([
             {
                 topic: this.topic,
                 type: 'stream_status',
                 status,
                 agentMessageId: this.agentMessageId,
-                _seq: this.broadcastSeq++,
             },
         ]);
     }
@@ -478,6 +516,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
      * interleaving when concurrent push() calls enter via the open input gate.
      */
     async push(events: StreamEvent[], seq: number) {
+        const t0 = performance.now();
         await this.ensureLoaded();
 
         if (this.status === 'idle') {
@@ -485,7 +524,15 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         }
 
         // Duplicate / already-processed — ignore
-        if (seq < this.nextExpectedSeq) return;
+        if (seq < this.nextExpectedSeq) {
+            this.trackStreamMetric('push_duplicate', [
+                performance.now() - t0,
+                this.broadcastQueue.length,
+                this.broadcastSeq,
+                events.length,
+            ]);
+            return;
+        }
 
         // Buffer this batch
         this.pendingBatches.set(seq, events);
@@ -555,6 +602,13 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             await this.ctx.storage.setAlarm(now + DEAD_MAN_TIMEOUT_MS);
             this.lastPersistTime = now;
         }
+
+        this.trackStreamMetric('push', [
+            performance.now() - t0,
+            this.broadcastQueue.length,
+            this.broadcastSeq,
+            events.length,
+        ]);
     }
 
     /**
@@ -573,8 +627,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         // Resolve any pending abortWait so the timer doesn't dangle for 60s
         this.abortResolve?.('done');
         this.abortResolve = null;
-        await this.persistState();
-        this.broadcastStatus('done');
+        await this.broadcastStatus('done');
         await this.drainBroadcastQueue();
     }
 
@@ -621,8 +674,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         this.status = 'aborted';
         this.abortResolve?.('abort');
         this.abortResolve = null;
-        await this.persistState();
-        this.broadcastStatus('aborted');
+        await this.broadcastStatus('aborted');
         await this.drainBroadcastQueue();
     }
 
@@ -651,18 +703,27 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     /**
      * Register a subscriber and return the current snapshot.
      */
-    async subscribe(userId: string, ugDoName: string): Promise<StreamSnapshot> {
+    async subscribe(userId: string, ugDoName: string): Promise<StreamSubscribeResult> {
+        const t0 = performance.now();
         await this.ensureLoaded();
 
         this.subscribers.set(userId, ugDoName);
         await this.ctx.storage.put(SK_SUBSCRIBERS, [...this.subscribers.entries()]);
 
-        return {
+        const snapshot: StreamSnapshot = {
             blocks: this.blocks,
             activeDocuments: [...this.activeDocuments.values()],
             pendingDecisions: [...this.pendingDecisions.values()],
             status: this.status === 'idle' ? 'streaming' : this.status,
             displayStatus: this.displayStatus,
+        };
+
+        const seqHigh = this.broadcastSeq > 0 ? this.broadcastSeq - 1 : undefined;
+        this.trackStreamMetric('subscribe', [performance.now() - t0, this.subscribers.size, seqHigh ?? -1]);
+
+        return {
+            snapshot,
+            ...(seqHigh !== undefined && { seqHigh }),
         };
     }
 
@@ -710,9 +771,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     async setPendingApproval(toolCallId: string, tool: string, input: unknown) {
         await this.ensureLoaded();
         this.status = 'pending_approval';
-        await this.persistState();
         // TODO: broadcast tool info (toolCallId, tool, input) so client knows which tool needs approval
-        this.broadcastStatus('pending_approval');
+        await this.broadcastStatus('pending_approval');
         await this.drainBroadcastQueue();
     }
 
@@ -727,8 +787,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             this.approvalResolvers.delete(toolCallId);
         }
         this.status = 'streaming';
-        await this.persistState();
-        this.broadcastStatus('streaming');
+        await this.broadcastStatus('streaming');
         await this.drainBroadcastQueue();
     }
 
@@ -743,8 +802,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             this.approvalResolvers.delete(toolCallId);
         }
         this.status = 'aborted';
-        await this.persistState();
-        this.broadcastStatus('aborted');
+        await this.broadcastStatus('aborted');
         await this.drainBroadcastQueue();
     }
 
@@ -824,12 +882,11 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             this.decisionResolvers.delete(toolCallId);
         }
         this.pendingDecisions.delete(toolCallId);
-        await this.persistState();
 
         // Broadcast a `decision_resolved` event so any other subscribers (multi-tab)
         // also drop the card from their UI. Use a fresh seq outside the pusher
         // stream; the event is self-contained and order vs. agent output doesn't matter.
-        this.queueBroadcast([
+        await this.queueSequencedBroadcast([
             {
                 topic: this.topic,
                 type: 'stream_event',
@@ -840,7 +897,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
                     value,
                     ...(trimmedText ? { freeText: trimmedText } : {}),
                 } as StreamEvent,
-                _seq: this.broadcastSeq++,
             },
         ]);
         await this.drainBroadcastQueue();
@@ -857,9 +913,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             this.decisionResolvers.delete(toolCallId);
         }
         this.pendingDecisions.delete(toolCallId);
-        await this.persistState();
 
-        this.queueBroadcast([
+        await this.queueSequencedBroadcast([
             {
                 topic: this.topic,
                 type: 'stream_event',
@@ -869,7 +924,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
                     toolCallId,
                     value: DECISION_DISMISSED_SENTINEL,
                 } as StreamEvent,
-                _seq: this.broadcastSeq++,
             },
         ]);
         await this.drainBroadcastQueue();
@@ -891,8 +945,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         if (this.status === 'streaming' || this.status === 'pending_approval') {
             console.error(`ChatStreamDO: dead-man alarm fired for ${this.agentMessageId}, status was ${this.status}`);
             this.status = 'error';
-            await this.persistState();
-            this.broadcastStatus('error');
+            await this.broadcastStatus('error');
             await this.drainBroadcastQueue();
             // DB cleanup: save errored placeholder message + clear activeAgentMessageId
             await this.dbCleanup();

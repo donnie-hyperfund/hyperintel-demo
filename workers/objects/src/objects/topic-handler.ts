@@ -13,6 +13,7 @@ export type SubscribeResponse =
           status: 'streaming';
           agentMessageId: string;
           snapshot: unknown;
+          seqHigh?: number;
           streamType?: 'chat' | 'summary';
           selectedModel?: string | null;
           completionBriefStatus?: string | null;

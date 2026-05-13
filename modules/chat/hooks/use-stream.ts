@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
+import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import type { ActiveDocument, PendingDecision, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { DECISION_DISMISSED_SENTINEL } from '@/lib/schema/stream';
 import type {
@@ -55,6 +56,13 @@ type StreamingState = {
     streamingDocs: Map<string, StreamingDoc>;
     /** Map keyed by versionId → summary stream state. */
     streamingSummaries: Map<string, StreamingSummary>;
+};
+
+type StreamSessionAnalytics = {
+    agentMessageId: string;
+    startedAt: number;
+    eventCount: number;
+    streamType: 'chat' | 'summary' | null;
 };
 
 export type ToolDocumentDecision = {
@@ -215,6 +223,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const documentQueueRef = useRef<AsyncEventQueue<{ type: string; payload: any }> | null>(null);
     const pendingDocumentDecisionsRef = useRef<Map<string, ToolDocumentDecision>>(new Map());
     const streamTerminalRef = useRef(false);
+    const subscribeStartedAtRef = useRef<number | null>(null);
+    const streamSessionRef = useRef<StreamSessionAnalytics | null>(null);
 
     const flushDocumentDecisions = (callback: NonNullable<UseStreamOptions['onToolDocumentDecision']>) => {
         if (pendingDocumentDecisionsRef.current.size === 0) return;
@@ -369,6 +379,51 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             ac.updateArtifact(summary.artifactId, { isStreaming: false, isSummaryStreaming: false }, summary.version);
         }
         stateRef.current.streamingSummaries.clear();
+    };
+
+    const startStreamSessionAnalytics = (nextAgentMessageId: string, nextStreamType: 'chat' | 'summary' | null) => {
+        const current = streamSessionRef.current;
+        if (current?.agentMessageId === nextAgentMessageId) return;
+        streamSessionRef.current = {
+            agentMessageId: nextAgentMessageId,
+            startedAt: performance.now(),
+            eventCount: 0,
+            streamType: nextStreamType,
+        };
+    };
+
+    const captureSubscribeCompleted = (
+        responseStatus: SubscribeResponse['status'],
+        responseAgentMessageId?: string,
+        responseStreamType?: 'chat' | 'summary' | null,
+    ) => {
+        const startedAt = subscribeStartedAtRef.current;
+        if (startedAt === null) return;
+        subscribeStartedAtRef.current = null;
+        capturePostHogEvent('subscribe_completed', {
+            domain,
+            topic_id: id,
+            status: responseStatus,
+            agent_message_id: responseAgentMessageId,
+            stream_type: responseStreamType,
+            subscribe_latency_ms: performance.now() - startedAt,
+        });
+    };
+
+    const captureStreamSessionEnded = (finalStatus: StreamStatus, finalAgentMessageId?: string) => {
+        const session = streamSessionRef.current;
+        if (!session) return;
+        streamSessionRef.current = null;
+        capturePostHogEvent('stream_session_ended', {
+            domain,
+            topic_id: id,
+            agent_message_id: finalAgentMessageId ?? session.agentMessageId,
+            stream_type: session.streamType,
+            status: finalStatus,
+            duration_ms: performance.now() - session.startedAt,
+            event_count: session.eventCount,
+            duplicates_dropped: 0,
+        });
     };
 
     // ========================================================================
@@ -694,6 +749,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         setIsRetracted(false);
         ownedAgentMessageIdRef.current = null;
         streamTerminalRef.current = false;
+        subscribeStartedAtRef.current = performance.now();
+        streamSessionRef.current = null;
 
         // Subscribe (ref-counted in WS client)
         const unsub = ws.subscribe(topic);
@@ -716,6 +773,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     const resp = msg as SubscribeResponse;
                     if (resp.status === 'streaming') {
                         const sr = resp as SubscribeResponseStreaming;
+                        captureSubscribeCompleted('streaming', sr.agentMessageId, sr.streamType ?? null);
                         const ownedAgentMessageId = ownedAgentMessageIdRef.current;
 
                         if (sr.snapshot.status !== 'streaming' && sr.snapshot.status !== 'pending_approval') {
@@ -742,6 +800,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         }
 
                         ownedAgentMessageIdRef.current = sr.agentMessageId;
+                        startStreamSessionAnalytics(sr.agentMessageId, sr.streamType ?? null);
                         stateRef.current = initFromSnapshot(sr.snapshot);
                         setBlocks([...sr.snapshot.blocks]);
                         setActiveDocuments(sr.snapshot.activeDocuments);
@@ -861,6 +920,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             resp.completionBriefStatus ?? null,
                         );
                     } else {
+                        captureSubscribeCompleted(resp.status);
                         // idle or stale — no active stream
                         ownedAgentMessageIdRef.current = null;
                         setStatus('idle');
@@ -918,6 +978,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     setAgentMessageId(started.agentMessageId);
                     setStreamType(started.streamType ?? null);
                     streamTerminalRef.current = false;
+                    startStreamSessionAnalytics(started.agentMessageId, started.streamType ?? null);
                     o.onStreamStarted?.(
                         started.agentMessageId,
                         started.userMessageId ?? '',
@@ -934,6 +995,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     const { event, agentMessageId: eventAgentMessageId } = msg as StreamEventMessage;
                     if (eventAgentMessageId !== ownedAgentMessageIdRef.current) {
                         break;
+                    }
+                    if (streamSessionRef.current?.agentMessageId === eventAgentMessageId) {
+                        streamSessionRef.current.eventCount += 1;
                     }
 
                     switch (event.type) {
@@ -1149,6 +1213,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                 flushSync();
                                 clearStreamingFlags();
                                 setError(event.error);
+                                captureStreamSessionEnded('error', eventAgentMessageId);
                             }
                             break;
 
@@ -1165,6 +1230,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             setStatus((prev) => (prev === 'aborted' || prev === 'error' ? prev : 'done'));
                             if (o.onToolDocumentDecision) flushDocumentDecisions(o.onToolDocumentDecision);
                             o.onDone?.('done', event, eventAgentMessageId);
+                            captureStreamSessionEnded('done', eventAgentMessageId);
                             break;
 
                         case 'done_ext':
@@ -1185,6 +1251,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             setPendingDecisions([]);
                             setSubmittingDecisions({});
                             setIsRetracted(true);
+                            captureStreamSessionEnded('aborted', eventAgentMessageId);
                             break;
 
                         case 'created':
@@ -1221,6 +1288,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         setPendingDecisions([]);
                         setSubmittingDecisions({});
                         o.onDone?.(sm.status, undefined, sm.agentMessageId);
+                        captureStreamSessionEnded(sm.status, sm.agentMessageId);
                     }
                     break;
                 }

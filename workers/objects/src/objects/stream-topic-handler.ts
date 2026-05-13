@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import createNeonSql from '@/workers/_common/vendor/neon';
-import type { StreamEvent, StreamSnapshot } from './chat-stream-do';
+import type { StreamEvent, StreamSubscribeResult } from './chat-stream-do';
 import type { ActionResult, SubscribeResponse, TopicHandler } from './topic-handler';
 
 // ============================================================================
@@ -19,7 +19,7 @@ export interface ChatStreamDOStub {
 
     /** Push events with a sequence number for reorder-safe fire-and-forget delivery. */
     push(events: StreamEvent[], seq: number): Promise<void>;
-    subscribe(userId: string, ugDoName: string): Promise<StreamSnapshot>;
+    subscribe(userId: string, ugDoName: string): Promise<StreamSubscribeResult>;
     unsubscribe(userId: string): Promise<void>;
     abort(): Promise<void>;
     toolApprove(toolCallId: string): Promise<void>;
@@ -145,13 +145,13 @@ export abstract class StreamTopicHandler implements TopicHandler {
         try {
             const stub = this.getStreamStub(env, agentMessageId);
             // UG DO name = userId (or userId@alias on dev preview branches)
-            const snapshot = await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
+            const { snapshot, seqHigh } = await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
             if (snapshot.status === 'done' || snapshot.status === 'aborted' || snapshot.status === 'error') {
                 await this.cleanupStreamKeys(identifier);
                 await this.clearActiveAgentMessageId(identifier, agentMessageId, env);
                 return { status: 'idle' };
             }
-            return { status: 'streaming', agentMessageId, snapshot };
+            return { status: 'streaming', agentMessageId, snapshot, ...(seqHigh !== undefined && { seqHigh }) };
         } catch (err) {
             // ChatStream DO is gone (already finalized) — stale registry entry
             console.warn(`${this.constructor.name}: ChatStream DO gone for ${identifier}, cleaning up`, err);

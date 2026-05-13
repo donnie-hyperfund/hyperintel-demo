@@ -80,6 +80,7 @@ export type SubscribeResponseIdle = {
     topic: string;
     type: typeof ServerMsg.SubscribeResponse;
     status: 'idle';
+    // Keep idle subscribe responses minimal: no `seqHigh` (no active stream to deduplicate against).
     selectedModel?: string | null;
     completionBriefStatus?: string | null;
 };
@@ -90,6 +91,8 @@ export type SubscribeResponseStreaming = {
     status: 'streaming';
     agentMessageId: string;
     snapshot: StreamSnapshot;
+    /** @same as event `_seq`; FE drops buffered/live events with `_seq <= seqHigh` after applying the snapshot. */
+    seqHigh?: number;
     /** Present when streaming a summary (not a normal chat response) */
     streamType?: 'chat' | 'summary';
     selectedModel?: string | null;
@@ -113,6 +116,7 @@ export type StreamEventMessage = {
     type: typeof ServerMsg.StreamEvent;
     agentMessageId: string;
     event: StreamEvent;
+    _seq?: number;
 };
 
 export type StreamStatusMessage = {
@@ -120,6 +124,7 @@ export type StreamStatusMessage = {
     type: typeof ServerMsg.StreamStatus;
     status: StreamStatus;
     agentMessageId: string;
+    _seq?: number;
 };
 
 export type StreamStartedMessage = {
