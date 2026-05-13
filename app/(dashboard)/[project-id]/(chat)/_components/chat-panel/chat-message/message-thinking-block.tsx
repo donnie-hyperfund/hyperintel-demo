@@ -9,6 +9,7 @@ type MessageThinkingBlockProps = {
     blocks: StreamBlock[];
     defaultExpanded: boolean;
     isStreaming?: boolean;
+    hasTextContent?: boolean;
     status?: string;
 };
 

@@ -4,7 +4,6 @@ import { cva } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useRef } from 'react';
-import { TypingIndicator } from '@/app/(dashboard)/[project-id]/(chat)/_components/chat-panel/chat-conversation/typing-indicator';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { IS_DEV } from '@/lib/config';
 import { cn } from '@/lib/utils';
@@ -13,6 +12,7 @@ import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-p
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ChatMessage } from '../chat-message/chat-message';
 import { SystemEventMessage } from '../chat-message/system-event-message';
+import { ThinkingShimmer } from '../chat-message/thinking-shimmer';
 import { ChatEmptyState, type ChatEmptyStateProps } from './chat-empty-state';
 
 export type ChatScrollState = {
@@ -137,10 +137,12 @@ function ChatConversation({ onScrollStateChange, emptyState }: ChatConversationP
                             {messages.map((message, index) => {
                                 const role = message.systemEvent ? 'system' : message.role;
                                 const isLastMessage = index === messages.length - 1;
+                                // Skip entrance scale for messages that mount mid-stream — they hand off from the ThinkingShimmer placeholder and the scale would re-trigger on top of it.
+                                const skipEntrance = message.isStreaming === true;
                                 return (
                                     <motion.div
                                         key={message.tempId ?? message.id ?? index}
-                                        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                                        initial={skipEntrance ? false : { opacity: 0, y: 8, scale: 0.98 }}
                                         animate={{ opacity: 1, y: 0, scale: 1 }}
                                         exit={{ opacity: 0, y: -6, scale: 0.98 }}
                                         transition={{ duration: 0.3, ease: 'easeInOut' }}
@@ -170,7 +172,7 @@ function ChatConversation({ onScrollStateChange, emptyState }: ChatConversationP
                         {isGenerating && !isWaitingOnUploads && !messages.some((m) => m.isStreaming) && (
                             <div className="group max-w-[90%] min-w-0">
                                 <div className="min-w-0 space-y-3">
-                                    <TypingIndicator />
+                                    <ThinkingShimmer />
                                 </div>
                                 {IS_DEV && <div aria-hidden className="mt-1 h-6" />}
                             </div>
