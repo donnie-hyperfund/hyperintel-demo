@@ -11,7 +11,7 @@ import {
 } from '@/lib/schema/artifact';
 import type { Ctx } from './context';
 import { countLines } from './tools/documents/document-service';
-import { broadcastUserEvent } from './utils/broadcast';
+import { broadcastUserEvent, getUserGatewayStub } from './utils/broadcast';
 import { injectSystemEvent } from './utils/system-events';
 
 type RestoreMeta = {
@@ -234,6 +234,14 @@ export async function restoreArtifactHandler(
 
             txEm.persist(restored);
             artifact.version = newVersionNumber;
+
+            if (sourceVersion.document_type === 'Completion Brief') {
+                const cbChat = await txEm.findOne(ChatEntity, { completion_brief: artifact.id });
+                if (cbChat) {
+                    cbChat.completion_brief_status = 'proposed';
+                }
+            }
+
             await txEm.flush();
 
             return {
@@ -263,6 +271,18 @@ export async function restoreArtifactHandler(
         restoredVersionNumber: meta.restoredVersionNumber,
         status: 'proposed',
     });
+
+    if (meta.restoredDocumentType === 'Completion Brief' && meta.chatId) {
+        const ugStub = getUserGatewayStub(ctx);
+        ugStub
+            .systemAction(
+                `chat:${meta.chatId}`,
+                'cbStatusChanged',
+                { status: 'proposed' },
+                ctx.previewAlias ?? undefined,
+            )
+            .catch((err) => console.error('[restoreArtifact] CB status broadcast failed:', err));
+    }
 
     // Inject system event so the agent knows the user proposed a restore via UI.
     // Pre-compute the ::document[…] directive here — the agent must echo it in its reply
