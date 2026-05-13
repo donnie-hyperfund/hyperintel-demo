@@ -22,7 +22,7 @@ export function ScrollToBottomButton({ onClick, className }: ScrollToBottomButto
                 type="button"
                 onClick={onClick}
                 variant="secondary"
-                className="size-10 rounded-full shadow-xl"
+                className="size-10 rounded-full border border-neutral-700/50 bg-neutral-800/97.5 shadow-lg shadow-black/25 backdrop-blur-sm hover:bg-neutral-700/97.5"
                 aria-label="Scroll to bottom"
             >
                 <ChevronDown className="size-4" />
