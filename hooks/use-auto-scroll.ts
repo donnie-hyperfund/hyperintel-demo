@@ -48,9 +48,10 @@ export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
             if (!container) return;
             container.scrollTo({ top: 0, behavior: opts?.behavior ?? behavior });
             followRef.current = false;
-            setIsAtBottom(false);
+            const distance = container.scrollHeight - container.clientHeight;
+            setIsAtBottom(distance <= threshold);
         },
-        [behavior],
+        [behavior, threshold],
     );
 
     const isFollowing = useCallback(() => followRef.current, []);
