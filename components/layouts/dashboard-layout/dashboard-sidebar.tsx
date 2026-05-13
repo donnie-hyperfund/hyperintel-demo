@@ -11,7 +11,6 @@ import {
     SidebarFooter,
     SidebarGroup,
     SidebarGroupContent,
-    SidebarGroupLabel,
     SidebarHeader,
     SidebarMenu,
     SidebarMenuButton,
@@ -21,6 +20,7 @@ import {
 } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import { DashboardSidebarFooter } from './dashboard-sidebar-footer';
+import { DashboardSidebarRecentProjects } from './dashboard-sidebar-recent-projects';
 
 const navItems = [
     { icon: LayoutDashboard, label: 'Launch Pad', href: '/launch-pad' },
@@ -96,16 +96,7 @@ export function DashboardSidebar() {
                     </SidebarGroupContent>
                 </SidebarGroup>
 
-                {isExpanded && (
-                    <SidebarGroup className="px-2">
-                        <SidebarGroupLabel className="px-4 text-xs font-medium text-neutral-500 uppercase tracking-wider">
-                            Recent Projects
-                        </SidebarGroupLabel>
-                        <SidebarGroupContent>
-                            <SidebarMenu className="gap-0.5">{/* TODO: Wire up recent projects data */}</SidebarMenu>
-                        </SidebarGroupContent>
-                    </SidebarGroup>
-                )}
+                {isExpanded && <DashboardSidebarRecentProjects />}
             </SidebarContent>
 
             <SidebarFooter>

@@ -1,7 +1,11 @@
-import { Suspense } from 'react';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+    title: 'New stakeholder',
+};
 
 type NewStakeholderLayoutProps = LayoutProps<'/stakeholders/new'>;
 
 export default function NewStakeholderLayout({ children }: NewStakeholderLayoutProps) {
-    return <Suspense>{children}</Suspense>;
+    return children;
 }

@@ -1,22 +1,23 @@
-import { redirect } from 'next/navigation';
-import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { getOrm } from '@/lib/orm/orm';
-import { NewPhaseChat } from './_components/new-phase-chat';
+import type { Metadata } from 'next';
+import { getProjectPageData } from '@/lib/api/server/page-data';
+import { formatNewPhaseTitle } from '@/lib/metadata/page-title';
 
 type ChatPageParams = PageProps<'/[project-id]'>;
 
-export default async function ChatPage({ params, searchParams }: ChatPageParams) {
+export async function generateMetadata({ params, searchParams }: ChatPageParams): Promise<Metadata> {
     const { 'project-id': projectId } = await params;
     const sp = await searchParams;
+    const { project } = await getProjectPageData(projectId);
 
-    if (!sp.new) {
-        const { em } = await getOrm();
-        const lastChat = await em.findOne(ChatEntity, { project: projectId }, { orderBy: { phase_index: 'desc' } });
+    if (!project) return {};
 
-        if (lastChat) {
-            redirect(`/${projectId}/${lastChat.id}`);
-        }
-    }
+    return {
+        title: sp.new ? formatNewPhaseTitle(project.name) : project.name,
+    };
+}
 
-    return <NewPhaseChat projectId={projectId} />;
+// Bare /[project-id] is redirected by middleware. This page only renders for ?new=true.
+export default async function ChatPage({ params }: ChatPageParams) {
+    await params;
+    return null;
 }

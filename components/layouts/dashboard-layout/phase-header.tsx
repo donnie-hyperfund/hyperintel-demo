@@ -35,6 +35,7 @@ export const PhaseHeader = () => {
                         projectName={project?.name}
                         chatId={chatId ?? undefined}
                         phaseIndex={state.phaseIndex}
+                        phaseName={state.phaseName ?? undefined}
                     />
                 </div>
                 <div className="ml-auto">
@@ -60,6 +61,7 @@ export const PhaseHeader = () => {
                         projectName={project?.name}
                         chatId={chatId ?? undefined}
                         phaseIndex={state.phaseIndex}
+                        phaseName={state.phaseName ?? undefined}
                     />
                 </div>
             </div>
@@ -106,9 +108,10 @@ type PhaseBreadcrumbsProps = {
     projectName?: string;
     chatId?: string;
     phaseIndex?: number | null;
+    phaseName?: string;
 };
 
-function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex }: PhaseBreadcrumbsProps) {
+function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex, phaseName }: PhaseBreadcrumbsProps) {
     return (
         <Breadcrumb className="min-w-0 overflow-hidden">
             <BreadcrumbList className="min-w-0 flex-nowrap">
@@ -125,7 +128,12 @@ function PhaseBreadcrumbs({ projectId, projectName, chatId, phaseIndex }: PhaseB
                     </>
                 )}
                 <BreadcrumbItem className="min-w-0 shrink">
-                    <PhasePicker projectId={projectId} currentChatId={chatId} currentPhaseIndex={phaseIndex} />
+                    <PhasePicker
+                        projectId={projectId}
+                        currentChatId={chatId}
+                        currentPhaseIndex={phaseIndex}
+                        currentPhaseName={phaseName}
+                    />
                 </BreadcrumbItem>
             </BreadcrumbList>
         </Breadcrumb>

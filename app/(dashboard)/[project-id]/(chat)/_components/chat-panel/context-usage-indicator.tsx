@@ -2,6 +2,7 @@
 
 import { motion } from 'motion/react';
 import { useMemo } from 'react';
+import { AnimatedCounter } from '@/components/ui/animated-counter';
 import { cn } from '@/lib/utils';
 import { MAX_CONTEXT_TOKENS } from '@/modules/chat/constants';
 import type { TokenUsage } from '@/modules/chat/types';
@@ -47,7 +48,8 @@ export function ContextUsageIndicator({ tokenUsage, className }: ContextUsageInd
                     />
                 </div>
                 <span className="whitespace-nowrap tabular-nums text-neutral-600">
-                    {formatTokenCount(tokenUsage.usedTokens)} / {formatTokenCount(MAX_CONTEXT_TOKENS)}
+                    <AnimatedCounter value={tokenUsage.usedTokens} format={formatTokenCount} /> /{' '}
+                    {formatTokenCount(MAX_CONTEXT_TOKENS)}
                 </span>
             </div>
         </motion.div>

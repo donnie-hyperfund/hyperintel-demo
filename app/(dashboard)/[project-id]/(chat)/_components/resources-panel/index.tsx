@@ -2,7 +2,6 @@
 
 import { useParams } from 'next/navigation';
 import { SidePanel } from '@/components/side-panel';
-import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { FileDropOverlay } from '@/modules/file-uploads/components/file-drop-overlay';
 import { FileUploadProvider } from '@/modules/file-uploads/providers/file-upload-provider';
 import { LinkResourceDialog } from './link-resource-dialog';
@@ -17,10 +16,9 @@ interface ResourcesPanelProps {
 
 export default function ResourcesPanel({ onClose }: ResourcesPanelProps) {
     const { 'project-id': projectId } = useParams<ResourcesPanelParams>();
-    const { chatId } = useChatContext();
 
     return (
-        <FileUploadProvider scope={{ projectId, chatId: chatId ?? undefined }}>
+        <FileUploadProvider scope={{ kind: 'project-resources', projectId }}>
             <FileDropOverlay className="flex h-full flex-col">
                 <SidePanel
                     title="Project Intel"

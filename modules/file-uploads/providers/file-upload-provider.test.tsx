@@ -3,6 +3,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { UploadScope } from '@/lib/storage/storage-keys';
 import { FileUploadProvider, useFileUploadContext } from './file-upload-provider';
 
 const getTokenMock = vi.fn(async () => 'token');
@@ -41,18 +42,25 @@ vi.mock('@/hooks/use-toast', () => ({
     toast: vi.fn(),
 }));
 
-function makeWrapper(props?: { projectId?: string; chatId?: string; trackAsPending?: boolean }) {
+function makeWrapper(scope: UploadScope) {
     return function Wrapper({ children }: { children: ReactNode }) {
-        return (
-            <FileUploadProvider
-                scope={{ projectId: props?.projectId, chatId: props?.chatId }}
-                trackAsPending={props?.trackAsPending}
-            >
-                {children}
-            </FileUploadProvider>
-        );
+        return <FileUploadProvider scope={scope}>{children}</FileUploadProvider>;
     };
 }
+
+const phaseChatInputScope = (chatId?: string): UploadScope => ({
+    kind: 'chat-input',
+    chatType: 'phase',
+    projectId: '22222222-2222-2222-2222-222222222222',
+    ...(chatId ? { chatId } : {}),
+});
+
+const intakeNewScope: UploadScope = { kind: 'chat-input', chatType: 'company' };
+
+const projectResourcesScope: UploadScope = {
+    kind: 'project-resources',
+    projectId: '22222222-2222-2222-2222-222222222222',
+};
 
 describe('FileUploadProvider image routing', () => {
     beforeEach(() => {
@@ -97,7 +105,7 @@ describe('FileUploadProvider image routing', () => {
 
     it('routes chat-input image file picker uploads to artifact presign by default', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
-            wrapper: makeWrapper({ chatId: '11111111-1111-1111-1111-111111111111', trackAsPending: true }),
+            wrapper: makeWrapper(phaseChatInputScope('11111111-1111-1111-1111-111111111111')),
         });
 
         const file = new File(['image-bytes'], 'photo.png', { type: 'image/png' });
@@ -118,7 +126,7 @@ describe('FileUploadProvider image routing', () => {
 
     it('marks staged artifact presign uploads ready after confirm without polling for extraction', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
-            wrapper: makeWrapper({ trackAsPending: true }),
+            wrapper: makeWrapper(intakeNewScope),
         });
 
         const file = new File(['image-bytes'], 'photo.png', { type: 'image/png' });
@@ -143,49 +151,9 @@ describe('FileUploadProvider image routing', () => {
         ).toBe(false);
     });
 
-    it('waits for staged artifact extraction after association before clearing', async () => {
-        let statusCalls = 0;
-        vi.stubGlobal(
-            'fetch',
-            vi.fn((input: string | URL | Request) => {
-                const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-                if (url.includes('/api/artifacts/files/status')) {
-                    statusCalls++;
-                    return Promise.resolve({
-                        ok: true,
-                        json: async () => ({
-                            files: [{ fileId: 'file-1', status: 'processed' }],
-                        }),
-                    } as Response);
-                }
-
-                return Promise.resolve({ ok: true } as Response);
-            }),
-        );
-
-        const { result } = renderHook(() => useFileUploadContext(), {
-            wrapper: makeWrapper({ trackAsPending: true }),
-        });
-
-        const file = new File(['image-bytes'], 'photo.png', { type: 'image/png' });
-
-        act(() => {
-            result.current.addFiles([file]);
-        });
-
-        await waitFor(() => expect(result.current.files[0]?.status).toBe('ready'));
-
-        await act(async () => {
-            await result.current.waitForArtifactsReady(['artifact-1']);
-        });
-
-        expect(result.current.files[0]?.status).toBe('ready');
-        expect(statusCalls).toBe(1);
-    });
-
     it('routes pasted chat images through the chat-image upload path', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
-            wrapper: makeWrapper({ chatId: '11111111-1111-1111-1111-111111111111', trackAsPending: true }),
+            wrapper: makeWrapper(phaseChatInputScope('11111111-1111-1111-1111-111111111111')),
         });
 
         const file = new File(['image-bytes'], 'screenshot.png', { type: 'image/png' });
@@ -205,7 +173,7 @@ describe('FileUploadProvider image routing', () => {
 
     it('routes artifact-panel image uploads to artifact presign', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
-            wrapper: makeWrapper({ projectId: '22222222-2222-2222-2222-222222222222', trackAsPending: false }),
+            wrapper: makeWrapper(projectResourcesScope),
         });
 
         const file = new File(['image-bytes'], 'diagram.png', { type: 'image/png' });
@@ -225,7 +193,7 @@ describe('FileUploadProvider image routing', () => {
     });
 });
 
-describe('FileUploadProvider draft tracking', () => {
+describe('FileUploadProvider message attachments snapshot', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         presignUploadMock.mockResolvedValue({
@@ -242,8 +210,6 @@ describe('FileUploadProvider draft tracking', () => {
             ok: true,
             json: async () => ({ success: true }),
         });
-        // Scoped chat-input uploads enter 'processing' after confirm and start polling the status
-        // endpoint; respond with 'processed' so the poll resolves instead of retrying in the background.
         vi.stubGlobal(
             'fetch',
             vi.fn((input: string | URL | Request) => {
@@ -259,13 +225,9 @@ describe('FileUploadProvider draft tracking', () => {
         );
     });
 
-    it('tracks chat-input drafts even when a chatId is already present at upload', async () => {
+    it('returns the artifact for chat-input uploads with full scope, no association needed', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
-            wrapper: makeWrapper({
-                projectId: '22222222-2222-2222-2222-222222222222',
-                chatId: '11111111-1111-1111-1111-111111111111',
-                trackAsPending: true,
-            }),
+            wrapper: makeWrapper(phaseChatInputScope('11111111-1111-1111-1111-111111111111')),
         });
 
         const file = new File(['pdf-bytes'], 'doc.pdf', { type: 'application/pdf' });
@@ -276,15 +238,15 @@ describe('FileUploadProvider draft tracking', () => {
 
         await waitFor(() => expect(result.current.files[0]?.artifactId).toBe('artifact-1'));
 
-        // Draft list contains the artifact regardless of scope.
-        expect(result.current.consumeDraftArtifactIds()).toEqual(['artifact-1']);
-        // Staged list stays empty because the upload had full scope at upload time.
-        expect(result.current.consumeStagedArtifactIds()).toEqual([]);
+        const attachments = result.current.getMessageAttachments();
+        expect(attachments.artifactIds).toEqual(['artifact-1']);
+        expect(attachments.requiresAssociationIds).toEqual([]);
+        expect(attachments.imageFileIds).toEqual([]);
     });
 
-    it('tracks the same id on both draft and staged lists for intake-pre-chat uploads', async () => {
+    it('flags intake-pre-chat uploads as requiring association', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
-            wrapper: makeWrapper({ trackAsPending: true }),
+            wrapper: makeWrapper(intakeNewScope),
         });
 
         const file = new File(['pdf-bytes'], 'doc.pdf', { type: 'application/pdf' });
@@ -295,13 +257,14 @@ describe('FileUploadProvider draft tracking', () => {
 
         await waitFor(() => expect(result.current.files[0]?.artifactId).toBe('artifact-1'));
 
-        expect(result.current.consumeDraftArtifactIds()).toEqual(['artifact-1']);
-        expect(result.current.consumeStagedArtifactIds()).toEqual(['artifact-1']);
+        const attachments = result.current.getMessageAttachments();
+        expect(attachments.artifactIds).toEqual(['artifact-1']);
+        expect(attachments.requiresAssociationIds).toEqual(['artifact-1']);
     });
 
-    it('does not track project-resources uploads as drafts', async () => {
+    it('returns empty lists for project-resources uploads', async () => {
         const { result } = renderHook(() => useFileUploadContext(), {
-            wrapper: makeWrapper({ projectId: '22222222-2222-2222-2222-222222222222', trackAsPending: false }),
+            wrapper: makeWrapper(projectResourcesScope),
         });
 
         const file = new File(['pdf-bytes'], 'doc.pdf', { type: 'application/pdf' });
@@ -312,7 +275,8 @@ describe('FileUploadProvider draft tracking', () => {
 
         await waitFor(() => expect(result.current.files[0]?.artifactId).toBe('artifact-1'));
 
-        expect(result.current.consumeDraftArtifactIds()).toEqual([]);
-        expect(result.current.consumeStagedArtifactIds()).toEqual([]);
+        const attachments = result.current.getMessageAttachments();
+        expect(attachments.artifactIds).toEqual(['artifact-1']);
+        expect(attachments.requiresAssociationIds).toEqual([]);
     });
 });

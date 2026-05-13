@@ -1,7 +1,11 @@
 'use client';
 
-import { type ReactNode, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
+import { type ReactNode, Suspense, useCallback } from 'react';
+import { buildProjectOriginQuery } from '@/lib/intake/project-origin';
+import { ChatLoader } from '@/modules/chat/components/chat-loader';
 import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
+import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
 import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
 import type { Message } from '../types';
 import { ActivePanelProvider } from './active-panel-provider';
@@ -12,7 +16,7 @@ type ChatModuleBaseProps = {
     children: ReactNode;
     initialChatId?: string;
     initialMessages?: Message[];
-    chatRouteBuilder?: (chatId: string) => string;
+    buildCreatedChatHref?: (chatId: string) => string;
 };
 
 type PhaseChatModuleProps = ChatModuleBaseProps & {
@@ -33,8 +37,35 @@ export function ChatModule({
     chatType,
     initialChatId,
     initialMessages = [],
-    chatRouteBuilder,
+    buildCreatedChatHref,
 }: ChatModuleProps) {
+    const router = useRouter();
+    const { origin } = useOptionalProjectOrigin();
+
+    const buildChatRoute = useCallback(
+        (nextChatId: string) => {
+            if (buildCreatedChatHref) {
+                return buildCreatedChatHref(nextChatId);
+            }
+
+            if (chatType === 'phase') {
+                if (!projectId) throw new Error('Project ID is required for phase chats');
+                return `/${projectId}/${nextChatId}`;
+            }
+
+            const basePath = `/${chatType === 'company' ? 'companies' : 'stakeholders'}/${nextChatId}`;
+            return origin ? `${basePath}?${buildProjectOriginQuery(origin)}` : basePath;
+        },
+        [buildCreatedChatHref, chatType, projectId, origin],
+    );
+
+    const handleChatCreated = useCallback(
+        (chatId: string) => {
+            router.replace(buildChatRoute(chatId), { scroll: false });
+        },
+        [buildChatRoute, router],
+    );
+
     return (
         <ActivePanelProvider>
             <ArtifactProvider>
@@ -44,9 +75,9 @@ export function ChatModule({
                         chatType={chatType}
                         initialChatId={initialChatId}
                         initialMessages={initialMessages}
-                        chatRouteBuilder={chatRouteBuilder}
+                        onChatCreated={handleChatCreated}
                     >
-                        <Suspense>
+                        <Suspense fallback={<ChatLoader />}>
                             <ScrollTargetProvider>{children}</ScrollTargetProvider>
                         </Suspense>
                     </ChatProvider>

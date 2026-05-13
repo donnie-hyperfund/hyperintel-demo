@@ -23,7 +23,7 @@ export const ChatList = ({ onEmptyChange }: ChatListProps) => {
     const [editingInitialName, setEditingInitialName] = useState('');
 
     const { data, error, isLoading, mutate } = useFetchChats(projectId);
-    const chats = sortChatsByCreatedAt(data?.data ?? []);
+    const chats = sortChatsByCreatedAt(data?.data ?? []).reverse();
 
     useEffect(() => {
         if (!isLoading) {
@@ -89,12 +89,12 @@ export const ChatList = ({ onEmptyChange }: ChatListProps) => {
                 {chats.length} phase{chats.length !== 1 ? 's' : ''}
             </p>
             <div className="space-y-3">
-                {chats.map((chat, index) => (
+                {chats.map((chat) => (
                     <ChatItem
                         key={chat.id}
                         projectId={projectId}
                         chat={chat}
-                        phaseNumber={index + 1}
+                        phaseNumber={chat.phaseIndex + 1}
                         onEdit={handleEdit}
                     />
                 ))}

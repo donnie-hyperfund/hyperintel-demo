@@ -1,11 +1,10 @@
 'use client';
 
-import { ChevronDown, Loader2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { AnimatePresence } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
 import { type DirectiveHandler, MarkdownRenderer } from '@/components/ui/markdown-renderer';
-import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
+import type { ApprovalAction } from '@/modules/artifacts/processing/types';
 import {
     getLatestArtifactVersion,
     getLatestArtifactVersionContent,
@@ -15,14 +14,17 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import type { Artifact } from '@/modules/chat/types';
 import { computeDiffWithDirectives } from '@/modules/chat/utils/diff-utils';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
+import { ScrollToBottomButton } from '../scroll-to-bottom-button';
 import { ArtifactApprovalBar } from './artifact-approval-bar';
-import { ArtifactApprovalProgress } from './artifact-approval-progress';
 import { ArtifactDeleteDocument } from './artifact-delete-document';
 import { ArtifactHeader } from './artifact-header';
+import { ArtifactPreviewOverlay } from './artifact-preview-overlay';
 import { ArtifactVersionHistoryDialog } from './artifact-version-history-dialog';
 import { DiffControlBar } from './diff-control-bar';
 import { InternalDocumentActions } from './internal-document-actions';
 import { InternalDocumentContent } from './internal-document-content';
+import { useArtifactOverlayState } from './use-artifact-overlay-state';
+import { useArtifactScroll } from './use-artifact-scroll';
 
 type ArtifactViewerProps = {
     artifact: Artifact;
@@ -48,9 +50,8 @@ const diffDirectives: Record<string, DirectiveHandler> = {
 
 /** Reusable artifact viewer with header and markdown content */
 export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: ArtifactViewerProps) => {
-    const prevTitleRef = useRef<string | null>(null);
     const [isDiffVisible, setIsDiffVisible] = useState(false);
-    const [isProcessingApproval, setIsProcessingApproval] = useState(false);
+    const [processingAction, setProcessingAction] = useState<ApprovalAction | null>(null);
     const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
     const {
@@ -69,6 +70,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
     const title = getLatestArtifactVersionTitle(artifact);
     const isStreaming = !!artifact.isStreaming;
     const isUpdating = !!artifact.isUpdating;
+    const isSummaryStreaming = !!artifact.isSummaryStreaming;
 
     const activeVersion = getLatestArtifactVersion(artifact);
     const content = getLatestArtifactVersionContent(artifact);
@@ -85,13 +87,10 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         artifact.proposedVersion && artifact.currentVersion ? artifact.currentVersion.content : undefined;
 
     const isLastMessageStreaming = messages[messages.length - 1]?.isStreaming;
-    const canApprove =
-        activeVersion?.status === 'proposed' &&
-        !isStreaming &&
-        !!artifactId &&
-        !!artifactKey &&
-        !isLastMessageStreaming;
-    const showApprovalBar = canApprove && (!activeVersion?.isInternal || hasSummary);
+    const isApprovalLocked = isStreaming || !!isLastMessageStreaming;
+    const isProposedVersion = activeVersion?.status === 'proposed' && !!artifactId && !!artifactKey;
+    const canApprove = isProposedVersion && !isApprovalLocked;
+    const showApprovalBar = isProposedVersion && (!activeVersion?.isInternal || hasSummary);
     const showInternalActions = canApprove && !!activeVersion?.isInternal && !hasSummary;
     const canDelete =
         !!artifactKey && !!activeVersion?.isUploaded && !isStreaming && activeVersion?.status !== 'deleted';
@@ -100,15 +99,14 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         isProposed && !activeVersion?.isInternal && !!previousContent && previousContent !== content && !isStreaming;
     const hasEntryForVersion = !!(activeVersion?.id && hasProcessingEntry(activeVersion.id));
     const processingEntry = activeVersion?.id ? getProcessingEntry(activeVersion.id) : undefined;
-    const showProcessingOverlay = processingEntry?.status === 'processing';
-    const showCompletionOverlay = processingEntry?.action === 'approve' && processingEntry.status === 'completed';
-    const showApprovalProgress =
-        !isProcessingDelete &&
-        !isLinkingToProject &&
-        ((processingEntry?.action === 'approve' && (showProcessingOverlay || showCompletionOverlay)) ||
-            (!processingEntry && isProcessingApproval));
-    const showPreviewOverlay =
-        isUpdating || isProcessingApproval || isProcessingDelete || showProcessingOverlay || showCompletionOverlay;
+    const overlayState = useArtifactOverlayState({
+        isProcessingDelete,
+        isLinkingToProject,
+        processingAction,
+        processingEntry,
+        isUpdating,
+        isSummaryStreaming,
+    });
 
     // Suppress this artifact's entry from the status bar while the preview panel is open
     useEffect(() => {
@@ -131,20 +129,15 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
         return computeDiffWithDirectives(previousContent, content);
     }, [canShowDiff, previousContent, content]);
 
-    const { containerRef, isAtBottom, scrollToBottom } = useAutoScroll<HTMLDivElement>([content, summaryContent], {
-        threshold: 100,
-        disabled: !isStreaming,
+    const { containerRef, isAtBottom, scrollToBottom } = useArtifactScroll({
+        artifactKey,
+        versionNumber: activeVersion?.version,
+        content,
+        summaryContent,
+        isStreaming,
     });
 
     const toggleDiffVisibility = () => setIsDiffVisible((prev) => !prev);
-
-    // Scroll to top when a new artifact is loaded (title changes and not streaming)
-    useEffect(() => {
-        if (!isStreaming && containerRef.current && prevTitleRef.current !== title) {
-            containerRef.current.scrollTo({ top: 0, behavior: 'instant' });
-        }
-        prevTitleRef.current = title;
-    }, [isStreaming, title, containerRef]);
 
     const markdownContent = isDiffVisible && diffData ? diffData.markdownWithDiff : content;
 
@@ -177,7 +170,7 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                             artifactId={artifactId}
                             version={version}
                             disabled={isUpdating}
-                            onProcessingChange={setIsProcessingApproval}
+                            onProcessingChange={setProcessingAction}
                         />
                     )}
                 </InternalDocumentContent>
@@ -228,43 +221,23 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                 <div ref={containerRef} className="h-full overflow-y-auto">
                     {renderContent()}
                 </div>
-
-                {/* Preview overlay */}
-                {showPreviewOverlay && (
-                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-xs">
-                        {showApprovalProgress ? (
-                            <ArtifactApprovalProgress
-                                entry={processingEntry}
-                                documentType={activeVersion?.documentType}
-                                isInternal={activeVersion?.isInternal}
-                                contentLength={content.length}
-                            />
-                        ) : (
-                            <div className="flex items-center gap-2 text-md font-medium text-muted-foreground">
-                                <Loader2 className="size-5 animate-spin" />
-                                {isProcessingDelete
-                                    ? 'Deleting...'
-                                    : isLinkingToProject
-                                      ? 'Adding to Project Intel...'
-                                      : activeVersion?.status === 'proposed'
-                                        ? 'Processing...'
-                                        : 'Making changes...'}
-                            </div>
-                        )}
-                    </div>
+                {overlayState && (
+                    <ArtifactPreviewOverlay
+                        state={overlayState}
+                        documentType={activeVersion?.documentType}
+                        isInternal={activeVersion?.isInternal}
+                        contentLength={content.length}
+                    />
                 )}
-
-                {/* Scroll to bottom button */}
-                {!isAtBottom && content.length > 0 && (
-                    <Button
-                        onClick={() => scrollToBottom({ behavior: 'smooth' })}
-                        variant="secondary"
-                        className="size-10 absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-xl z-10"
-                        aria-label="Scroll to bottom"
-                    >
-                        <ChevronDown className="size-4" />
-                    </Button>
-                )}
+                <AnimatePresence>
+                    {!isAtBottom && (summaryContent || content).length > 0 && (
+                        <ScrollToBottomButton
+                            key="artifact-scroll-to-bottom"
+                            onClick={() => scrollToBottom()}
+                            className="absolute bottom-6 left-1/2 z-10 -translate-x-1/2"
+                        />
+                    )}
+                </AnimatePresence>
             </div>
 
             {/* Diff controls bar */}
@@ -277,8 +250,9 @@ export const ArtifactViewer = ({ artifact, version, backHref, onCloseAction }: A
                 <ArtifactApprovalBar
                     artifactId={artifactId}
                     version={version}
-                    disabled={isUpdating}
-                    onProcessingChange={setIsProcessingApproval}
+                    disabled={isUpdating || !!isLastMessageStreaming}
+                    isStreaming={isStreaming}
+                    onProcessingChange={setProcessingAction}
                 />
             )}
         </div>

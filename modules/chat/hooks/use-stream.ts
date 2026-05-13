@@ -18,6 +18,7 @@ import type {
 import { ServerMsg } from '@/lib/schema/ws-protocol';
 import { chunkText, TokenDrip } from '@/lib/token-drip';
 import { useWebsocket } from '@/lib/websocket/provider';
+import type { ApprovalAction } from '@/modules/artifacts/processing/types';
 import type { ArtifactContextValue, ArtifactUpdate } from '@/modules/artifacts/providers/artifact-provider';
 import { getLatestArtifactVersionContent, getLatestArtifactVersionTitle } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
@@ -57,7 +58,7 @@ type StreamingState = {
 };
 
 export type ToolDocumentDecision = {
-    action: 'approve' | 'reject';
+    action: ApprovalAction;
     artifactKey: string;
     version: number;
 };
@@ -256,7 +257,12 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         if (!doc) return;
         doc.content += item.content;
         const ac = optsRef.current.artifactContext;
-        ac?.updateArtifact(doc.artifactId, { proposedVersion: { content: doc.content } }, doc.version);
+        // Drop the "waiting" state once deltas actually appear — content is now visibly streaming.
+        ac?.updateArtifact(
+            doc.artifactId,
+            { proposedVersion: { content: doc.content }, isUpdating: false },
+            doc.version,
+        );
     };
     const docDripRef = useRef(new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()));
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@clerk/nextjs';
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSWRConfig } from 'swr';
 import { toast } from '@/hooks/use-toast';
 import { serializeProjectResourceListKey } from '@/lib/api/client/fetchers/project-resources';
@@ -22,7 +22,7 @@ import {
     type PresignUploadResponseDto,
 } from '@/lib/schema/artifact';
 import type { ProjectResourceUploadUpdatedPayload } from '@/lib/schema/user-events';
-import { getUploadStorageKey } from '@/lib/storage/storage-keys';
+import { isUploadScopePromotion, type UploadScope, uploadStorageKey } from '@/lib/storage/storage-keys';
 import { resolveImageDimensions } from '@/modules/file-uploads/utils/resolve-image-dimensions';
 import { useCrossTabUploadSync } from '../hooks/use-cross-tab-upload-sync';
 import { useProjectResourceUploadSync } from '../hooks/use-project-resource-upload-sync';
@@ -52,6 +52,28 @@ type UploadBatch = { pendingIds: Set<string>; total: number; firstName: string }
 export type ImageUploadIntent = 'artifact' | 'chat-image';
 type AddFilesOptions = { source?: 'paste' };
 
+function getPersistableUploadEntries(entries: FileEntry[]) {
+    return entries
+        .filter(
+            (entry) =>
+                (entry.status === 'processing' && (entry.fileId || entry.presignData?.fileId)) ||
+                (entry.status === 'ready' && (entry.artifactId || entry.imageFileId)),
+        )
+        .map(({ file: _file, presignData, ...rest }) => ({
+            ...rest,
+            fileId: rest.fileId ?? presignData?.fileId,
+        }));
+}
+
+export type MessageAttachments = {
+    /** Subset of artifactIds that need a server-side associateUploads() call to set chat_id. */
+    requiresAssociationIds: string[];
+    /** All chat-input artifact IDs — used to flip is_draft=false once the message lands. */
+    artifactIds: string[];
+    /** Image fileIds attached to the outgoing message. */
+    imageFileIds: string[];
+};
+
 export type FileUploadContextValue = {
     files: FileEntry[];
     addFiles: (files: File[], options?: AddFilesOptions) => void;
@@ -60,12 +82,8 @@ export type FileUploadContextValue = {
     submitFiles: () => Promise<void>;
     waitForArtifactsReady: (artifactIds: string[]) => Promise<void>;
     isSubmitting: boolean;
-    /** Consume staged artifact IDs (uploads without scope). Returns IDs and clears the list. */
-    consumeStagedArtifactIds: () => string[];
-    /** Consume staged image file IDs. Returns IDs and clears the list. */
-    consumeStagedImageFileIds: () => string[];
-    /** Consume chat-input draft artifact IDs — every chat-input upload, whether staged or already scoped. */
-    consumeDraftArtifactIds: () => string[];
+    /** Snapshot the message-attachment IDs at send time. */
+    getMessageAttachments: () => MessageAttachments;
     /** Current image upload mode. */
     imageUploadMode: ImageUploadIntent;
     /** Switch image upload mode. Re-uploads existing image entries via the new path. */
@@ -78,15 +96,23 @@ const FileUploadContext = createContext<FileUploadContextValue | null>(null);
 
 type FileUploadProviderProps = {
     children: ReactNode;
-    scope?: { projectId?: string; chatId?: string };
-    /** When true, uploads go through the chat-input path: server marks them as drafts so the resource list hides them until the message is sent. */
-    trackAsPending?: boolean;
+    scope: UploadScope;
 };
 
-export function FileUploadProvider({ children, scope, trackAsPending = false }: FileUploadProviderProps) {
-    const uploadsStorageKey = getUploadStorageKey(scope, trackAsPending);
-    const initialPersistedStateRef = useRef(uploadsStorageKey ? readPersistedUploadState(uploadsStorageKey) : null);
-    const initialPersistedState = initialPersistedStateRef.current;
+export function FileUploadProvider({ children, scope }: FileUploadProviderProps) {
+    const isChatInput = scope.kind === 'chat-input';
+    const uploadSource: 'chat-input' | 'project-resources' = isChatInput ? 'chat-input' : 'project-resources';
+    const projectId = scope.projectId;
+    const chatId = scope.kind === 'chat-input' ? scope.chatId : undefined;
+    const apiScope = useMemo(
+        () => ({
+            ...(projectId ? { projectId } : {}),
+            ...(chatId ? { chatId } : {}),
+        }),
+        [projectId, chatId],
+    );
+    const uploadsStorageKey = uploadStorageKey(scope);
+    const initialPersistedState = readPersistedUploadState(uploadsStorageKey);
 
     const [files, setFiles] = useState<FileEntry[]>(() => initialPersistedState?.entries ?? []);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -96,19 +122,30 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const [isSwitchingImageMode, setIsSwitchingImageMode] = useState(false);
     const filesRef = useRef(files);
     filesRef.current = files;
-    const stagedArtifactIdsRef = useRef<string[]>([]);
-    const stagedImageFileIdsRef = useRef<string[]>([]);
-    const draftArtifactIdsRef = useRef<string[]>([]);
     const { getToken } = useAuth();
     const { mutate: globalMutate } = useSWRConfig();
 
     const batchesRef = useRef<UploadBatch[]>([]);
     const pollingEntryIdsRef = useRef<Set<string>>(new Set());
+    const previousScopeRef = useRef<UploadScope>(scope);
+
+    const getMessageAttachments = useCallback((): MessageAttachments => {
+        const current = filesRef.current;
+        const artifactIds = [...new Set(current.flatMap((entry) => (entry.artifactId ? [entry.artifactId] : [])))];
+        const requiresAssociationIds = [
+            ...new Set(
+                current.flatMap((entry) => (entry.requiresAssociation && entry.artifactId ? [entry.artifactId] : [])),
+            ),
+        ];
+        const imageFileIds = [...new Set(current.flatMap((entry) => (entry.imageFileId ? [entry.imageFileId] : [])))];
+        return { artifactIds, requiresAssociationIds, imageFileIds };
+    }, []);
+
     const invalidateResources = useCallback(() => {
-        if (scope?.projectId) {
-            void globalMutate(serializeProjectResourceListKey(scope.projectId));
+        if (projectId) {
+            void globalMutate(serializeProjectResourceListKey(projectId));
         }
-    }, [globalMutate, scope?.projectId]);
+    }, [globalMutate, projectId]);
 
     const updateEntry = useCallback((entryId: string, update: Partial<FileEntry>) => {
         setFiles((prev) => {
@@ -152,8 +189,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     filename: file.name,
                     fileSize: file.size,
                     clientEntryId: entryId,
-                    source: trackAsPending ? 'chat-input' : 'project-resources',
-                    ...scope,
+                    source: uploadSource,
+                    ...apiScope,
                 },
                 token,
             );
@@ -171,13 +208,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 presignData,
             });
 
-            if (isStaged) {
-                stagedArtifactIdsRef.current = [...stagedArtifactIdsRef.current, presignData.artifactId];
-            }
-            if (trackAsPending) {
-                draftArtifactIdsRef.current = [...draftArtifactIdsRef.current, presignData.artifactId];
-            }
-
             invalidateResources();
 
             const mimeType = (BINARY_MIME_TYPES[ext] ?? IMAGE_MIME_TYPES[ext]) || 'application/octet-stream';
@@ -194,7 +224,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     fileId: presignData.fileId,
                     versionId: presignData.versionId,
                     clientEntryId: entryId,
-                    source: trackAsPending ? 'chat-input' : 'project-resources',
+                    source: uploadSource,
                 },
                 token,
             );
@@ -221,17 +251,12 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 presignData,
             });
         },
-        [finalizeEntry, invalidateResources, scope, trackAsPending, updateEntry],
+        [apiScope, finalizeEntry, invalidateResources, isChatInput, uploadSource, updateEntry],
     );
 
     const uploadChatImage = useCallback(
         async (file: File, entryId: string, token: string, ext: string) => {
-            // chatId is optional — when absent, the server stages the image under the user and
-            // it gets associated with a chat later via associateUploads(). This lets users
-            // attach images on the "new chat" page before a chat row exists.
-            const chatId = scope?.chatId;
-
-            // Resolve natural dimensions so the chat can reserve space before the image loads
+            // Resolve natural dimensions so the chat can reserve space before the image loads.
             resolveImageDimensions(file).then((dims) => {
                 if (dims) updateEntry(entryId, { imageWidth: dims.width, imageHeight: dims.height });
             });
@@ -262,10 +287,9 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 throw new Error(err.message || 'Confirm failed');
             }
 
-            stagedImageFileIdsRef.current = [...stagedImageFileIdsRef.current, presignData.fileId];
             finalizeEntry(entryId, { imageFileId: presignData.fileId });
         },
-        [finalizeEntry, scope?.chatId, updateEntry],
+        [chatId, finalizeEntry, updateEntry],
     );
 
     const updateImageUploadMode = useCallback((mode: ImageUploadIntent) => {
@@ -285,11 +309,11 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
 
     const pruneRemovedArtifactsFromResourceCache = useCallback(
         (artifactIds: string[]) => {
-            if (!scope?.projectId || artifactIds.length === 0) return;
+            if (!projectId || artifactIds.length === 0) return;
 
             const removedIds = new Set(artifactIds);
             void globalMutate<PaginatedResponse<ArtifactDto>[]>(
-                serializeProjectResourceListKey(scope.projectId),
+                serializeProjectResourceListKey(projectId),
                 (currentPages) => {
                     if (!currentPages) return currentPages;
 
@@ -306,11 +330,14 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 { revalidate: false },
             );
         },
-        [globalMutate, scope?.projectId],
+        [globalMutate, projectId],
     );
 
     const clearFiles = useCallback(() => {
+        filesRef.current = [];
         setFiles([]);
+        batchesRef.current = [];
+        pollingEntryIdsRef.current.clear();
     }, []);
 
     const syncFilesFromStorage = useCallback(
@@ -328,6 +355,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     return;
                 }
 
+                filesRef.current = parsedState.entries;
                 setFiles(parsedState.entries);
                 invalidateResources();
             } catch {
@@ -338,7 +366,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     );
 
     // Cross-tab sync for draft uploads (chat input chips) via localStorage StorageEvent.
-    useCrossTabUploadSync(trackAsPending ? uploadsStorageKey : null, syncFilesFromStorage);
+    useCrossTabUploadSync(isChatInput ? uploadsStorageKey : null, syncFilesFromStorage);
 
     // Cross-tab sync for Project Intel uploads via WS user_event broadcast.
     // Server broadcasts status at each stage (uploading → processing). Final 'ready'
@@ -362,98 +390,58 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         [invalidateResources, upsertFileEntry],
     );
 
-    useProjectResourceUploadSync(trackAsPending ? undefined : scope?.projectId, handleResourceUploadEvent);
+    useProjectResourceUploadSync(isChatInput ? undefined : projectId, handleResourceUploadEvent);
 
-    // Persist upload entries for cross-tab draft sync and refresh restore.
+    // Persist on `files` change only — gating on the key would write A's files to B's key
+    // during a scope swap, before the scope-change effect can load B's pristine entries.
+    const uploadsStorageKeyRef = useRef(uploadsStorageKey);
     useEffect(() => {
-        if (!uploadsStorageKey) return;
-
-        const persistable = files
-            .filter(
-                (entry) =>
-                    (entry.status === 'processing' && (entry.fileId || entry.presignData?.fileId)) ||
-                    (entry.status === 'ready' && (entry.artifactId || entry.imageFileId)),
-            )
-            .map(({ file: _file, presignData, ...rest }) => ({
-                ...rest,
-                fileId: rest.fileId ?? presignData?.fileId,
-            }));
-
-        writePersistedUploadState(uploadsStorageKey, { entries: persistable, imageUploadMode });
-    }, [files, uploadsStorageKey, imageUploadMode]);
-
-    // Re-populate staged + draft refs from restored entries so that consume*() returns correct IDs
-    // on send after a page refresh. Staged = subset that needed association. Draft = every
-    // chat-input upload with an artifactId (trackAsPending), whether staged or already scoped.
-    // Images are only persisted once they already have an uploaded file ID.
-    // TODO: cross-tab send needs to be supported too, rebuild these refs in
-    // syncFilesFromStorage as well instead of only on mount.
+        uploadsStorageKeyRef.current = uploadsStorageKey;
+    }, [uploadsStorageKey]);
     useEffect(() => {
-        if (!trackAsPending) return;
+        writePersistedUploadState(uploadsStorageKeyRef.current, {
+            entries: getPersistableUploadEntries(files),
+            imageUploadMode,
+        });
+    }, [files, imageUploadMode]);
 
-        const entries = initialPersistedState?.entries ?? [];
-        const restoredArtifactEntries = entries.filter(
-            (entry): entry is FileEntry & { artifactId: string } =>
-                (entry.status === 'processing' || entry.status === 'ready') && !!entry.artifactId,
-        );
+    useEffect(() => {
+        const previousScope = previousScopeRef.current;
+        if (previousScope === scope) return;
 
-        const restoredStagedArtifactIds = [
-            ...new Set(
-                restoredArtifactEntries.filter((entry) => !!entry.requiresAssociation).map((entry) => entry.artifactId),
-            ),
-        ];
-        if (restoredStagedArtifactIds.length > 0) {
-            stagedArtifactIdsRef.current = restoredStagedArtifactIds;
+        const previousKey = uploadStorageKey(previousScope);
+        if (previousKey === uploadsStorageKey) {
+            previousScopeRef.current = scope;
+            return;
         }
 
-        const restoredDraftArtifactIds = [...new Set(restoredArtifactEntries.map((entry) => entry.artifactId))];
-        if (restoredDraftArtifactIds.length > 0) {
-            draftArtifactIdsRef.current = restoredDraftArtifactIds;
+        if (isUploadScopePromotion(previousScope, scope)) {
+            // chatId just landed: move persisted entries to the new key so chips survive.
+            writePersistedUploadState(uploadsStorageKey, {
+                entries: getPersistableUploadEntries(filesRef.current),
+                imageUploadMode,
+            });
+            writePersistedUploadState(previousKey, { entries: [] });
+        } else {
+            const nextPersistedState = readPersistedUploadState(uploadsStorageKey);
+            const nextEntries = nextPersistedState?.entries ?? [];
+            filesRef.current = nextEntries;
+            setFiles(nextEntries);
+            setImageUploadMode(nextPersistedState?.imageUploadMode ?? 'artifact');
+            setIsSubmitting(false);
+            batchesRef.current = [];
+            pollingEntryIdsRef.current.clear();
         }
 
-        const restoredImageIds = [
-            ...new Set(
-                entries
-                    .filter(
-                        (entry): entry is FileEntry & { imageFileId: string } =>
-                            entry.status === 'ready' && !!entry.imageFileId,
-                    )
-                    .map((entry) => entry.imageFileId),
-            ),
-        ];
-        if (restoredImageIds.length > 0) {
-            stagedImageFileIdsRef.current = restoredImageIds;
-        }
-    }, [initialPersistedState?.entries, trackAsPending]);
-
-    const consumeStagedArtifactIds = useCallback(() => {
-        const ids = stagedArtifactIdsRef.current;
-        stagedArtifactIdsRef.current = [];
-        return ids;
-    }, []);
-
-    const consumeStagedImageFileIds = useCallback(() => {
-        const ids = stagedImageFileIdsRef.current;
-        stagedImageFileIdsRef.current = [];
-        return ids;
-    }, []);
-
-    const consumeDraftArtifactIds = useCallback(() => {
-        const ids = draftArtifactIdsRef.current;
-        draftArtifactIdsRef.current = [];
-        return ids;
-    }, []);
+        previousScopeRef.current = scope;
+    }, [scope, uploadsStorageKey, imageUploadMode]);
 
     const failEntry = useCallback(
         (entryId: string, description?: string) => {
             pollingEntryIdsRef.current.delete(entryId);
             const failedEntry = filesRef.current.find((entry) => entry.id === entryId);
-            setFiles((prev) => prev.filter((e) => e.id !== entryId));
+            setFiles((prev) => prev.filter((entry) => entry.id !== entryId));
             if (failedEntry?.artifactId) {
-                stagedArtifactIdsRef.current = stagedArtifactIdsRef.current.filter(
-                    (id) => id !== failedEntry.artifactId,
-                );
-                draftArtifactIdsRef.current = draftArtifactIdsRef.current.filter((id) => id !== failedEntry.artifactId);
                 // Clean up the orphaned artifact from the database
                 getToken().then((token) => {
                     if (!token) return;
@@ -507,7 +495,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 });
             }
 
-            const isStaged = !scope?.projectId && !scope?.chatId;
+            const isStaged = !projectId && !chatId;
             setIsSwitchingImageMode(true);
 
             try {
@@ -515,22 +503,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     const ext = `.${entry.name.split('.').pop()?.toLowerCase()}`;
                     const file = entry.file!;
 
-                    // Clean up old upload refs
-                    if (entry.artifactId) {
-                        stagedArtifactIdsRef.current = stagedArtifactIdsRef.current.filter(
-                            (id) => id !== entry.artifactId,
-                        );
-                        draftArtifactIdsRef.current = draftArtifactIdsRef.current.filter(
-                            (id) => id !== entry.artifactId,
-                        );
-                    }
-                    if (entry.imageFileId) {
-                        stagedImageFileIdsRef.current = stagedImageFileIdsRef.current.filter(
-                            (id) => id !== entry.imageFileId,
-                        );
-                    }
-
-                    // Reset entry state
                     updateEntry(entry.id, {
                         status: 'uploading',
                         artifactId: undefined,
@@ -541,7 +513,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     });
 
                     try {
-                        // Delete old artifact if switching from artifact mode
                         if (prevMode === 'artifact' && entry.artifactId) {
                             deleteArtifact({ artifactId: entry.artifactId }, token).catch(() => {});
                         }
@@ -563,7 +534,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             imageUploadMode,
             updateImageUploadMode,
             getToken,
-            scope,
+            projectId,
+            chatId,
             updateEntry,
             uploadChatImage,
             uploadArtifactViaPresign,
@@ -599,7 +571,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                     }
 
                     const data: { files: { fileId: string; status: string }[] } = await res.json();
-                    fileStatus = data.files.find((f) => f.fileId === fileId)?.status;
+                    fileStatus = data.files.find((fileStatusEntry) => fileStatusEntry.fileId === fileId)?.status;
                     failures = 0; // reset on successful response
                 } catch {
                     if (++failures >= MAX_FAILURES) {
@@ -649,7 +621,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
     const startEagerUpload = useCallback(
         async (file: File, entryId: string, options?: AddFilesOptions) => {
             const ext = `.${file.name.split('.').pop()?.toLowerCase()}`;
-            const isStaged = !scope?.projectId && !scope?.chatId;
+            // Uploaded before any chat/project scope exists — needs association on send.
+            const isStaged = !projectId && !chatId;
 
             updateEntry(entryId, { status: 'uploading' });
 
@@ -657,7 +630,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 const token = await getToken();
                 if (!token) throw new Error('Not authenticated');
 
-                if (isImageExtension(ext) && trackAsPending && imageUploadMode === 'chat-image') {
+                if (isImageExtension(ext) && isChatInput && imageUploadMode === 'chat-image') {
                     await uploadChatImage(file, entryId, token, ext);
                     return;
                 }
@@ -669,8 +642,8 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         {
                             file,
                             clientEntryId: entryId,
-                            source: trackAsPending ? 'chat-input' : 'project-resources',
-                            ...scope,
+                            source: uploadSource,
+                            ...apiScope,
                         },
                         token,
                     );
@@ -680,16 +653,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                         throw new Error(err.message || 'Upload failed');
                     }
 
-                    const resData = await res.json();
-                    if (resData.artifactId) {
-                        if (isStaged) {
-                            stagedArtifactIdsRef.current = [...stagedArtifactIdsRef.current, resData.artifactId];
-                        }
-                        if (trackAsPending) {
-                            draftArtifactIdsRef.current = [...draftArtifactIdsRef.current, resData.artifactId];
-                        }
-                    }
-
+                    const resData: { artifactId?: string } = await res.json();
                     finalizeEntry(entryId, {
                         artifactId: resData.artifactId,
                         requiresAssociation: !!resData.artifactId && isStaged,
@@ -699,7 +663,20 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 failEntry(entryId, err instanceof Error ? err.message : undefined);
             }
         },
-        [failEntry, getToken, imageUploadMode, scope, trackAsPending, uploadArtifactViaPresign, uploadChatImage],
+        [
+            apiScope,
+            chatId,
+            failEntry,
+            finalizeEntry,
+            getToken,
+            imageUploadMode,
+            isChatInput,
+            projectId,
+            uploadArtifactViaPresign,
+            uploadChatImage,
+            uploadSource,
+            updateEntry,
+        ],
     );
 
     const addFiles = useCallback(
@@ -728,7 +705,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
             });
 
             batchesRef.current.push({
-                pendingIds: new Set(entries.map((e) => e.id)),
+                pendingIds: new Set(entries.map((entry) => entry.id)),
                 total: entries.length,
                 firstName: entries[0].name,
             });
@@ -752,15 +729,6 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
         (index: number) => {
             const entry = filesRef.current[index];
             if (!entry) return;
-
-            // Keep the eventual send payload in sync with visible chips.
-            if (entry.artifactId) {
-                stagedArtifactIdsRef.current = stagedArtifactIdsRef.current.filter((id) => id !== entry.artifactId);
-                draftArtifactIdsRef.current = draftArtifactIdsRef.current.filter((id) => id !== entry.artifactId);
-            }
-            if (entry.imageFileId) {
-                stagedImageFileIdsRef.current = stagedImageFileIdsRef.current.filter((id) => id !== entry.imageFileId);
-            }
 
             const artifactId = entry.artifactId;
             if (artifactId) {
@@ -882,9 +850,7 @@ export function FileUploadProvider({ children, scope, trackAsPending = false }: 
                 submitFiles,
                 waitForArtifactsReady,
                 isSubmitting,
-                consumeStagedArtifactIds,
-                consumeStagedImageFileIds,
-                consumeDraftArtifactIds,
+                getMessageAttachments,
                 imageUploadMode,
                 switchImageUploadMode,
                 isSwitchingImageMode,
