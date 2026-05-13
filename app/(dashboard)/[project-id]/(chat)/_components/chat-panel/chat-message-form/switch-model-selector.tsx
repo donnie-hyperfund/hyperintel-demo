@@ -9,7 +9,7 @@ export function SwitchModelSelector({ disabled }: { disabled: boolean }) {
 
     return (
         <Select value={selectedModel} onValueChange={changeModel} disabled={disabled || isChangingModel}>
-            <SelectTrigger className="h-auto gap-1 border-none bg-transparent dark:bg-transparent p-0 text-xs text-neutral-400 shadow-none hover:enabled:text-neutral-300 dark:hover:bg-transparent transition-colors focus-visible:ring-0 [&_svg]:text-current [&_svg]:transition-transform data-[state=open]:[&_svg]:rotate-180 disabled:cursor-default disabled:opacity-100">
+            <SelectTrigger className="h-auto gap-1 border-none bg-transparent dark:bg-transparent p-0 text-xs text-neutral-400 shadow-none hover:enabled:text-neutral-300 dark:hover:bg-transparent transition-colors focus-visible:ring-0 [&_svg]:text-current [&_svg]:transition-transform data-[state=open]:[&_svg]:rotate-180 disabled:cursor-default disabled:opacity-100 min-w-0 w-auto [&_[data-slot=select-value]]:truncate">
                 {isChangingModel ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
