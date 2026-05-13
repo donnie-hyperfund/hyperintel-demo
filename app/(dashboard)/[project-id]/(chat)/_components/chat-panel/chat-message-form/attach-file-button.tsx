@@ -2,12 +2,15 @@ import { Paperclip } from 'lucide-react';
 import { useCallback, useRef } from 'react';
 import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { isAboveBreakpoint, useBreakpoint } from '@/hooks/use-breakpoint';
 import { ALLOWED_ARTIFACT_EXTENSIONS } from '@/lib/schema/artifact';
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 
 const ACCEPT_STRING = ALLOWED_ARTIFACT_EXTENSIONS.join(',');
 
 export function AttachFileButton({ disabled }: { disabled?: boolean }) {
+    const { breakpoint } = useBreakpoint();
+    const isSmViewportOrSmaller = !isAboveBreakpoint(breakpoint, 'sm');
     const { addFiles } = useFileUploadContext();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -37,7 +40,11 @@ export function AttachFileButton({ disabled }: { disabled?: boolean }) {
             />
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <IconButton onClick={handleClick} disabled={disabled}>
+                    <IconButton
+                        onClick={handleClick}
+                        disabled={disabled}
+                        size={isSmViewportOrSmaller ? 'sm' : 'default'}
+                    >
                         <Paperclip />
                     </IconButton>
                 </TooltipTrigger>

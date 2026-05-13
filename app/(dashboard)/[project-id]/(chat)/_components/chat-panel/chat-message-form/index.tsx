@@ -400,33 +400,43 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                 disabled={isAwaitingStream}
                             />
 
-                            {(chatId || chatType !== 'phase') && <AttachFileButton disabled={isAwaitingStream} />}
-
-                            <ImageUploadModeSelector disabled={isBusy} />
-
-                            <div className="flex items-end gap-2 ml-auto">
-                                {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
-
-                                {isGenerating ? (
-                                    activeResponseId ? (
-                                        <Button
-                                            type="button"
-                                            onClick={stopGeneration}
-                                            variant="unstyled"
-                                            className="size-9 bg-transparent hover:bg-accent text-white border border-neutral-500/35"
-                                        >
-                                            <Square className="size-3.5 fill-current" />
-                                        </Button>
-                                    ) : (
-                                        <Button type="button" disabled className="size-9 shrink-0" variant="secondary">
-                                            <Loader2 className="size-4 animate-spin" />
-                                        </Button>
-                                    )
-                                ) : (
-                                    <Button type="submit" disabled={isSubmitDisabled} className="size-9 shrink-0">
-                                        <ArrowUp className="size-5" />
-                                    </Button>
+                            <div className="flex flex-nowrap gap-2 flex-1 items-center min-w-0">
+                                {(chatId || chatType !== 'phase') && (
+                                    <div className="flex items-center gap-0.5 md:gap-2 flex-nowrap min-w-0">
+                                        <AttachFileButton disabled={isAwaitingStream} />
+                                        <ImageUploadModeSelector disabled={isBusy} />
+                                    </div>
                                 )}
+
+                                <div className="flex items-end gap-2 ml-auto min-w-0">
+                                    {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
+
+                                    {isGenerating ? (
+                                        activeResponseId ? (
+                                            <Button
+                                                type="button"
+                                                onClick={stopGeneration}
+                                                variant="unstyled"
+                                                className="size-9 bg-transparent hover:bg-accent text-white border border-neutral-500/35"
+                                            >
+                                                <Square className="size-3.5 fill-current" />
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                type="button"
+                                                disabled
+                                                className="size-9 shrink-0"
+                                                variant="secondary"
+                                            >
+                                                <Loader2 className="size-4 animate-spin" />
+                                            </Button>
+                                        )
+                                    ) : (
+                                        <Button type="submit" disabled={isSubmitDisabled} className="size-9 shrink-0">
+                                            <ArrowUp className="size-5" />
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
                         </motion.div>
 
