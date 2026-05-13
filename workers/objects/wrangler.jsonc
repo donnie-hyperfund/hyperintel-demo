@@ -77,6 +77,12 @@
 			]
 		}
 	],
+	"analytics_engine_datasets": [
+		{
+			"binding": "STREAM_AE",
+			"dataset": "hyperintel_stream_metrics"
+		}
+	],
 	"env": {
 		"dev": {
 			"vars": {
@@ -121,6 +127,12 @@
 				{
 					"binding": "PREVIEW_DB_MAP",
 					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			],
+			"analytics_engine_datasets": [
+				{
+					"binding": "STREAM_AE",
+					"dataset": "hyperintel_stream_metrics"
 				}
 			]
 		},
@@ -168,6 +180,12 @@
 					"binding": "PREVIEW_DB_MAP",
 					"id": "1e9db27be0384a5b8da2244b4051b784"
 				}
+			],
+			"analytics_engine_datasets": [
+				{
+					"binding": "STREAM_AE",
+					"dataset": "hyperintel_stream_metrics"
+				}
 			]
 		},
 		"dexp": {
@@ -213,6 +231,12 @@
 				{
 					"binding": "PREVIEW_DB_MAP",
 					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			],
+			"analytics_engine_datasets": [
+				{
+					"binding": "STREAM_AE",
+					"dataset": "hyperintel_stream_metrics"
 				}
 			]
 		}
