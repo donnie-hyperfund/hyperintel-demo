@@ -292,7 +292,7 @@ function parseToolOutputObject(block: ToolCallStreamBlock): Record<string, unkno
     try {
         const parsed = JSON.parse(block.toolOutput);
         return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-            ? parsed as Record<string, unknown>
+            ? (parsed as Record<string, unknown>)
             : null;
     } catch {
         return null;
@@ -312,9 +312,7 @@ function collapsePatchDocument(block: ToolCallStreamBlock): { toolInput?: unknow
         toolInput: {
             editsCount: edits.length,
             edits: edits.map((rawEdit) => {
-                const edit = rawEdit && typeof rawEdit === 'object'
-                    ? rawEdit as Record<string, unknown>
-                    : {};
+                const edit = rawEdit && typeof rawEdit === 'object' ? (rawEdit as Record<string, unknown>) : {};
                 const oldStats = textStats(edit.oldContent);
                 const newStats = textStats(edit.newContent);
                 return {
