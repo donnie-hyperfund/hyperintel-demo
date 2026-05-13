@@ -11,7 +11,9 @@ export const metadata: Metadata = {
     title: 'Create a new project',
 };
 
-export default async function NewProjectLayout({ children }: { children: React.ReactNode }) {
+type NewProjectLayoutProps = LayoutProps<'/projects/new'>;
+
+export default async function NewProjectLayout({ children }: NewProjectLayoutProps) {
     const user = await assertAuthPage();
     const resources = await fetchResources(user, { page: 1, limit: 20 });
 

@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
-import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
     title: 'Incomplete stakeholder conversations',
 };
 
-export default function StakeholdersIncompleteLayout({ children }: { children: ReactNode }) {
+type StakeholdersIncompleteLayoutProps = LayoutProps<'/stakeholders/incomplete'>;
+
+export default function StakeholdersIncompleteLayout({ children }: StakeholdersIncompleteLayoutProps) {
     return children;
 }

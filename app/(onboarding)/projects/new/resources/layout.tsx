@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
-import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
     title: 'Add to Project Intel',
 };
 
-export default function ProjectResourcesLayout({ children }: { children: ReactNode }) {
+type ProjectResourcesLayoutProps = LayoutProps<'/projects/new/resources'>;
+
+export default function ProjectResourcesLayout({ children }: ProjectResourcesLayoutProps) {
     return children;
 }

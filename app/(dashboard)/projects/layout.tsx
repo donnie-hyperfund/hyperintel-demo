@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
-import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
     title: 'Projects',
 };
 
-export default function ProjectsLayout({ children }: { children: ReactNode }) {
+type ProjectsLayoutProps = LayoutProps<'/projects'>;
+
+export default function ProjectsLayout({ children }: ProjectsLayoutProps) {
     return children;
 }

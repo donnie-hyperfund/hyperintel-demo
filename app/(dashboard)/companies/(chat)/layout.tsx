@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
 import { CompanyChatShell } from './_components/company-chat-shell';
 
-export default function CompanyChatLayout({ children }: { children: ReactNode }) {
+type CompanyChatLayoutProps = LayoutProps<'/companies'>;
+
+export default function CompanyChatLayout({ children }: CompanyChatLayoutProps) {
     return <CompanyChatShell>{children}</CompanyChatShell>;
 }

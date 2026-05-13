@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
-import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
     title: 'Company profiles',
 };
 
-export default function CompaniesLayout({ children }: { children: ReactNode }) {
+type CompaniesLayoutProps = LayoutProps<'/companies'>;
+
+export default function CompaniesLayout({ children }: CompaniesLayoutProps) {
     return children;
 }

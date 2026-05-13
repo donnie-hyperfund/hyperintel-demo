@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
-import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
     title: 'Stakeholder personas',
 };
 
-export default function StakeholdersLayout({ children }: { children: ReactNode }) {
+type StakeholdersLayoutProps = LayoutProps<'/stakeholders'>;
+
+export default function StakeholdersLayout({ children }: StakeholdersLayoutProps) {
     return children;
 }
