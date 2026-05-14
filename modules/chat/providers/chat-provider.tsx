@@ -9,7 +9,6 @@ import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
-import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
 import { ApiClientError, type CamelCaseDto } from '@/lib/api/client/types';
 import {
@@ -24,8 +23,10 @@ import type { ChatDto, ChatMessageDto } from '@/lib/schema/message';
 import type { PendingDecision, StreamEvent, StreamStatus, TokenUsage } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
 import { draftKey } from '@/lib/storage/storage-keys';
+import { useArtifactRevalidator } from '@/modules/artifacts/hooks/use-artifact-revalidator';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactStreamMonitor } from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
@@ -257,6 +258,8 @@ export function ChatProvider({
     onChatCreated,
 }: ChatProviderProps) {
     const artifactContext = useArtifactActions();
+    const streamMonitor = useArtifactStreamMonitor();
+    const revalidateArtifact = useArtifactRevalidator();
     const { hasPendingNudge, clearPendingNudge } = useArtifactProcessing();
 
     const { pushPanel, closePanel, panelState } = useActivePanelContext();
@@ -390,41 +393,30 @@ export function ChatProvider({
 
     const revalidateArtifactByKeyAndVersion = useCallback(
         async (keyId: string, version: number) => {
-            if (projectId) {
-                // TODO void correct?
-                void globalMutate(serializeProjectArtifactListKey(projectId));
-            }
-
-            const fetcher = projectId
-                ? (v: number) => api.projectArtifacts.getByKey(projectId, keyId, v)
-                : (v: number) => api.artifacts.getByKey(keyId, v);
-
-            const slots = artifactContext.getStore()[keyId] ?? {};
-            const stalePrevProposedVersions = Object.entries(slots)
-                .map(([slot, data]) => [Number(slot), data] as const)
-                .filter(([slot, data]) => slot !== version && getLatestArtifactVersion(data)?.status === 'proposed')
-                .map(([slot]) => slot);
-
-            const targets = [...new Set([version, ...stalePrevProposedVersions])];
-
             try {
-                const results = await Promise.all(targets.map((v) => fetcher(v).catch(() => null)));
-
-                for (const data of results) {
-                    if (!data) continue;
-                    artifactContext.updateArtifact(
-                        keyId,
-                        { ...data, id: keyId, key: data.key || keyId },
-                        getLatestArtifactVersion(data)?.version,
-                        { merge: false },
-                    );
-                }
+                await revalidateArtifact({ artifactKey: keyId, version, projectId });
             } catch {
                 // SWR revalidation will still keep the list up to date
             }
         },
-        [globalMutate, projectId, artifactContext, api.projectArtifacts, api.artifacts],
+        [projectId, revalidateArtifact],
     );
+
+    useEffect(() => {
+        if (panelState?.panel !== 'artifact-preview') {
+            streamMonitor.setViewedArtifact(null);
+            return;
+        }
+        streamMonitor.setViewedArtifact({
+            projectId: projectId ?? null,
+            artifactKey: panelState.artifactId,
+            version: panelState.version,
+        });
+    }, [streamMonitor, projectId, panelState]);
+
+    useEffect(() => {
+        return () => streamMonitor.setViewedArtifact(null);
+    }, [streamMonitor]);
 
     const onDocumentStart = useCallback(() => {
         setState((prev) => ({ ...prev, hasPendingChanges: true }));
@@ -748,6 +740,7 @@ export function ChatProvider({
         onArtifactOpen: handleArtifactOpen,
         fetchArtifact,
         revalidateArtifact: revalidateArtifactByKeyAndVersion,
+        streamLocation: { chatType, projectId, phaseName: state.phaseName, phaseIndex: state.phaseIndex },
         onStreamStarted: handleStreamStarted,
         onTerminalTool,
         onMessageCreated: handleMessageCreated,

@@ -1,8 +1,16 @@
 'use client';
 
-import { Check, XCircle } from 'lucide-react';
+import { Ban, Check, History, XCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { type ReactNode, useMemo } from 'react';
 import { StatusBar, type StatusBarEntry } from '@/components/layouts/status-bar/status-bar';
 import { ShimmerText } from '@/components/ui/shimmer-text';
+import { SEARCH_PARAMS } from '@/lib/search-params';
+import {
+    useActiveArtifactStreams,
+    useArtifactStreamMonitor,
+} from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
+import type { ActiveArtifactStream } from '@/modules/artifacts/streaming/types';
 import { useArtifactProcessing } from './artifact-processing-provider';
 import type { ProcessingAction, ProcessingEntry, ProcessingStatus } from './types';
 
@@ -35,25 +43,31 @@ function restoreVersions(entry: ProcessingEntry, targetLabel: string): string {
     return `${source}${target}`;
 }
 
-function formatLocationSuffix(entry: ProcessingEntry): string {
+function formatProcessingLocationSuffix(entry: ProcessingEntry): string {
     if (!entry.projectName) return '';
     const phaseLabel = entry.phaseName ?? (entry.phaseIndex != null ? `Phase ${entry.phaseIndex + 1}` : undefined);
     const location = phaseLabel ? `${entry.projectName}, ${phaseLabel}` : entry.projectName;
     return ` from ${location}`;
 }
 
-function formatLabel(entry: ProcessingEntry): string {
-    const suffix = formatLocationSuffix(entry);
+function formatProcessingLabel(entry: ProcessingEntry): string {
+    const suffix = formatProcessingLocationSuffix(entry);
     return LABEL_BUILDERS[entry.action][entry.status](entry, suffix);
 }
 
-function toStatusBarEntry(entry: ProcessingEntry): StatusBarEntry {
-    const label = formatLabel(entry);
+const COMPLETED_ICON: Record<ProcessingAction, ReactNode> = {
+    approve: <Check className="size-3.5 text-primary" />,
+    reject: <Ban className="size-3.5 text-muted-foreground" />,
+    restore: <History className="size-3.5 text-primary" />,
+};
+
+function toProcessingEntry(entry: ProcessingEntry): StatusBarEntry {
+    const label = formatProcessingLabel(entry);
 
     if (entry.status === 'completed') {
         return {
             id: entry.versionId,
-            icon: <Check className="size-3.5 text-primary" />,
+            icon: COMPLETED_ICON[entry.action],
             content: <span>{label}</span>,
         };
     }
@@ -75,11 +89,65 @@ function toStatusBarEntry(entry: ProcessingEntry): StatusBarEntry {
     };
 }
 
+function formatStreamLabel(stream: ActiveArtifactStream): string {
+    const { phaseName, phaseIndex } = stream.location;
+    const phaseLabel = phaseName ?? (phaseIndex != null ? `Phase ${phaseIndex + 1}` : undefined);
+    return phaseLabel ? `Generating ${stream.artifactName} in ${phaseLabel}` : `Generating ${stream.artifactName}`;
+}
+
+function toStreamEntry(stream: ActiveArtifactStream, onNavigate: () => void): StatusBarEntry {
+    return {
+        id: `stream:${stream.chatId}:${stream.artifactKey}`,
+        content: (
+            <ShimmerText className="text-muted-foreground" duration={2.5}>
+                {formatStreamLabel(stream)}
+            </ShimmerText>
+        ),
+        onClick: onNavigate,
+    };
+}
+
+function buildStreamArtifactHref(stream: ActiveArtifactStream): string | null {
+    const params = new URLSearchParams({
+        [SEARCH_PARAMS.OPEN_ARTIFACT_KEY]: stream.artifactKey,
+        [SEARCH_PARAMS.OPEN_ARTIFACT_VERSION]: String(stream.version),
+    });
+
+    if (stream.location.projectId) {
+        return `/${stream.location.projectId}/${stream.chatId}?${params}`;
+    }
+    if (stream.location.chatType === 'company') {
+        return `/companies/${stream.chatId}?${params}`;
+    }
+    if (stream.location.chatType === 'stakeholder') {
+        return `/stakeholders/${stream.chatId}?${params}`;
+    }
+    return null;
+}
+
 export function ProcessingStatusBar() {
     const { visibleEntries } = useArtifactProcessing();
+    const activeStreams = useActiveArtifactStreams();
+    const streamMonitor = useArtifactStreamMonitor();
+    const router = useRouter();
+
+    const entries = useMemo<StatusBarEntry[]>(
+        () => [
+            ...visibleEntries.map(toProcessingEntry),
+            ...activeStreams.map((stream) =>
+                toStreamEntry(stream, () => {
+                    if (streamMonitor.tryActivate(stream.chatId, stream.artifactKey, stream.version)) return;
+                    const href = buildStreamArtifactHref(stream);
+                    if (href) router.push(href);
+                }),
+            ),
+        ],
+        [visibleEntries, activeStreams, streamMonitor, router],
+    );
+
     return (
         <div className="sticky top-0 z-50">
-            <StatusBar entries={visibleEntries.map(toStatusBarEntry)} />
+            <StatusBar entries={entries} mode="rotate" />
         </div>
     );
 }

@@ -19,7 +19,8 @@ import { ServerMsg } from '@/lib/schema/ws-protocol';
 import { chunkText, TokenDrip } from '@/lib/token-drip';
 import { useWebsocket } from '@/lib/websocket/provider';
 import type { ApprovalAction } from '@/modules/artifacts/processing/types';
-import type { ArtifactContextValue, ArtifactUpdate } from '@/modules/artifacts/providers/artifact-provider';
+import type { ArtifactUpdate, VersionKey } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactStreamMonitor } from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
 import { getLatestArtifactVersionContent, getLatestArtifactVersionTitle } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
 
@@ -57,6 +58,13 @@ type StreamingState = {
     streamingSummaries: Map<string, StreamingSummary>;
 };
 
+type ScopedArtifactActions = {
+    getArtifact: (id: string, version?: VersionKey) => Artifact | null;
+    getStore: () => Record<string, Record<string, Artifact>>;
+    addArtifact: (artifact: Artifact, version?: VersionKey) => void;
+    updateArtifact: (id: string, updates: ArtifactUpdate, version?: VersionKey, options?: { merge?: boolean }) => void;
+};
+
 export type ToolDocumentDecision = {
     action: ApprovalAction;
     artifactKey: string;
@@ -65,7 +73,7 @@ export type ToolDocumentDecision = {
 
 export type UseStreamOptions = {
     /** Artifact context for document side-effects. If omitted, activeDocuments are tracked but no artifact provider calls are made. */
-    artifactContext?: Pick<ArtifactContextValue, 'getArtifact' | 'getStore' | 'addArtifact' | 'updateArtifact'>;
+    artifactContext?: ScopedArtifactActions;
     /** Called on WS reconnect — consumer provides refetch logic (e.g., reload messages) */
     onReconnect?: () => void;
     /** Called when stream reaches a terminal status (done, aborted, error), potentially carrying terminal data payload */
@@ -75,7 +83,16 @@ export type UseStreamOptions = {
         agentMessageId?: string,
     ) => void;
     /** Called when a document stream starts */
-    onDocumentStart?: () => void;
+    onDocumentStart?: (info: { artifactKey: string; artifactName: string; version: number }) => void;
+    /** Called when a document stream completes (success or abort) */
+    onDocumentComplete?: (artifactKey: string) => void;
+    /** Location metadata stamped on background streams for the status bar */
+    streamLocation?: {
+        chatType?: 'phase' | 'company' | 'stakeholder';
+        projectId?: string;
+        phaseName?: string | null;
+        phaseIndex?: number | null;
+    };
     /** Called when an artifact should be opened for preview */
     onArtifactOpen?: (artifactId: string, version: number) => void;
     /** Fetch artifact from API when not available in store (needed for edit mode) */
@@ -192,6 +209,7 @@ function initFromSnapshot(snapshot: SubscribeResponseStreaming['snapshot']): Str
 
 export function useStream(domain: string, id: string | null, opts: UseStreamOptions = {}): UseStreamReturn {
     const ws = useWebsocket();
+    const streamMonitor = useArtifactStreamMonitor();
 
     // Stable ref to latest opts (avoids stale closures in event handlers)
     const optsRef = useRef(opts);
@@ -385,7 +403,19 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             case 'document_start': {
                 const artifactId = payload.name;
                 const now = new Date().toISOString();
-                o.onDocumentStart?.();
+                const startVersion =
+                    payload.mode === 'create' ? 1 : (payload.nextVersion ?? (payload.loadedVersion ?? 1) + 1);
+                o.onDocumentStart?.({ artifactKey: artifactId, artifactName: payload.title, version: startVersion });
+                if (id && o.streamLocation) {
+                    streamMonitor.register({
+                        chatId: id,
+                        location: { domain: domain as 'chat' | 'intake', ...o.streamLocation },
+                        artifactKey: artifactId,
+                        artifactName: payload.title,
+                        version: startVersion,
+                        source: 'local',
+                    });
+                }
 
                 if (payload.mode === 'create') {
                     s.streamingDocs.set(artifactId, {
@@ -570,6 +600,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     );
 
                     s.streamingDocs.delete(payload.name);
+                    if (id) streamMonitor.unregister(id, doc.artifactId);
+                    o.onDocumentComplete?.(doc.artifactId);
                     flushActiveDocuments();
                     break;
                 }
@@ -599,6 +631,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 }
 
                 s.streamingDocs.delete(payload.name);
+                if (id) streamMonitor.unregister(id, doc.artifactId);
+                o.onDocumentComplete?.(doc.artifactId);
                 o.revalidateArtifact?.(doc.artifactId, doc.version);
                 flushActiveDocuments();
                 break;
@@ -699,6 +733,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
         // Subscribe (ref-counted in WS client)
         const unsub = ws.subscribe(topic);
+        streamMonitor.release(id);
 
         // Track initial connection for reconnect detection
         let isFirstConnect = !ws.connected;
@@ -817,6 +852,17 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                     },
                                     doc.pendingVersion,
                                 );
+
+                                if (id && o.streamLocation) {
+                                    streamMonitor.register({
+                                        chatId: id,
+                                        location: { domain: domain as 'chat' | 'intake', ...o.streamLocation },
+                                        artifactKey: doc.name,
+                                        artifactName: doc.title,
+                                        version: doc.pendingVersion,
+                                        source: 'local',
+                                    });
+                                }
 
                                 // Replace cold-reconnect: no DO loadedContent and not in cache → fetch the version being replaced for diff UI. Skipped for internal (API redacts anyway, and we trust producer-side suppression).
                                 if (
@@ -1248,6 +1294,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         return () => {
             ws.off('message', onMessage);
             ws.off('connected', onConnected);
+            if (stateRef.current.streamingDocs.size > 0) {
+                docDripRef.current.drain();
+                streamMonitor.takeover(id);
+            }
             unsub();
             dripRef.current.dispose();
             docDripRef.current.dispose();

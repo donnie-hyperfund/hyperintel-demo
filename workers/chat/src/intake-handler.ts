@@ -19,6 +19,7 @@ import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-fil
 import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from '@/lib/presets';
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
+import { UserEventType } from '@/lib/schema/user-events';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatHandlerOptions } from './chat-handler';
 import type { Ctx } from './context';
@@ -29,6 +30,7 @@ import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
+import { broadcastUserEvent } from './utils/broadcast';
 import {
     CHAT_CONTEXT_LIMIT_TOKENS,
     createContextLimitError,
@@ -478,6 +480,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string } | null = null;
 
         const outputSafetyEnabled = isOutputSafetyEnabled(ctx.env);
+        const intakeChatType = chat.metadata?.framework === 'hpf' ? 'stakeholder' : 'company';
 
         // Inline safety monitor — checks content every few seconds, aborts on leak.
         const safetyMonitor = outputSafetyEnabled
@@ -504,6 +507,29 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             docEventsCtx: { em: em!, draftManager: agentCtx.draftManager },
             commonEventOpts: {
                 isCurrentDraftInternal: () => agentCtx.draftManager.getCurrent()?.is_internal === true,
+            },
+            onDocumentEvent: (event) => {
+                if (event.type === 'document_start') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamStarted, {
+                        chatId,
+                        domain: 'intake' as const,
+                        chatType: intakeChatType,
+                        projectId: null,
+                        phaseName: null,
+                        phaseIndex: null,
+                        artifactKey: event.name,
+                        artifactName: event.title,
+                        version: event.pendingVersion,
+                    });
+                } else if (event.type === 'document_complete') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {
+                        chatId,
+                        domain: 'intake' as const,
+                        chatType: intakeChatType,
+                        projectId: null,
+                        artifactKey: event.name,
+                    });
+                }
             },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {

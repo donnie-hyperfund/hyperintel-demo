@@ -4,21 +4,27 @@ import { DevProvider } from '@/lib/dev/dev-provider';
 import { WebsocketProvider } from '@/lib/websocket/provider';
 import { ArtifactProcessingProvider } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { ProcessingStatusBar } from '@/modules/artifacts/processing/processing-status-bar';
+import { ArtifactProvider } from '@/modules/artifacts/providers/artifact-provider';
+import { ArtifactStreamMonitorProvider } from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
 
 type DashboardLayoutProps = LayoutProps<'/'>;
 
 export default function Layout({ children }: DashboardLayoutProps) {
     return (
         <WebsocketProvider>
-            <ArtifactProcessingProvider>
-                <div className="flex min-h-dvh flex-col">
-                    <ProcessingStatusBar />
-                    <DashboardLayout>
-                        <UserEventsInvalidator />
-                        <DevProvider>{children}</DevProvider>
-                    </DashboardLayout>
-                </div>
-            </ArtifactProcessingProvider>
+            <ArtifactProvider>
+                <ArtifactStreamMonitorProvider>
+                    <ArtifactProcessingProvider>
+                        <div className="flex min-h-dvh flex-col">
+                            <ProcessingStatusBar />
+                            <DashboardLayout>
+                                <UserEventsInvalidator />
+                                <DevProvider>{children}</DevProvider>
+                            </DashboardLayout>
+                        </div>
+                    </ArtifactProcessingProvider>
+                </ArtifactStreamMonitorProvider>
+            </ArtifactProvider>
         </WebsocketProvider>
     );
 }

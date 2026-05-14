@@ -14,6 +14,7 @@ import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-fil
 import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
+import { UserEventType } from '@/lib/schema/user-events';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { captureWorkerPostHogEvent } from '@/workers/_common/vendor/posthog';
 import { handleForceBrief } from './chat-brief-handler';
@@ -29,6 +30,7 @@ import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/ph
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
+import { broadcastUserEvent } from './utils/broadcast';
 import { looksLikeCompletionBriefIntent } from './utils/cb-intent';
 import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
@@ -679,6 +681,29 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             docEventsCtx: { em: em!, projectId: agentCtx.projectId, draftManager: agentCtx.draftManager },
             commonEventOpts: {
                 isCurrentDraftInternal: () => agentCtx.draftManager.getCurrent()?.is_internal === true,
+            },
+            onDocumentEvent: (event) => {
+                if (event.type === 'document_start') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamStarted, {
+                        chatId,
+                        domain: 'chat' as const,
+                        chatType: 'phase' as const,
+                        projectId: agentCtx.projectId ?? null,
+                        phaseName: chat.name ?? null,
+                        phaseIndex: chat.phase_index ?? null,
+                        artifactKey: event.name,
+                        artifactName: event.title,
+                        version: event.pendingVersion,
+                    });
+                } else if (event.type === 'document_complete') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {
+                        chatId,
+                        domain: 'chat' as const,
+                        chatType: 'phase' as const,
+                        projectId: agentCtx.projectId ?? null,
+                        artifactKey: event.name,
+                    });
+                }
             },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
