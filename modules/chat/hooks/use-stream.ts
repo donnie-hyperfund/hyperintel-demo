@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
+import { IS_PROD } from '@/lib/config';
 import type { ActiveDocument, PendingDecision, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { DECISION_DISMISSED_SENTINEL } from '@/lib/schema/stream';
 import type {
@@ -10,13 +11,12 @@ import type {
     ChatMessageCreatedMessage,
     ModelChangedMessage,
     ServerMessage,
-    StreamEventMessage,
     StreamStartedMessage,
-    StreamStatusMessage,
     SubscribeResponse,
     SubscribeResponseStreaming,
+    TopicMessage,
 } from '@/lib/schema/ws-protocol';
-import { ServerMsg } from '@/lib/schema/ws-protocol';
+import { ClientAction, ServerMsg } from '@/lib/schema/ws-protocol';
 import { chunkText, TokenDrip } from '@/lib/token-drip';
 import { useWebsocket } from '@/lib/websocket/provider';
 import type { ApprovalAction } from '@/modules/artifacts/processing/types';
@@ -52,6 +52,14 @@ type StreamingSummary = {
     /** Parent version number — used to look up the right entry in the artifact store. */
     version: number;
     content: string;
+};
+
+type SubscribeGapDiagnostics = {
+    buffered: number;
+    droppedSeqDuplicates: number;
+    droppedSnapshotDuplicates: number;
+    seqRegressions: number;
+    skippedSnapshotStreamStarted: number;
 };
 
 type StreamingState = {
@@ -167,8 +175,44 @@ export type UseStreamReturn = {
 };
 
 // ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/**
+ * Live `_seq` more than this far below `lastAppliedSeq` is treated as a server-side
+ * sequence reset (e.g. `broadcastSeq` reloaded from a stale-low persisted value after
+ * a DO crash between persist windows). A regression of more than one step never
+ * happens in healthy delivery, so the tolerance stays at 1.
+ *
+ * Only consulted by `shouldApplySeq` on live messages — the subscribe buffer flush
+ * does its own explicit `_seq <= seqHigh` drop so snapshot-covered duplicates never
+ * reach this path.
+ */
+const SEQ_REGRESSION_TOLERANCE = 1;
+const ENABLE_SUBSCRIBE_GAP_DIAGNOSTICS = !IS_PROD;
+
+// ============================================================================
 // HELPERS
 // ============================================================================
+
+function extractMsgSeq(msg: { type?: string; _seq?: unknown }): number | undefined {
+    if (msg.type !== ServerMsg.StreamEvent && msg.type !== ServerMsg.StreamStatus) return undefined;
+    return typeof msg._seq === 'number' ? msg._seq : undefined;
+}
+
+function createSubscribeGapDiagnostics(): SubscribeGapDiagnostics {
+    return {
+        buffered: 0,
+        droppedSeqDuplicates: 0,
+        droppedSnapshotDuplicates: 0,
+        seqRegressions: 0,
+        skippedSnapshotStreamStarted: 0,
+    };
+}
+
+function isTopicMessage(msg: ServerMessage & { rid?: string }): msg is TopicMessage & { rid?: string } {
+    return 'topic' in msg;
+}
 
 function createStreamingState(): StreamingState {
     return {
@@ -251,6 +295,67 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const streamTerminalRef = useRef(false);
     const subscribeStartedAtRef = useRef<number | null>(null);
     const streamSessionRef = useRef<StreamSessionAnalytics | null>(null);
+
+    // Subscribe buffer state — buffers live events while SubscribeResponse is pending
+    const subscribePendingRef = useRef(false);
+    const preSnapshotBufferRef = useRef<(ServerMessage & { rid?: string })[]>([]);
+    const lastAppliedSeqRef = useRef(new Map<string, number>());
+    const subscribeGapDiagnosticsRef = useRef(createSubscribeGapDiagnostics());
+
+    const captureSubscribeDiagnostic = (
+        event: string,
+        properties: Record<string, string | number | boolean | null | undefined>,
+    ) => {
+        if (!ENABLE_SUBSCRIBE_GAP_DIAGNOSTICS) return;
+        capturePostHogEvent(event, {
+            domain,
+            topic_id: id,
+            ...properties,
+        });
+    };
+
+    const shouldApplySeq = (agentMessageId: string, seq: number | undefined): boolean => {
+        if (seq === undefined) return true;
+        const lastSeq = lastAppliedSeqRef.current.get(agentMessageId);
+        if (lastSeq !== undefined) {
+            if (seq < lastSeq - SEQ_REGRESSION_TOLERANCE) {
+                // Server-side seq reset (DO crash between persist windows reloaded a
+                // stale-low broadcastSeq). Treat as a fresh sequence space for this id.
+                subscribeGapDiagnosticsRef.current.seqRegressions += 1;
+                if (ENABLE_SUBSCRIBE_GAP_DIAGNOSTICS) {
+                    console.debug(
+                        `[use-stream] seq regression for ${agentMessageId}: _seq=${seq}, lastApplied=${lastSeq}. Resetting.`,
+                    );
+                    captureSubscribeDiagnostic('stream_seq_regression', {
+                        agent_message_id: agentMessageId,
+                        seq,
+                        last_seq: lastSeq,
+                        tolerance: SEQ_REGRESSION_TOLERANCE,
+                    });
+                }
+                lastAppliedSeqRef.current.delete(agentMessageId);
+            } else if (seq <= lastSeq) {
+                subscribeGapDiagnosticsRef.current.droppedSeqDuplicates += 1;
+                if (ENABLE_SUBSCRIBE_GAP_DIAGNOSTICS) {
+                    console.debug('[use-stream] dropped duplicate stream message', {
+                        agentMessageId,
+                        seq,
+                        lastSeq,
+                        droppedSeqDuplicates: subscribeGapDiagnosticsRef.current.droppedSeqDuplicates,
+                    });
+                    captureSubscribeDiagnostic('stream_seq_duplicate_dropped', {
+                        agent_message_id: agentMessageId,
+                        seq,
+                        last_seq: lastSeq,
+                        dropped_seq_duplicates: subscribeGapDiagnosticsRef.current.droppedSeqDuplicates,
+                    });
+                }
+                return false;
+            }
+        }
+        lastAppliedSeqRef.current.set(agentMessageId, seq);
+        return true;
+    };
 
     const flushDocumentDecisions = (callback: NonNullable<UseStreamOptions['onToolDocumentDecision']>) => {
         if (pendingDocumentDecisionsRef.current.size === 0) return;
@@ -844,13 +949,88 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         streamTerminalRef.current = false;
         subscribeStartedAtRef.current = performance.now();
         streamSessionRef.current = null;
+        subscribePendingRef.current = true;
+        preSnapshotBufferRef.current = [];
+        lastAppliedSeqRef.current.clear();
+        subscribeGapDiagnosticsRef.current = createSubscribeGapDiagnostics();
 
         // Track initial connection for reconnect detection
         let isFirstConnect = !ws.connected;
 
         // ----- message handler -----
         const onMessage = (msg: ServerMessage & { rid?: string }) => {
-            if (!('topic' in msg) || (msg as any).topic !== topic) return;
+            if (!isTopicMessage(msg) || msg.topic !== topic) return;
+
+            if (subscribePendingRef.current && msg.type !== ServerMsg.SubscribeResponse) {
+                preSnapshotBufferRef.current.push(msg);
+                subscribeGapDiagnosticsRef.current.buffered += 1;
+                return;
+            }
+
+            // Replay buffered topic messages after a SubscribeResponse has been processed.
+            // Three kinds of events are dropped during flush:
+            //  1. `_seq <= seqHigh` — snapshot-covered stream-content duplicates
+            //  2. `stream_started` for the already-active stream — snapshot already initialized it,
+            //     replaying it would blow away restored state
+            //  3. (implicit via onMessage) live dedup on `shouldApplySeq` for anything that passes
+            // Stream-content events are flushed in ascending `_seq` order; lifecycle events
+            // without `_seq` keep arrival order and go first.
+            const flushSubscribeBuffer = (seqHigh?: number) => {
+                subscribePendingRef.current = false;
+                const buf = preSnapshotBufferRef.current;
+                preSnapshotBufferRef.current = [];
+                const snapshotStreamId = ownedAgentMessageIdRef.current;
+                const diagnostics = subscribeGapDiagnosticsRef.current;
+                buf.sort((a, b) => {
+                    const sa = extractMsgSeq(a as { type?: string; _seq?: unknown });
+                    const sb = extractMsgSeq(b as { type?: string; _seq?: unknown });
+                    if (sa === undefined && sb === undefined) return 0;
+                    if (sa === undefined) return -1;
+                    if (sb === undefined) return 1;
+                    return sa - sb;
+                });
+                for (const b of buf) {
+                    if (seqHigh !== undefined) {
+                        const seq = extractMsgSeq(b as { type?: string; _seq?: unknown });
+                        if (seq !== undefined && seq <= seqHigh) {
+                            diagnostics.droppedSnapshotDuplicates += 1;
+                            continue;
+                        }
+                    }
+                    if (
+                        b.type === ServerMsg.StreamStarted &&
+                        snapshotStreamId !== null &&
+                        (b as StreamStartedMessage).agentMessageId === snapshotStreamId
+                    ) {
+                        diagnostics.skippedSnapshotStreamStarted += 1;
+                        continue;
+                    }
+                    onMessage(b);
+                }
+                if (ENABLE_SUBSCRIBE_GAP_DIAGNOSTICS) {
+                    const replayed =
+                        buf.length - diagnostics.droppedSnapshotDuplicates - diagnostics.skippedSnapshotStreamStarted;
+                    console.debug('[use-stream] subscribe gap diagnostics', {
+                        topic,
+                        seqHigh,
+                        buffered: diagnostics.buffered,
+                        droppedSnapshotDuplicates: diagnostics.droppedSnapshotDuplicates,
+                        droppedSeqDuplicates: diagnostics.droppedSeqDuplicates,
+                        seqRegressions: diagnostics.seqRegressions,
+                        skippedSnapshotStreamStarted: diagnostics.skippedSnapshotStreamStarted,
+                        replayed,
+                    });
+                    captureSubscribeDiagnostic('stream_subscribe_buffer_flushed', {
+                        seq_high: seqHigh,
+                        buffered: diagnostics.buffered,
+                        dropped_snapshot_duplicates: diagnostics.droppedSnapshotDuplicates,
+                        dropped_seq_duplicates: diagnostics.droppedSeqDuplicates,
+                        seq_regressions: diagnostics.seqRegressions,
+                        skipped_snapshot_stream_started: diagnostics.skippedSnapshotStreamStarted,
+                        replayed,
+                    });
+                }
+            };
 
             const s = stateRef.current;
             const o = optsRef.current;
@@ -860,7 +1040,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 // SUBSCRIBE RESPONSE
                 // ==============================================================
                 case ServerMsg.SubscribeResponse: {
+                    if (!subscribePendingRef.current) break;
                     const resp = msg as SubscribeResponse;
+                    let flushSeqHigh: number | undefined;
                     if (resp.status === 'streaming') {
                         const sr = resp as SubscribeResponseStreaming;
                         captureSubscribeCompleted('streaming', sr.agentMessageId, sr.streamType ?? null);
@@ -877,6 +1059,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                 resp.selectedModel ?? null,
                                 resp.completionBriefStatus ?? null,
                             );
+                            flushSubscribeBuffer();
                             break;
                         }
 
@@ -886,6 +1069,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                 resp.selectedModel ?? null,
                                 resp.completionBriefStatus ?? null,
                             );
+                            flushSubscribeBuffer();
                             break;
                         }
 
@@ -899,6 +1083,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         setAgentMessageId(sr.agentMessageId);
                         setStreamType(sr.streamType ?? null);
                         setDisplayStatus(sr.snapshot.displayStatus ?? null);
+
+                        lastAppliedSeqRef.current.set(sr.agentMessageId, sr.seqHigh);
+                        flushSeqHigh = sr.seqHigh;
 
                         // Initialize artifact state from snapshot activeDocuments
                         if (o.artifactContext && sr.snapshot.activeDocuments.length > 0) {
@@ -1069,6 +1256,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         setDisplayStatus(null);
                         o.onSubscribeResponse?.('idle', resp.selectedModel ?? null, resp.completionBriefStatus ?? null);
                     }
+                    flushSubscribeBuffer(flushSeqHigh);
                     break;
                 }
 
@@ -1132,8 +1320,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 // STREAM EVENT (live event during streaming)
                 // ==============================================================
                 case ServerMsg.StreamEvent: {
-                    const { event, agentMessageId: eventAgentMessageId } = msg as StreamEventMessage;
+                    const { event, agentMessageId: eventAgentMessageId } = msg;
                     if (eventAgentMessageId !== ownedAgentMessageIdRef.current) {
+                        break;
+                    }
+                    if (!shouldApplySeq(eventAgentMessageId, msg._seq)) {
                         break;
                     }
                     if (streamSessionRef.current?.agentMessageId === eventAgentMessageId) {
@@ -1408,27 +1599,29 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 // STREAM STATUS (lifecycle transition)
                 // ==============================================================
                 case ServerMsg.StreamStatus: {
-                    const sm = msg as StreamStatusMessage;
-                    if (sm.agentMessageId !== ownedAgentMessageIdRef.current) {
+                    if (msg.agentMessageId !== ownedAgentMessageIdRef.current) {
                         break;
                     }
-                    const isTerminal = sm.status === 'done' || sm.status === 'aborted' || sm.status === 'error';
+                    if (!shouldApplySeq(msg.agentMessageId, msg._seq)) {
+                        break;
+                    }
+                    const isTerminal = msg.status === 'done' || msg.status === 'aborted' || msg.status === 'error';
                     if (isTerminal) {
                         streamTerminalRef.current = true;
                         flushSync();
                         clearStreamingFlags();
                     }
 
-                    setStatus(sm.status);
-                    setAgentMessageId(sm.agentMessageId);
+                    setStatus(msg.status);
+                    setAgentMessageId(msg.agentMessageId);
 
                     if (isTerminal) {
                         ownedAgentMessageIdRef.current = null;
                         setDisplayStatus(null);
                         setPendingDecisions([]);
                         setSubmittingDecisions({});
-                        o.onDone?.(sm.status, undefined, sm.agentMessageId);
-                        captureStreamSessionEnded(sm.status, sm.agentMessageId);
+                        o.onDone?.(msg.status, undefined, msg.agentMessageId);
+                        captureStreamSessionEnded(msg.status, msg.agentMessageId);
                     }
                     break;
                 }
@@ -1442,8 +1635,20 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         const onConnected = () => {
             if (isFirstConnect) {
                 isFirstConnect = false;
+                if (subscribePendingRef.current) {
+                    ws.send({ action: ClientAction.Subscribe, topic });
+                }
                 return;
             }
+            // On reconnect, `resubscribeAll` (base) may or may not re-send for this topic —
+            // in the SharedWebsocketClient follower case, ref-counting can skip the WS
+            // Subscribe entirely. Force-send to guarantee a fresh SubscribeResponse, then
+            // buffer everything that arrives until it lands.
+            subscribePendingRef.current = true;
+            preSnapshotBufferRef.current = [];
+            lastAppliedSeqRef.current.clear();
+            subscribeGapDiagnosticsRef.current = createSubscribeGapDiagnostics();
+            ws.send({ action: ClientAction.Subscribe, topic });
             optsRef.current.onReconnect?.();
         };
 
@@ -1458,7 +1663,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         // fresh snapshot so this hook can reconcile stale DB active-stream state.
         const unsub = ws.subscribe(topic);
         streamMonitor.release(id);
-        if (wasMonitoredInBackground) {
+        if (ws.connected) {
+            ws.send({ action: ClientAction.Subscribe, topic });
+        } else if (wasMonitoredInBackground) {
             ws.refreshSubscription(topic);
         }
 

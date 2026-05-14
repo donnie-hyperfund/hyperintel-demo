@@ -16,7 +16,6 @@ import type { TopicHandler } from './topic-handler';
 type SocketAttachment = {
     userId: string;
     subscribedTopics: string[];
-    pendingSubscribeTopics?: string[];
     sessionExpiry: number | undefined;
 };
 
@@ -116,7 +115,6 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
         const attachment: SocketAttachment = {
             userId,
             subscribedTopics: [],
-            pendingSubscribeTopics: [],
             sessionExpiry: expiry,
         };
         server.serializeAttachment(attachment);
@@ -223,10 +221,7 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
         for (const ws of sockets) {
             const att = ws.deserializeAttachment() as SocketAttachment | null;
             if (!att) continue;
-            if (!att.subscribedTopics.includes(topic)) {
-                this.trackSubscribeGapDrop(att, topic);
-                continue;
-            }
+            if (!att.subscribedTopics.includes(topic)) continue;
             if (this.closeIfExpired(ws, att)) continue;
             for (const msg of messages) {
                 try {
@@ -297,12 +292,18 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
                         ws.send(JSON.stringify({ type: ServerMsg.Error, error: 'Forbidden', action: msg.action }));
                         return;
                     }
-                    this.addPendingSubscribeTopic(ws, attachment, msg.topic);
-                    const response = await handler.subscribe(userId, identifier, this.env);
                     this.addTopicToSocket(ws, attachment, msg.topic);
+                    const response = await handler.subscribe(userId, identifier, this.env);
+                    const subscribeError = this.subscribeFailureMessage(response);
+                    if (subscribeError) {
+                        this.removeTopicFromSocket(ws, attachment, msg.topic);
+                        ws.send(JSON.stringify({ type: ServerMsg.Error, error: subscribeError, action: msg.action }));
+                        return;
+                    }
                     ws.send(JSON.stringify({ topic: msg.topic, type: ServerMsg.SubscribeResponse, ...response }));
+                    this.trackSubscribeDiagnostics(msg.topic, response, attachment);
                 } catch (err) {
-                    this.removePendingSubscribeTopic(ws, attachment, msg.topic);
+                    this.removeTopicFromSocket(ws, attachment, msg.topic);
                     throw err;
                 }
                 return;
@@ -354,11 +355,32 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
     // Topic management — via socket attachment (not ctx.storage)
     // -----------------------------------------------------------------------
 
-    private addTopicToSocket(ws: WebSocket, attachment: SocketAttachment, topic: string) {
-        const pendingIdx = attachment.pendingSubscribeTopics?.indexOf(topic) ?? -1;
-        if (pendingIdx !== -1) {
-            attachment.pendingSubscribeTopics!.splice(pendingIdx, 1);
+    private subscribeFailureMessage(response: Awaited<ReturnType<TopicHandler['subscribe']>>): string | null {
+        const maybeFailure = response as { ok?: unknown; status?: unknown; error?: unknown };
+        if (maybeFailure.ok !== false && maybeFailure.status !== 'error') return null;
+        return typeof maybeFailure.error === 'string' ? maybeFailure.error : 'Subscribe failed';
+    }
+
+    private trackSubscribeDiagnostics(
+        topic: string,
+        response: Awaited<ReturnType<TopicHandler['subscribe']>>,
+        attachment: SocketAttachment,
+    ) {
+        const { prefix } = this.parseTopic(topic);
+        let matchingSockets = 0;
+        for (const socket of this.ctx.getWebSockets()) {
+            const socketAttachment = socket.deserializeAttachment() as SocketAttachment | null;
+            if (socketAttachment?.subscribedTopics.includes(topic)) matchingSockets += 1;
         }
+        writeStreamMetric(this.env, {
+            metric: 'ug_subscribe',
+            indexes: [attachment.userId],
+            blobs: [prefix, response.status, this.previewAlias],
+            doubles: [attachment.subscribedTopics.length, matchingSockets],
+        });
+    }
+
+    private addTopicToSocket(ws: WebSocket, attachment: SocketAttachment, topic: string) {
         if (!attachment.subscribedTopics.includes(topic)) {
             attachment.subscribedTopics.push(topic);
         }
@@ -367,14 +389,8 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
 
     private removeTopicFromSocket(ws: WebSocket, attachment: SocketAttachment, topic: string) {
         const idx = attachment.subscribedTopics.indexOf(topic);
-        const pendingIdx = attachment.pendingSubscribeTopics?.indexOf(topic) ?? -1;
         if (idx !== -1) {
             attachment.subscribedTopics.splice(idx, 1);
-        }
-        if (pendingIdx !== -1) {
-            attachment.pendingSubscribeTopics!.splice(pendingIdx, 1);
-        }
-        if (idx !== -1 || pendingIdx !== -1) {
             ws.serializeAttachment(attachment);
         }
     }
@@ -384,41 +400,12 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
         for (const ws of this.ctx.getWebSockets()) {
             const attachment = ws.deserializeAttachment() as SocketAttachment | null;
             if (!attachment) continue;
-            if (!attachment.subscribedTopics.includes(topic)) {
-                this.trackSubscribeGapDrop(attachment, topic);
-                continue;
-            }
+            if (!attachment.subscribedTopics.includes(topic)) continue;
             if (this.closeIfExpired(ws, attachment)) continue;
             try {
                 ws.send(serialized);
             } catch {}
         }
-    }
-
-    private addPendingSubscribeTopic(ws: WebSocket, attachment: SocketAttachment, topic: string) {
-        attachment.pendingSubscribeTopics ??= [];
-        if (!attachment.pendingSubscribeTopics.includes(topic) && !attachment.subscribedTopics.includes(topic)) {
-            attachment.pendingSubscribeTopics.push(topic);
-            ws.serializeAttachment(attachment);
-        }
-    }
-
-    private removePendingSubscribeTopic(ws: WebSocket, attachment: SocketAttachment, topic: string) {
-        const idx = attachment.pendingSubscribeTopics?.indexOf(topic) ?? -1;
-        if (idx !== -1) {
-            attachment.pendingSubscribeTopics!.splice(idx, 1);
-            ws.serializeAttachment(attachment);
-        }
-    }
-
-    private trackSubscribeGapDrop(attachment: SocketAttachment, topic: string) {
-        if (!attachment.pendingSubscribeTopics?.includes(topic)) return;
-        writeStreamMetric(this.env, {
-            metric: 'subscribe_gap_drop',
-            indexes: [attachment.userId],
-            blobs: [topic, this.previewAlias],
-            doubles: [1],
-        });
     }
 
     // -----------------------------------------------------------------------
@@ -499,7 +486,10 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
 
     /** Close socket if its session has expired (with grace period). Returns true if closed. */
     private closeIfExpired(ws: WebSocket, attachment: SocketAttachment | null): boolean {
-        if (attachment?.sessionExpiry && Date.now() / 1000 > attachment.sessionExpiry + UserGateway.SESSION_GRACE_SECONDS) {
+        if (
+            attachment?.sessionExpiry &&
+            Date.now() / 1000 > attachment.sessionExpiry + UserGateway.SESSION_GRACE_SECONDS
+        ) {
             try {
                 ws.send(JSON.stringify({ type: ServerMsg.Error, error: 'Session expired' }));
                 ws.close(4401, 'Session expired');

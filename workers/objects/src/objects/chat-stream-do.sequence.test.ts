@@ -148,13 +148,13 @@ describe('ChatStreamDO sequence contract', () => {
         expect(result.snapshot.status).toBe('streaming');
     });
 
-    it('omits seqHigh from subscribe when no broadcasts have happened yet', async () => {
+    it('returns seqHigh -1 from subscribe when no broadcasts have happened yet', async () => {
         const captured: CapturedPush[] = [];
         const { stream } = await createStreamDO(captured);
         await stream.init('chat-1', 'agent-1', 'user-msg-1');
 
         const result = await stream.subscribe('user-1', 'ug-1');
-        expect(result.seqHigh).toBeUndefined();
+        expect(result.seqHigh).toBe(-1);
         expect(result.snapshot.status).toBe('streaming');
     });
 });

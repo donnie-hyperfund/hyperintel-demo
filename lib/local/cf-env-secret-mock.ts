@@ -51,9 +51,13 @@ const envSecrets: Record<string, unknown> = {
     CORS_ALLOWED_ORIGIN: '*',
 };
 
+const noopAnalyticsEngineDataset: AnalyticsEngineDataset = {
+    writeDataPoint() {},
+};
+
 /**
  * Full worker env mock — secrets + bindings in one object.
- * Bindings (DOs, queues, R2) are added below and via ensureDOMocks().
+ * Bindings (DOs, queues, R2, Analytics Engine) are added below and via ensureDOMocks().
  * Handlers see everything on ctx.env.
  */
 export const workerEnv: Record<string, unknown> = {
@@ -61,6 +65,8 @@ export const workerEnv: Record<string, unknown> = {
     // R2 bindings — real dev buckets via AWS SDK behind CF R2Bucket interface
     ARTIFACTS_BUCKET: new MockR2Bucket('hi-artifacts-dev'),
     USER_IMAGES_BUCKET: new MockR2Bucket('hi-user-images-dev'),
+    // Analytics Engine binding — no-op locally, but present so local DOs see the same binding shape as Cloudflare.
+    STREAM_AE: noopAnalyticsEngineDataset,
     // Service bindings — in-process WASM
     EXTRACT_RUST: new MockRustWorkerFetcher(),
     DOCX_EXPORT_SERVICE: {

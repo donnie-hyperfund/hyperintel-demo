@@ -92,7 +92,7 @@ export type SubscribeResponseStreaming = {
     agentMessageId: string;
     snapshot: StreamSnapshot;
     /** @same as event `_seq`; FE drops buffered/live events with `_seq <= seqHigh` after applying the snapshot. */
-    seqHigh?: number;
+    seqHigh: number;
     /** Present when streaming a phase transition (not a normal chat response) */
     streamType?: 'chat' | 'phase_transition';
     selectedModel?: string | null;
@@ -116,7 +116,7 @@ export type StreamEventMessage = {
     type: typeof ServerMsg.StreamEvent;
     agentMessageId: string;
     event: StreamEvent;
-    _seq?: number;
+    _seq: number;
 };
 
 export type StreamStatusMessage = {
@@ -124,7 +124,7 @@ export type StreamStatusMessage = {
     type: typeof ServerMsg.StreamStatus;
     status: StreamStatus;
     agentMessageId: string;
-    _seq?: number;
+    _seq: number;
 };
 
 export type StreamStartedMessage = {

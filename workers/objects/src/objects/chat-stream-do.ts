@@ -26,7 +26,7 @@ export type {
 export type StreamSubscribeResult = {
     snapshot: StreamSnapshot;
     /** High-water mark in the same coordinate as stream event `_seq`. */
-    seqHigh?: number;
+    seqHigh: number;
 };
 
 type SequencedStreamMessage = {
@@ -734,6 +734,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         const t0 = performance.now();
         await this.ensureLoaded();
 
+        // Registration must precede snapshot capture so broadcasts during subscribe reach the user's UG.
         this.subscribers.set(userId, ugDoName);
         await this.ctx.storage.put(SK_SUBSCRIBERS, [...this.subscribers.entries()]);
 
@@ -745,12 +746,12 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             displayStatus: this.displayStatus,
         };
 
-        const seqHigh = this.broadcastSeq > 0 ? this.broadcastSeq - 1 : undefined;
-        this.trackStreamMetric('subscribe', [performance.now() - t0, this.subscribers.size, seqHigh ?? -1]);
+        const seqHigh = this.broadcastSeq - 1;
+        this.trackStreamMetric('subscribe', [performance.now() - t0, this.subscribers.size, seqHigh]);
 
         return {
             snapshot,
-            ...(seqHigh !== undefined && { seqHigh }),
+            seqHigh,
         };
     }
 

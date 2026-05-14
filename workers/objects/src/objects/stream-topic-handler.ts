@@ -151,7 +151,7 @@ export abstract class StreamTopicHandler implements TopicHandler {
                 await this.clearActiveAgentMessageId(identifier, agentMessageId, env);
                 return { status: 'idle' };
             }
-            return { status: 'streaming', agentMessageId, snapshot, ...(seqHigh !== undefined && { seqHigh }) };
+            return { status: 'streaming', agentMessageId, snapshot, seqHigh };
         } catch (err) {
             // ChatStream DO is gone (already finalized) — stale registry entry
             console.warn(`${this.constructor.name}: ChatStream DO gone for ${identifier}, cleaning up`, err);
