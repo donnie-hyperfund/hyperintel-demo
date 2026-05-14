@@ -773,6 +773,12 @@ export function ChatProvider({
                 }
                 return next;
             });
+            if (status === 'idle' && chatId) {
+                const cleared = artifactContext.clearStaleStreamingForChat(chatId);
+                for (const { artifactId, version } of cleared) {
+                    void revalidateArtifactByKeyAndVersion(artifactId, version);
+                }
+            }
         },
         onModelChanged: (model: string) => {
             setSelectedModel(model);

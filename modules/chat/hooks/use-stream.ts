@@ -420,6 +420,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             isUpdating: false,
                             isLoading: false,
                             progress: 0,
+                            sourceChatId: id ?? undefined,
                         },
                         1,
                     );
@@ -491,6 +492,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             isStreaming: true,
                             isUpdating: true,
                             progress: 0,
+                            sourceChatId: id ?? undefined,
                         },
                         newVersion,
                     );
@@ -811,6 +813,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         isUpdating: doc.mode === 'edit' || doc.mode === 'replace',
                                         isLoading: false,
                                         progress: doc.progress ?? 0,
+                                        sourceChatId: id ?? undefined,
                                     },
                                     doc.pendingVersion,
                                 );

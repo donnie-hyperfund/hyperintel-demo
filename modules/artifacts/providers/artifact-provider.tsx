@@ -65,6 +65,7 @@ export type ArtifactContextValue = {
         version?: VersionKey,
         options?: UpdateArtifactOptions,
     ) => void;
+    clearStaleStreamingForChat: (chatId: string) => Array<{ artifactId: string; version: number }>;
     subscribe: (callback: () => void) => () => void;
 };
 
@@ -212,13 +213,57 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
         [emit],
     );
 
-    // Stable context value — created once, never changes reference
+    const clearStaleStreamingForChat = useCallback(
+        (chatId: string) => {
+            const cleared: Array<{ artifactId: string; version: number }> = [];
+            if (!chatId) return cleared;
+            const prev = storeRef.current;
+            const next: ArtifactStore = {};
+
+            for (const [artifactId, versions] of Object.entries(prev)) {
+                const nextVersions: Record<string, Artifact> = {};
+                for (const [versionKey, artifact] of Object.entries(versions)) {
+                    if (
+                        artifact.sourceChatId === chatId &&
+                        (artifact.isStreaming ||
+                            artifact.isUpdating ||
+                            artifact.isSummaryStreaming ||
+                            artifact.summaryStreaming !== undefined)
+                    ) {
+                        nextVersions[versionKey] = {
+                            ...artifact,
+                            isStreaming: false,
+                            isUpdating: false,
+                            isSummaryStreaming: false,
+                            summaryStreaming: undefined,
+                        };
+                        const versionNum = artifact.proposedVersion?.version ?? artifact.version;
+                        if (typeof versionNum === 'number') {
+                            cleared.push({ artifactId, version: versionNum });
+                        }
+                    } else {
+                        nextVersions[versionKey] = artifact;
+                    }
+                }
+                next[artifactId] = nextVersions;
+            }
+
+            if (cleared.length > 0) {
+                storeRef.current = next;
+                emit();
+            }
+            return cleared;
+        },
+        [emit],
+    );
+
     const api = useRef<ArtifactContextValue>({
         getArtifact,
         getStore,
         addArtifact,
         removeArtifact,
         updateArtifact,
+        clearStaleStreamingForChat,
         subscribe,
     }).current;
 
@@ -252,6 +297,7 @@ export function useArtifactStore(): ArtifactStore {
 
 /** Stable action references that never cause re-renders. */
 export function useArtifactActions() {
-    const { addArtifact, removeArtifact, updateArtifact, getArtifact, getStore } = useArtifactContext();
-    return { addArtifact, removeArtifact, updateArtifact, getArtifact, getStore };
+    const { addArtifact, removeArtifact, updateArtifact, getArtifact, getStore, clearStaleStreamingForChat } =
+        useArtifactContext();
+    return { addArtifact, removeArtifact, updateArtifact, getArtifact, getStore, clearStaleStreamingForChat };
 }
