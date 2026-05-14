@@ -287,13 +287,13 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
                     return;
                 }
                 try {
-                    const allowed = await handler.canSubscribe(userId, identifier, this.env);
-                    if (!allowed) {
+                    const decision = await handler.canSubscribe(userId, identifier, this.env);
+                    if (!decision.allowed) {
                         ws.send(JSON.stringify({ type: ServerMsg.Error, error: 'Forbidden', action: msg.action }));
                         return;
                     }
                     this.addTopicToSocket(ws, attachment, msg.topic);
-                    const response = await handler.subscribe(userId, identifier, this.env);
+                    const response = await handler.subscribe(userId, identifier, this.env, decision);
                     const subscribeError = this.subscribeFailureMessage(response);
                     if (subscribeError) {
                         this.removeTopicFromSocket(ws, attachment, msg.topic);

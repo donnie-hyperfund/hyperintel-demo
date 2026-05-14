@@ -46,6 +46,13 @@
 			"secret_name": "CLERK_SECRET_KEY"
 		}
 	],
+	"services": [
+		{
+			"binding": "CHAT_SERVICES",
+			"service": "hi-services",
+			"entrypoint": "ChatServices"
+		}
+	],
 	"durable_objects": {
 		"bindings": [
 			{
@@ -117,6 +124,13 @@
 					"secret_name": "DEV_CLERK_SECRET_KEY"
 				}
 			],
+			"services": [
+				{
+					"binding": "CHAT_SERVICES",
+					"service": "hi-services-dev",
+					"entrypoint": "ChatServices"
+				}
+			],
 			"durable_objects": {
 				"bindings": [
 					{
@@ -173,6 +187,13 @@
 					"secret_name": "DEV_CLERK_SECRET_KEY"
 				}
 			],
+			"services": [
+				{
+					"binding": "CHAT_SERVICES",
+					"service": "hi-services-exp",
+					"entrypoint": "ChatServices"
+				}
+			],
 			"durable_objects": {
 				"bindings": [
 					{
@@ -227,6 +248,13 @@
 					"binding": "CLERK_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "DEV_CLERK_SECRET_KEY"
+				}
+			],
+			"services": [
+				{
+					"binding": "CHAT_SERVICES",
+					"service": "hi-services-dexp",
+					"entrypoint": "ChatServices"
 				}
 			],
 			"durable_objects": {

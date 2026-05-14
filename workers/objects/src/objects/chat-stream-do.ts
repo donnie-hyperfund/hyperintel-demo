@@ -9,8 +9,8 @@ import type {
     StreamStatus,
 } from '@/lib/schema/stream';
 import { DECISION_DISMISSED_SENTINEL } from '@/lib/schema/stream';
+import { type StreamTopicPrefix, StreamTopicPrefixSchema } from '@/lib/schema/stream-topic';
 import { writeStreamMetric } from '@/workers/_common/vendor/analytics-engine';
-import createNeonSql from '@/workers/_common/vendor/neon';
 
 // Re-export shared types for consumers that imported from here
 export type {
@@ -89,7 +89,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     private agentMessageId = '';
     private userMessageId = '';
     /** Topic prefix for UG broadcasts (e.g. 'chat' or 'intake') */
-    private topicPrefix = 'chat';
+    private topicPrefix: StreamTopicPrefix = 'chat';
     /** Preview branch alias — used to resolve the correct DB on dev preview deploys */
     private previewAlias: string | null = null;
     private currentTextBlockId: string | null = null;
@@ -162,7 +162,10 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         if (userMsgId) this.userMessageId = userMsgId;
         if (textBlockId) this.currentTextBlockId = textBlockId;
         if (reasoningBlockId) this.currentReasoningBlockId = reasoningBlockId;
-        if (topicPrefix) this.topicPrefix = topicPrefix;
+        if (topicPrefix) {
+            const parsedTopicPrefix = StreamTopicPrefixSchema.safeParse(topicPrefix);
+            if (parsedTopicPrefix.success) this.topicPrefix = parsedTopicPrefix.data;
+        }
         if (previewAlias) this.previewAlias = previewAlias;
         if (displayStatus) this.displayStatus = displayStatus;
         if (typeof broadcastSeq === 'number') this.broadcastSeq = broadcastSeq;
@@ -668,7 +671,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         chatId: string,
         agentMessageId: string,
         userMessageId: string,
-        topicPrefix = 'chat',
+        topicPrefix: StreamTopicPrefix = 'chat',
         previewAlias?: string,
     ) {
         await this.ensureLoaded();
@@ -988,8 +991,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
 
     /**
      * Save an errored empty agent message and clear activeAgentMessageId on the chat entity.
-     * Called only from the alarm handler (Worker crash recovery). Uses raw postgres
-     * to avoid MikroORM initialization overhead in a rarely-fired cleanup path.
+     * Called only from the alarm handler (Worker crash recovery).
      */
     private async dbCleanup() {
         if (!this.chatId || !this.agentMessageId) {
@@ -998,22 +1000,36 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         }
 
         try {
-            const sql = await createNeonSql(this.env, this.previewAlias ?? undefined);
-
-            // Save errored empty agent message (idempotent — skip if already exists)
-            await sql`
-				INSERT INTO chat_messages (id, created_at, role, content, chat_id, blocks, is_error)
-				VALUES (${this.agentMessageId}, NOW(), 'assistant', '', ${this.chatId}, '[]'::jsonb, true)
-				ON CONFLICT (id) DO NOTHING
-			`;
-
-            // Clear active_agent_message_id (only if it still points to us)
-            await sql`
-				UPDATE chats SET active_agent_message_id = NULL
-				WHERE id = ${this.chatId} AND active_agent_message_id = ${this.agentMessageId}
-			`;
+            await this.trackServicesRpc(
+                () =>
+                    this.env.CHAT_SERVICES.deadManCleanup({
+                        topic: this.topic,
+                        prefix: this.topicPrefix,
+                        identifier: this.chatId,
+                        agentMessageId: this.agentMessageId,
+                        previewAlias: this.previewAlias ?? undefined,
+                    }),
+                'services_dead_man_cleanup_rpc',
+                [this.topicPrefix],
+            );
         } catch (err) {
             console.error('ChatStreamDO: DB cleanup failed', err);
+        }
+    }
+
+    private async trackServicesRpc<T>(
+        fn: () => Promise<T>,
+        metric: string,
+        blobs: Array<string | null | undefined> = [],
+    ): Promise<T> {
+        const t0 = performance.now();
+        try {
+            const result = await fn();
+            this.trackStreamMetric(metric, [performance.now() - t0, 1], blobs);
+            return result;
+        } catch (err) {
+            this.trackStreamMetric(metric, [performance.now() - t0, 0], blobs);
+            throw err;
         }
     }
 }

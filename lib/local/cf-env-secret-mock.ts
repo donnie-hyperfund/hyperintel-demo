@@ -16,6 +16,7 @@ const { UserGateway } = require('@/workers/objects/src/objects/user-gateway');
 const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do');
 const { GenerationProxyDO } = require('@/workers/objects/src/objects/generation-proxy-do');
 const { LocksService } = require('@/workers/objects/src/objects/locks-service');
+const { ChatServices } = require('@/workers/services/src/index');
 
 // --- Secrets & plain config ---
 const envSecrets: Record<string, unknown> = {
@@ -83,6 +84,7 @@ export const workerEnv: Record<string, unknown> = {
     },
     // DO bindings assigned in ensureDOMocks()
 };
+workerEnv.CHAT_SERVICES = new ChatServices({}, workerEnv);
 
 // Queue bindings — in-process mocks, call worker handlers directly.
 // Assigned after workerEnv exists so the MockQueue can hold a reference to it.

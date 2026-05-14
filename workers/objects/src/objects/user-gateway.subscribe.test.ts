@@ -55,7 +55,7 @@ function createControlledHandler(): ControlledHandler {
         actionCalls: [],
         async canSubscribe() {
             handler.canSubscribeCalls += 1;
-            return handler.canSubscribeReturn;
+            return handler.canSubscribeReturn ? { allowed: true, subscribeInfo: undefined } : { allowed: false };
         },
         subscribe() {
             handler.subscribeCalls += 1;

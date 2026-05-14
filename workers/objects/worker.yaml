@@ -9,6 +9,11 @@ analytics_engine_datasets:
   - binding: STREAM_AE
     dataset: hyperintel_stream_metrics
 
+services:
+  - binding: CHAT_SERVICES
+    service: hi-services
+    entrypoint: ChatServices
+
 durable_objects:
   - name: USER_GATEWAY
     class_name: UserGateway

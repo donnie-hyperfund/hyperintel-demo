@@ -8,7 +8,11 @@ type CapturedPush = {
     messages: unknown[];
 };
 
-function createEnv(captured: CapturedPush[]): ObjectsEnv {
+function createEnv(
+    captured: CapturedPush[],
+    deadManCleanup = vi.fn(async () => {}),
+    writeDataPoint = vi.fn(),
+): ObjectsEnv {
     return {
         USER_GATEWAY: {
             idFromName: (name: string) => ({ toString: () => name }),
@@ -19,15 +23,22 @@ function createEnv(captured: CapturedPush[]): ObjectsEnv {
             }),
         },
         STREAM_AE: {
-            writeDataPoint: vi.fn(),
+            writeDataPoint,
+        },
+        CHAT_SERVICES: {
+            deadManCleanup,
         },
     } as unknown as ObjectsEnv;
 }
 
-async function createStreamDO(captured: CapturedPush[], idName = 'agent-1') {
+async function createStreamDO(captured: CapturedPush[], idName = 'agent-1', deadManCleanup = vi.fn(async () => {})) {
     const ctx = new MockDurableObjectState(new MockDurableObjectId(idName));
-    const stream = new ChatStreamDO(ctx as unknown as DurableObjectState, createEnv(captured));
-    return { ctx, stream };
+    const writeDataPoint = vi.fn();
+    const stream = new ChatStreamDO(
+        ctx as unknown as DurableObjectState,
+        createEnv(captured, deadManCleanup, writeDataPoint),
+    );
+    return { ctx, stream, writeDataPoint };
 }
 
 async function copyStorage(from: MockDurableObjectState, to: MockDurableObjectState) {
@@ -156,5 +167,55 @@ describe('ChatStreamDO sequence contract', () => {
         const result = await stream.subscribe('user-1', 'ug-1');
         expect(result.seqHigh).toBe(-1);
         expect(result.snapshot.status).toBe('streaming');
+    });
+
+    it('calls services dead-man cleanup on alarm and finalizes', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const captured: CapturedPush[] = [];
+        const deadManCleanup = vi.fn(async () => {});
+        const { ctx, stream, writeDataPoint } = await createStreamDO(captured, 'agent-1', deadManCleanup);
+
+        await stream.init('chat-1', 'agent-1', 'user-msg-1', 'intake', 'branch-a');
+        await stream.push([{ type: 'delta', text: 'hello' }], 0);
+        await stream.alarm();
+
+        expect(deadManCleanup).toHaveBeenCalledWith({
+            topic: 'intake:chat-1',
+            prefix: 'intake',
+            identifier: 'chat-1',
+            agentMessageId: 'agent-1',
+            previewAlias: 'branch-a',
+        });
+        expect(writeDataPoint).toHaveBeenCalledWith(
+            expect.objectContaining({
+                indexes: ['agent-1'],
+                blobs: expect.arrayContaining(['services_dead_man_cleanup_rpc', 'chat-1', 'branch-a', 'intake']),
+                doubles: expect.arrayContaining([1]),
+            }),
+        );
+        await expect(ctx.storage.list()).resolves.toEqual(new Map());
+    });
+
+    it('continues finalizing when services dead-man cleanup fails', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const captured: CapturedPush[] = [];
+        const deadManCleanup = vi.fn(async () => {
+            throw new Error('services down');
+        });
+        const { ctx, stream, writeDataPoint } = await createStreamDO(captured, 'agent-1', deadManCleanup);
+
+        await stream.init('chat-1', 'agent-1', 'user-msg-1');
+        await stream.push([{ type: 'delta', text: 'hello' }], 0);
+        await stream.alarm();
+
+        expect(consoleError).toHaveBeenCalledWith('ChatStreamDO: DB cleanup failed', expect.any(Error));
+        expect(writeDataPoint).toHaveBeenCalledWith(
+            expect.objectContaining({
+                indexes: ['agent-1'],
+                blobs: expect.arrayContaining(['services_dead_man_cleanup_rpc', 'chat-1', 'chat']),
+                doubles: expect.arrayContaining([0]),
+            }),
+        );
+        await expect(ctx.storage.list()).resolves.toEqual(new Map());
     });
 });

@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { ServerMsg } from '@/lib/schema/ws-protocol';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
-import { StreamTopicHandler } from './stream-topic-handler';
-import type { ActionResult, SubscribeResponse } from './topic-handler';
+import { StreamTopicHandler, type SubscribePolicyResult } from './stream-topic-handler';
+import type { ActionResult, AllowedSubscribe, SubscribeResponse } from './topic-handler';
 
 // ============================================================================
 // HANDLER-SPECIFIC ZOD SCHEMAS (NOT in ws-protocol.ts — handler owns its own validation)
@@ -40,6 +40,11 @@ const SK_PREFIX = 'chat:stream:';
 /** Storage key suffix for streamType — stored alongside agentMessageId */
 const SK_STREAM_TYPE_SUFFIX = ':type';
 
+type ChatSubscribeInfo = SubscribePolicyResult & {
+    selectedModel?: string | null;
+    completionBriefStatus?: string | null;
+};
+
 // ============================================================================
 // CHAT TOPIC HANDLER
 // ============================================================================
@@ -53,34 +58,19 @@ const SK_STREAM_TYPE_SUFFIX = ':type';
  *  - abort action handling
  *
  * This class adds:
- *  - checkPermission() — user→project→chat DB query
  *  - registerStream / clearStream / messageCreated — system actions from Workers
  *  - tool_approve / tool_reject — client actions forwarded to ChatStreamDO
- *  - subscribe() override — appends streamType to the streaming response
+ *  - subscribe() override — appends streamType and services-provided metadata
  */
-export class ChatTopicHandler extends StreamTopicHandler {
+export class ChatTopicHandler extends StreamTopicHandler<ChatSubscribeInfo> {
+    protected readonly topicPrefix = 'chat';
+
     // ========================================================================
     // STORAGE KEY PREFIX
     // ========================================================================
 
     protected get skPrefix(): string {
         return SK_PREFIX;
-    }
-
-    // ========================================================================
-    // PERMISSION CHECK
-    // ========================================================================
-
-    async checkPermission(userId: string, chatId: string, env: ObjectsEnv): Promise<boolean> {
-        const sql = await this.getSql(env);
-        const rows = await sql`
-			SELECT 1 FROM chats c
-			JOIN projects p ON c.project_id = p.id
-			JOIN users u ON p.user_id = u.id
-			WHERE c.id = ${chatId} AND u.clerk_id = ${userId}
-			LIMIT 1
-		`;
-        return rows.length > 0;
     }
 
     // ========================================================================
@@ -96,15 +86,16 @@ export class ChatTopicHandler extends StreamTopicHandler {
     // SUBSCRIBE OVERRIDE — includes streamType in streaming response
     // ========================================================================
 
-    async subscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<SubscribeResponse> {
-        const base = await super.subscribe(userId, identifier, env);
-
-        // Fetch selected_model and completion_brief_status from DB
-        const sql = await this.getSql(env);
-        const rows =
-            await sql`SELECT selected_model, completion_brief_status FROM chats WHERE id = ${identifier} LIMIT 1`;
-        const selectedModel = (rows[0]?.selected_model as string | null) ?? null;
-        const completionBriefStatus = (rows[0]?.completion_brief_status as string | null) ?? null;
+    async subscribe(
+        userId: string,
+        identifier: string,
+        env: ObjectsEnv,
+        decision: AllowedSubscribe<ChatSubscribeInfo>,
+    ): Promise<SubscribeResponse> {
+        const subscribeInfo = decision.subscribeInfo;
+        const base = await super.subscribe(userId, identifier, env, decision);
+        const selectedModel = subscribeInfo.selectedModel ?? null;
+        const completionBriefStatus = subscribeInfo.completionBriefStatus ?? null;
 
         if (base.status !== 'streaming') {
             return { ...base, selectedModel, completionBriefStatus };

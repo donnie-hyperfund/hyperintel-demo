@@ -1,8 +1,17 @@
 import { z } from 'zod';
+import type { ClearActiveStreamRequest } from '@/lib/schema/stream-cleanup';
+import type { StreamTopicPrefix } from '@/lib/schema/stream-topic';
+import type { SubscribeInfoRequest } from '@/lib/schema/subscribe-info';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
-import createNeonSql from '@/workers/_common/vendor/neon';
+import { writeStreamMetric } from '@/workers/_common/vendor/analytics-engine';
 import type { StreamEvent, StreamSubscribeResult } from './chat-stream-do';
-import type { ActionResult, SubscribeResponse, TopicHandler } from './topic-handler';
+import type {
+    ActionResult,
+    AllowedSubscribe,
+    SubscribeDecision,
+    SubscribeResponse,
+    TopicHandler,
+} from './topic-handler';
 
 // ============================================================================
 // CHAT STREAM DO RPC INTERFACE (same-worker DO — typed for RPC calls)
@@ -13,7 +22,7 @@ export interface ChatStreamDOStub {
         chatId: string,
         agentMessageId: string,
         userMessageId: string,
-        topicPrefix?: string,
+        topicPrefix?: StreamTopicPrefix,
         previewAlias?: string,
     ): Promise<void>;
 
@@ -45,6 +54,8 @@ const AbortActionSchema = z.object({ identifier: z.string() });
 // Storage key prefix for the stream registry (shared by all streaming topic handlers)
 export const STREAM_SK_PREFIX = 'stream:registry:';
 
+export type SubscribePolicyResult = { allowed: boolean };
+
 // ============================================================================
 // STREAM TOPIC HANDLER — ABSTRACT BASE CLASS
 // ============================================================================
@@ -53,14 +64,14 @@ export const STREAM_SK_PREFIX = 'stream:registry:';
  * StreamTopicHandler — abstract base class for topic handlers that manage ChatStreamDO streaming.
  *
  * Provides shared logic for:
- *  - Permission checking (via abstract `checkPermission()`)
+ *  - Permission checking through a subclass-provided subscribe policy request
  *  - Stream registry: `identifier → agentMessageId` in DO storage
  *  - Subscribe flow: idle / streaming (with snapshot) / stale DO cleanup
  *  - Unsubscribe: no-op (DO expiry handles cleanup)
  *  - Abort action: forwarded to ChatStreamDO
  *
  * Subclasses must implement:
- *  - `checkPermission(userId, id, env)` — domain-specific DB permission check
+ *  - `topicPrefix` — topic namespace used for services policy/cleanup requests
  *  - `handleAction(userId, action, payload, env)` — domain-specific actions.
  *    Call `super.handleAction()` to handle the shared 'abort' case.
  *
@@ -69,12 +80,12 @@ export const STREAM_SK_PREFIX = 'stream:registry:';
  *  protected get skPrefix() { return 'intake:stream:'; }
  *  ```
  */
-export abstract class StreamTopicHandler implements TopicHandler {
+export abstract class StreamTopicHandler<TSubscribeInfo extends SubscribePolicyResult = SubscribePolicyResult>
+    implements TopicHandler
+{
     /** In-memory permission cache: `${userId}:${identifier}` → allowed */
     // TODO: re-enable once we confirm the forbidden bug is fixed — disabled to rule out stale cache as cause
     // private permissionCache = new Map<string, boolean>();
-    /** Cached postgres client — avoids reconnecting per query */
-    private sqlPromise: ReturnType<typeof createNeonSql> | null = null;
     /** Preview branch alias — set by UG on dev, used for PREVIEW_DB_MAP KV resolution */
     previewAlias: string | null = null;
 
@@ -84,11 +95,8 @@ export abstract class StreamTopicHandler implements TopicHandler {
     // ABSTRACT METHODS (implemented by subclasses)
     // ========================================================================
 
-    /**
-     * Domain-specific permission check.
-     * Result is cached in-memory for the lifetime of the UG DO instance.
-     */
-    abstract checkPermission(userId: string, identifier: string, env: ObjectsEnv): Promise<boolean>;
+    /** Topic namespace used for service policy/cleanup requests. */
+    protected abstract readonly topicPrefix: StreamTopicPrefix;
 
     // ========================================================================
     // STORAGE KEY PREFIX (overridable by subclasses)
@@ -107,26 +115,31 @@ export abstract class StreamTopicHandler implements TopicHandler {
     // PERMISSION CHECK
     // ========================================================================
 
-    async canSubscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<boolean> {
+    async canSubscribe(
+        userId: string,
+        identifier: string,
+        env: ObjectsEnv,
+    ): Promise<SubscribeDecision<TSubscribeInfo>> {
         // const cacheKey = `${userId}:${identifier}`;
         // const cached = this.permissionCache.get(cacheKey);
         // if (cached !== undefined) return cached;
 
         try {
-            const allowed = await this.checkPermission(userId, identifier, env);
-            if (!allowed) {
+            const info = await this.fetchSubscribeInfo(userId, identifier, env);
+            if (!info.allowed) {
                 console.warn(
                     `[${this.constructor.name}] canSubscribe DENIED: userId=${userId}, identifier=${identifier}, previewAlias=${this.previewAlias}`,
                 );
+                return { allowed: false };
             }
             // this.permissionCache.set(cacheKey, allowed);
-            return allowed;
+            return { allowed: true, subscribeInfo: info };
         } catch (err) {
             console.error(
                 `[${this.constructor.name}] canSubscribe ERROR: userId=${userId}, identifier=${identifier}, previewAlias=${this.previewAlias}`,
                 err,
             );
-            return false;
+            return { allowed: false };
         }
     }
 
@@ -134,7 +147,12 @@ export abstract class StreamTopicHandler implements TopicHandler {
     // SUBSCRIBE
     // ========================================================================
 
-    async subscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<SubscribeResponse> {
+    async subscribe(
+        userId: string,
+        identifier: string,
+        env: ObjectsEnv,
+        _decision: AllowedSubscribe<TSubscribeInfo>,
+    ): Promise<SubscribeResponse> {
         const agentMessageId = await this.storage.get<string>(`${this.skPrefix}${identifier}`);
 
         if (!agentMessageId) {
@@ -220,6 +238,43 @@ export abstract class StreamTopicHandler implements TopicHandler {
         return env.CHAT_STREAM_DO.get(id) as unknown as ChatStreamDOStub;
     }
 
+    private topicName(identifier: string): string {
+        return `${this.topicPrefix}:${identifier}`;
+    }
+
+    private buildSubscribeInfoRequest(userId: string, identifier: string): SubscribeInfoRequest {
+        return {
+            userId,
+            topic: this.topicName(identifier),
+            prefix: this.topicPrefix,
+            identifier,
+            previewAlias: this.previewAlias ?? undefined,
+        };
+    }
+
+    private async fetchSubscribeInfo(userId: string, identifier: string, env: ObjectsEnv): Promise<TSubscribeInfo> {
+        // Metadata is returned by the same policy RPC, so there is no separate services_metadata_rpc metric.
+        return this.trackServicesRpc(
+            env,
+            () => env.CHAT_SERVICES.getTopicSubscribeInfo(this.buildSubscribeInfoRequest(userId, identifier)),
+            {
+                metric: 'services_permission_rpc',
+                identifier,
+                successDoubles: (info) => [(info as TSubscribeInfo).allowed ? 1 : 0],
+            },
+        ) as Promise<TSubscribeInfo>;
+    }
+
+    private buildClearActiveStreamRequest(identifier: string, agentMessageId: string): ClearActiveStreamRequest {
+        return {
+            topic: this.topicName(identifier),
+            prefix: this.topicPrefix,
+            identifier,
+            agentMessageId,
+            previewAlias: this.previewAlias ?? undefined,
+        };
+    }
+
     /** Clear activeAgentMessageId on the Chat entity (lazy fallback for stale DOs) */
     protected async clearActiveAgentMessageId(
         identifier: string,
@@ -227,21 +282,60 @@ export abstract class StreamTopicHandler implements TopicHandler {
         env: ObjectsEnv,
     ): Promise<void> {
         try {
-            const sql = await this.getSql(env);
-            await sql`
-				UPDATE chats SET active_agent_message_id = NULL
-				WHERE id = ${identifier} AND active_agent_message_id = ${agentMessageId}
-			`;
+            await this.trackServicesRpc(
+                env,
+                () =>
+                    env.CHAT_SERVICES.clearActiveStream(this.buildClearActiveStreamRequest(identifier, agentMessageId)),
+                {
+                    metric: 'services_stale_cleanup_rpc',
+                    identifier,
+                    agentMessageId,
+                },
+            );
         } catch (err) {
             console.error(`${this.constructor.name}: failed to clear activeAgentMessageId`, err);
         }
     }
 
-    /** Get (or initialize) a postgres client for DB queries */
-    protected getSql(env: ObjectsEnv) {
-        if (!this.sqlPromise) {
-            this.sqlPromise = createNeonSql(env, this.previewAlias ?? undefined);
+    private async trackServicesRpc<T>(
+        env: ObjectsEnv,
+        fn: () => Promise<T>,
+        options: {
+            metric: string;
+            identifier: string;
+            agentMessageId?: string;
+            successDoubles?: (result: T) => number[];
+        },
+    ): Promise<T> {
+        const t0 = performance.now();
+        try {
+            const result = await fn();
+            this.writeServicesRpcMetric(env, options, performance.now() - t0, true, options.successDoubles?.(result));
+            return result;
+        } catch (err) {
+            this.writeServicesRpcMetric(env, options, performance.now() - t0, false);
+            throw err;
         }
-        return this.sqlPromise;
+    }
+
+    private writeServicesRpcMetric(
+        env: ObjectsEnv,
+        options: {
+            metric: string;
+            identifier: string;
+            agentMessageId?: string;
+        },
+        durationMs: number,
+        success: boolean,
+        extraDoubles: number[] = [],
+    ) {
+        writeStreamMetric(env, {
+            metric: options.metric,
+            // Permission checks happen before the active stream lookup, so agentMessageId is not always known.
+            // In that path indexes[0] falls back to the topic identifier.
+            indexes: [options.agentMessageId ?? options.identifier],
+            blobs: [options.identifier, this.previewAlias, options.agentMessageId, this.topicPrefix],
+            doubles: [durationMs, success ? 1 : 0, ...extraDoubles],
+        });
     }
 }

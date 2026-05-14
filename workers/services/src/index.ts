@@ -1,12 +1,15 @@
 import { createClerkClient } from '@clerk/backend';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Hono } from 'hono';
+import type { SubscribeInfoResponse } from '@/lib/schema/subscribe-info';
 import { branchDoName, getPreviewAlias, PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
 import {
     exportArtifactVersionDocx,
     type ExportArtifactVersionDocxInput,
     type ExportArtifactVersionDocxResult,
 } from './docx-exporter';
+import { getTopicSubscribeInfo } from './chat/chat-policy';
+import { clearActiveStream, deadManCleanup } from './chat/stream-cleanup';
 import {
     getLangfusePromptRawRpc,
     type GetLangfusePromptRawInput,
@@ -34,6 +37,13 @@ app.get('/', (c) => {
 app.get('/health', (c) => {
     return c.json({ status: 'healthy' });
 });
+
+// Internal RPC surface lives on WorkerEntrypoint classes (e.g. ChatServices below).
+// HTTP /internal/* is intentionally not exposed — service bindings target the
+// named entrypoint directly. This 404 is a guardrail against re-introducing
+// HTTP-style internal routes by accident. Do not remove without removing the
+// entrypoint class too.
+app.all('/internal/*', (c) => c.notFound());
 
 // WebSocket upgrade — authenticates via Clerk, then forwards to UserGateway DO
 app.get('/ws', async (c) => {
@@ -77,3 +87,17 @@ app.get('/ws', async (c) => {
 });
 
 export default app;
+
+export class ChatServices extends WorkerEntrypoint<ServicesEnv> {
+    async getTopicSubscribeInfo(req: unknown): Promise<SubscribeInfoResponse> {
+        return getTopicSubscribeInfo(this.env, req);
+    }
+
+    async clearActiveStream(req: unknown): Promise<void> {
+        return clearActiveStream(this.env, req);
+    }
+
+    async deadManCleanup(req: unknown): Promise<void> {
+        return deadManCleanup(this.env, req);
+    }
+}

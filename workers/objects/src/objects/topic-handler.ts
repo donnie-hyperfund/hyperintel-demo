@@ -20,6 +20,13 @@ export type SubscribeResponse =
       }
     | { status: 'stale'; selectedModel?: string | null; completionBriefStatus?: string | null };
 
+export type AllowedSubscribe<TSubscribeInfo = unknown> = {
+    allowed: true;
+    subscribeInfo: TSubscribeInfo;
+};
+
+export type SubscribeDecision<TSubscribeInfo = unknown> = { allowed: false } | AllowedSubscribe<TSubscribeInfo>;
+
 /** Result returned by a handler's handleAction method */
 export type ActionResult = {
     /** If set, UG broadcasts this to all sockets subscribed to the topic */
@@ -30,10 +37,15 @@ export type ActionResult = {
 
 export interface TopicHandler {
     /** Check if a user is allowed to subscribe to a given identifier (part after prefix) */
-    canSubscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<boolean>;
+    canSubscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<SubscribeDecision>;
 
     /** Subscribe a user to a topic — returns snapshot or idle status */
-    subscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<SubscribeResponse>;
+    subscribe(
+        userId: string,
+        identifier: string,
+        env: ObjectsEnv,
+        decision: AllowedSubscribe,
+    ): Promise<SubscribeResponse>;
 
     /** Unsubscribe a user from a topic */
     unsubscribe(userId: string, identifier: string): void;

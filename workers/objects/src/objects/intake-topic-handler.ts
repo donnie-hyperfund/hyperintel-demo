@@ -48,37 +48,19 @@ const SK_PREFIX = 'intake:stream:';
  *  - abort action handling
  *
  * This class adds:
- *  - checkPermission() — user owns the intake chat (type: 'intake', direct user ownership)
  *  - registerStream / clearStream — system actions from the intake worker
  *  - tool_approve / tool_reject — client actions forwarded to ChatStreamDO
  *  - decision_select — client action forwarded to ChatStreamDO (resolves request_user_decision)
  */
 export class IntakeTopicHandler extends StreamTopicHandler {
+    protected readonly topicPrefix = 'intake';
+
     // ========================================================================
     // STORAGE KEY PREFIX
     // ========================================================================
 
     protected get skPrefix(): string {
         return SK_PREFIX;
-    }
-
-    // ========================================================================
-    // PERMISSION CHECK
-    // ========================================================================
-
-    /**
-     * Permission: user owns the intake chat directly (not via project).
-     * Intake chats have type = 'intake' and are linked to user via user_id.
-     */
-    async checkPermission(userId: string, chatId: string, env: ObjectsEnv): Promise<boolean> {
-        const sql = await this.getSql(env);
-        const rows = await sql`
-			SELECT 1 FROM chats c
-			JOIN users u ON c.user_id = u.id
-			WHERE c.id = ${chatId} AND c.type = 'intake' AND u.clerk_id = ${userId}
-			LIMIT 1
-		`;
-        return rows.length > 0;
     }
 
     // ========================================================================
