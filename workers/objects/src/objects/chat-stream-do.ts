@@ -359,6 +359,32 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
                 break;
             }
 
+            case 'summary_start': {
+                const doc = this.activeDocuments.get(event.name);
+                if (doc) {
+                    doc.summaryInternal = '';
+                    doc.summaryVersionId = event.versionId;
+                }
+                break;
+            }
+
+            case 'summary_delta': {
+                const doc = this.activeDocuments.get(event.name);
+                if (doc?.summaryVersionId === event.versionId) {
+                    doc.summaryInternal = (doc.summaryInternal ?? '') + event.content;
+                }
+                break;
+            }
+
+            case 'summary_complete': {
+                const doc = this.activeDocuments.get(event.name);
+                if (doc?.summaryVersionId === event.versionId) {
+                    doc.summaryInternal = event.content;
+                    delete doc.summaryVersionId;
+                }
+                break;
+            }
+
             case 'document_complete': {
                 this.activeDocuments.delete(event.name);
                 break;

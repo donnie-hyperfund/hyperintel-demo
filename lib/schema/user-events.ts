@@ -13,11 +13,15 @@ export const ArtifactStreamStartedPayloadSchema = z.object({
     domain: z.enum(['chat', 'intake']),
     chatType: z.enum(['phase', 'company', 'stakeholder']).optional(),
     projectId: z.string().uuid().nullable().optional(),
+    projectName: z.string().nullable().optional(),
     phaseName: z.string().nullable().optional(),
     phaseIndex: z.number().int().nullable().optional(),
     artifactKey: z.string(),
     artifactName: z.string(),
     version: z.number().int(),
+    isInternal: z.boolean().optional(),
+    mode: z.enum(['create', 'edit', 'replace']).optional(),
+    loadedVersion: z.number().int().optional(),
 });
 export type ArtifactStreamStartedPayload = z.infer<typeof ArtifactStreamStartedPayloadSchema>;
 

@@ -10,6 +10,7 @@ import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
+import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { ApiClientError, type CamelCaseDto } from '@/lib/api/client/types';
 import {
     abort,
@@ -275,6 +276,7 @@ export function ChatProvider({
 
     // Create API client with auth
     const api = useMemo(() => createApiClient(getToken), [getToken]);
+    const { data: project } = useFetchProject(chatType === 'phase' ? projectId : undefined);
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
@@ -745,7 +747,13 @@ export function ChatProvider({
         onArtifactOpen: handleArtifactOpen,
         fetchArtifact,
         revalidateArtifact: revalidateArtifactByKeyAndVersion,
-        streamLocation: { chatType, projectId, phaseName: state.phaseName, phaseIndex: state.phaseIndex },
+        streamLocation: {
+            chatType,
+            projectId,
+            projectName: project?.name ?? null,
+            phaseName: state.phaseName,
+            phaseIndex: state.phaseIndex,
+        },
         onStreamStarted: handleStreamStarted,
         onTerminalTool,
         onMessageCreated: handleMessageCreated,

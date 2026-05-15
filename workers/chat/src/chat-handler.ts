@@ -689,11 +689,15 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         domain: 'chat' as const,
                         chatType: 'phase' as const,
                         projectId: agentCtx.projectId ?? null,
+                        projectName: chat.project?.name ?? null,
                         phaseName: chat.name ?? null,
                         phaseIndex: chat.phase_index ?? null,
                         artifactKey: event.name,
                         artifactName: event.title,
                         version: event.pendingVersion,
+                        isInternal: event.isInternal,
+                        mode: event.mode,
+                        loadedVersion: event.loadedVersion,
                     });
                 } else if (event.type === 'document_complete') {
                     void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {

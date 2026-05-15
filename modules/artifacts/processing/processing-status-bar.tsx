@@ -90,9 +90,14 @@ function toProcessingEntry(entry: ProcessingEntry): StatusBarEntry {
 }
 
 function formatStreamLabel(stream: ActiveArtifactStream): string {
-    const { phaseName, phaseIndex } = stream.location;
+    if (stream.location.chatType !== 'phase') {
+        return `Generating ${stream.artifactName}`;
+    }
+
+    const { phaseName, phaseIndex, projectName } = stream.location;
     const phaseLabel = phaseName ?? (phaseIndex != null ? `Phase ${phaseIndex + 1}` : undefined);
-    return phaseLabel ? `Generating ${stream.artifactName} in ${phaseLabel}` : `Generating ${stream.artifactName}`;
+    const location = [projectName, phaseLabel].filter(Boolean).join(', ');
+    return location ? `Generating ${stream.artifactName} — ${location}` : `Generating ${stream.artifactName}`;
 }
 
 function toStreamEntry(stream: ActiveArtifactStream, onNavigate: () => void): StatusBarEntry {
@@ -108,19 +113,25 @@ function toStreamEntry(stream: ActiveArtifactStream, onNavigate: () => void): St
 }
 
 function buildStreamArtifactHref(stream: ActiveArtifactStream): string | null {
-    const params = new URLSearchParams({
-        [SEARCH_PARAMS.OPEN_ARTIFACT_KEY]: stream.artifactKey,
-        [SEARCH_PARAMS.OPEN_ARTIFACT_VERSION]: String(stream.version),
-    });
+    const params = new URLSearchParams();
+    if (stream.previewTarget) {
+        params.set(SEARCH_PARAMS.OPEN_ARTIFACT_KEY, stream.previewTarget.artifactKey);
+        params.set(SEARCH_PARAMS.OPEN_ARTIFACT_VERSION, String(stream.previewTarget.version));
+    }
+
+    const query = params.toString();
 
     if (stream.location.projectId) {
-        return `/${stream.location.projectId}/${stream.chatId}?${params}`;
+        const path = `/${stream.location.projectId}/${stream.chatId}`;
+        return query ? `${path}?${query}` : path;
     }
     if (stream.location.chatType === 'company') {
-        return `/companies/${stream.chatId}?${params}`;
+        const path = `/companies/${stream.chatId}`;
+        return query ? `${path}?${query}` : path;
     }
     if (stream.location.chatType === 'stakeholder') {
-        return `/stakeholders/${stream.chatId}?${params}`;
+        const path = `/stakeholders/${stream.chatId}`;
+        return query ? `${path}?${query}` : path;
     }
     return null;
 }
@@ -136,7 +147,16 @@ export function ProcessingStatusBar() {
             ...visibleEntries.map(toProcessingEntry),
             ...activeStreams.map((stream) =>
                 toStreamEntry(stream, () => {
-                    if (streamMonitor.tryActivate(stream.chatId, stream.artifactKey, stream.version)) return;
+                    if (
+                        stream.previewTarget &&
+                        streamMonitor.tryActivate({
+                            chatId: stream.chatId,
+                            artifactKey: stream.previewTarget.artifactKey,
+                            version: stream.previewTarget.version,
+                        })
+                    ) {
+                        return;
+                    }
                     const href = buildStreamArtifactHref(stream);
                     if (href) router.push(href);
                 }),

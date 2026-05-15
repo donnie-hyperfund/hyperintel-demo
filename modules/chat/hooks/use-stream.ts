@@ -22,6 +22,7 @@ import { useWebsocket } from '@/lib/websocket/provider';
 import type { ApprovalAction } from '@/modules/artifacts/processing/types';
 import type { ArtifactUpdate, VersionKey } from '@/modules/artifacts/providers/artifact-provider';
 import { useArtifactStreamMonitor } from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
+import { getPreviousArtifactVersion } from '@/modules/artifacts/streaming/versions';
 import { getLatestArtifactVersionContent, getLatestArtifactVersionTitle } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
 
@@ -98,6 +99,7 @@ export type UseStreamOptions = {
     streamLocation?: {
         chatType?: 'phase' | 'company' | 'stakeholder';
         projectId?: string;
+        projectName?: string | null;
         phaseName?: string | null;
         phaseIndex?: number | null;
     };
@@ -459,7 +461,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 const artifactId = payload.name;
                 const now = new Date().toISOString();
                 const startVersion =
-                    payload.mode === 'create' ? 1 : (payload.nextVersion ?? (payload.loadedVersion ?? 1) + 1);
+                    payload.pendingVersion ??
+                    (payload.mode === 'create' ? 1 : (payload.nextVersion ?? (payload.loadedVersion ?? 1) + 1));
+                const previousVersion = getPreviousArtifactVersion(startVersion);
                 o.onDocumentStart?.({ artifactKey: artifactId, artifactName: payload.title, version: startVersion });
                 if (id && o.streamLocation) {
                     streamMonitor.register({
@@ -468,6 +472,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         artifactKey: artifactId,
                         artifactName: payload.title,
                         version: startVersion,
+                        ...(payload.isInternal !== undefined ? { isInternal: payload.isInternal } : {}),
+                        ...(payload.mode ? { mode: payload.mode } : {}),
+                        ...(payload.loadedVersion !== undefined ? { loadedVersion: payload.loadedVersion } : {}),
+                        ...(previousVersion !== undefined ? { previousVersion } : {}),
                         source: 'local',
                     });
                 }
@@ -522,7 +530,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         existingArtifact = await o.fetchArtifact(artifactId, loadedVersion);
                     }
 
-                    const newVersion = payload.nextVersion ?? loadedVersion + 1;
+                    const newVersion = startVersion;
+                    const previousVersionForUpdate = getPreviousArtifactVersion(newVersion);
                     const loadedContent =
                         !isInternal && existingArtifact
                             ? (getLatestArtifactVersionContent(existingArtifact) ?? '')
@@ -541,8 +550,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         isInternal,
                     });
 
-                    if (isInternal) {
-                        ac?.updateArtifact(artifactId, { isUpdating: true }, loadedVersion);
+                    if (isInternal && previousVersionForUpdate !== undefined) {
+                        if (!ac?.getArtifact(artifactId, previousVersionForUpdate) && o.fetchArtifact) {
+                            await o.fetchArtifact(artifactId, previousVersionForUpdate);
+                        }
+                        ac?.updateArtifact(artifactId, { isUpdating: true }, previousVersionForUpdate);
                     }
 
                     ac?.addArtifact(
@@ -653,6 +665,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         },
                         doc.version,
                     );
+                    const previousVersion = getPreviousArtifactVersion(doc.version);
+                    if (previousVersion !== undefined) {
+                        ac?.updateArtifact(doc.artifactId, { isUpdating: false }, previousVersion);
+                    }
 
                     s.streamingDocs.delete(payload.name);
                     if (id) streamMonitor.unregister(id, doc.artifactId);
@@ -681,8 +697,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
                 ac?.updateArtifact(doc.artifactId, completionUpdates, doc.version);
 
-                if (doc.loadedVersion !== undefined && doc.loadedVersion !== doc.version) {
-                    ac?.updateArtifact(doc.artifactId, { isUpdating: false }, doc.loadedVersion);
+                const previousVersion = getPreviousArtifactVersion(doc.version);
+                if (previousVersion !== undefined) {
+                    ac?.updateArtifact(doc.artifactId, { isUpdating: false }, previousVersion);
                 }
 
                 s.streamingDocs.delete(payload.name);
@@ -710,6 +727,13 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     },
                     payload.version,
                 );
+                if (id) {
+                    streamMonitor.markSummaryStarted({
+                        chatId: id,
+                        artifactKey: payload.name,
+                        version: payload.version,
+                    });
+                }
                 o.onArtifactOpen?.(payload.name, payload.version);
                 flushActiveDocuments();
                 break;
@@ -849,8 +873,29 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             for (const doc of sr.snapshot.activeDocuments) {
                                 // Fail-closed: only show content when isInternal is explicitly false.
                                 const snapshotContent = doc.isInternal === false ? doc.content : '';
-                                if (doc.isInternal && doc.mode === 'edit' && doc.loadedVersion !== undefined) {
-                                    o.artifactContext.updateArtifact(doc.name, { isUpdating: true }, doc.loadedVersion);
+                                const hasSummary =
+                                    doc.summaryInternal !== undefined || doc.summaryVersionId !== undefined;
+                                const previousVersion = getPreviousArtifactVersion(doc.pendingVersion);
+                                if (
+                                    doc.isInternal &&
+                                    (doc.mode === 'edit' || doc.mode === 'replace') &&
+                                    previousVersion !== undefined
+                                ) {
+                                    if (o.artifactContext.getArtifact(doc.name, previousVersion)) {
+                                        o.artifactContext.updateArtifact(
+                                            doc.name,
+                                            { isUpdating: true },
+                                            previousVersion,
+                                        );
+                                    } else if (o.fetchArtifact) {
+                                        void o.fetchArtifact(doc.name, previousVersion).then(() => {
+                                            o.artifactContext?.updateArtifact(
+                                                doc.name,
+                                                { isUpdating: true },
+                                                previousVersion,
+                                            );
+                                        });
+                                    }
                                 }
                                 // Diff base for non-internal edit/replace reconnects.
                                 // Edit: DO carries loadedContent on the snapshot (also needed for replay correctness).
@@ -881,6 +926,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                             status: 'proposed',
                                             documentType: doc.documentType,
                                             isInternal: doc.isInternal,
+                                            ...(hasSummary ? { summaryInternal: doc.summaryInternal ?? '' } : {}),
                                             createdAt: now,
                                             updatedAt: now,
                                         },
@@ -900,6 +946,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         createdAt: now,
                                         updatedAt: now,
                                         isStreaming: true,
+                                        ...(hasSummary
+                                            ? { summaryStreaming: doc.summaryInternal ?? '', isSummaryStreaming: true }
+                                            : {}),
                                         isUpdating: doc.mode === 'edit' || doc.mode === 'replace',
                                         isLoading: false,
                                         progress: doc.progress ?? 0,
@@ -915,6 +964,13 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         artifactKey: doc.name,
                                         artifactName: doc.title,
                                         version: doc.pendingVersion,
+                                        ...(doc.isInternal !== undefined ? { isInternal: doc.isInternal } : {}),
+                                        mode: doc.mode,
+                                        ...(doc.loadedVersion !== undefined
+                                            ? { loadedVersion: doc.loadedVersion }
+                                            : {}),
+                                        ...(previousVersion !== undefined ? { previousVersion } : {}),
+                                        hasSummary,
                                         source: 'local',
                                     });
                                 }
@@ -952,7 +1008,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                     });
                                 }
 
-                                if (!doc.isInternal) {
+                                if (!doc.isInternal || hasSummary) {
                                     o.onArtifactOpen?.(doc.name, doc.pendingVersion);
                                 }
                             }

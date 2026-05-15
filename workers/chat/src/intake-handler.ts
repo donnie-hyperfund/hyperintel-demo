@@ -515,11 +515,15 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         domain: 'intake' as const,
                         chatType: intakeChatType,
                         projectId: null,
+                        projectName: null,
                         phaseName: null,
                         phaseIndex: null,
                         artifactKey: event.name,
                         artifactName: event.title,
                         version: event.pendingVersion,
+                        isInternal: event.isInternal,
+                        mode: event.mode,
+                        loadedVersion: event.loadedVersion,
                     });
                 } else if (event.type === 'document_complete') {
                     void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {
