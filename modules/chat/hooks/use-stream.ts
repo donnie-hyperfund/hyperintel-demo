@@ -731,10 +731,6 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         ownedAgentMessageIdRef.current = null;
         streamTerminalRef.current = false;
 
-        // Subscribe (ref-counted in WS client)
-        const unsub = ws.subscribe(topic);
-        streamMonitor.release(id);
-
         // Track initial connection for reconnect detection
         let isFirstConnect = !ws.connected;
 
@@ -1290,6 +1286,18 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
         ws.on('message', onMessage);
         ws.on('connected', onConnected);
+
+        const wasMonitoredInBackground = streamMonitor.isMonitoring(id);
+
+        // Subscribe (ref-counted in WS client). If a background monitor already
+        // owns the topic, this increments the local ref count without sending a
+        // new subscribe frame. After releasing the monitor, explicitly ask for a
+        // fresh snapshot so this hook can reconcile stale DB active-stream state.
+        const unsub = ws.subscribe(topic);
+        streamMonitor.release(id);
+        if (wasMonitoredInBackground) {
+            ws.refreshSubscription(topic);
+        }
 
         return () => {
             ws.off('message', onMessage);

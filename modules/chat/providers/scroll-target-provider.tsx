@@ -4,6 +4,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { useOpenArtifactParam } from '@/hooks/use-open-artifact-param';
 import { useScrollToArtifactParam } from '@/hooks/use-scroll-to-artifact-param';
 import { useArtifactStreamMonitor } from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
+import { useRouteChatId } from '@/modules/chat/hooks/use-route-chat-id';
 import { useActivePanelContext } from './active-panel-provider';
 import { useChatContext } from './chat-provider';
 
@@ -33,6 +34,8 @@ export function ScrollTargetProvider({ children }: { children: ReactNode }) {
     const { pushPanel } = useActivePanelContext();
     const streamMonitor = useArtifactStreamMonitor();
     const { chatId } = useChatContext();
+    const routeChatId = useRouteChatId();
+    const isRouteChatReady = !routeChatId || chatId === routeChatId;
     const [target, setTarget] = useState<ScrollTarget | null>(null);
     const foundRef = useRef(false);
     const clearParamsRef = useRef(clearParams);
@@ -50,22 +53,22 @@ export function ScrollTargetProvider({ children }: { children: ReactNode }) {
     }, [paramTarget]);
 
     useEffect(() => {
-        if (!openTarget) return;
+        if (!openTarget || !isRouteChatReady) return;
 
         pushPanel(
             { panel: 'artifact-preview', artifactId: openTarget.key, version: openTarget.version },
             { reset: true },
         );
         clearOpenParamsRef.current();
-    }, [openTarget, pushPanel]);
+    }, [openTarget, isRouteChatReady, pushPanel]);
 
     useEffect(() => {
-        if (!chatId) return;
+        if (!chatId || !isRouteChatReady) return;
         streamMonitor.setActivationHandler(chatId, (artifactKey, version) => {
             pushPanel({ panel: 'artifact-preview', artifactId: artifactKey, version }, { reset: true });
         });
         return () => streamMonitor.setActivationHandler(chatId, null);
-    }, [streamMonitor, chatId, pushPanel]);
+    }, [streamMonitor, chatId, isRouteChatReady, pushPanel]);
 
     const markFound = useCallback(() => {
         foundRef.current = true;

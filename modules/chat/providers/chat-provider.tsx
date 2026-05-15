@@ -160,6 +160,8 @@ type ChatProviderProps = {
     onChatCreated?: (chatId: string) => void;
 };
 
+type StreamSubscribeStatus = 'idle' | 'streaming' | 'stale';
+
 function buildContextValue(
     chatType: ChatType,
     projectId: string | undefined,
@@ -324,6 +326,7 @@ export function ChatProvider({
     // Forward ref for reconnect handler (loadMessages is defined later)
     const loadMessagesRef = useRef<() => void>(() => {});
     const loadedChatIdRef = useRef<string | null>(null);
+    const streamSubscribeStatusRef = useRef<{ chatId: string; status: StreamSubscribeStatus } | null>(null);
 
     // When ensureChatId creates a chat, the draft moves from the new-chat
     // session key to the created-chat key before route state changes.
@@ -355,6 +358,7 @@ export function ChatProvider({
 
                 skipNextLoad.current = true;
                 migrateDraft(nextChatId);
+                chatIdRef.current = nextChatId;
                 setChatId(nextChatId);
                 setState((prev) => ({ ...prev, phaseIndex: newChat.phaseIndex, phaseName: newChat.name ?? null }));
 
@@ -372,6 +376,7 @@ export function ChatProvider({
 
             skipNextLoad.current = true;
             migrateDraft(nextChatId);
+            chatIdRef.current = nextChatId;
             setChatId(nextChatId);
             onChatCreated?.(nextChatId);
 
@@ -749,20 +754,33 @@ export function ChatProvider({
         // when the initial WS subscribe_response confirms no active stream.
         // Also sync selectedModel from the subscribe response.
         onSubscribeResponse: (
-            status: 'idle' | 'streaming' | 'stale',
+            status: StreamSubscribeStatus,
             selectedModel: string | null,
             completionBriefStatus: string | null,
         ) => {
+            if (chatId) {
+                streamSubscribeStatusRef.current = { chatId, status };
+            }
             if (selectedModel) {
                 setSelectedModel(selectedModel);
             }
             setState((prev) => {
                 const next = { ...prev, completionBriefStatus };
-                if (status === 'idle' && !sendInFlightRef.current && (prev.isGenerating || prev.isSummarizing)) {
+                const hasStreamingMessages = prev.messages.some((message) => message.isStreaming);
+                if (
+                    status === 'idle' &&
+                    !sendInFlightRef.current &&
+                    (prev.isGenerating || prev.isSummarizing || prev.activeResponseId || hasStreamingMessages)
+                ) {
                     summarizeInFlightRef.current = false;
                     next.isGenerating = false;
                     next.isSummarizing = false;
                     next.activeResponseId = null;
+                    if (hasStreamingMessages) {
+                        next.messages = prev.messages.map((message) =>
+                            message.isStreaming ? { ...message, isStreaming: false, status: undefined } : message,
+                        );
+                    }
                 }
                 return next;
             });
@@ -1067,9 +1085,16 @@ export function ChatProvider({
                     api.messages.list(targetChatId, { page: 1 }),
                     api.chats.get(targetChatId),
                 ]);
+                if (chatIdRef.current !== targetChatId) return;
+
+                const subscribeStatus = streamSubscribeStatusRef.current;
+                const subscribeConfirmedIdle =
+                    subscribeStatus?.chatId === targetChatId && subscribeStatus.status === 'idle';
+                const activeAgentMessageId = subscribeConfirmedIdle ? null : chatData.activeAgentMessageId;
+
                 // API returns DESC order (newest first), reverse for display (newest at bottom)
                 const apiMessages: Message[] =
-                    messagesData.data?.map((m) => mapApiMessage(m, chatData.activeAgentMessageId)) || [];
+                    messagesData.data?.map((message) => mapApiMessage(message, activeAgentMessageId)) || [];
 
                 // Sync model selection — DB is source of truth for existing chats
                 if (chatData.selectedModel) {
@@ -1081,14 +1106,14 @@ export function ChatProvider({
 
                     // Preserve the active streaming bubble if it hasn't hit the DB yet
                     // so it doesn't blink out of existence during the HTTP load
-                    const streamingMsg = prev.messages.find((m) => m.isStreaming);
+                    const streamingMsg = activeAgentMessageId ? prev.messages.find((m) => m.isStreaming) : undefined;
                     if (streamingMsg && !apiMessagesReversed.some((m) => m.id === streamingMsg.id)) {
                         apiMessagesReversed.push(streamingMsg);
                     }
 
                     // Don't set isGenerating if we already know this is a summary stream
                     // (active_agent_message_id is set for both chat and summary streams in DB)
-                    const hasActiveStream = !!chatData.activeAgentMessageId;
+                    const hasActiveStream = !!activeAgentMessageId;
 
                     const transitionMarker = chatData.metadata?.contextLimitTransition as
                         | { status: string; message?: string }
@@ -1110,7 +1135,7 @@ export function ChatProvider({
                         messages: apiMessagesReversed,
                         isLoading: false,
                         isGenerating: prev.isSummarizing ? false : hasActiveStream,
-                        activeResponseId: prev.isSummarizing ? null : (chatData.activeAgentMessageId ?? null),
+                        activeResponseId: prev.isSummarizing ? null : (activeAgentMessageId ?? null),
                         tokenUsage: chatData.tokenUsage ?? null,
                         totalCost: chatData.totalCost != null ? Number(chatData.totalCost) : null,
                         hasPendingChanges: chatData.hasPendingChanges ?? false,
@@ -1130,6 +1155,7 @@ export function ChatProvider({
                 });
                 loadedChatIdRef.current = targetChatId;
             } catch (error) {
+                if (chatIdRef.current !== targetChatId) return;
                 console.error('Error loading messages:', error);
                 setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
             }
@@ -1148,6 +1174,8 @@ export function ChatProvider({
             if (nextChatId === chatIdRef.current && loadedChatIdRef.current === nextChatId) return;
 
             if (nextChatId !== chatIdRef.current) {
+                streamSubscribeStatusRef.current = null;
+                chatIdRef.current = nextChatId;
                 setChatId(nextChatId);
                 setPagination(createInitialPagination());
                 setState((prev) => ({
@@ -1167,6 +1195,8 @@ export function ChatProvider({
         skipNextLoad.current = false;
         chatCreationPromiseRef.current = null;
         loadedChatIdRef.current = null;
+        streamSubscribeStatusRef.current = null;
+        chatIdRef.current = null;
         setChatId(null);
         setPagination(createInitialPagination());
         setState(createInitialChatState());
