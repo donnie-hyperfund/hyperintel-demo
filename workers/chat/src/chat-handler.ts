@@ -35,6 +35,7 @@ import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
 import { cleanupActiveDraftReservation } from './utils/active-draft-cleanup';
 import { broadcastUserEvent } from './utils/broadcast';
 import { looksLikeCompletionBriefIntent } from './utils/cb-intent';
+import { callChatServicesSystemAction } from './utils/chat-services';
 import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
 import { type ContextOverflowState, evaluateContextGate, maybeRecordContextOverflow } from './utils/context-overflow';
@@ -446,25 +447,27 @@ export async function chatActionHandler(
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
     if (userMsg) {
-        const messagePayload: Record<string, unknown> = { message: userMsg.toJSON() };
-        if (tempId) {
-            messagePayload.tempId = tempId;
-        }
-        await ugStub.systemAction(`chat:${chatId}`, 'messageCreated', messagePayload, alias ?? undefined);
+        await callChatServicesSystemAction(ctx, {
+            action: 'messageCreated',
+            prefix: 'chat',
+            identifier: chatId,
+            userId: ctx.user.userId,
+            previewAlias: alias,
+            message: userMsg.toJSON(),
+            ...(tempId && { tempId }),
+        });
     }
 
-    // Register stream via UG → ChatTopicHandler → ChatStream DO init
-    // Pass userId so the handler can auto-subscribe the initiator to the ChatStream DO
-    await ugStub.systemAction(
-        `chat:${chatId}`,
-        'registerStream',
-        {
-            agentMessageId,
-            userId: ctx.user.userId,
-            userMessageId,
-        },
-        alias ?? undefined,
-    );
+    // Register stream via services → ChatStreamDO init (+ auto-subscribe initiator) → UG broadcast
+    await callChatServicesSystemAction(ctx, {
+        action: 'registerStream',
+        prefix: 'chat',
+        identifier: chatId,
+        userId: ctx.user.userId,
+        previewAlias: alias,
+        agentMessageId,
+        userMessageId,
+    });
 
     // --- Test mode: keep existing direct-call behavior ---
     if (options.onEvent) {
@@ -611,16 +614,16 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
                     .catch(console.error);
 
-                // Broadcast CB status change via chat-scoped UG topic
+                // Broadcast CB status change via chat-scoped topic
                 if (event.documentType === 'Completion Brief') {
-                    ugStub
-                        .systemAction(
-                            `chat:${chatId}`,
-                            'cbStatusChanged',
-                            { status: 'proposed' },
-                            ctx.previewAlias ?? undefined,
-                        )
-                        .catch(console.error);
+                    callChatServicesSystemAction(ctx, {
+                        action: 'cbStatusChanged',
+                        prefix: 'chat',
+                        identifier: chatId,
+                        userId: ctx.user.userId,
+                        previewAlias: ctx.previewAlias,
+                        status: 'proposed',
+                    }).catch(console.error);
                 }
             },
         };
@@ -1044,12 +1047,10 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         await finalizeSafetyMonitor(safetyMonitor, em!, agentMessageId);
 
         if (terminalDoneDelivered) {
-            await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
+            await finalizeStream(streamDO);
         } else {
             await finalizeStreamWithoutDone({
                 streamDO,
-                ugStub,
-                topic: `chat:${chatId}`,
                 label: 'chat-handler',
             });
         }
@@ -1095,8 +1096,6 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         await cleanupStreamDO({
             pusher,
             streamDO,
-            ugStub,
-            topic: `chat:${chatId}`,
             error,
             errorMetadata,
         });

@@ -30,6 +30,7 @@ import {
     StartPendingPhaseActionSchema,
 } from '@/lib/schema/chat';
 import { ImportArtifactsActionSchema } from '@/lib/schema/project';
+import { SystemActionRequestSchema } from '@/lib/schema/system-actions';
 import { branchDoName, getPreviewAlias } from '@/workers/_common/util/preview-alias';
 import { approveArtifactHandler, rejectArtifactHandler } from './artifact-approver';
 import { deleteArtifactHandler } from './artifact-deleter';
@@ -51,7 +52,6 @@ import {
     PresignImageUploadSchema,
     presignImageUploadHandler,
 } from './uploads/image-uploader';
-import type { UserGatewayStub } from './utils/do-stubs';
 
 const app = new Hono<HonoEnv<ChatEnv>>({ strict: false });
 const UuidSchema = z.string().uuid();
@@ -103,19 +103,23 @@ app.post('/internal/broadcast', async (c) => {
     return c.json({ ok: true });
 });
 
-// Internal M2M endpoint — topic-scoped system action (e.g. modelChanged broadcast)
+// Internal M2M endpoint — typed system-action dispatcher.
+// Body must match SystemActionRequest (discriminated union). previewAlias may
+// be omitted from the body — falls back to the X-CF-Preview-Alias header.
 app.post('/internal/system-action', async (c) => {
     const secret = await c.env.AUTH_SECRET.get();
     if (c.req.header('Authorization') !== `Bearer ${secret}`) {
         return c.json({ error: 'Unauthorized' }, 401);
     }
-    const { userId, topic, action, payload } = await c.req.json();
-    if (!userId || !topic || !action) return c.json({ error: 'Missing userId, topic, or action' }, 400);
-
-    const alias = getPreviewAlias(c.env as any, c.req.raw);
-    const ugId = c.env.USER_GATEWAY.idFromName(branchDoName(userId, alias));
-    const ugStub = c.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    await ugStub.systemAction(topic, action, payload, alias ?? undefined);
+    const body = await c.req.json();
+    const parsed = SystemActionRequestSchema.safeParse(body);
+    if (!parsed.success) {
+        return c.json({ error: 'Invalid system-action request', issues: parsed.error.issues }, 400);
+    }
+    const req = parsed.data;
+    const headerAlias = getPreviewAlias(c.env as any, c.req.raw);
+    const reqWithAlias = req.previewAlias == null && headerAlias ? { ...req, previewAlias: headerAlias } : req;
+    await c.env.CHAT_SERVICES.systemAction(reqWithAlias);
     return c.json({ ok: true });
 });
 

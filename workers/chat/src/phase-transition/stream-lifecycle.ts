@@ -1,6 +1,5 @@
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import type { Ctx } from '../context';
-import type { UserGatewayStub } from '../utils/do-stubs';
 import {
     buildStoredErrorMetadata,
     buildWorkerErrorLogContext,
@@ -15,10 +14,9 @@ export async function cancelPhaseTransition(opts: {
     ctx: Ctx;
     chat: ChatEntity;
     chatId: string;
-    ugStub: UserGatewayStub;
     infra: PhaseTransitionInfra;
 }): Promise<false> {
-    const { ctx, chat, chatId, ugStub, infra } = opts;
+    const { ctx, chat, chatId, infra } = opts;
     chat.active_agent_message_id = null;
     await ctx.em!.flush();
 
@@ -26,8 +24,6 @@ export async function cancelPhaseTransition(opts: {
     await cleanupStreamDO({
         pusher: infra.pusher,
         streamDO: infra.streamDO,
-        ugStub,
-        topic: `chat:${chatId}`,
         error: cancellationError,
         errorMetadata: buildStoredErrorMetadata({
             classification: classifyWorkerError(cancellationError),
@@ -38,12 +34,10 @@ export async function cancelPhaseTransition(opts: {
 }
 
 export async function deliverSourceTransitionDone(opts: {
-    chatId: string;
     newChatId: string;
-    ugStub: UserGatewayStub;
     infra: PhaseTransitionInfra;
 }): Promise<boolean> {
-    const { chatId, newChatId, ugStub, infra } = opts;
+    const { newChatId, infra } = opts;
     await infra.pusher.waitAll();
     const terminalDoneDelivered = await pushStreamEventsWithRetry({
         streamDO: infra.streamDO,
@@ -55,14 +49,12 @@ export async function deliverSourceTransitionDone(opts: {
         console.error('[phase-transition] terminal done delivery failed; skipping stream_status:done');
         await finalizeStreamWithoutDone({
             streamDO: infra.streamDO,
-            ugStub,
-            topic: `chat:${chatId}`,
             label: 'phase-transition',
         });
         return false;
     }
 
-    await finalizeStream(infra.streamDO, ugStub, `chat:${chatId}`);
+    await finalizeStream(infra.streamDO);
     return true;
 }
 
@@ -71,11 +63,10 @@ export async function handlePhaseTransitionFailure(opts: {
     chat: ChatEntity;
     chatId: string;
     agentMessageId: string;
-    ugStub: UserGatewayStub;
     infra: PhaseTransitionInfra;
     error: unknown;
 }): Promise<false> {
-    const { ctx, chat, chatId, agentMessageId, ugStub, infra, error } = opts;
+    const { ctx, chat, chatId, agentMessageId, infra, error } = opts;
     const classification = classifyWorkerError(error);
     const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
     logWorkerError(
@@ -112,8 +103,6 @@ export async function handlePhaseTransitionFailure(opts: {
     await cleanupStreamDO({
         pusher: infra.pusher,
         streamDO: infra.streamDO,
-        ugStub,
-        topic: `chat:${chatId}`,
         error,
         errorMetadata,
     });

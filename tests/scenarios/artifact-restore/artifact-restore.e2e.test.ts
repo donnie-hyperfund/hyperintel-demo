@@ -85,6 +85,12 @@ function makeCtx(em: Awaited<ReturnType<typeof getTestEm>>) {
                     systemAction: vi.fn().mockResolvedValue(undefined),
                 })),
             },
+            CHAT_SERVICES: {
+                systemAction: vi.fn().mockResolvedValue(undefined),
+            },
+            STREAM_AE: { writeDataPoint: vi.fn() },
+            WORKER_NAME: 'hi-chat-test',
+            WORKER_NAME_FULL: 'hi-chat-test',
         },
     } as any;
 }

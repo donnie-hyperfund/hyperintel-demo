@@ -26,6 +26,7 @@ import type {
 import type { Ctx } from './context';
 import { PHASE_TRANSITION_STREAM_TYPE, runPhaseTransition } from './phase-transition';
 import { broadcastUserEvent } from './utils/broadcast';
+import { callChatServicesSystemAction } from './utils/chat-services';
 import { buildContextGateError } from './utils/context-gate-error';
 import type { UserGatewayStub } from './utils/do-stubs';
 import { findNextPhaseChat } from './utils/next-phase';
@@ -147,16 +148,15 @@ async function runApprovedBriefTransition(opts: {
         chat.active_agent_message_id = transitionAgentMessageId;
         await em!.flush();
 
-        await ugStub.systemAction(
-            `chat:${chatId}`,
-            'registerStream',
-            {
-                agentMessageId: transitionAgentMessageId,
-                userId: ctx.user.userId,
-                streamType: PHASE_TRANSITION_STREAM_TYPE,
-            },
-            alias ?? undefined,
-        );
+        await callChatServicesSystemAction(ctx, {
+            action: 'registerStream',
+            prefix: 'chat',
+            identifier: chatId,
+            userId: ctx.user.userId,
+            previewAlias: alias,
+            agentMessageId: transitionAgentMessageId,
+            streamType: PHASE_TRANSITION_STREAM_TYPE,
+        });
 
         await updateForcedBriefStatus({ ctx, chat, status: 'transitioning' });
 
@@ -331,23 +331,24 @@ async function runForcedBriefGeneration(opts: {
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
 
-    await ugStub.systemAction(
-        `chat:${chatId}`,
-        'messageCreated',
-        { message: syntheticMsg.toJSON() },
-        alias ?? undefined,
-    );
+    await callChatServicesSystemAction(ctx, {
+        action: 'messageCreated',
+        prefix: 'chat',
+        identifier: chatId,
+        userId: ctx.user.userId,
+        previewAlias: alias,
+        message: syntheticMsg.toJSON(),
+    });
 
-    await ugStub.systemAction(
-        `chat:${chatId}`,
-        'registerStream',
-        {
-            agentMessageId,
-            userId: ctx.user.userId,
-            userMessageId,
-        },
-        alias ?? undefined,
-    );
+    await callChatServicesSystemAction(ctx, {
+        action: 'registerStream',
+        prefix: 'chat',
+        identifier: chatId,
+        userId: ctx.user.userId,
+        previewAlias: alias,
+        agentMessageId,
+        userMessageId,
+    });
 
     // Synthetic message is system-driven; skip safety check.
     const safetyPromise: Promise<null> = Promise.resolve(null);

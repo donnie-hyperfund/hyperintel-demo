@@ -27,6 +27,13 @@ export type StreamSubscribeResult = {
     snapshot: StreamSnapshot;
     /** High-water mark in the same coordinate as stream event `_seq`. */
     seqHigh: number;
+    /**
+     * Sub-type of the stream (e.g. 'summary'). Set by `init()` for the new
+     * (services-driven) path. Absent when ChatStreamDO wasn't told its
+     * streamType. Once every stream starter supplies it, this is the single
+     * source of truth.
+     */
+    streamType?: 'chat' | 'summary';
 };
 
 type SequencedStreamMessage = {
@@ -63,6 +70,9 @@ const SK_TOPIC_PREFIX = 'topicPrefix';
 const SK_PREVIEW_ALIAS = 'previewAlias';
 const SK_DISPLAY_STATUS = 'displayStatus';
 const SK_BROADCAST_SEQ = 'broadcastSeq';
+/** Sub-type of the stream (e.g. 'summary'). */
+const SK_STREAM_TYPE = 'streamType';
+const SK_FIRST_BROADCAST_RECORDED = 'firstBroadcastRecorded';
 
 // ============================================================================
 // CHAT STREAM DO
@@ -90,6 +100,9 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     private userMessageId = '';
     /** Topic prefix for UG broadcasts (e.g. 'chat' or 'intake') */
     private topicPrefix: StreamTopicPrefix = 'chat';
+    /** Sub-type of this stream — set when known at init time. */
+    private streamType: 'chat' | 'summary' | null = null;
+    private firstBroadcastRecorded = false;
     /** Preview branch alias — used to resolve the correct DB on dev preview deploys */
     private previewAlias: string | null = null;
     private currentTextBlockId: string | null = null;
@@ -135,6 +148,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             previewAlias,
             displayStatus,
             broadcastSeq,
+            streamType,
+            firstBroadcastRecorded,
         ] = await Promise.all([
             this.ctx.storage.get<StreamBlock[]>(SK_BLOCKS),
             this.ctx.storage.get<[string, ActiveDocument][]>(SK_ACTIVE_DOCS),
@@ -150,6 +165,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             this.ctx.storage.get<string | null>(SK_PREVIEW_ALIAS),
             this.ctx.storage.get<string | null>(SK_DISPLAY_STATUS),
             this.ctx.storage.get<number>(SK_BROADCAST_SEQ),
+            this.ctx.storage.get<'chat' | 'summary' | null>(SK_STREAM_TYPE),
+            this.ctx.storage.get<boolean>(SK_FIRST_BROADCAST_RECORDED),
         ]);
 
         if (blocks) this.blocks = blocks;
@@ -169,6 +186,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         if (previewAlias) this.previewAlias = previewAlias;
         if (displayStatus) this.displayStatus = displayStatus;
         if (typeof broadcastSeq === 'number') this.broadcastSeq = broadcastSeq;
+        if (streamType === 'chat' || streamType === 'summary') this.streamType = streamType;
+        if (typeof firstBroadcastRecorded === 'boolean') this.firstBroadcastRecorded = firstBroadcastRecorded;
     }
 
     /** Persist all mutable state to storage */
@@ -189,6 +208,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             [SK_PREVIEW_ALIAS]: this.previewAlias,
             [SK_DISPLAY_STATUS]: this.displayStatus,
             [SK_BROADCAST_SEQ]: this.broadcastSeq,
+            [SK_STREAM_TYPE]: this.streamType,
+            [SK_FIRST_BROADCAST_RECORDED]: this.firstBroadcastRecorded,
         });
         this.trackStreamMetric('persist_state', [performance.now() - t0]);
     }
@@ -500,11 +521,30 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
      */
     private async sendBatchToSubscribers(messages: unknown[]) {
         if (this.subscribers.size === 0) return;
+        this.trackFirstBroadcastAfterRegister(messages.length);
         const sends: Promise<void>[] = [];
         for (const [userId] of this.subscribers) {
             sends.push(this.sendToUG(userId, messages));
         }
         await Promise.allSettled(sends);
+    }
+
+    /**
+     * Emit the once-per-stream `first_broadcast_after_register` metric. Must not await
+     * before iterating subscribers in `sendBatchToSubscribers` — opening the input gate
+     * here lets a concurrent `finalize()` clear `this.subscribers` before the broadcast
+     * loop runs, dropping the terminal events on error cleanup. The persistence is
+     * fire-and-forget; worst case is one duplicate metric emission per DO restart.
+     */
+    private trackFirstBroadcastAfterRegister(messageCount: number) {
+        if (this.firstBroadcastRecorded || !this.agentMessageId) return;
+        this.firstBroadcastRecorded = true;
+        void this.ctx.storage.put(SK_FIRST_BROADCAST_RECORDED, true);
+        this.trackStreamMetric(
+            'first_broadcast_after_register',
+            [Date.now(), this.subscribers.size, messageCount],
+            [this.topicPrefix],
+        );
     }
 
     /** Send messages to a single subscriber's UserGateway (awaited). */
@@ -665,7 +705,9 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
      * Initialize the DO with chatId and agentMessageId. Must be called once
      * before any subscribe or push. Sets status idle, starts dead-man alarm.
      *
-     * Called by ChatTopicHandler.registerStream() before broadcasting stream_started.
+     * Routing — "which agentMessageId is active for this chat topic" — comes
+     * from `chats.active_agent_message_id` in SQL (via `getTopicSubscribeInfo`).
+     * The DO no longer registers anything in UG storage.
      */
     async init(
         chatId: string,
@@ -673,6 +715,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         userMessageId: string,
         topicPrefix: StreamTopicPrefix = 'chat',
         previewAlias?: string,
+        streamType?: 'chat' | 'summary',
     ) {
         await this.ensureLoaded();
         this.chatId = chatId;
@@ -680,6 +723,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         this.userMessageId = userMessageId;
         this.topicPrefix = topicPrefix;
         this.previewAlias = previewAlias ?? null;
+        this.streamType = streamType ?? null;
         this.status = 'idle';
         this.nextExpectedSeq = 0;
         this.pendingBatches.clear();
@@ -732,10 +776,23 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
 
     /**
      * Register a subscriber and return the current snapshot.
+     *
+     * SQL-driven routing means subscribe may arrive in the window between
+     * `chats.active_agent_message_id = X` being committed and `init()`
+     * completing on DO X. In that window `chatId` is still empty — throw a
+     * marker error so `StreamTopicHandler.subscribe` falls through to its
+     * `catch` and returns `idle`. The imminent StreamStarted broadcast then
+     * catches the client up.
      */
     async subscribe(userId: string, ugDoName: string): Promise<StreamSubscribeResult> {
         const t0 = performance.now();
         await this.ensureLoaded();
+
+        if (this.chatId === '') {
+            // Pre-init: signal "not ready yet" via the same catch path used for
+            // already-finalized DOs.
+            throw new Error('ChatStreamDO not initialized');
+        }
 
         // Registration must precede snapshot capture so broadcasts during subscribe reach the user's UG.
         this.subscribers.set(userId, ugDoName);
@@ -755,6 +812,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         return {
             snapshot,
             seqHigh,
+            ...(this.streamType ? { streamType: this.streamType } : {}),
         };
     }
 
@@ -769,7 +827,10 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
 
     /**
      * Self-destruct — clear all state, let DO expire.
-     * Called by Worker after DB persistence.
+     * Called by Worker after DB persistence (done -> done_ext processing -> finalize).
+     *
+     * Routing is owned by SQL `chats.active_agent_message_id` (read on subscribe).
+     * No UG-side mapping to clear here.
      */
     async finalize() {
         // Resolve any pending decision long-polls with null so the agent side
@@ -789,6 +850,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         this.status = 'idle';
         this.currentTextBlockId = null;
         this.currentReasoningBlockId = null;
+        this.streamType = null;
+        this.firstBroadcastRecorded = false;
 
         // Clear storage
         await this.ctx.storage.deleteAll();

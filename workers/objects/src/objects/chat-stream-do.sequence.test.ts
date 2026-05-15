@@ -169,6 +169,24 @@ describe('ChatStreamDO sequence contract', () => {
         expect(result.snapshot.status).toBe('streaming');
     });
 
+    it('emits first-broadcast marker after registration', async () => {
+        const captured: CapturedPush[] = [];
+        const { stream, writeDataPoint } = await createStreamDO(captured);
+
+        await stream.init('chat-1', 'agent-1', 'user-msg-1', 'chat');
+        await stream.subscribe('user-1', 'ug-1');
+        await stream.push([{ type: 'delta', text: 'hello' }], 0);
+        await waitForCapturedMessages(captured, 1);
+
+        expect(writeDataPoint).toHaveBeenCalledWith(
+            expect.objectContaining({
+                indexes: ['agent-1'],
+                blobs: expect.arrayContaining(['first_broadcast_after_register', 'chat-1', 'chat']),
+                doubles: expect.arrayContaining([1, 1]),
+            }),
+        );
+    });
+
     it('calls services dead-man cleanup on alarm and finalizes', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         const captured: CapturedPush[] = [];
@@ -217,5 +235,60 @@ describe('ChatStreamDO sequence contract', () => {
             }),
         );
         await expect(ctx.storage.list()).resolves.toEqual(new Map());
+    });
+
+    /**
+     * Regression: error cleanup must deliver terminal events to subscribers.
+     *
+     * Encodes the `cleanupStreamDO` ordering (push(error,done) → done() → finalize())
+     * and asserts the subscriber received both the error stream_event and the done
+     * stream_status. The mock does not simulate CF input gates, so this test alone
+     * doesn't reproduce the runtime race — its structural guarantee is "if anything
+     * future change re-introduces an await in `sendBatchToSubscribers` before the
+     * subscriber loop, the broadcast disappears here too".
+     */
+    it('delivers terminal events when error cleanup is the first broadcast', async () => {
+        const captured: CapturedPush[] = [];
+        const { stream } = await createStreamDO(captured);
+        await initAndSubscribe(stream);
+
+        await stream.push(
+            [
+                { type: 'error', error: 'TestError' },
+                { type: 'done', error: 'TestError' },
+            ],
+            0,
+        );
+        await stream.done();
+        await stream.finalize();
+
+        const messages = captured.flatMap((push) => push.messages) as Array<{
+            type: string;
+            status?: string;
+            event?: { type: string };
+        }>;
+        const doneStatus = messages.find((m) => m.type === 'stream_status' && m.status === 'done');
+        expect(doneStatus).toBeDefined();
+        const errorEvent = messages.find((m) => m.type === 'stream_event' && m.event?.type === 'error');
+        expect(errorEvent).toBeDefined();
+    });
+
+    /**
+     * Stronger regression: `sendBatchToSubscribers` must not await between the
+     * size guard and the subscriber iteration. Asserts the invariant directly so
+     * a future await reintroduction breaks the build even where the mock can't
+     * reproduce the CF input-gate race.
+     */
+    it('sendBatchToSubscribers iterates subscribers synchronously after the size guard', () => {
+        // `private` is erased at runtime — the prototype carries the implementation.
+        const method = (ChatStreamDO.prototype as unknown as Record<string, (...args: unknown[]) => unknown>)
+            .sendBatchToSubscribers;
+        const src = method.toString();
+        const guardIdx = src.indexOf('this.subscribers.size === 0');
+        const iterIdx = src.indexOf('for (const');
+        expect(guardIdx).toBeGreaterThanOrEqual(0);
+        expect(iterIdx).toBeGreaterThan(guardIdx);
+        const between = src.slice(guardIdx, iterIdx);
+        expect(between).not.toMatch(/\bawait\b/);
     });
 });

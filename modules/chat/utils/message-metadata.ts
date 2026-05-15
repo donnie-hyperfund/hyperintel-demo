@@ -19,6 +19,7 @@ const KNOWN_CODES = new Set<PublicErrorCode>([
     'MODEL_UNAVAILABLE',
     'INVALID_REQUEST',
     'INCOMPLETE_RESPONSE',
+    'OUT_OF_FUNDS',
     'UNKNOWN',
 ]);
 

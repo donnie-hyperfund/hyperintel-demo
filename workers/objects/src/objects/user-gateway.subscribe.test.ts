@@ -16,7 +16,7 @@ import { MockCFWebSocket, MockDurableObjectId, MockDurableObjectState } from '@c
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientAction, ServerMsg } from '@/lib/schema/ws-protocol';
 import { UserGateway } from './user-gateway';
-import type { ActionResult, SubscribeResponse, TopicHandler } from './topic-handler';
+import type { SubscribeResponse, TopicHandler } from './topic-handler';
 
 // ---------------------------------------------------------------------------
 // Test handler — fully controllable from the test
@@ -64,7 +64,7 @@ function createControlledHandler(): ControlledHandler {
             return d.promise;
         },
         unsubscribe() {},
-        async handleAction(_userId, action, payload): Promise<ActionResult | void> {
+        async handleAction(_userId, action, payload): Promise<void> {
             handler.actionCalls.push({ action, payload });
         },
     };
@@ -132,14 +132,16 @@ function setupAttachedSocket(
 function makeUG(): {
     ug: UserGateway;
     ctx: MockDurableObjectState;
+    env: ObjectsEnv;
     handler: ControlledHandler;
 } {
     const ctx = new MockDurableObjectState(new MockDurableObjectId('user-1'));
-    const ug = new UserGateway(ctx as unknown as DurableObjectState, createEnv());
+    const env = createEnv();
+    const ug = new UserGateway(ctx as unknown as DurableObjectState, env);
     const handler = createControlledHandler();
     // Replace the default handlers — `test:` prefix routes to our controlled handler.
     ug.registerHandler('test', handler);
-    return { ug, ctx, handler };
+    return { ug, ctx, env, handler };
 }
 
 async function sendClient(ug: UserGateway, ws: MockCFWebSocket, payload: object): Promise<void> {
@@ -331,5 +333,46 @@ describe('UserGateway subscribe ordering (Stage 1)', () => {
         });
         const broadcasts = parseSends(raw).filter((m) => m.type === ServerMsg.StreamEvent);
         expect(broadcasts).toHaveLength(1);
+    });
+
+    it('broadcastToTopic sends a raw message only to sockets subscribed to that topic', async () => {
+        const { ug, ctx, env } = makeUG();
+        const subscribed = setupAttachedSocket(ctx, 'user-1');
+        const otherTopic = setupAttachedSocket(ctx, 'user-1');
+        const unsubscribed = setupAttachedSocket(ctx, 'user-1');
+
+        subscribed.ws.serializeAttachment({
+            userId: 'user-1',
+            subscribedTopics: ['chat:abc'],
+            sessionExpiry: undefined,
+        });
+        otherTopic.ws.serializeAttachment({
+            userId: 'user-1',
+            subscribedTopics: ['chat:other'],
+            sessionExpiry: undefined,
+        });
+
+        await ug.broadcastToTopic('chat:abc', {
+            topic: 'chat:abc',
+            type: ServerMsg.MessageCreated,
+            message: { id: 'msg-1' },
+        });
+
+        expect(parseSends(subscribed.raw)).toEqual([
+            {
+                topic: 'chat:abc',
+                type: ServerMsg.MessageCreated,
+                message: { id: 'msg-1' },
+            },
+        ]);
+        expect(otherTopic.raw.sends).toHaveLength(0);
+        expect(unsubscribed.raw.sends).toHaveLength(0);
+        expect(env.STREAM_AE.writeDataPoint).toHaveBeenCalledWith(
+            expect.objectContaining({
+                indexes: ['chat:abc'],
+                blobs: expect.arrayContaining(['ug_broadcast_to_topic_duration', 'ug_broadcast', 'chat:abc']),
+                doubles: expect.arrayContaining([1, 1]),
+            }),
+        );
     });
 });

@@ -106,6 +106,11 @@
 			"binding": "LANGFUSE_PROMPT_SERVICE",
 			"service": "hi-services",
 			"entrypoint": "LangfusePromptService"
+		},
+		{
+			"binding": "CHAT_SERVICES",
+			"service": "hi-services",
+			"entrypoint": "ChatServices"
 		}
 	],
 	"durable_objects": {
@@ -149,6 +154,12 @@
 			"0 * * * *"
 		]
 	},
+	"analytics_engine_datasets": [
+		{
+			"binding": "STREAM_AE",
+			"dataset": "hyperintel_stream_metrics"
+		}
+	],
 	"r2_buckets": [
 		{
 			"binding": "ARTIFACTS_BUCKET",
@@ -240,6 +251,11 @@
 					"binding": "LANGFUSE_PROMPT_SERVICE",
 					"service": "hi-services-dev",
 					"entrypoint": "LangfusePromptService"
+				},
+				{
+					"binding": "CHAT_SERVICES",
+					"service": "hi-services-dev",
+					"entrypoint": "ChatServices"
 				}
 			],
 			"durable_objects": {
@@ -282,6 +298,12 @@
 				{
 					"binding": "PREVIEW_DB_MAP",
 					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			],
+			"analytics_engine_datasets": [
+				{
+					"binding": "STREAM_AE",
+					"dataset": "hyperintel_stream_metrics"
 				}
 			],
 			"r2_buckets": [
@@ -375,6 +397,11 @@
 					"binding": "LANGFUSE_PROMPT_SERVICE",
 					"service": "hi-services-exp",
 					"entrypoint": "LangfusePromptService"
+				},
+				{
+					"binding": "CHAT_SERVICES",
+					"service": "hi-services-exp",
+					"entrypoint": "ChatServices"
 				}
 			],
 			"durable_objects": {
@@ -417,6 +444,12 @@
 				{
 					"binding": "PREVIEW_DB_MAP",
 					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			],
+			"analytics_engine_datasets": [
+				{
+					"binding": "STREAM_AE",
+					"dataset": "hyperintel_stream_metrics"
 				}
 			],
 			"r2_buckets": [
@@ -510,6 +543,11 @@
 					"binding": "LANGFUSE_PROMPT_SERVICE",
 					"service": "hi-services-dexp",
 					"entrypoint": "LangfusePromptService"
+				},
+				{
+					"binding": "CHAT_SERVICES",
+					"service": "hi-services-dexp",
+					"entrypoint": "ChatServices"
 				}
 			],
 			"durable_objects": {
@@ -552,6 +590,12 @@
 				{
 					"binding": "PREVIEW_DB_MAP",
 					"id": "1e9db27be0384a5b8da2244b4051b784"
+				}
+			],
+			"analytics_engine_datasets": [
+				{
+					"binding": "STREAM_AE",
+					"dataset": "hyperintel_stream_metrics"
 				}
 			],
 			"r2_buckets": [

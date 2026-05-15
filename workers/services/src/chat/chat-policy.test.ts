@@ -15,7 +15,9 @@ const env = {} as ServicesEnv;
 
 describe('getTopicSubscribeInfo', () => {
     it('allows a chat owner and returns chat subscribe metadata', async () => {
-        const sql = makeSql([{ selected_model: 'sonnet', completion_brief_status: 'approved' }]);
+        const sql = makeSql([
+            { selected_model: 'sonnet', completion_brief_status: 'approved', active_agent_message_id: 'agent-1' },
+        ]);
 
         const result = await getTopicSubscribeInfo(
             env,
@@ -31,6 +33,7 @@ describe('getTopicSubscribeInfo', () => {
 
         expect(result).toEqual({
             allowed: true,
+            activeAgentMessageId: 'agent-1',
             selectedModel: 'sonnet',
             completionBriefStatus: 'approved',
         });
@@ -55,7 +58,7 @@ describe('getTopicSubscribeInfo', () => {
     });
 
     it('preserves the intake ownership rule', async () => {
-        const sql = makeSql([{ '?column?': 1 }]);
+        const sql = makeSql([{ active_agent_message_id: null }]);
 
         const result = await getTopicSubscribeInfo(
             env,
@@ -68,7 +71,7 @@ describe('getTopicSubscribeInfo', () => {
             async () => sql,
         );
 
-        expect(result).toEqual({ allowed: true });
+        expect(result).toEqual({ allowed: true, activeAgentMessageId: null });
     });
 
     it('fails closed on malformed topic without querying SQL', async () => {
@@ -111,7 +114,9 @@ describe('getTopicSubscribeInfo', () => {
 
     it('exposes subscribe info through the ChatServices entrypoint with its bound env', async () => {
         const entryEnv = { WORKER_NAME_FULL: 'hi-services-test' } as ServicesEnv;
-        const sql = makeSql([{ selected_model: 'sonnet', completion_brief_status: null }]);
+        const sql = makeSql([
+            { selected_model: 'sonnet', completion_brief_status: null, active_agent_message_id: null },
+        ]);
         vi.mocked(createNeonSql).mockResolvedValueOnce(sql as unknown as Awaited<ReturnType<typeof createNeonSql>>);
 
         const entrypoint = new ChatServices({} as ExecutionContext, entryEnv);
@@ -121,10 +126,11 @@ describe('getTopicSubscribeInfo', () => {
             prefix: 'chat',
             identifier: 'chat-1',
             previewAlias: 'branch-a',
-        };
+        } as const;
 
         await expect(entrypoint.getTopicSubscribeInfo(req)).resolves.toEqual({
             allowed: true,
+            activeAgentMessageId: null,
             selectedModel: 'sonnet',
             completionBriefStatus: null,
         });

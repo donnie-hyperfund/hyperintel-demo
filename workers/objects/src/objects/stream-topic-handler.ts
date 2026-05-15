@@ -5,13 +5,7 @@ import type { SubscribeInfoRequest } from '@/lib/schema/subscribe-info';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { writeStreamMetric } from '@/workers/_common/vendor/analytics-engine';
 import type { StreamEvent, StreamSubscribeResult } from './chat-stream-do';
-import type {
-    ActionResult,
-    AllowedSubscribe,
-    SubscribeDecision,
-    SubscribeResponse,
-    TopicHandler,
-} from './topic-handler';
+import type { AllowedSubscribe, SubscribeDecision, SubscribeResponse, TopicHandler } from './topic-handler';
 
 // ============================================================================
 // CHAT STREAM DO RPC INTERFACE (same-worker DO — typed for RPC calls)
@@ -51,10 +45,13 @@ export interface ChatStreamDOStub {
 
 const AbortActionSchema = z.object({ identifier: z.string() });
 
-// Storage key prefix for the stream registry (shared by all streaming topic handlers)
-export const STREAM_SK_PREFIX = 'stream:registry:';
-
-export type SubscribePolicyResult = { allowed: boolean };
+export type SubscribePolicyResult = {
+    allowed: boolean;
+    /** Currently-active agent message id for this topic, sourced from SQL via
+     *  `getTopicSubscribeInfo`. Subscribe + tool-action paths use this to
+     *  address the right ChatStreamDO. */
+    activeAgentMessageId?: string | null;
+};
 
 // ============================================================================
 // STREAM TOPIC HANDLER — ABSTRACT BASE CLASS
@@ -65,20 +62,16 @@ export type SubscribePolicyResult = { allowed: boolean };
  *
  * Provides shared logic for:
  *  - Permission checking through a subclass-provided subscribe policy request
- *  - Stream registry: `identifier → agentMessageId` in DO storage
- *  - Subscribe flow: idle / streaming (with snapshot) / stale DO cleanup
+ *  - Subscribe flow: idle / streaming (with snapshot) / stale DO cleanup.
+ *    `activeAgentMessageId` for routing comes from SQL via `getTopicSubscribeInfo` —
+ *    no UG-side mapping cache.
  *  - Unsubscribe: no-op (DO expiry handles cleanup)
  *  - Abort action: forwarded to ChatStreamDO
  *
  * Subclasses must implement:
  *  - `topicPrefix` — topic namespace used for services policy/cleanup requests
- *  - `handleAction(userId, action, payload, env)` — domain-specific actions.
+ *  - `handleAction(userId, action, payload, env)` — client actions.
  *    Call `super.handleAction()` to handle the shared 'abort' case.
- *
- * Each subclass should define its own storage key prefix to avoid collisions:
- *  ```typescript
- *  protected get skPrefix() { return 'intake:stream:'; }
- *  ```
  */
 export abstract class StreamTopicHandler<TSubscribeInfo extends SubscribePolicyResult = SubscribePolicyResult>
     implements TopicHandler
@@ -97,19 +90,6 @@ export abstract class StreamTopicHandler<TSubscribeInfo extends SubscribePolicyR
 
     /** Topic namespace used for service policy/cleanup requests. */
     protected abstract readonly topicPrefix: StreamTopicPrefix;
-
-    // ========================================================================
-    // STORAGE KEY PREFIX (overridable by subclasses)
-    // ========================================================================
-
-    /**
-     * Storage key prefix for this handler's stream registry.
-     * Subclasses MUST override to avoid key collisions between handlers.
-     * Default: uses the shared constant — subclasses provide their own prefix (e.g., 'chat:stream:', 'intake:stream:').
-     */
-    protected get skPrefix(): string {
-        return STREAM_SK_PREFIX;
-    }
 
     // ========================================================================
     // PERMISSION CHECK
@@ -151,9 +131,9 @@ export abstract class StreamTopicHandler<TSubscribeInfo extends SubscribePolicyR
         userId: string,
         identifier: string,
         env: ObjectsEnv,
-        _decision: AllowedSubscribe<TSubscribeInfo>,
+        decision: AllowedSubscribe<TSubscribeInfo>,
     ): Promise<SubscribeResponse> {
-        const agentMessageId = await this.storage.get<string>(`${this.skPrefix}${identifier}`);
+        const agentMessageId = decision.subscribeInfo.activeAgentMessageId ?? null;
 
         if (!agentMessageId) {
             return { status: 'idle' };
@@ -163,18 +143,17 @@ export abstract class StreamTopicHandler<TSubscribeInfo extends SubscribePolicyR
         try {
             const stub = this.getStreamStub(env, agentMessageId);
             // UG DO name = userId (or userId@alias on dev preview branches)
-            const { snapshot, seqHigh } = await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
+            const result = await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
+            const { snapshot, seqHigh, streamType } = result;
             if (snapshot.status === 'done' || snapshot.status === 'aborted' || snapshot.status === 'error') {
-                await this.cleanupStreamKeys(identifier);
                 await this.clearActiveAgentMessageId(identifier, agentMessageId, env);
                 return { status: 'idle' };
             }
-            return { status: 'streaming', agentMessageId, snapshot, seqHigh };
+            return { status: 'streaming', agentMessageId, snapshot, seqHigh, ...(streamType ? { streamType } : {}) };
         } catch (err) {
-            // ChatStream DO is gone (already finalized) — stale registry entry
+            // ChatStream DO is gone (already finalized) — clear the SQL pointer
+            // so subsequent subscribes fall through to idle without retrying.
             console.warn(`${this.constructor.name}: ChatStream DO gone for ${identifier}, cleaning up`, err);
-            await this.cleanupStreamKeys(identifier);
-            // Also clear activeAgentMessageId on the entity (lazy fallback cleanup)
             await this.clearActiveAgentMessageId(identifier, agentMessageId, env);
             return { status: 'idle' };
         }
@@ -190,19 +169,14 @@ export abstract class StreamTopicHandler<TSubscribeInfo extends SubscribePolicyR
     }
 
     // ========================================================================
-    // ACTION HANDLING (base handles 'abort'; subclasses handle domain actions)
+    // ACTION HANDLING (base handles 'abort'; subclasses handle client actions)
     // ========================================================================
 
-    async handleAction(
-        _userId: string,
-        action: string,
-        payload: unknown,
-        env: ObjectsEnv,
-    ): Promise<ActionResult | void> {
+    async handleAction(userId: string, action: string, payload: unknown, env: ObjectsEnv): Promise<void> {
         switch (action) {
             case 'abort': {
                 const { identifier } = AbortActionSchema.parse(payload);
-                const stub = await this.resolveStream(identifier, env);
+                const stub = await this.resolveStream(userId, identifier, env);
                 if (stub) await stub.abort();
                 return;
             }
@@ -217,17 +191,21 @@ export abstract class StreamTopicHandler<TSubscribeInfo extends SubscribePolicyR
     // ========================================================================
 
     /**
-     * Delete all stream registry keys for a given identifier.
-     * Base implementation deletes only the `skPrefix + identifier` key.
-     * Subclasses that store additional suffix keys (e.g., streamType) should override.
+     * Resolve identifier → ChatStream DO stub for post-subscribe WS actions
+     * (tool_approve, tool_reject, decision_*, abort).
+     *
+     * Looks up `activeAgentMessageId` via `getTopicSubscribeInfo` — same RPC
+     * subscribe uses, also re-verifies ownership. Returns null if the user
+     * doesn't own the topic or there's no active stream.
      */
-    protected async cleanupStreamKeys(identifier: string): Promise<void> {
-        await this.storage.delete(`${this.skPrefix}${identifier}`);
-    }
-
-    /** Resolve identifier → ChatStream DO stub. Returns null if no active stream. */
-    protected async resolveStream(identifier: string, env: ObjectsEnv): Promise<ChatStreamDOStub | null> {
-        const agentMessageId = await this.storage.get<string>(`${this.skPrefix}${identifier}`);
+    protected async resolveStream(
+        userId: string,
+        identifier: string,
+        env: ObjectsEnv,
+    ): Promise<ChatStreamDOStub | null> {
+        const info = (await this.fetchSubscribeInfo(userId, identifier, env)) as TSubscribeInfo;
+        if (!info.allowed) return null;
+        const agentMessageId = info.activeAgentMessageId ?? null;
         if (!agentMessageId) return null;
         return this.getStreamStub(env, agentMessageId);
     }

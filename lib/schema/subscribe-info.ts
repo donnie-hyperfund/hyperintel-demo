@@ -15,6 +15,10 @@ export type SubscribeInfoRequest = z.infer<typeof SubscribeInfoRequestSchema>;
 
 export const SubscribeInfoResponseSchema = z.object({
     allowed: z.boolean(),
+    /** Currently-active agent message id for this chat topic. Replaces the
+     *  UG-side mapping cache: subscribe uses this to address the right
+     *  ChatStreamDO. Null when no stream is currently active. */
+    activeAgentMessageId: z.string().nullable().optional(),
     selectedModel: z.string().nullable().optional(),
     completionBriefStatus: z.string().nullable().optional(),
 });

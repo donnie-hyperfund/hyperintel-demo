@@ -58,6 +58,14 @@ function buildCtx(em: ReturnType<typeof buildEm>) {
                 idFromName: vi.fn().mockReturnValue('ug-id'),
                 get: vi.fn().mockReturnValue(ugStub),
             },
+            // hi-services bridge — system actions now route through ChatServices.
+            CHAT_SERVICES: {
+                systemAction: vi.fn().mockResolvedValue(undefined),
+            },
+            // AE binding — no-op in unit tests.
+            STREAM_AE: { writeDataPoint: vi.fn() },
+            WORKER_NAME: 'hi-chat-test',
+            WORKER_NAME_FULL: 'hi-chat-test',
         },
         user: { userId: 'user-1' },
         previewAlias: null,

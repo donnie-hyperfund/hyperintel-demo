@@ -219,11 +219,8 @@ describe.skipIf(!HAS_DB)('stream services DB-backed e2e', () => {
         const env = createEnv();
         const { raw, ug, ws } = createGateway(clerkId, env);
 
-        await ug.systemAction(`chat:${chatId}`, 'registerStream', {
-            agentMessageId,
-            userMessageId: randomUUID(),
-        });
         const stream = env.CHAT_STREAM_DO.get(env.CHAT_STREAM_DO.idFromName(agentMessageId)) as unknown as ChatStreamDO;
+        await stream.init(chatId, agentMessageId, randomUUID());
         await stream.done();
         const clearSpy = vi.spyOn(env.CHAT_SERVICES, 'clearActiveStream');
 

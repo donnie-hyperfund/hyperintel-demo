@@ -1,7 +1,9 @@
 import { createClerkClient } from '@clerk/backend';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Hono } from 'hono';
-import type { SubscribeInfoResponse } from '@/lib/schema/subscribe-info';
+import type { ClearActiveStreamRequest, DeadManCleanupRequest } from '@/lib/schema/stream-cleanup';
+import type { SubscribeInfoRequest, SubscribeInfoResponse } from '@/lib/schema/subscribe-info';
+import type { SystemActionRequest } from '@/lib/schema/system-actions';
 import { branchDoName, getPreviewAlias, PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
 import {
     exportArtifactVersionDocx,
@@ -10,6 +12,7 @@ import {
 } from './docx-exporter';
 import { getTopicSubscribeInfo } from './chat/chat-policy';
 import { clearActiveStream, deadManCleanup } from './chat/stream-cleanup';
+import { handleSystemAction } from './chat/system-actions';
 import {
     getLangfusePromptRawRpc,
     type GetLangfusePromptRawInput,
@@ -89,15 +92,26 @@ app.get('/ws', async (c) => {
 export default app;
 
 export class ChatServices extends WorkerEntrypoint<ServicesEnv> {
-    async getTopicSubscribeInfo(req: unknown): Promise<SubscribeInfoResponse> {
+    async getTopicSubscribeInfo(req: SubscribeInfoRequest): Promise<SubscribeInfoResponse> {
         return getTopicSubscribeInfo(this.env, req);
     }
 
-    async clearActiveStream(req: unknown): Promise<void> {
+    async clearActiveStream(req: ClearActiveStreamRequest): Promise<void> {
         return clearActiveStream(this.env, req);
     }
 
-    async deadManCleanup(req: unknown): Promise<void> {
+    async deadManCleanup(req: DeadManCleanupRequest): Promise<void> {
         return deadManCleanup(this.env, req);
+    }
+
+    /**
+     * Generic system-action entrypoint — discriminated-union request, internal
+     * dispatch. See `lib/schema/system-actions.ts` for the request shape and
+     * `workers/services/src/chat/system-actions.ts` for the dispatcher.
+     *
+     * Adding a new action does NOT require redeploying hi-objects.
+     */
+    async systemAction(req: SystemActionRequest): Promise<void> {
+        return handleSystemAction(this.env, req);
     }
 }

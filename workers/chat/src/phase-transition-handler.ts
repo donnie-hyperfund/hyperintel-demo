@@ -4,6 +4,7 @@ import type { PhaseTransitionActionDto } from '@/lib/schema/chat';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { Ctx } from './context';
 import { PHASE_TRANSITION_STREAM_TYPE, type PhaseTransitionOptions, runPhaseTransition } from './phase-transition';
+import { callChatServicesSystemAction } from './utils/chat-services';
 import { buildContextGateError } from './utils/context-gate-error';
 import type { UserGatewayStub } from './utils/do-stubs';
 import { findNextPhaseChat } from './utils/next-phase';
@@ -78,17 +79,15 @@ export async function phaseTransitionActionHandler(
     const alias = ctx.previewAlias;
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
-    await ugStub.systemAction(
-        `chat:${chatId}`,
-        'registerStream',
-        {
-            agentMessageId,
-            userId: ctx.user.userId,
-            streamType: PHASE_TRANSITION_STREAM_TYPE,
-            // phase transition does not have an initiating user message
-        },
-        alias ?? undefined,
-    );
+    await callChatServicesSystemAction(ctx, {
+        action: 'registerStream',
+        prefix: 'chat',
+        identifier: chatId,
+        userId: ctx.user.userId,
+        previewAlias: alias,
+        agentMessageId,
+        streamType: PHASE_TRANSITION_STREAM_TYPE,
+    });
 
     // --- Test mode: keep existing direct-call behavior ---
     if (options.onEvent) {

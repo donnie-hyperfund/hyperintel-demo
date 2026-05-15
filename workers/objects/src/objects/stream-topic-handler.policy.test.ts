@@ -92,18 +92,17 @@ describe('StreamTopicHandler services policy client', () => {
     it('merges chat metadata and streamType into streaming subscribe responses', async () => {
         const getTopicSubscribeInfo = vi.fn(async () => ({
             allowed: true,
+            activeAgentMessageId: 'agent-1',
             selectedModel: 'gpt-5.4',
             completionBriefStatus: 'pending',
         }));
         const streamSubscribe = vi.fn(async () => ({
             snapshot: { status: 'streaming', events: [{ type: 'delta', text: 'hi' }] },
             seqHigh: 7,
+            streamType: 'summary',
         }));
         const env = createEnv(getTopicSubscribeInfo, streamSubscribe);
-        const storage = createStorage();
-        await storage.put('chat:stream:chat-1', 'agent-1');
-        await storage.put('chat:stream:chat-1:type', 'summary');
-        const handler = new ChatTopicHandler(storage);
+        const handler = new ChatTopicHandler(createStorage());
 
         const decision = await handler.canSubscribe('user-1', 'chat-1', env);
         if (!decision.allowed) throw new Error('expected allowed decision');
@@ -122,16 +121,14 @@ describe('StreamTopicHandler services policy client', () => {
     });
 
     it('clears stale active stream through CHAT_SERVICES when the stream is terminal', async () => {
-        const getTopicSubscribeInfo = vi.fn(async () => ({ allowed: true }));
+        const getTopicSubscribeInfo = vi.fn(async () => ({ allowed: true, activeAgentMessageId: 'agent-1' }));
         const streamSubscribe = vi.fn(async () => ({
             snapshot: { status: 'done', events: [] },
             seqHigh: 3,
         }));
         const clearActiveStream = vi.fn(async () => {});
         const env = createEnv(getTopicSubscribeInfo, streamSubscribe, clearActiveStream);
-        const storage = createStorage();
-        await storage.put('chat:stream:chat-1', 'agent-1');
-        const handler = new ChatTopicHandler(storage);
+        const handler = new ChatTopicHandler(createStorage());
         handler.previewAlias = 'branch-a';
 
         const decision = await handler.canSubscribe('user-1', 'chat-1', env);
@@ -142,7 +139,6 @@ describe('StreamTopicHandler services policy client', () => {
             selectedModel: null,
             completionBriefStatus: null,
         });
-        await expect(storage.get('chat:stream:chat-1')).resolves.toBeUndefined();
         expect(clearActiveStream).toHaveBeenCalledWith({
             topic: 'chat:chat-1',
             prefix: 'chat',
@@ -162,7 +158,7 @@ describe('StreamTopicHandler services policy client', () => {
     it('logs stale cleanup service failures and still returns idle', async () => {
         vi.spyOn(console, 'warn').mockImplementation(() => {});
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-        const getTopicSubscribeInfo = vi.fn(async () => ({ allowed: true }));
+        const getTopicSubscribeInfo = vi.fn(async () => ({ allowed: true, activeAgentMessageId: 'agent-1' }));
         const streamSubscribe = vi.fn(async () => {
             throw new Error('stream gone');
         });
@@ -170,9 +166,7 @@ describe('StreamTopicHandler services policy client', () => {
             throw new Error('db unavailable');
         });
         const env = createEnv(getTopicSubscribeInfo, streamSubscribe, clearActiveStream);
-        const storage = createStorage();
-        await storage.put('chat:stream:chat-1', 'agent-1');
-        const handler = new ChatTopicHandler(storage);
+        const handler = new ChatTopicHandler(createStorage());
 
         const decision = await handler.canSubscribe('user-1', 'chat-1', env);
         if (!decision.allowed) throw new Error('expected allowed decision');

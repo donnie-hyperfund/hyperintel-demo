@@ -27,14 +27,6 @@ export type AllowedSubscribe<TSubscribeInfo = unknown> = {
 
 export type SubscribeDecision<TSubscribeInfo = unknown> = { allowed: false } | AllowedSubscribe<TSubscribeInfo>;
 
-/** Result returned by a handler's handleAction method */
-export type ActionResult = {
-    /** If set, UG broadcasts this to all sockets subscribed to the topic */
-    broadcast?: unknown;
-    /** Return value for the RPC caller (Worker→UG system action calls) */
-    data?: unknown;
-};
-
 export interface TopicHandler {
     /** Check if a user is allowed to subscribe to a given identifier (part after prefix) */
     canSubscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<SubscribeDecision>;
@@ -50,8 +42,8 @@ export interface TopicHandler {
     /** Unsubscribe a user from a topic */
     unsubscribe(userId: string, identifier: string): void;
 
-    /** Handle a domain-specific action. UG broadcasts result.broadcast if set. */
-    handleAction(userId: string, action: string, payload: unknown, env: ObjectsEnv): Promise<ActionResult | void>;
+    /** Handle a client action routed by topic prefix. */
+    handleAction(userId: string, action: string, payload: unknown, env: ObjectsEnv): Promise<void>;
 
     /** Called when a socket closes. Handler can track connected-ness but should NOT unsubscribe. */
     onSocketClose?(userId: string, identifier: string): void;

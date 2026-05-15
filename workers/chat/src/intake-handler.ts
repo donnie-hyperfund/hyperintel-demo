@@ -34,6 +34,7 @@ import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolG
 import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
 import { cleanupActiveDraftReservation } from './utils/active-draft-cleanup';
 import { broadcastUserEvent } from './utils/broadcast';
+import { callChatServicesSystemAction } from './utils/chat-services';
 import {
     CHAT_CONTEXT_LIMIT_TOKENS,
     createContextLimitError,
@@ -337,24 +338,27 @@ export async function intakeActionHandler(
 
     // Broadcast message_created so other tabs can reconcile the user message (skip for nudge)
     if (userMsg) {
-        const messagePayload: Record<string, unknown> = { message: userMsg.toJSON() };
-        if (data.tempId) {
-            messagePayload.tempId = data.tempId;
-        }
-        await ugStub.systemAction(`intake:${chatId}`, 'messageCreated', messagePayload, alias ?? undefined);
+        await callChatServicesSystemAction(ctx, {
+            action: 'messageCreated',
+            prefix: 'intake',
+            identifier: chatId,
+            userId: ctx.user.userId,
+            previewAlias: alias,
+            message: userMsg.toJSON(),
+            ...(data.tempId && { tempId: data.tempId }),
+        });
     }
 
-    // Register stream via UG → IntakeTopicHandler → ChatStream DO init
-    await ugStub.systemAction(
-        `intake:${chatId}`,
-        'registerStream',
-        {
-            agentMessageId,
-            userId: ctx.user.userId,
-            userMessageId,
-        },
-        alias ?? undefined,
-    );
+    // Register stream via services → ChatStreamDO init (+ auto-subscribe initiator) → UG broadcast
+    await callChatServicesSystemAction(ctx, {
+        action: 'registerStream',
+        prefix: 'intake',
+        identifier: chatId,
+        userId: ctx.user.userId,
+        previewAlias: alias,
+        agentMessageId,
+        userMessageId,
+    });
 
     // --- Test mode: keep existing direct-call behavior ---
     if (options.onEvent) {
@@ -748,12 +752,10 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         await finalizeSafetyMonitor(safetyMonitor, em!, agentMessageId);
 
         if (terminalDoneDelivered) {
-            await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
+            await finalizeStream(streamDO);
         } else {
             await finalizeStreamWithoutDone({
                 streamDO,
-                ugStub,
-                topic: `intake:${chatId}`,
                 label: 'intake-handler',
             });
         }
@@ -786,8 +788,6 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         await cleanupStreamDO({
             pusher,
             streamDO,
-            ugStub,
-            topic: `intake:${chatId}`,
             error,
             errorMetadata,
         });

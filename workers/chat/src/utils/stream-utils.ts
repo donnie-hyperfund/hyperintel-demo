@@ -21,7 +21,7 @@ import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-fil
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
 import { generateSignedImageUrls } from '../uploads/image-uploader';
-import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
+import type { ChatStreamDOStub } from './do-stubs';
 import {
     buildStoredErrorMetadata,
     buildWorkerErrorLogContext,
@@ -405,18 +405,16 @@ export async function persistErrorMessage({
 export async function cleanupStreamDO({
     pusher,
     streamDO,
-    ugStub,
-    topic,
     error,
     errorMetadata,
 }: {
     pusher: Pusher;
     streamDO: ChatStreamDOStub;
-    ugStub: UserGatewayStub;
-    topic: string;
     error: any;
     errorMetadata?: StoredErrorMetadata;
 }) {
+    // ChatStreamDO.finalize() now clears its own UG mapping (guarded), so the
+    // post-error cleanup no longer needs to fire a separate clearStream action.
     try {
         await pusher.waitAll();
         const safeMetadata = errorMetadata ?? buildStoredErrorMetadata({ classification: classifyWorkerError(error) });
@@ -450,8 +448,6 @@ export async function cleanupStreamDO({
         });
     } catch {
         /* DO might already be gone */
-    } finally {
-        await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
     }
 }
 
