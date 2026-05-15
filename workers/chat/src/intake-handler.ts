@@ -27,7 +27,14 @@ import { createNoopSafetyMonitor, createSafetyMonitor } from './safety/analyzer'
 import { isOutputSafetyEnabled } from './safety/config';
 import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
-import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
+import {
+    cleanupOrphanArtifact,
+    countLines,
+    createDocumentTools,
+    DocumentToolGroup,
+    type DocumentToolsContext,
+    DraftManager,
+} from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
 import { broadcastUserEvent } from './utils/broadcast';
@@ -402,6 +409,43 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     const { anthropic, langfuse, em } = ctx;
 
     const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'intake-handler');
+    const userId = chat.user!.id;
+    const draftManager = new DraftManager();
+    const intakeChatType = chat.metadata?.framework === 'hpf' ? 'stakeholder' : 'company';
+
+    const cleanupActiveDraftReservation = async (stage: string) => {
+        const draft = draftManager.getCurrent();
+        if (!draft) return;
+
+        const cleanupEvent: StreamEvent = {
+            type: 'document_complete',
+            artifactId: draft.artifactId,
+            name: draft.name,
+            lines: countLines(draft.content),
+            action: 'aborted',
+            status: 'aborted',
+        };
+        pusher.push([cleanupEvent]);
+        options.onEvent?.(cleanupEvent);
+        void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {
+            chatId,
+            domain: 'intake' as const,
+            chatType: intakeChatType,
+            projectId: null,
+            artifactId: draft.artifactId,
+            artifactKey: draft.name,
+        });
+
+        await cleanupOrphanArtifact({ em: em!, scope: { userId, chatId: chat.id }, name: draft.name }).catch(
+            (cleanupError) => {
+                console.error(
+                    `[intake-handler] failed to cleanup active draft reservation after ${stage}:`,
+                    cleanupError,
+                );
+            },
+        );
+        draftManager.discard();
+    };
 
     try {
         if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
@@ -419,13 +463,11 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         // Track version IDs created during this turn
         const createdVersionIds: string[] = [];
 
-        const userId = chat.user!.id;
-
         const agentCtx: DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             em: em!,
             userId,
             chatId: chat.id,
-            draftManager: new DraftManager(),
+            draftManager,
             createdVersionIds,
             // UserDecisionContext — request_user_decision pushes the prompt event
             // through this pusher and long-polls the DO for the user's click.
@@ -481,8 +523,6 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string } | null = null;
 
         const outputSafetyEnabled = isOutputSafetyEnabled(ctx.env);
-        const intakeChatType = chat.metadata?.framework === 'hpf' ? 'stakeholder' : 'company';
-
         // Inline safety monitor — checks content every few seconds, aborts on leak.
         const safetyMonitor = outputSafetyEnabled
             ? createSafetyMonitor({
@@ -519,6 +559,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         projectName: null,
                         phaseName: null,
                         phaseIndex: null,
+                        artifactId: event.artifactId,
                         artifactKey: event.name,
                         artifactName: event.title,
                         version: event.pendingVersion,
@@ -532,6 +573,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         domain: 'intake' as const,
                         chatType: intakeChatType,
                         projectId: null,
+                        artifactId: event.artifactId,
                         artifactKey: event.name,
                     });
                 }
@@ -552,6 +594,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         const isAborted = !!event.aborted;
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
+                        await cleanupActiveDraftReservation(isError ? 'error' : isAborted ? 'abort' : 'done');
                         const errorMetadata = isError
                             ? buildStoredErrorMetadata({
                                   classification: event.error!.classification,
@@ -676,6 +719,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
     } catch (error: any) {
+        await cleanupActiveDraftReservation('catch');
         const classification = classifyWorkerError(error);
         const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(

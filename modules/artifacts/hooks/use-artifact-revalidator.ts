@@ -13,6 +13,7 @@ import {
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 
 type RevalidateArtifactInput = {
+    artifactId?: string;
     artifactKey: string;
     version: number;
     projectId?: string | null;
@@ -25,7 +26,7 @@ export function useArtifactRevalidator() {
     const artifactStore = useArtifactStoreController();
 
     return useCallback(
-        async ({ artifactKey, version, projectId, scope }: RevalidateArtifactInput) => {
+        async ({ artifactId, artifactKey, version, projectId, scope }: RevalidateArtifactInput) => {
             const targetScope = scope ?? getArtifactScopeForProject(projectId);
 
             if (projectId) {
@@ -39,7 +40,7 @@ export function useArtifactRevalidator() {
                       createProjectArtifactApi(getToken).getByKey(projectId, artifactKey, artifactVersion)
                 : (artifactVersion: number) => createArtifactApi(getToken).getByKey(artifactKey, artifactVersion);
 
-            const slots = artifactStore.getStore(targetScope)[artifactKey] ?? {};
+            const slots = artifactId ? (artifactStore.getStore(targetScope)[artifactId] ?? {}) : {};
             const stalePrevProposedVersions = Object.entries(slots)
                 .map(([slot, data]) => [Number(slot), data] as const)
                 .filter(([slot, data]) => slot !== version && getLatestArtifactVersion(data)?.status === 'proposed')
@@ -53,9 +54,9 @@ export function useArtifactRevalidator() {
                 const versionNumber = getLatestArtifactVersion(data)?.version;
                 if (typeof versionNumber !== 'number') continue;
 
-                const normalized = { ...data, id: artifactKey, key: data.key || artifactKey };
-                if (artifactStore.getArtifact(targetScope, artifactKey, versionNumber)) {
-                    artifactStore.updateArtifact(targetScope, artifactKey, normalized, versionNumber, { merge: false });
+                const normalized = { ...data, id: data.id, key: data.key || artifactKey };
+                if (artifactStore.getArtifact(targetScope, data.id, versionNumber)) {
+                    artifactStore.updateArtifact(targetScope, data.id, normalized, versionNumber, { merge: false });
                 } else {
                     artifactStore.addArtifact(targetScope, normalized, versionNumber);
                 }

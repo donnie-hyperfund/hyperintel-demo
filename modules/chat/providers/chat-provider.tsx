@@ -399,9 +399,9 @@ export function ChatProvider({
     // ========================================================================
 
     const revalidateArtifactByKeyAndVersion = useCallback(
-        async (keyId: string, version: number) => {
+        async ({ artifactId, artifactKey, version }: { artifactId?: string; artifactKey: string; version: number }) => {
             try {
-                await revalidateArtifact({ artifactKey: keyId, version, projectId });
+                await revalidateArtifact({ artifactId, artifactKey, version, projectId });
             } catch {
                 // SWR revalidation will still keep the list up to date
             }
@@ -416,7 +416,7 @@ export function ChatProvider({
         }
         streamMonitor.setViewedArtifact({
             projectId: projectId ?? null,
-            artifactKey: panelState.artifactId,
+            artifactId: panelState.artifactId,
             version: panelState.version,
         });
     }, [streamMonitor, projectId, panelState]);
@@ -465,9 +465,9 @@ export function ChatProvider({
     }, []);
 
     const handleArtifactOpen = useCallback(
-        (artifactId: string, version: number) => {
+        ({ artifactId, artifactKey, version }: { artifactId: string; artifactKey: string; version: number }) => {
             if (state.isSummarizing) return;
-            pushPanel({ panel: 'artifact-preview', artifactId, version }, { reset: true });
+            pushPanel({ panel: 'artifact-preview', artifactId, artifactKey, version }, { reset: true });
         },
         [pushPanel, state.isSummarizing],
     );
@@ -482,8 +482,8 @@ export function ChatProvider({
                     artifactContext.addArtifact(
                         {
                             ...artifact,
-                            id: artifactKey,
-                            key: artifact.key,
+                            id: artifact.id,
+                            key: artifact.key || artifactKey,
                         },
                         version,
                     );
@@ -794,8 +794,8 @@ export function ChatProvider({
             });
             if (status === 'idle' && chatId) {
                 const cleared = artifactContext.clearStaleStreamingForChat(chatId);
-                for (const { artifactId, version } of cleared) {
-                    void revalidateArtifactByKeyAndVersion(artifactId, version);
+                for (const { artifactId, artifactKey, version } of cleared) {
+                    void revalidateArtifactByKeyAndVersion({ artifactId, artifactKey, version });
                 }
             }
         },
@@ -817,13 +817,9 @@ export function ChatProvider({
         (payload: ArtifactVersionEventPayload): string | null => {
             if (!payload.artifactId) return null;
 
-            for (const [storedKey, versions] of Object.entries(artifactContext.getStore())) {
-                for (const artifact of Object.values(versions)) {
-                    if (artifact.id === payload.artifactId) {
-                        return artifact.key || storedKey;
-                    }
-                }
-            }
+            const versions = artifactContext.getStore()[payload.artifactId];
+            const artifact = versions ? Object.values(versions)[0] : undefined;
+            if (artifact?.key) return artifact.key;
 
             return null;
         },
@@ -844,12 +840,12 @@ export function ChatProvider({
 
             const nextArtifact = {
                 ...artifactFromApi,
-                id: artifactKey,
+                id: artifactFromApi.id,
                 key: artifactKey,
             };
 
-            if (artifactContext.getArtifact(artifactKey, version)) {
-                artifactContext.updateArtifact(artifactKey, nextArtifact, version, { merge: false });
+            if (artifactContext.getArtifact(artifactFromApi.id, version)) {
+                artifactContext.updateArtifact(artifactFromApi.id, nextArtifact, version, { merge: false });
             } else {
                 artifactContext.addArtifact(nextArtifact, version);
             }
@@ -890,9 +886,9 @@ export function ChatProvider({
                 const requestedVersion = typeof eventPayload.version === 'number' ? eventPayload.version : undefined;
 
                 if (eventType === 'artifact_version_update_started') {
-                    if (!artifactKey || requestedVersion === undefined) return;
-                    if (!artifactContext.getArtifact(artifactKey, requestedVersion)) return;
-                    artifactContext.updateArtifact(artifactKey, { isUpdating: true }, requestedVersion);
+                    if (!eventPayload.artifactId || requestedVersion === undefined) return;
+                    if (!artifactContext.getArtifact(eventPayload.artifactId, requestedVersion)) return;
+                    artifactContext.updateArtifact(eventPayload.artifactId, { isUpdating: true }, requestedVersion);
                     return;
                 }
 
@@ -904,8 +900,12 @@ export function ChatProvider({
                     void sync
                         .then((artifact) => upsertSyncedArtifact(artifact, artifactKey, requestedVersion))
                         .catch(() => {
-                            if (requestedVersion !== undefined) {
-                                artifactContext.updateArtifact(artifactKey, { isUpdating: false }, requestedVersion);
+                            if (eventPayload.artifactId && requestedVersion !== undefined) {
+                                artifactContext.updateArtifact(
+                                    eventPayload.artifactId,
+                                    { isUpdating: false },
+                                    requestedVersion,
+                                );
                             }
                         });
                     return;
@@ -934,12 +934,12 @@ export function ChatProvider({
     );
 
     const cleanupTransientArtifacts = useCallback(
-        (docs: Array<{ name: string; pendingVersion: number }>) => {
+        (docs: Array<{ artifactId: string; name: string; pendingVersion: number }>) => {
             if (docs.length === 0) return;
 
-            const transientVersions = new Set(docs.map((d) => `${d.name}:${d.pendingVersion}`));
+            const transientVersions = new Set(docs.map((doc) => `${doc.artifactId}:${doc.pendingVersion}`));
             for (const doc of docs) {
-                artifactContext.removeArtifact(doc.name, doc.pendingVersion);
+                artifactContext.removeArtifact(doc.artifactId, doc.pendingVersion);
             }
 
             const currentPanel = panelStateRef.current;

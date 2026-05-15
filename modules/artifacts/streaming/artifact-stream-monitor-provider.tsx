@@ -33,6 +33,7 @@ import { getPreviousArtifactVersion } from './versions';
 type RegisterInput = {
     chatId: string;
     location: ChatStreamLocation;
+    artifactId: string;
     artifactKey: string;
     artifactName: string;
     version: number;
@@ -45,6 +46,8 @@ type RegisterInput = {
 };
 
 type MonitoredArtifact = {
+    artifactId: string;
+    artifactKey: string;
     name: string;
     version: number;
     isInternal: boolean;
@@ -66,14 +69,14 @@ type MonitorState = {
     wsUnsub: (() => void) | null;
 };
 
-type ViewedArtifact = { projectId: string | null; artifactKey: string; version: number } | null;
-type ActivationHandler = (artifactKey: string, version: number) => void;
-type StreamArtifactTarget = { chatId: string; artifactKey: string; version: number };
+type ViewedArtifact = { projectId: string | null; artifactId: string; version: number } | null;
+type ActivationHandler = (target: ActiveArtifactPreviewTarget) => void;
+type StreamArtifactTarget = { chatId: string; artifactId: string; artifactKey: string; version: number };
 
 type ArtifactStreamMonitorContextValue = {
     register: (input: RegisterInput) => void;
     markSummaryStarted: (input: StreamArtifactTarget) => void;
-    unregister: (chatId: string, artifactKey: string) => void;
+    unregister: (chatId: string, artifactId: string) => void;
     takeover: (chatId: string) => void;
     release: (chatId: string) => void;
     isMonitoring: (chatId: string) => boolean;
@@ -101,8 +104,8 @@ function mergeLocation(current: ChatStreamLocation | undefined, incoming: ChatSt
     };
 }
 
-function monitorKey(chatId: string, artifactKey: string): string {
-    return `${chatId}:${artifactKey}`;
+function monitorKey(chatId: string, artifactId: string): string {
+    return `${chatId}:${artifactId}`;
 }
 
 function applyEdits(content: string, edits: NonNullable<Extract<StreamEvent, { type: 'document_edit' }>['edits']>) {
@@ -144,8 +147,8 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
 
     const getActiveStreams = useCallback(() => cachedSnapshot.current, []);
 
-    const clearCompletionFallback = useCallback((chatId: string, artifactKey: string) => {
-        const key = monitorKey(chatId, artifactKey);
+    const clearCompletionFallback = useCallback((chatId: string, artifactId: string) => {
+        const key = monitorKey(chatId, artifactId);
         const timer = completionFallbackTimersRef.current.get(key);
         if (!timer) return;
         clearTimeout(timer);
@@ -156,8 +159,8 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
         (chatId: string) => {
             const state = monitoredRef.current.get(chatId);
             if (!state) return;
-            for (const artifactKey of state.artifacts.keys()) {
-                clearCompletionFallback(chatId, artifactKey);
+            for (const artifactId of state.artifacts.keys()) {
+                clearCompletionFallback(chatId, artifactId);
             }
             state.wsUnsub?.();
             monitoredRef.current.delete(chatId);
@@ -166,11 +169,11 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
     );
 
     const unregister = useCallback(
-        (chatId: string, artifactKey: string) => {
+        (chatId: string, artifactId: string) => {
             const state = monitoredRef.current.get(chatId);
             if (!state) return;
-            clearCompletionFallback(chatId, artifactKey);
-            state.artifacts.delete(artifactKey);
+            clearCompletionFallback(chatId, artifactId);
+            state.artifacts.delete(artifactId);
             if (state.artifacts.size === 0) dropChat(chatId);
             emit();
         },
@@ -178,29 +181,30 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
     );
 
     const finalizeArtifact = useCallback(
-        async (chatId: string, artifactKey: string, updates: ArtifactUpdate, options: { revalidate: boolean }) => {
+        async (chatId: string, artifactId: string, updates: ArtifactUpdate, options: { revalidate: boolean }) => {
             const state = monitoredRef.current.get(chatId);
-            const artifact = state?.artifacts.get(artifactKey);
+            const artifact = state?.artifacts.get(artifactId);
             if (!state || !artifact || artifact.finalizing) return;
 
             artifact.finalizing = true;
-            clearCompletionFallback(chatId, artifactKey);
+            clearCompletionFallback(chatId, artifactId);
             const scope = artifactScopeForLocation(state.location);
-            artifactStore.updateArtifact(scope, artifactKey, updates, artifact.version);
+            artifactStore.updateArtifact(scope, artifactId, updates, artifact.version);
             if (artifact.previousVersion !== undefined) {
-                artifactStore.updateArtifact(scope, artifactKey, { isUpdating: false }, artifact.previousVersion);
+                artifactStore.updateArtifact(scope, artifactId, { isUpdating: false }, artifact.previousVersion);
             }
 
             if (options.revalidate) {
                 await revalidateArtifact({
-                    artifactKey,
+                    artifactId,
+                    artifactKey: artifact.artifactKey,
                     version: artifact.version,
                     projectId: state.location.projectId ?? null,
                     scope,
                 }).catch(() => {});
             }
 
-            state.artifacts.delete(artifactKey);
+            state.artifacts.delete(artifactId);
             if (state.artifacts.size === 0) dropChat(chatId);
             emit();
         },
@@ -208,15 +212,15 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
     );
 
     const scheduleCompletionFallback = useCallback(
-        (chatId: string, artifactKey: string) => {
-            const key = monitorKey(chatId, artifactKey);
+        (chatId: string, artifactId: string) => {
+            const key = monitorKey(chatId, artifactId);
             if (completionFallbackTimersRef.current.has(key)) return;
 
             const timer = setTimeout(() => {
                 completionFallbackTimersRef.current.delete(key);
                 void finalizeArtifact(
                     chatId,
-                    artifactKey,
+                    artifactId,
                     {
                         isStreaming: false,
                         isUpdating: false,
@@ -246,15 +250,17 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
             }
 
             const scope = artifactScopeForLocation(state.location);
-            const existingState = state.artifacts.get(input.artifactKey);
-            const existingArtifact = artifactStore.getArtifact(scope, input.artifactKey, input.version);
+            const existingState = state.artifacts.get(input.artifactId);
+            const existingArtifact = artifactStore.getArtifact(scope, input.artifactId, input.version);
             const content = existingArtifact?.proposedVersion?.content ?? existingState?.content ?? '';
             const mode = input.mode ?? existingState?.mode ?? 'create';
             const loadedVersion = input.loadedVersion ?? existingState?.loadedVersion;
             const previousVersion =
                 input.previousVersion ?? existingState?.previousVersion ?? getPreviousArtifactVersion(input.version);
 
-            state.artifacts.set(input.artifactKey, {
+            state.artifacts.set(input.artifactId, {
+                artifactId: input.artifactId,
+                artifactKey: input.artifactKey,
                 name: input.artifactName,
                 version: input.version,
                 isInternal: input.isInternal ?? existingState?.isInternal ?? false,
@@ -268,16 +274,16 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                 finalizing: false,
                 local: existingState?.local === true || input.source === 'local',
             });
-            clearCompletionFallback(input.chatId, input.artifactKey);
+            clearCompletionFallback(input.chatId, input.artifactId);
             emit();
         },
         [artifactStore, clearCompletionFallback, emit],
     );
 
     const markSummaryStarted = useCallback(
-        ({ chatId, artifactKey, version }: StreamArtifactTarget) => {
+        ({ chatId, artifactId, version }: StreamArtifactTarget) => {
             const state = monitoredRef.current.get(chatId);
-            const artifact = state?.artifacts.get(artifactKey);
+            const artifact = state?.artifacts.get(artifactId);
             if (!artifact) return;
             artifact.version = version;
             artifact.previousVersion = getPreviousArtifactVersion(version);
@@ -291,23 +297,26 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
         async ({
             scope,
             state,
+            artifactId,
             artifactKey,
             previousVersion,
         }: {
             scope: ArtifactScope;
             state: MonitorState;
+            artifactId: string;
             artifactKey: string;
             previousVersion: number;
         }) => {
-            if (!artifactStore.getArtifact(scope, artifactKey, previousVersion)) {
+            if (!artifactStore.getArtifact(scope, artifactId, previousVersion)) {
                 await revalidateArtifact({
+                    artifactId,
                     artifactKey,
                     version: previousVersion,
                     projectId: state.location.projectId ?? null,
                     scope,
                 }).catch(() => {});
             }
-            artifactStore.updateArtifact(scope, artifactKey, { isUpdating: true }, previousVersion);
+            artifactStore.updateArtifact(scope, artifactId, { isUpdating: true }, previousVersion);
         },
         [artifactStore, revalidateArtifact],
     );
@@ -317,8 +326,8 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
             const state = monitoredRef.current.get(chatId);
             if (!state || state.wsUnsub) return;
             const scope = artifactScopeForLocation(state.location);
-            for (const [artifactKey, artifactState] of state.artifacts) {
-                const existing = artifactStore.getArtifact(scope, artifactKey, artifactState.version);
+            for (const [artifactId, artifactState] of state.artifacts) {
+                const existing = artifactStore.getArtifact(scope, artifactId, artifactState.version);
                 artifactState.content = existing?.proposedVersion?.content ?? artifactState.content;
             }
             const topic = `${state.location.domain}:${chatId}`;
@@ -346,7 +355,7 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
             const current = viewedRef.current;
             if (
                 current?.projectId === info?.projectId &&
-                current?.artifactKey === info?.artifactKey &&
+                current?.artifactId === info?.artifactId &&
                 current?.version === info?.version
             ) {
                 return;
@@ -373,15 +382,16 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
         [emit],
     );
 
-    const tryActivate = useCallback(({ chatId, artifactKey, version }: StreamArtifactTarget) => {
+    const tryActivate = useCallback(({ chatId, artifactId, artifactKey, version }: StreamArtifactTarget) => {
         const active = activationRef.current;
         if (!active || active.chatId !== chatId) return false;
-        active.handler(artifactKey, version);
+        active.handler({ artifactId, artifactKey, version });
         return true;
     }, []);
 
     const handleDocumentStart = useCallback(
         (state: MonitorState, event: Extract<StreamEvent, { type: 'document_start' }>) => {
+            const artifactId = event.artifactId;
             const artifactKey = event.name;
             const version = event.pendingVersion;
             const scope = artifactScopeForLocation(state.location);
@@ -390,7 +400,7 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
             const loadedVersion = event.loadedVersion;
             const previousVersion = getPreviousArtifactVersion(version);
             const baseVersion = loadedVersion ?? previousVersion ?? 1;
-            const existingArtifact = artifactStore.getArtifact(scope, artifactKey, baseVersion);
+            const existingArtifact = artifactStore.getArtifact(scope, artifactId, baseVersion);
             const loadedContent =
                 event.isInternal === true
                     ? ''
@@ -400,7 +410,9 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                       '');
             const draftContent = mode === 'replace' ? '' : loadedContent;
 
-            state.artifacts.set(artifactKey, {
+            state.artifacts.set(artifactId, {
+                artifactId,
+                artifactKey,
                 name: event.title ?? artifactKey,
                 version,
                 isInternal: event.isInternal === true,
@@ -412,17 +424,17 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                 summaryContent: '',
                 summaryVersionId: null,
                 finalizing: false,
-                local: state.artifacts.get(artifactKey)?.local === true,
+                local: state.artifacts.get(artifactId)?.local === true,
             });
 
             if ((mode === 'edit' || mode === 'replace') && previousVersion !== undefined) {
-                void markPreviousVersionUpdating({ scope, state, artifactKey, previousVersion });
+                void markPreviousVersionUpdating({ scope, state, artifactId, artifactKey, previousVersion });
             }
 
             artifactStore.addArtifact(
                 scope,
                 {
-                    id: artifactKey,
+                    id: artifactId,
                     key: artifactKey,
                     version,
                     ...(mode === 'edit' || mode === 'replace'
@@ -473,29 +485,30 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                     handleDocumentStart(target, event);
                     break;
                 case 'document_delta': {
-                    const artifact = target.artifacts.get(event.name);
+                    const artifact = target.artifacts.get(event.artifactId);
                     if (!artifact) break;
                     artifact.content += event.content;
                     artifactStore.updateArtifact(
                         scope,
-                        event.name,
+                        artifact.artifactId,
                         { proposedVersion: { content: artifact.content }, isStreaming: true, isUpdating: false },
                         artifact.version,
                     );
                     break;
                 }
                 case 'document_edit': {
-                    const artifact = target.artifacts.get(event.name);
+                    const artifact = target.artifacts.get(event.artifactId);
                     if (!artifact) break;
                     artifact.content = applyEdits(artifact.content, event.edits);
                     artifactStore.updateArtifact(
                         scope,
-                        event.name,
+                        artifact.artifactId,
                         { proposedVersion: { content: artifact.content }, isUpdating: false, isStreaming: false },
                         artifact.version,
                     );
                     void revalidateArtifact({
-                        artifactKey: event.name,
+                        artifactId: artifact.artifactId,
+                        artifactKey: artifact.artifactKey,
                         version: artifact.version,
                         projectId: target.location.projectId ?? null,
                         scope,
@@ -503,13 +516,18 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                     break;
                 }
                 case 'document_progress': {
-                    const artifact = target.artifacts.get(event.name);
+                    const artifact = target.artifacts.get(event.artifactId);
                     if (!artifact) break;
-                    artifactStore.updateArtifact(scope, event.name, { progress: event.progress }, artifact.version);
+                    artifactStore.updateArtifact(
+                        scope,
+                        artifact.artifactId,
+                        { progress: event.progress },
+                        artifact.version,
+                    );
                     break;
                 }
                 case 'summary_start': {
-                    const artifact = target.artifacts.get(event.name);
+                    const artifact = target.artifacts.get(event.artifactId);
                     if (!artifact) break;
                     artifact.summaryContent = '';
                     artifact.summaryVersionId = event.versionId;
@@ -517,7 +535,7 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                     artifact.version = event.version;
                     artifactStore.updateArtifact(
                         scope,
-                        event.name,
+                        artifact.artifactId,
                         {
                             summaryStreaming: '',
                             isSummaryStreaming: true,
@@ -529,12 +547,12 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                     break;
                 }
                 case 'summary_delta': {
-                    const artifact = target.artifacts.get(event.name);
+                    const artifact = target.artifacts.get(event.artifactId);
                     if (!artifact || artifact.summaryVersionId !== event.versionId) break;
                     artifact.summaryContent += event.content;
                     artifactStore.updateArtifact(
                         scope,
-                        event.name,
+                        artifact.artifactId,
                         {
                             summaryStreaming: artifact.summaryContent,
                             proposedVersion: { summaryInternal: artifact.summaryContent },
@@ -544,13 +562,13 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                     break;
                 }
                 case 'summary_complete': {
-                    const artifact = target.artifacts.get(event.name);
+                    const artifact = target.artifacts.get(event.artifactId);
                     if (!artifact || artifact.summaryVersionId !== event.versionId) break;
                     artifact.summaryContent = event.content;
                     artifact.summaryVersionId = null;
                     artifactStore.updateArtifact(
                         scope,
-                        event.name,
+                        artifact.artifactId,
                         {
                             summaryStreaming: event.content,
                             isSummaryStreaming: false,
@@ -560,7 +578,8 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                         event.version,
                     );
                     void revalidateArtifact({
-                        artifactKey: event.name,
+                        artifactId: artifact.artifactId,
+                        artifactKey: artifact.artifactKey,
                         version: event.version,
                         projectId: target.location.projectId ?? null,
                         scope,
@@ -568,12 +587,12 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                     break;
                 }
                 case 'document_complete': {
-                    const artifact = target.artifacts.get(event.name);
+                    const artifact = target.artifacts.get(event.artifactId);
                     if (!artifact) break;
                     if (event.action === 'aborted' || event.status === 'aborted') {
                         void finalizeArtifact(
                             target.chatId,
-                            event.name,
+                            artifact.artifactId,
                             { isStreaming: false, isUpdating: false, progress: 0 },
                             { revalidate: false },
                         );
@@ -581,13 +600,13 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                     }
                     void finalizeArtifact(
                         target.chatId,
-                        event.name,
+                        artifact.artifactId,
                         {
                             isStreaming: false,
                             isUpdating: false,
                             progress: 100,
                             version: artifact.version,
-                            proposedVersion: { version: artifact.version, status: 'proposed' },
+                            proposedVersion: { version: artifact.version, status: event.status ?? 'proposed' },
                         },
                         { revalidate: true },
                     );
@@ -595,10 +614,10 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                 }
                 case 'error':
                 case 'safety_retract':
-                    for (const artifactKey of target.artifacts.keys()) {
+                    for (const artifactId of target.artifacts.keys()) {
                         void finalizeArtifact(
                             target.chatId,
-                            artifactKey,
+                            artifactId,
                             { isStreaming: false, isUpdating: false, progress: 0 },
                             { revalidate: false },
                         );
@@ -623,10 +642,10 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
     const handleTerminalStatus = useCallback(
         (target: MonitorState, status: StreamStatusMessage['status']) => {
             const shouldRevalidate = status === 'done';
-            for (const artifactKey of target.artifacts.keys()) {
+            for (const artifactId of target.artifacts.keys()) {
                 void finalizeArtifact(
                     target.chatId,
-                    artifactKey,
+                    artifactId,
                     {
                         isStreaming: false,
                         isUpdating: false,
@@ -654,6 +673,7 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                             phaseName: data.phaseName ?? null,
                             phaseIndex: data.phaseIndex ?? null,
                         },
+                        artifactId: data.artifactId,
                         artifactKey: data.artifactKey,
                         artifactName: data.artifactName,
                         version: data.version,
@@ -667,12 +687,12 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
                 if (eventType !== UserEventType.ArtifactStreamCompleted) return;
                 const data = payload as ArtifactStreamCompletedPayload;
                 const state = monitoredRef.current.get(data.chatId);
-                const artifact = state?.artifacts.get(data.artifactKey);
+                const artifact = state?.artifacts.get(data.artifactId);
                 if (state?.wsUnsub || artifact?.local) {
-                    scheduleCompletionFallback(data.chatId, data.artifactKey);
+                    scheduleCompletionFallback(data.chatId, data.artifactId);
                     return;
                 }
-                unregister(data.chatId, data.artifactKey);
+                unregister(data.chatId, data.artifactId);
             },
             [register, scheduleCompletionFallback, unregister],
         ),
@@ -746,27 +766,28 @@ function computeSnapshot(
 ): ActiveArtifactStream[] {
     const all: ActiveArtifactStream[] = [];
     for (const state of monitored.values()) {
-        for (const [artifactKey, artifactState] of state.artifacts.entries()) {
+        for (const [artifactId, artifactState] of state.artifacts.entries()) {
             const isMountedInternalStream =
                 artifactState.isInternal && (activeChatId === state.chatId || (artifactState.local && !state.wsUnsub));
             if (isMountedInternalStream) {
                 continue;
             }
 
-            const previewTarget = getPreviewTarget(artifactKey, artifactState);
+            const previewTarget = getPreviewTarget(artifactState);
             const entryProjectId = state.location.projectId ?? null;
             if (
                 previewTarget &&
                 viewed &&
                 viewed.projectId === entryProjectId &&
-                viewed.artifactKey === previewTarget.artifactKey &&
+                viewed.artifactId === previewTarget.artifactId &&
                 viewed.version === previewTarget.version
             ) {
                 continue;
             }
             all.push({
                 chatId: state.chatId,
-                artifactKey,
+                artifactId,
+                artifactKey: artifactState.artifactKey,
                 artifactName: artifactState.name,
                 version: artifactState.version,
                 isInternal: artifactState.isInternal,
@@ -783,16 +804,24 @@ function computeSnapshot(
     return all;
 }
 
-function getPreviewTarget(artifactKey: string, artifactState: MonitoredArtifact): ActiveArtifactPreviewTarget | null {
+function getPreviewTarget(artifactState: MonitoredArtifact): ActiveArtifactPreviewTarget | null {
     if (!artifactState.isInternal || artifactState.hasSummary) {
-        return { artifactKey, version: artifactState.version };
+        return {
+            artifactId: artifactState.artifactId,
+            artifactKey: artifactState.artifactKey,
+            version: artifactState.version,
+        };
     }
 
     if (
         (artifactState.mode === 'edit' || artifactState.mode === 'replace') &&
         artifactState.previousVersion !== undefined
     ) {
-        return { artifactKey, version: artifactState.previousVersion };
+        return {
+            artifactId: artifactState.artifactId,
+            artifactKey: artifactState.artifactKey,
+            version: artifactState.previousVersion,
+        };
     }
 
     return null;

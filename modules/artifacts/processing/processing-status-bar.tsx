@@ -102,7 +102,7 @@ function formatStreamLabel(stream: ActiveArtifactStream): string {
 
 function toStreamEntry(stream: ActiveArtifactStream, onNavigate: () => void): StatusBarEntry {
     return {
-        id: `stream:${stream.chatId}:${stream.artifactKey}`,
+        id: `stream:${stream.chatId}:${stream.artifactId}`,
         content: (
             <ShimmerText className="text-muted-foreground" duration={2.5}>
                 {formatStreamLabel(stream)}
@@ -115,6 +115,7 @@ function toStreamEntry(stream: ActiveArtifactStream, onNavigate: () => void): St
 function buildStreamArtifactHref(stream: ActiveArtifactStream): string | null {
     const params = new URLSearchParams();
     if (stream.previewTarget) {
+        params.set(SEARCH_PARAMS.OPEN_ARTIFACT_ID, stream.previewTarget.artifactId);
         params.set(SEARCH_PARAMS.OPEN_ARTIFACT_KEY, stream.previewTarget.artifactKey);
         params.set(SEARCH_PARAMS.OPEN_ARTIFACT_VERSION, String(stream.previewTarget.version));
     }
@@ -151,6 +152,7 @@ export function ProcessingStatusBar() {
                         stream.previewTarget &&
                         streamMonitor.tryActivate({
                             chatId: stream.chatId,
+                            artifactId: stream.previewTarget.artifactId,
                             artifactKey: stream.previewTarget.artifactKey,
                             version: stream.previewTarget.version,
                         })

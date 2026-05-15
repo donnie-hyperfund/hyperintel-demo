@@ -316,7 +316,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
                 // Defense-in-depth: only honor loadedContent for non-internal edit mode, regardless of what the producer sent. Guards against future producers/refactors leaking content into DO state for internal docs or non-edit modes.
                 const allowLoadedContent = event.mode === 'edit' && event.isInternal !== true;
                 const baseContent = allowLoadedContent ? (event.loadedContent ?? '') : '';
-                this.activeDocuments.set(event.name, {
+                this.activeDocuments.set(event.artifactId, {
+                    artifactId: event.artifactId,
                     name: event.name,
                     title: event.title ?? event.name,
                     mode: event.mode ?? 'create',
@@ -332,14 +333,14 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             }
 
             case 'document_delta': {
-                const doc = this.activeDocuments.get(event.name);
+                const doc = this.activeDocuments.get(event.artifactId);
                 if (doc) doc.content += event.content;
                 break;
             }
 
             case 'document_edit': {
                 // Applied edits are emitted in replay-safe order.
-                const doc = this.activeDocuments.get(event.name);
+                const doc = this.activeDocuments.get(event.artifactId);
                 if (doc) {
                     let lines = doc.content.split('\n');
                     for (const edit of event.edits) {
@@ -354,13 +355,13 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             }
 
             case 'document_progress': {
-                const doc = this.activeDocuments.get(event.name);
+                const doc = this.activeDocuments.get(event.artifactId);
                 if (doc) doc.progress = event.progress;
                 break;
             }
 
             case 'summary_start': {
-                const doc = this.activeDocuments.get(event.name);
+                const doc = this.activeDocuments.get(event.artifactId);
                 if (doc) {
                     doc.summaryInternal = '';
                     doc.summaryVersionId = event.versionId;
@@ -369,7 +370,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             }
 
             case 'summary_delta': {
-                const doc = this.activeDocuments.get(event.name);
+                const doc = this.activeDocuments.get(event.artifactId);
                 if (doc?.summaryVersionId === event.versionId) {
                     doc.summaryInternal = (doc.summaryInternal ?? '') + event.content;
                 }
@@ -377,7 +378,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             }
 
             case 'summary_complete': {
-                const doc = this.activeDocuments.get(event.name);
+                const doc = this.activeDocuments.get(event.artifactId);
                 if (doc?.summaryVersionId === event.versionId) {
                     doc.summaryInternal = event.content;
                     delete doc.summaryVersionId;
@@ -386,7 +387,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             }
 
             case 'document_complete': {
-                this.activeDocuments.delete(event.name);
+                this.activeDocuments.delete(event.artifactId);
                 break;
             }
 

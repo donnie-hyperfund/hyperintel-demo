@@ -92,7 +92,7 @@ export type ArtifactContextValue = {
     clearStaleStreamingForChat: (
         scope: ArtifactScope,
         chatId: string,
-    ) => Array<{ artifactId: string; version: number }>;
+    ) => Array<{ artifactId: string; artifactKey: string; version: number }>;
     subscribe: (callback: () => void) => () => void;
 };
 
@@ -267,7 +267,7 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
 
     const clearStaleStreamingForChat = useCallback(
         (scope: ArtifactScope, chatId: string) => {
-            const cleared: Array<{ artifactId: string; version: number }> = [];
+            const cleared: Array<{ artifactId: string; artifactKey: string; version: number }> = [];
             if (!chatId) return cleared;
             const prev = storeRef.current;
             const scopedStore = prev[scope];
@@ -293,7 +293,7 @@ export function ArtifactProvider({ children }: ArtifactProviderProps) {
                         };
                         const versionNum = artifact.proposedVersion?.version ?? artifact.version;
                         if (typeof versionNum === 'number') {
-                            cleared.push({ artifactId, version: versionNum });
+                            cleared.push({ artifactId, artifactKey: artifact.key, version: versionNum });
                         }
                     } else {
                         nextVersions[versionKey] = artifact;

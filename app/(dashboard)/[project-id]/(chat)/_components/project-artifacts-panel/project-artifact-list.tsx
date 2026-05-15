@@ -59,18 +59,19 @@ export function ProjectArtifactList({ filters }: ProjectArtifactListProps) {
     const openArtifactPreview = useCallback(
         async (artifact: CamelCaseDto<ArtifactDto>) => {
             if (!projectId) return;
-            const localId = artifact.key;
+            const artifactId = artifact.id;
+            const artifactKey = artifact.key;
             const version = artifact.version;
 
-            addArtifact({ id: localId, key: artifact.key, isLoading: true }, version);
-            pushPanel({ panel: 'artifact-preview', artifactId: localId, version });
+            addArtifact({ id: artifactId, key: artifactKey, isLoading: true }, version);
+            pushPanel({ panel: 'artifact-preview', artifactId, artifactKey, version });
 
             try {
                 const api = createProjectArtifactApi(getToken);
-                const data = await api.getByKey(projectId, artifact.key, version);
-                updateArtifact(localId, { ...data, id: localId, key: data.key, isLoading: false }, version);
+                const data = await api.getByKey(projectId, artifactKey, version);
+                updateArtifact(data.id, { ...data, id: data.id, key: data.key, isLoading: false }, version);
             } catch {
-                updateArtifact(localId, { isLoading: false }, version);
+                updateArtifact(artifactId, { isLoading: false }, version);
             }
         },
         [projectId, getToken, addArtifact, updateArtifact, pushPanel],

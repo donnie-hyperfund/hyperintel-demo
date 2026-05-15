@@ -33,6 +33,7 @@ const MODEL = 'claude-sonnet-4-6';
 // ============================================================================
 
 interface StoredDocument {
+    id: string;
     name: string;
     title: string;
     content: string;
@@ -52,7 +53,16 @@ class InMemoryDocumentStore {
         if (existing?.status === 'proposed') {
             existing.status = 'approved'; // simplified
         }
-        this.docs.set(name, { name, title, content, version, status: 'proposed', is_internal, document_type });
+        this.docs.set(name, {
+            id: existing?.id ?? `artifact-${name}`,
+            name,
+            title,
+            content,
+            version,
+            status: 'proposed',
+            is_internal,
+            document_type,
+        });
         return {
             versionId: `v-${name}-${version}`,
             version,
@@ -136,16 +146,18 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
 
             try {
                 const initialContent = input.mode === 'edit' && existing ? existing.content : '';
-                const draft = draftManager.begin(
-                    'test-scope',
+                const draft = draftManager.begin({
+                    artifactId: existing?.id ?? `artifact-${name}`,
+                    scopeId: 'test-scope',
                     name,
-                    input.title || name,
-                    input.mode,
+                    title: input.title || name,
+                    mode: input.mode,
+                    reservedVersion: existing ? existing.version + 1 : 1,
                     initialContent,
-                    existing?.version,
-                    input.is_internal,
-                    input.document_type,
-                );
+                    ...(existing?.version !== undefined ? { previousVersion: existing.version } : {}),
+                    is_internal: input.is_internal,
+                    document_type: input.document_type,
+                });
                 return {
                     status: 'editing',
                     mode: input.mode,
@@ -411,76 +423,67 @@ function getDoneEvent(events: AgentStreamEvent[]) {
 // ============================================================================
 
 describe('Document tool contract (no inference)', () => {
-	it('write_document appends to create/edit drafts, while begin_document mode="replace" starts an empty replacement draft', () => {
-		const store = new InMemoryDocumentStore();
-		store.upsert('report.md', 'Report', 'Original content\n', false, 'Other');
-		const draftManager = new DraftManager();
-		const tools = createTestDocumentTools(store, draftManager);
+    it('write_document appends to create/edit drafts, while begin_document mode="replace" starts an empty replacement draft', () => {
+        const store = new InMemoryDocumentStore();
+        store.upsert('report.md', 'Report', 'Original content\n', false, 'Other');
+        const draftManager = new DraftManager();
+        const tools = createTestDocumentTools(store, draftManager);
 
-		const beginDoc = tools.find(t => t.name === 'begin_document')!;
-		const writeDoc = tools.find(t => t.name === 'write_document')!;
+        const beginDoc = tools.find((t) => t.name === 'begin_document')!;
+        const writeDoc = tools.find((t) => t.name === 'write_document')!;
 
-		const beginResult = beginDoc.executor!(
-			{ mode: 'edit', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
-			{ store, draftManager },
-		) as any;
-		expect(beginResult.error).toBeUndefined();
-		expect(draftManager.requireCurrent().content).toBe('Original content\n');
+        const beginResult = beginDoc.executor!(
+            { mode: 'edit', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
+            { store, draftManager },
+        ) as any;
+        expect(beginResult.error).toBeUndefined();
+        expect(draftManager.requireCurrent().content).toBe('Original content\n');
 
-		const appendResult = writeDoc.executor!(
-			{ content: 'Appended line\n' },
-			{ store, draftManager },
-		) as any;
-		expect(appendResult.error).toBeUndefined();
-		expect(draftManager.requireCurrent().content).toBe('Original content\nAppended line\n');
+        const appendResult = writeDoc.executor!({ content: 'Appended line\n' }, { store, draftManager }) as any;
+        expect(appendResult.error).toBeUndefined();
+        expect(draftManager.requireCurrent().content).toBe('Original content\nAppended line\n');
 
-		draftManager.discard();
+        draftManager.discard();
 
-		const replaceBeginResult = beginDoc.executor!(
-			{ mode: 'replace', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
-			{ store, draftManager },
-		) as any;
-		expect(replaceBeginResult.error).toBeUndefined();
-		expect(draftManager.requireCurrent().content).toBe('');
+        const replaceBeginResult = beginDoc.executor!(
+            { mode: 'replace', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
+            { store, draftManager },
+        ) as any;
+        expect(replaceBeginResult.error).toBeUndefined();
+        expect(draftManager.requireCurrent().content).toBe('');
 
-		const replacementWriteResult = writeDoc.executor!(
-			{ content: 'Replacement only\n' },
-			{ store, draftManager },
-		) as any;
-		expect(replacementWriteResult.error).toBeUndefined();
-		expect(draftManager.requireCurrent().content).toBe('Replacement only\n');
-	});
+        const replacementWriteResult = writeDoc.executor!(
+            { content: 'Replacement only\n' },
+            { store, draftManager },
+        ) as any;
+        expect(replacementWriteResult.error).toBeUndefined();
+        expect(draftManager.requireCurrent().content).toBe('Replacement only\n');
+    });
 
-	it('finalize_document action="abort" discards the draft without saving', () => {
-		const store = new InMemoryDocumentStore();
-		store.upsert('report.md', 'Report', 'Original content\n', false, 'Other');
-		const draftManager = new DraftManager();
-		const tools = createTestDocumentTools(store, draftManager);
+    it('finalize_document action="abort" discards the draft without saving', () => {
+        const store = new InMemoryDocumentStore();
+        store.upsert('report.md', 'Report', 'Original content\n', false, 'Other');
+        const draftManager = new DraftManager();
+        const tools = createTestDocumentTools(store, draftManager);
 
-		const beginDoc = tools.find(t => t.name === 'begin_document')!;
-		const writeDoc = tools.find(t => t.name === 'write_document')!;
-		const finalizeDoc = tools.find(t => t.name === 'finalize_document')!;
+        const beginDoc = tools.find((t) => t.name === 'begin_document')!;
+        const writeDoc = tools.find((t) => t.name === 'write_document')!;
+        const finalizeDoc = tools.find((t) => t.name === 'finalize_document')!;
 
-		beginDoc.executor!(
-			{ mode: 'edit', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
-			{ store, draftManager },
-		);
-		writeDoc.executor!(
-			{ content: 'Temporary change\n' },
-			{ store, draftManager },
-		);
+        beginDoc.executor!(
+            { mode: 'edit', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
+            { store, draftManager },
+        );
+        writeDoc.executor!({ content: 'Temporary change\n' }, { store, draftManager });
 
-		const abortResult = finalizeDoc.executor!(
-			{ action: 'abort' },
-			{ store, draftManager },
-		) as any;
+        const abortResult = finalizeDoc.executor!({ action: 'abort' }, { store, draftManager }) as any;
 
-		expect(abortResult.error).toBeUndefined();
-		expect(abortResult.result.action).toBe('aborted');
-		expect(draftManager.hasActive()).toBe(false);
-		expect(store.find('report.md')?.content).toBe('Original content\n');
-		expect(store.find('report.md')?.version).toBe(1);
-	});
+        expect(abortResult.error).toBeUndefined();
+        expect(abortResult.result.action).toBe('aborted');
+        expect(draftManager.hasActive()).toBe(false);
+        expect(store.find('report.md')?.content).toBe('Original content\n');
+        expect(store.find('report.md')?.version).toBe(1);
+    });
 });
 
 describe.skipIf(!API_KEY || process.env.TEST_LLM !== 'true')('Agent document tools (real inference)', () => {

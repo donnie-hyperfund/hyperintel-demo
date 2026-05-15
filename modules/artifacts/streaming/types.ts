@@ -10,12 +10,14 @@ export type ChatStreamLocation = {
 export type ArtifactStreamMode = 'create' | 'edit' | 'replace';
 
 export type ActiveArtifactPreviewTarget = {
+    artifactId: string;
     artifactKey: string;
     version: number;
 };
 
 export type ActiveArtifactStream = {
     chatId: string;
+    artifactId: string;
     artifactKey: string;
     artifactName: string;
     version: number;

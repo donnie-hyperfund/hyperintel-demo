@@ -24,7 +24,14 @@ import { isOutputSafetyEnabled } from './safety/config';
 import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { CompletionBriefToolGroup, createCompletionBriefTools } from './tools/completion-brief';
-import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
+import {
+    cleanupOrphanArtifact,
+    countLines,
+    createDocumentTools,
+    DocumentToolGroup,
+    type DocumentToolsContext,
+    DraftManager,
+} from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/phase-transition';
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
@@ -515,6 +522,37 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
     const { anthropic, langfuse, em } = ctx;
 
     const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'chat-handler');
+    const draftManager = new DraftManager();
+    const projectId = chat.project!.id;
+
+    const cleanupActiveDraftReservation = async (stage: string) => {
+        const draft = draftManager.getCurrent();
+        if (!draft) return;
+
+        const cleanupEvent: StreamEvent = {
+            type: 'document_complete',
+            artifactId: draft.artifactId,
+            name: draft.name,
+            lines: countLines(draft.content),
+            action: 'aborted',
+            status: 'aborted',
+        };
+        pusher.push([cleanupEvent]);
+        options.onEvent?.(cleanupEvent);
+        void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {
+            chatId,
+            domain: 'chat' as const,
+            chatType: 'phase' as const,
+            projectId,
+            artifactId: draft.artifactId,
+            artifactKey: draft.name,
+        });
+
+        await cleanupOrphanArtifact({ em: em!, scope: { projectId }, name: draft.name }).catch((cleanupError) => {
+            console.error(`[chat-handler] failed to cleanup active draft reservation after ${stage}:`, cleanupError);
+        });
+        draftManager.discard();
+    };
 
     try {
         if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
@@ -539,9 +577,9 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             loadedPrompts: new Set<string>(savedPrompts),
             em: em!,
-            projectId: chat.project!.id,
+            projectId,
             chatId: chat.id,
-            draftManager: new DraftManager(),
+            draftManager,
             embeddingQueue: ctx.env.EMBEDDING_QUEUE,
             previewAlias: ctx.previewAlias,
             createdVersionIds,
@@ -692,6 +730,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         projectName: chat.project?.name ?? null,
                         phaseName: chat.name ?? null,
                         phaseIndex: chat.phase_index ?? null,
+                        artifactId: event.artifactId,
                         artifactKey: event.name,
                         artifactName: event.title,
                         version: event.pendingVersion,
@@ -705,6 +744,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         domain: 'chat' as const,
                         chatType: 'phase' as const,
                         projectId: agentCtx.projectId ?? null,
+                        artifactId: event.artifactId,
                         artifactKey: event.name,
                     });
                 }
@@ -732,6 +772,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         const isAborted = !!event.aborted;
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
+                        await cleanupActiveDraftReservation(isError ? 'error' : isAborted ? 'abort' : 'done');
 
                         // --- Cost calculation from apiUsage ---
                         const apiUsage = event.apiUsage;
@@ -979,6 +1020,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
+        await cleanupActiveDraftReservation('catch');
         const classification = classifyWorkerError(error);
         const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(

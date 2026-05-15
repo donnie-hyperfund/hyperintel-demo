@@ -16,6 +16,7 @@ export const ArtifactStreamStartedPayloadSchema = z.object({
     projectName: z.string().nullable().optional(),
     phaseName: z.string().nullable().optional(),
     phaseIndex: z.number().int().nullable().optional(),
+    artifactId: z.string().uuid(),
     artifactKey: z.string(),
     artifactName: z.string(),
     version: z.number().int(),
@@ -30,6 +31,7 @@ export const ArtifactStreamCompletedPayloadSchema = z.object({
     domain: z.enum(['chat', 'intake']),
     chatType: z.enum(['phase', 'company', 'stakeholder']).optional(),
     projectId: z.string().uuid().nullable().optional(),
+    artifactId: z.string().uuid(),
     artifactKey: z.string(),
 });
 export type ArtifactStreamCompletedPayload = z.infer<typeof ArtifactStreamCompletedPayloadSchema>;

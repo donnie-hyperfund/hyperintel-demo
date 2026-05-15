@@ -6,6 +6,7 @@ export {
     type AppliedEdit,
     applyEdits,
     approveVersion,
+    cleanupOrphanArtifact,
     countLines,
     type DocumentInfo,
     type DocumentListItem,

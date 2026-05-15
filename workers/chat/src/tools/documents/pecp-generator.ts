@@ -28,6 +28,8 @@ export interface GenerateInternalSummaryParams {
     em: EntityManager;
     /** Parent artifact_versions row ID — receives the generated summary_internal text. */
     versionId: string;
+    /** Parent ArtifactEntity id — frontend artifact store identity. */
+    artifactId: string;
     /** Parent version number — included in stream events for frontend bookkeeping. */
     version: number;
     /** Parent document name (e.g. genesis-dna.md). */
@@ -51,7 +53,7 @@ export interface GenerateInternalSummaryParams {
  * Resolves once the generation has completed and DB write is flushed.
  */
 export async function generateInternalSummary(params: GenerateInternalSummaryParams): Promise<void> {
-    const { rCtx, em, versionId, version, documentName, documentType, content, pushStreamEvents } = params;
+    const { rCtx, em, versionId, artifactId, version, documentName, documentType, content, pushStreamEvents } = params;
 
     if (!rCtx.anthropic) {
         throw new Error('Anthropic client not available — cannot generate internal summary.');
@@ -74,6 +76,7 @@ export async function generateInternalSummary(params: GenerateInternalSummaryPar
     pushStreamEvents?.([
         {
             type: 'summary_start',
+            artifactId,
             name: documentName,
             versionId,
             version,
@@ -101,6 +104,7 @@ export async function generateInternalSummary(params: GenerateInternalSummaryPar
             pushStreamEvents?.([
                 {
                     type: 'summary_delta',
+                    artifactId,
                     name: documentName,
                     versionId,
                     version,
@@ -120,6 +124,7 @@ export async function generateInternalSummary(params: GenerateInternalSummaryPar
     pushStreamEvents?.([
         {
             type: 'summary_complete',
+            artifactId,
             name: documentName,
             versionId,
             version,

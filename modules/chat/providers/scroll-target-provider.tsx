@@ -56,7 +56,12 @@ export function ScrollTargetProvider({ children }: { children: ReactNode }) {
         if (!openTarget || !isRouteChatReady) return;
 
         pushPanel(
-            { panel: 'artifact-preview', artifactId: openTarget.key, version: openTarget.version },
+            {
+                panel: 'artifact-preview',
+                artifactId: openTarget.id,
+                artifactKey: openTarget.key,
+                version: openTarget.version,
+            },
             { reset: true },
         );
         clearOpenParamsRef.current();
@@ -64,8 +69,8 @@ export function ScrollTargetProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (!chatId || !isRouteChatReady) return;
-        streamMonitor.setActivationHandler(chatId, (artifactKey, version) => {
-            pushPanel({ panel: 'artifact-preview', artifactId: artifactKey, version }, { reset: true });
+        streamMonitor.setActivationHandler(chatId, ({ artifactId, artifactKey, version }) => {
+            pushPanel({ panel: 'artifact-preview', artifactId, artifactKey, version }, { reset: true });
         });
         return () => streamMonitor.setActivationHandler(chatId, null);
     }, [streamMonitor, chatId, isRouteChatReady, pushPanel]);
