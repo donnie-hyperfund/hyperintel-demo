@@ -5,6 +5,10 @@ secrets:
   - DATABASE_URL
   - CLERK_SECRET_KEY
 
+analytics_engine_datasets:
+  - binding: STREAM_AE
+    dataset: hyperintel_stream_metrics
+
 durable_objects:
   - name: USER_GATEWAY
     class_name: UserGateway
