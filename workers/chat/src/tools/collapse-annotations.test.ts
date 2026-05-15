@@ -31,7 +31,7 @@ function toolBlock(overrides: Partial<ToolCallStreamBlock>): ToolCallStreamBlock
 }
 
 describe('tool collapse annotations', () => {
-    it('collapses write_document input content', () => {
+    it('collapses write_document input content to a sentinel', () => {
         const tool = getTool(createDocumentTools(), 'write_document');
         const collapsed = collapseWithTool(
             tool,
@@ -42,8 +42,16 @@ describe('tool collapse annotations', () => {
             }),
         );
 
-        expect(collapsed.toolInput).toEqual({ other: 'kept' });
-        expect(collapsed.toolOutput).toBe(JSON.stringify({ status: 'written', charsAdded: 16 }));
+        expect(collapsed.toolInput).toEqual({
+            content: '[collapsed]',
+            other: 'kept',
+        });
+        expect(JSON.stringify(collapsed.toolInput)).not.toContain('Large draft body');
+        expect(JSON.parse(collapsed.toolOutput ?? '')).toEqual({
+            status: 'written',
+            charsAdded: 16,
+            toolCallId: 'call-1',
+        });
     });
 
     it('collapses patch_document edit bodies into deterministic stats', () => {
