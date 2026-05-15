@@ -1,4 +1,4 @@
-import { runAgentStream } from '@common/ai/agent';
+import { runAgentStream, shapeContextForInference } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
 import { extractInferenceMetadata, type ParamsWithType, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
@@ -287,12 +287,17 @@ export async function prepareChatGenerationInput({
         buildServerToolsGuidance(reasoningPromptMode),
     );
     const { allTools, toolGroups } = getChatToolsAndGroups();
+    const shapedForEstimate = shapeContextForInference({
+        history: estimationContextMessages,
+        tools: allTools,
+        preprocessContext,
+        ctx: null,
+    });
     const estimatedTokens = estimateInferenceInputTokens({
         instructions: initialSystemPrompt,
-        context: estimationContextMessages,
+        context: shapedForEstimate,
         tools: allTools,
         toolGroups,
-        preprocessContext,
     });
 
     const isPlainNudge = data.message === null && !data.force_brief;
@@ -620,6 +625,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             ctx,
             {
                 ...inferenceParams,
+                cacheId: chat.id,
                 instructions: systemPromptForRun,
                 context: allMessages,
                 countReasoningAsContent: true,
