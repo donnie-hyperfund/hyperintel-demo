@@ -431,6 +431,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             // through this pusher and long-polls the DO for the user's click.
             pusher,
             streamDO,
+            pushStreamEvents: pusher.push,
             onVersionCreated: (event) => {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
