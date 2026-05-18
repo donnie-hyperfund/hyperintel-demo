@@ -403,7 +403,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                 {(chatId || chatType !== 'phase') && (
                                     <div className="flex items-center gap-0.5 md:gap-2 flex-nowrap min-w-0">
                                         <AttachFileButton disabled={isAwaitingStream} />
-                                        <ImageUploadModeSelector disabled={isBusy} />
+                                        {chatType === 'phase' && <ImageUploadModeSelector disabled={isBusy} />}
                                     </div>
                                 )}
 

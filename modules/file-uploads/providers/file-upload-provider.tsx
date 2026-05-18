@@ -48,6 +48,8 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
     '.webp': 'image/webp',
 };
 
+const MAX_IMAGE_DIMENSION = 8000;
+
 type UploadBatch = { pendingIds: Set<string>; total: number; firstName: string };
 export type ImageUploadIntent = 'artifact' | 'chat-image';
 type AddFilesOptions = { source?: 'paste' };
@@ -627,10 +629,19 @@ export function FileUploadProvider({ children, scope }: FileUploadProviderProps)
             updateEntry(entryId, { status: 'uploading' });
 
             try {
+                if (isImageExtension(ext)) {
+                    const dims = await resolveImageDimensions(file);
+                    if (dims && (dims.width > MAX_IMAGE_DIMENSION || dims.height > MAX_IMAGE_DIMENSION)) {
+                        throw new Error(
+                            `Image dimensions (${dims.width}×${dims.height}) exceed the ${MAX_IMAGE_DIMENSION}px limit`,
+                        );
+                    }
+                }
                 const token = await getToken();
                 if (!token) throw new Error('Not authenticated');
 
-                if (isImageExtension(ext) && isChatInput && imageUploadMode === 'chat-image') {
+                const effectiveImageMode: ImageUploadIntent = !scope?.projectId ? 'chat-image' : imageUploadMode;
+                if (isImageExtension(ext) && isChatInput && effectiveImageMode === 'chat-image') {
                     await uploadChatImage(file, entryId, token, ext);
                     return;
                 }
