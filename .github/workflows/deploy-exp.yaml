@@ -32,18 +32,12 @@ jobs:
           DATABASE_URL: ${{ secrets.NEON_PROD_DATABASE_URL }}
           DATABASE_URL_DIRECT: ${{ secrets.NEON_PROD_DATABASE_URL_DIRECT }}
 
-      - name: Deploy exp objects worker
-        run: npx wrangler deploy --env=exp --config workers/objects/wrangler.jsonc
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-
       - name: Deploy exp workers
         run: |
           failed=0
           for dir in workers/*/; do
             name=$(basename "$dir")
-            [[ "$name" == _common || "$name" == node_modules || "$name" == objects ]] && continue
+            [[ "$name" == _common || "$name" == node_modules ]] && continue
             [[ ! -f "$dir/wrangler.jsonc" ]] && continue
             echo "::group::Deploying $name"
             if ! npx wrangler deploy --env=exp --config "$dir/wrangler.jsonc"; then
