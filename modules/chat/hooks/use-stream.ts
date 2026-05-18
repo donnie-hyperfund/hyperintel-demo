@@ -1241,6 +1241,19 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         }
 
                         documentQueueRef.current = new AsyncEventQueue(handleDocumentEvent);
+
+                        if (sr.replayStatus === 'failed') {
+                            console.warn('[use-stream] subscribe snapshot may be stale (replayStatus: failed)', {
+                                agentMessageId: sr.agentMessageId,
+                                seqHigh: sr.seqHigh,
+                            });
+                            captureSubscribeDiagnostic('stream_subscribe_replay_failed', {
+                                agent_message_id: sr.agentMessageId,
+                                seq_high: sr.seqHigh,
+                                stream_type: sr.streamType ?? null,
+                            });
+                        }
+
                         o.onSubscribeResponse?.(
                             'streaming',
                             resp.selectedModel ?? null,
@@ -1248,13 +1261,16 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         );
                     } else {
                         captureSubscribeCompleted(resp.status);
-                        // idle or stale — no active stream
                         ownedAgentMessageIdRef.current = null;
                         setStatus('idle');
                         setAgentMessageId(null);
                         setStreamType(null);
                         setDisplayStatus(null);
-                        o.onSubscribeResponse?.('idle', resp.selectedModel ?? null, resp.completionBriefStatus ?? null);
+                        o.onSubscribeResponse?.(
+                            resp.status,
+                            resp.selectedModel ?? null,
+                            resp.completionBriefStatus ?? null,
+                        );
                     }
                     flushSubscribeBuffer(flushSeqHigh);
                     break;

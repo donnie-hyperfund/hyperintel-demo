@@ -15,6 +15,7 @@ export type SubscribeResponse =
           snapshot: unknown;
           seqHigh: number;
           streamType?: 'chat' | 'phase_transition';
+          replayStatus?: 'ok' | 'failed';
           selectedModel?: string | null;
           completionBriefStatus?: string | null;
       }

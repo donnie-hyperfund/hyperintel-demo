@@ -27,6 +27,9 @@ durable_objects:
   - name: LOCKS_SERVICE
     class_name: LocksService
     local: true
+  - name: CHAT_STREAM_STATE_DO
+    class_name: ChatStreamStateDO
+    script_name: hi-stream-state
 
 migrations:
   - tag: v1_initial

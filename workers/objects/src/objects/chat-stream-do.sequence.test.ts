@@ -1,7 +1,7 @@
-import { MockDurableObjectId, MockDurableObjectState } from '@common/common/local.do-mock';
+import { MockDurableObjectId, MockDurableObjectState, MockDurableObjectStorage } from '@common/common/local.do-mock';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StreamEventMessage, StreamStatusMessage } from '@/lib/schema/ws-protocol';
-import { ChatStreamDO } from './chat-stream-do';
+import { ChatStreamDO, type StreamSubscribeResult } from './chat-stream-do';
 
 type CapturedPush = {
     topic: string;
@@ -31,21 +31,19 @@ function createEnv(
     } as unknown as ObjectsEnv;
 }
 
-async function createStreamDO(captured: CapturedPush[], idName = 'agent-1', deadManCleanup = vi.fn(async () => {})) {
-    const ctx = new MockDurableObjectState(new MockDurableObjectId(idName));
+async function createStreamDO(
+    captured: CapturedPush[],
+    idName = 'agent-1',
+    deadManCleanup = vi.fn(async () => {}),
+    storage?: MockDurableObjectStorage,
+) {
+    const ctx = new MockDurableObjectState(new MockDurableObjectId(idName), storage);
     const writeDataPoint = vi.fn();
     const stream = new ChatStreamDO(
         ctx as unknown as DurableObjectState,
         createEnv(captured, deadManCleanup, writeDataPoint),
     );
     return { ctx, stream, writeDataPoint };
-}
-
-async function copyStorage(from: MockDurableObjectState, to: MockDurableObjectState) {
-    const entries = await from.storage.list();
-    for (const [key, value] of entries) {
-        await to.storage.put(key, value);
-    }
 }
 
 async function initAndSubscribe(stream: ChatStreamDO) {
@@ -59,6 +57,12 @@ async function waitForCapturedMessages(captured: CapturedPush[], count: number) 
         expect(total).toBeGreaterThanOrEqual(count);
     });
     return captured.flatMap((push) => push.messages) as Array<StreamEventMessage | StreamStatusMessage>;
+}
+
+function expectStreaming(result: StreamSubscribeResult) {
+    expect(result.stale).toBeUndefined();
+    if (result.stale) throw new Error('unreachable');
+    return result;
 }
 
 describe('ChatStreamDO sequence contract', () => {
@@ -89,8 +93,12 @@ describe('ChatStreamDO sequence contract', () => {
         expect(firstMessages[0]._seq).toBe(0);
 
         const secondCaptured: CapturedPush[] = [];
-        const second = await createStreamDO(secondCaptured);
-        await copyStorage(first.ctx, second.ctx);
+        const second = await createStreamDO(
+            secondCaptured,
+            'agent-1',
+            vi.fn(async () => {}),
+            first.ctx.storage,
+        );
 
         await second.stream.push([{ type: 'delta', text: 'after reload' }], 0);
         const secondMessages = await waitForCapturedMessages(secondCaptured, 1);
@@ -108,8 +116,12 @@ describe('ChatStreamDO sequence contract', () => {
         expect(firstMessages[0].type).toBe('stream_status');
 
         const secondCaptured: CapturedPush[] = [];
-        const second = await createStreamDO(secondCaptured);
-        await copyStorage(first.ctx, second.ctx);
+        const second = await createStreamDO(
+            secondCaptured,
+            'agent-1',
+            vi.fn(async () => {}),
+            first.ctx.storage,
+        );
 
         await second.stream.push([{ type: 'delta', text: 'after reload' }], 0);
         const secondMessages = await waitForCapturedMessages(secondCaptured, 1);
@@ -137,8 +149,12 @@ describe('ChatStreamDO sequence contract', () => {
         expect(firstMessages.map((message) => message._seq)).toEqual([0, 1]);
 
         const secondCaptured: CapturedPush[] = [];
-        const second = await createStreamDO(secondCaptured);
-        await copyStorage(first.ctx, second.ctx);
+        const second = await createStreamDO(
+            secondCaptured,
+            'agent-1',
+            vi.fn(async () => {}),
+            first.ctx.storage,
+        );
 
         await second.stream.push([{ type: 'delta', text: 'after reload' }], 0);
         const secondMessages = await waitForCapturedMessages(secondCaptured, 1);
@@ -154,7 +170,7 @@ describe('ChatStreamDO sequence contract', () => {
         await stream.push([{ type: 'delta', text: 'second' }], 1);
         await waitForCapturedMessages(captured, 2);
 
-        const result = await stream.subscribe('user-2', 'ug-2');
+        const result = expectStreaming(await stream.subscribe('user-2', 'ug-2'));
         expect(result.seqHigh).toBe(1);
         expect(result.snapshot.status).toBe('streaming');
     });
@@ -164,7 +180,7 @@ describe('ChatStreamDO sequence contract', () => {
         const { stream } = await createStreamDO(captured);
         await stream.init('chat-1', 'agent-1', 'user-msg-1');
 
-        const result = await stream.subscribe('user-1', 'ug-1');
+        const result = expectStreaming(await stream.subscribe('user-1', 'ug-1'));
         expect(result.seqHigh).toBe(-1);
         expect(result.snapshot.status).toBe('streaming');
     });
@@ -237,14 +253,29 @@ describe('ChatStreamDO sequence contract', () => {
         await expect(ctx.storage.list()).resolves.toEqual(new Map());
     });
 
+    it('transactionSync rolls back on error — table creation and inserts are atomic', async () => {
+        const captured: CapturedPush[] = [];
+        const { ctx } = await createStreamDO(captured);
+
+        expect(() =>
+            ctx.storage.transactionSync(() => {
+                ctx.storage.sql.exec('CREATE TABLE t (id INTEGER PRIMARY KEY)');
+                ctx.storage.sql.exec('INSERT INTO t (id) VALUES (?)', 1);
+                ctx.storage.sql.exec('INSERT INTO t (id) VALUES (?)', 1);
+            }),
+        ).toThrow();
+
+        expect(() => ctx.storage.sql.exec('SELECT * FROM t')).toThrow(/no such table/);
+    });
+
     /**
      * Regression: error cleanup must deliver terminal events to subscribers.
      *
      * Encodes the `cleanupStreamDO` ordering (push(error,done) → done() → finalize())
      * and asserts the subscriber received both the error stream_event and the done
      * stream_status. The mock does not simulate CF input gates, so this test alone
-     * doesn't reproduce the runtime race — its structural guarantee is "if anything
-     * future change re-introduces an await in `sendBatchToSubscribers` before the
+     * doesn't reproduce the runtime race — its structural guarantee is "if a future
+     * change re-introduces an await in `sendBatchToSubscribers` before the
      * subscriber loop, the broadcast disappears here too".
      */
     it('delivers terminal events when error cleanup is the first broadcast', async () => {
@@ -290,5 +321,89 @@ describe('ChatStreamDO sequence contract', () => {
         expect(iterIdx).toBeGreaterThan(guardIdx);
         const between = src.slice(guardIdx, iterIdx);
         expect(between).not.toMatch(/\bawait\b/);
+    });
+});
+
+// ============================================================================
+// Reorder buffer (producer seq) — fills, drains in order, recovers from gap.
+// ============================================================================
+
+describe('ChatStreamDO reorder buffer (producer seq)', () => {
+    beforeEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('buffers out-of-order pushes and drains contiguously when the gap fills', async () => {
+        const captured: CapturedPush[] = [];
+        const { stream } = await createStreamDO(captured);
+        await initAndSubscribe(stream);
+
+        // Arrive: seq 0 (drains), seq 2 (held — waiting for 1), seq 1 (unlocks both)
+        await stream.push([{ type: 'delta', text: 'a' }], 0);
+        await stream.push([{ type: 'delta', text: 'c' }], 2);
+        await stream.push([{ type: 'delta', text: 'b' }], 1);
+
+        const messages = await waitForCapturedMessages(captured, 3);
+        // Broadcast _seq is monotonic and reflects drain order, not arrival order.
+        expect(messages.map((m) => m._seq)).toEqual([0, 1, 2]);
+        const events = messages.map((m) => (m as unknown as { event: { text: string } }).event.text);
+        expect(events).toEqual(['a', 'b', 'c']);
+    });
+
+    it('ignores duplicate producer seq (seq < nextExpected)', async () => {
+        const captured: CapturedPush[] = [];
+        const { stream, writeDataPoint } = await createStreamDO(captured);
+        await initAndSubscribe(stream);
+
+        await stream.push([{ type: 'delta', text: 'a' }], 0);
+        await waitForCapturedMessages(captured, 1);
+
+        // Re-push seq 0 — should be a no-op (duplicate)
+        await stream.push([{ type: 'delta', text: 'dup' }], 0);
+
+        // Still only one broadcast
+        const total = captured.reduce((sum, p) => sum + p.messages.length, 0);
+        expect(total).toBe(1);
+        // Metric confirms the duplicate path was hit
+        expect(writeDataPoint).toHaveBeenCalledWith(
+            expect.objectContaining({
+                blobs: expect.arrayContaining(['push_duplicate']),
+            }),
+        );
+    });
+
+    it('skips lost batch after gap timeout — drains remaining batches', async () => {
+        const captured: CapturedPush[] = [];
+        const { stream } = await createStreamDO(captured);
+        await initAndSubscribe(stream);
+
+        // Seq 0 drains normally
+        await stream.push([{ type: 'delta', text: 'a' }], 0);
+        await waitForCapturedMessages(captured, 1);
+
+        // Seq 2 arrives but seq 1 is missing — buffered, gap detected
+        const baseTime = 1_000_000;
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(baseTime);
+        try {
+            await stream.push([{ type: 'delta', text: 'c' }], 2);
+
+            // No new broadcasts yet — seq 2 is held
+            const captured2 = captured.flatMap((p) => p.messages);
+            expect(captured2).toHaveLength(1);
+
+            // Advance past the 5s timeout and push another batch to trigger the skip path
+            nowSpy.mockReturnValue(baseTime + 6_000);
+            await stream.push([{ type: 'delta', text: 'd' }], 3);
+
+            // Seqs 2 and 3 drain (1 is permanently lost — producer's responsibility to retry).
+            const messages = await waitForCapturedMessages(captured, 3);
+            const broadcastSeqs = messages.map((m) => m._seq);
+            // Broadcast _seq is monotonic across the writeOutbox boundary.
+            expect(broadcastSeqs).toEqual([0, 1, 2]);
+            const events = messages.map((m) => (m as unknown as { event: { text: string } }).event.text);
+            expect(events).toEqual(['a', 'c', 'd']);
+        } finally {
+            nowSpy.mockRestore();
+        }
     });
 });

@@ -189,6 +189,52 @@ describe('StreamTopicHandler services policy client', () => {
         );
     });
 
+    it('returns stale without clearing active stream when state DO snapshot fails', async () => {
+        const getTopicSubscribeInfo = vi.fn(async () => ({
+            allowed: true,
+            activeAgentMessageId: 'agent-1',
+            selectedModel: 'gpt-5.4',
+            completionBriefStatus: null,
+        }));
+        const streamSubscribe = vi.fn(async () => ({ stale: true as const, seqHigh: -1 }));
+        const clearActiveStream = vi.fn(async () => {});
+        const env = createEnv(getTopicSubscribeInfo, streamSubscribe, clearActiveStream);
+        const handler = new ChatTopicHandler(createStorage());
+
+        const decision = await handler.canSubscribe('user-1', 'chat-1', env);
+        if (!decision.allowed) throw new Error('expected allowed decision');
+
+        await expect(handler.subscribe('user-1', 'chat-1', env, decision)).resolves.toEqual({
+            status: 'stale',
+            selectedModel: 'gpt-5.4',
+            completionBriefStatus: null,
+        });
+        expect(clearActiveStream).not.toHaveBeenCalled();
+    });
+
+    it('forwards replayStatus from ChatStreamDO into streaming response', async () => {
+        const getTopicSubscribeInfo = vi.fn(async () => ({
+            allowed: true,
+            activeAgentMessageId: 'agent-1',
+        }));
+        const streamSubscribe = vi.fn(async () => ({
+            snapshot: { status: 'streaming', blocks: [] },
+            seqHigh: 5,
+            replayStatus: 'failed',
+        }));
+        const env = createEnv(getTopicSubscribeInfo, streamSubscribe);
+        const handler = new ChatTopicHandler(createStorage());
+
+        const decision = await handler.canSubscribe('user-1', 'chat-1', env);
+        if (!decision.allowed) throw new Error('expected allowed decision');
+
+        const result = await handler.subscribe('user-1', 'chat-1', env, decision);
+        expect(result).toMatchObject({
+            status: 'streaming',
+            replayStatus: 'failed',
+        });
+    });
+
     it('checks intake subscribe permission through CHAT_SERVICES', async () => {
         vi.spyOn(console, 'warn').mockImplementation(() => {});
         const getTopicSubscribeInfo = vi.fn(async () => ({ allowed: false }));

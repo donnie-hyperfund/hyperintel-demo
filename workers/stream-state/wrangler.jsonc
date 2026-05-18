@@ -7,14 +7,14 @@
 // ║                                                                           ║
 // ║   To modify this worker's configuration:                                  ║
 // ║     → Edit: worker.yaml (in this folder)                                  ║
-// ║     → Then run: pnpm gen:workers hi-objects                               ║
+// ║     → Then run: pnpm gen:workers hi-stream-state                          ║
 // ║                                                                           ║
 // ║   See: _common/CONFIG_README.md for documentation                         ║
 // ║                                                                           ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
 {
 	"$schema": "../node_modules/wrangler/config-schema.json",
-	"name": "hi-objects",
+	"name": "hi-stream-state",
 	"main": "src/index.ts",
 	"compatibility_flags": [
 		"nodejs_compat"
@@ -31,50 +31,15 @@
 		"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 		"LANGFUSE_ENVIRONMENT": "production",
 		"CORS_ALLOWED_ORIGIN": "https://app.hprntl.ai",
-		"WORKER_NAME": "hi-objects",
-		"WORKER_NAME_FULL": "hi-objects"
+		"WORKER_NAME": "hi-stream-state",
+		"WORKER_NAME_FULL": "hi-stream-state"
 	},
-	"secrets_store_secrets": [
-		{
-			"binding": "DATABASE_URL",
-			"store_id": "b0b79b79a9e4400384c1e86239b96635",
-			"secret_name": "HI_DATABASE_URL"
-		},
-		{
-			"binding": "CLERK_SECRET_KEY",
-			"store_id": "b0b79b79a9e4400384c1e86239b96635",
-			"secret_name": "CLERK_SECRET_KEY"
-		}
-	],
-	"services": [
-		{
-			"binding": "CHAT_SERVICES",
-			"service": "hi-services",
-			"entrypoint": "ChatServices"
-		}
-	],
+	"secrets_store_secrets": [],
 	"durable_objects": {
 		"bindings": [
 			{
-				"name": "USER_GATEWAY",
-				"class_name": "UserGateway"
-			},
-			{
-				"name": "CHAT_STREAM_DO",
-				"class_name": "ChatStreamDO"
-			},
-			{
-				"name": "GENERATION_PROXY",
-				"class_name": "GenerationProxyDO"
-			},
-			{
-				"name": "LOCKS_SERVICE",
-				"class_name": "LocksService"
-			},
-			{
 				"name": "CHAT_STREAM_STATE_DO",
-				"class_name": "ChatStreamStateDO",
-				"script_name": "hi-stream-state"
+				"class_name": "ChatStreamStateDO"
 			}
 		]
 	},
@@ -82,20 +47,7 @@
 		{
 			"tag": "v1_initial",
 			"new_sqlite_classes": [
-				"UserGateway",
-				"ChatStreamDO"
-			]
-		},
-		{
-			"tag": "v2_generation_proxy",
-			"new_sqlite_classes": [
-				"GenerationProxyDO"
-			]
-		},
-		{
-			"tag": "v3_locks_service",
-			"new_sqlite_classes": [
-				"LocksService"
+				"ChatStreamStateDO"
 			]
 		}
 	],
@@ -114,50 +66,15 @@
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
-				"WORKER_NAME": "hi-objects",
-				"WORKER_NAME_FULL": "hi-objects-dev"
+				"WORKER_NAME": "hi-stream-state",
+				"WORKER_NAME_FULL": "hi-stream-state-dev"
 			},
-			"secrets_store_secrets": [
-				{
-					"binding": "DATABASE_URL",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "DEV_HI_DATABASE_URL"
-				},
-				{
-					"binding": "CLERK_SECRET_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "DEV_CLERK_SECRET_KEY"
-				}
-			],
-			"services": [
-				{
-					"binding": "CHAT_SERVICES",
-					"service": "hi-services-dev",
-					"entrypoint": "ChatServices"
-				}
-			],
+			"secrets_store_secrets": [],
 			"durable_objects": {
 				"bindings": [
 					{
-						"name": "USER_GATEWAY",
-						"class_name": "UserGateway"
-					},
-					{
-						"name": "CHAT_STREAM_DO",
-						"class_name": "ChatStreamDO"
-					},
-					{
-						"name": "GENERATION_PROXY",
-						"class_name": "GenerationProxyDO"
-					},
-					{
-						"name": "LOCKS_SERVICE",
-						"class_name": "LocksService"
-					},
-					{
 						"name": "CHAT_STREAM_STATE_DO",
-						"class_name": "ChatStreamStateDO",
-						"script_name": "hi-stream-state-dev"
+						"class_name": "ChatStreamStateDO"
 					}
 				]
 			},
@@ -182,50 +99,15 @@
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
-				"WORKER_NAME": "hi-objects",
-				"WORKER_NAME_FULL": "hi-objects-exp"
+				"WORKER_NAME": "hi-stream-state",
+				"WORKER_NAME_FULL": "hi-stream-state-exp"
 			},
-			"secrets_store_secrets": [
-				{
-					"binding": "DATABASE_URL",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "HI_DATABASE_URL"
-				},
-				{
-					"binding": "CLERK_SECRET_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "DEV_CLERK_SECRET_KEY"
-				}
-			],
-			"services": [
-				{
-					"binding": "CHAT_SERVICES",
-					"service": "hi-services-exp",
-					"entrypoint": "ChatServices"
-				}
-			],
+			"secrets_store_secrets": [],
 			"durable_objects": {
 				"bindings": [
 					{
-						"name": "USER_GATEWAY",
-						"class_name": "UserGateway"
-					},
-					{
-						"name": "CHAT_STREAM_DO",
-						"class_name": "ChatStreamDO"
-					},
-					{
-						"name": "GENERATION_PROXY",
-						"class_name": "GenerationProxyDO"
-					},
-					{
-						"name": "LOCKS_SERVICE",
-						"class_name": "LocksService"
-					},
-					{
 						"name": "CHAT_STREAM_STATE_DO",
-						"class_name": "ChatStreamStateDO",
-						"script_name": "hi-stream-state-exp"
+						"class_name": "ChatStreamStateDO"
 					}
 				]
 			},
@@ -250,50 +132,15 @@
 				"LANGFUSE_PUBLIC_KEY": "pk-lf-56f0afd5-8b8e-446e-8a0b-bd2b4c80a780",
 				"LANGFUSE_ENVIRONMENT": "development",
 				"CORS_ALLOWED_ORIGIN": "https://dev-app.hprntl.ai",
-				"WORKER_NAME": "hi-objects",
-				"WORKER_NAME_FULL": "hi-objects-dexp"
+				"WORKER_NAME": "hi-stream-state",
+				"WORKER_NAME_FULL": "hi-stream-state-dexp"
 			},
-			"secrets_store_secrets": [
-				{
-					"binding": "DATABASE_URL",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "DEV_HI_DATABASE_URL"
-				},
-				{
-					"binding": "CLERK_SECRET_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "DEV_CLERK_SECRET_KEY"
-				}
-			],
-			"services": [
-				{
-					"binding": "CHAT_SERVICES",
-					"service": "hi-services-dexp",
-					"entrypoint": "ChatServices"
-				}
-			],
+			"secrets_store_secrets": [],
 			"durable_objects": {
 				"bindings": [
 					{
-						"name": "USER_GATEWAY",
-						"class_name": "UserGateway"
-					},
-					{
-						"name": "CHAT_STREAM_DO",
-						"class_name": "ChatStreamDO"
-					},
-					{
-						"name": "GENERATION_PROXY",
-						"class_name": "GenerationProxyDO"
-					},
-					{
-						"name": "LOCKS_SERVICE",
-						"class_name": "LocksService"
-					},
-					{
 						"name": "CHAT_STREAM_STATE_DO",
-						"class_name": "ChatStreamStateDO",
-						"script_name": "hi-stream-state-dexp"
+						"class_name": "ChatStreamStateDO"
 					}
 				]
 			},
@@ -316,8 +163,6 @@
 		"stripe": "../_common/vendor/stubs/stripe.ts",
 		"@sendgrid/mail": "../_common/vendor/stubs/sendgrid-mail.ts",
 		"@cerebras/cerebras_cloud_sdk": "../_common/vendor/stubs/cerebras.ts",
-		"langfuse": "../_common/vendor/stubs/langfuse.ts",
-		"@/lib/local/cf-env-secret-mock": "../_common/vendor/stubs/empty.ts",
 		"mariadb/callback": "../_common/vendor/stubs/empty.ts",
 		"better-sqlite3": "../_common/vendor/stubs/empty.ts",
 		"libsql": "../_common/vendor/stubs/empty.ts",

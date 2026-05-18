@@ -25,3 +25,5 @@ blob-report/
 .claude/worktrees
 .codex/worktrees
 .codex/**/worktrees
+
+dockeys

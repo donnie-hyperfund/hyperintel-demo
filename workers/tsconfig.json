@@ -37,6 +37,8 @@
         "extraction/src/**/*.ts",
         "services/worker-configuration.d.ts",
         "services/src/**/*.ts",
+        "stream-state/worker-configuration.d.ts",
+        "stream-state/src/**/*.ts",
         "runtime-config.ts",
         "_common/**/*.ts",
         "**/vitest.config.ts"

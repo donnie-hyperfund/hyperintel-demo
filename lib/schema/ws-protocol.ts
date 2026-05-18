@@ -95,6 +95,8 @@ export type SubscribeResponseStreaming = {
     seqHigh: number;
     /** Present when streaming a phase transition (not a normal chat response) */
     streamType?: 'chat' | 'phase_transition';
+    /** Outbox tail replay status. 'failed' means the snapshot may be behind live state. */
+    replayStatus?: 'ok' | 'failed';
     selectedModel?: string | null;
     completionBriefStatus?: string | null;
 };

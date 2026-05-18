@@ -144,12 +144,22 @@ export abstract class StreamTopicHandler<TSubscribeInfo extends SubscribePolicyR
             const stub = this.getStreamStub(env, agentMessageId);
             // UG DO name = userId (or userId@alias on dev preview branches)
             const result = await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
-            const { snapshot, seqHigh, streamType } = result;
+            if (result.stale) {
+                return { status: 'stale' };
+            }
+            const { snapshot, seqHigh, streamType, replayStatus } = result;
             if (snapshot.status === 'done' || snapshot.status === 'aborted' || snapshot.status === 'error') {
                 await this.clearActiveAgentMessageId(identifier, agentMessageId, env);
                 return { status: 'idle' };
             }
-            return { status: 'streaming', agentMessageId, snapshot, seqHigh, ...(streamType ? { streamType } : {}) };
+            return {
+                status: 'streaming',
+                agentMessageId,
+                snapshot,
+                seqHigh,
+                ...(streamType ? { streamType } : {}),
+                ...(replayStatus ? { replayStatus } : {}),
+            };
         } catch (err) {
             // ChatStream DO is gone (already finalized) — clear the SQL pointer
             // so subsequent subscribes fall through to idle without retrying.

@@ -209,6 +209,7 @@
         "@types/underscore": "^1.13.0",
         "@types/ws": "^8.18.1",
         "@vitest/coverage-v8": "^4.0.18",
+        "better-sqlite3": "^12.10.0",
         "cross-env": "^10.1.0",
         "env-cmd": "^11.0.0",
         "husky": "^9.1.7",
