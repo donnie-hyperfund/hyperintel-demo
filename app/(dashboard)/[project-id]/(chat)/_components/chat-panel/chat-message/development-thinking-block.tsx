@@ -11,7 +11,6 @@ type DevelopmentThinkingBlockProps = {
     blocks: StreamBlock[];
     defaultExpanded: boolean;
     isStreaming?: boolean;
-    hasTextContent?: boolean;
     status?: string;
 };
 
@@ -19,13 +18,12 @@ export function DevelopmentThinkingBlock({
     blocks,
     defaultExpanded,
     isStreaming,
-    hasTextContent,
     status,
 }: DevelopmentThinkingBlockProps) {
     const [expanded, setExpanded] = useState(defaultExpanded);
     const wasStreaming = useRef(isStreaming);
     const contentRef = useRef<HTMLDivElement>(null);
-    const { doneLabel, isThinking } = useThinkingLabel(blocks, isStreaming, { hasTextContent });
+    const { doneLabel, isThinking } = useThinkingLabel(blocks, isStreaming);
 
     useEffect(() => {
         if (defaultExpanded) setExpanded(true);
