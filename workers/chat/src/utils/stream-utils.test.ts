@@ -16,7 +16,7 @@ vi.mock('../uploads/image-uploader', () => ({
     generateSignedImageUrls: vi.fn(() => Promise.resolve(new Map())),
 }));
 
-import { loadChatHistory } from './stream-utils';
+import { loadChatHistory, persistErrorMessage } from './stream-utils';
 
 describe('loadChatHistory', () => {
     it('reconstructs toolContentParts from persisted toolImageRefs in chat history', async () => {
@@ -160,5 +160,73 @@ describe('loadChatHistory', () => {
                 ],
             },
         ]);
+    });
+});
+
+describe('persistErrorMessage', () => {
+    it('fills classified error metadata into an existing empty assistant placeholder', async () => {
+        const existing = {
+            content: '',
+            reasoning: null,
+            blocks: [],
+            is_error: true,
+            metadata: null,
+            debug_data: null,
+        };
+        const chat = { active_agent_message_id: 'agent-1' };
+        const em = {
+            findOne: vi.fn().mockResolvedValue(existing),
+            flush: vi.fn().mockResolvedValue(undefined),
+        };
+
+        await persistErrorMessage({
+            em,
+            chatId: 'chat-1',
+            agentMessageId: 'agent-1',
+            chat,
+            error: new Error('response ended'),
+            errorMetadata: { code: 'INCOMPLETE_RESPONSE', retryable: true, referenceId: 'ref-1' },
+            label: 'test',
+        });
+
+        expect(existing.is_error).toBe(true);
+        expect(existing.metadata).toEqual({
+            error: { code: 'INCOMPLETE_RESPONSE', retryable: true, referenceId: 'ref-1' },
+        });
+        expect((existing.debug_data as any).error.message).toBe('response ended');
+        expect(chat.active_agent_message_id).toBeNull();
+        expect(em.flush).toHaveBeenCalledOnce();
+    });
+
+    it('does not mark an already-persisted assistant payload as an error', async () => {
+        const existing = {
+            content: 'completed response',
+            reasoning: null,
+            blocks: null,
+            is_error: false,
+            metadata: { preset: 'sonnet' },
+            debug_data: null,
+        };
+        const chat = { active_agent_message_id: 'agent-1' };
+        const em = {
+            findOne: vi.fn().mockResolvedValue(existing),
+            flush: vi.fn().mockResolvedValue(undefined),
+        };
+
+        await persistErrorMessage({
+            em,
+            chatId: 'chat-1',
+            agentMessageId: 'agent-1',
+            chat,
+            error: new Error('late cleanup failed'),
+            errorMetadata: { code: 'UNKNOWN', retryable: true, referenceId: 'ref-2' },
+            label: 'test',
+        });
+
+        expect(existing.is_error).toBe(false);
+        expect(existing.metadata).toEqual({ preset: 'sonnet' });
+        expect(existing.debug_data).toBeNull();
+        expect(chat.active_agent_message_id).toBeNull();
+        expect(em.flush).toHaveBeenCalledOnce();
     });
 });

@@ -15,6 +15,7 @@ import { classifyErrorFallback, serializeException } from '@/common/ai/utils';
 export type StoredErrorMetadata = {
     code: PublicErrorCode;
     retryable: boolean;
+    kind?: ErrorClassification['kind'];
     referenceId?: string;
 };
 
@@ -78,6 +79,7 @@ export function buildStoredErrorMetadata({
     return {
         code: classification.code,
         retryable: classification.retryable,
+        ...(classification.kind && { kind: classification.kind }),
         ...(requestId && { referenceId: requestId }),
     };
 }
