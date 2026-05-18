@@ -38,6 +38,7 @@ const artifactContextMock = {
     getArtifact: vi.fn(),
     getStore: vi.fn(() => ({})),
 };
+const setViewedArtifactMock = vi.fn();
 
 const apiMock = {
     projects: {},
@@ -92,6 +93,12 @@ vi.mock('@/lib/api/requests/worker/chat', () => ({
 
 vi.mock('@/modules/artifacts/providers/artifact-provider', () => ({
     useArtifactActions: () => artifactContextMock,
+}));
+
+vi.mock('@/modules/artifacts/streaming/artifact-stream-monitor-provider', () => ({
+    useArtifactStreamMonitor: () => ({
+        setViewedArtifact: setViewedArtifactMock,
+    }),
 }));
 
 vi.mock('@/modules/artifacts/processing/artifact-processing-provider', () => ({
@@ -218,6 +225,7 @@ describe('ChatProvider', () => {
         artifactContextMock.updateArtifact.mockReset();
         artifactContextMock.getArtifact.mockReset();
         artifactContextMock.getStore.mockReset().mockReturnValue({});
+        setViewedArtifactMock.mockReset();
 
         apiMock.chats.create.mockReset();
         apiMock.chats.createIntake.mockReset();

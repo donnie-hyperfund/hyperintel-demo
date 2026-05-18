@@ -28,16 +28,10 @@ import { createNoopSafetyMonitor, createSafetyMonitor } from './safety/analyzer'
 import { isOutputSafetyEnabled } from './safety/config';
 import { safetyCheck } from './safety/guard';
 import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
-import {
-    cleanupOrphanArtifact,
-    countLines,
-    createDocumentTools,
-    DocumentToolGroup,
-    type DocumentToolsContext,
-    DraftManager,
-} from './tools/documents';
+import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
+import { cleanupActiveDraftReservation } from './utils/active-draft-cleanup';
 import { broadcastUserEvent } from './utils/broadcast';
 import {
     CHAT_CONTEXT_LIMIT_TOKENS,
@@ -415,39 +409,20 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     const intakeChatType = chat.metadata?.framework === 'hpf' ? 'stakeholder' : 'company';
     const lockService = getLocksService(ctx.env.LOCKS_SERVICE as unknown as DurableObjectNamespace);
 
-    const cleanupActiveDraftReservation = async (stage: string) => {
-        const draft = draftManager.getCurrent();
-        if (!draft) return;
-
-        const cleanupEvent: StreamEvent = {
-            type: 'document_complete',
-            artifactId: draft.artifactId,
-            name: draft.name,
-            lines: countLines(draft.content),
-            action: 'aborted',
-            status: 'aborted',
-        };
-        pusher.push([cleanupEvent]);
-        options.onEvent?.(cleanupEvent);
-        void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {
-            chatId,
-            domain: 'intake' as const,
-            chatType: intakeChatType,
-            projectId: null,
-            artifactId: draft.artifactId,
-            artifactKey: draft.name,
-        });
-
-        await cleanupOrphanArtifact({
+    const cleanupActiveDraft = (stage: string) =>
+        cleanupActiveDraftReservation({
+            stage,
+            source: 'intake-handler',
+            ctx,
             em: em!,
             lockService,
+            draftManager,
+            chatId,
             scope: { userId, chatId: chat.id },
-            name: draft.name,
-        }).catch((cleanupError) => {
-            console.error(`[intake-handler] failed to cleanup active draft reservation after ${stage}:`, cleanupError);
+            streamLocation: { domain: 'intake', chatType: intakeChatType, projectId: null },
+            pushStreamEvents: pusher.push,
+            onEvent: options.onEvent,
         });
-        draftManager.discard();
-    };
 
     try {
         if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
@@ -597,7 +572,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         const isAborted = !!event.aborted;
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
-                        await cleanupActiveDraftReservation(isError ? 'error' : isAborted ? 'abort' : 'done');
+                        await cleanupActiveDraft(isError ? 'error' : isAborted ? 'abort' : 'done');
                         const errorMetadata = isError
                             ? buildStoredErrorMetadata({
                                   classification: event.error!.classification,
@@ -722,7 +697,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
     } catch (error: any) {
-        await cleanupActiveDraftReservation('catch');
+        await cleanupActiveDraft('catch');
         const classification = classifyWorkerError(error);
         const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(

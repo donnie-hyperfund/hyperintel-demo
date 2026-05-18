@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AsyncEventQueue } from '@/lib/async-event-queue';
 import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
+import { AsyncEventQueue } from '@/lib/async-event-queue';
 import type { ActiveDocument, PendingDecision, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { DECISION_DISMISSED_SENTINEL } from '@/lib/schema/stream';
 import type {

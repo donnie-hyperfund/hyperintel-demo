@@ -340,7 +340,7 @@ export function ArtifactStreamMonitorProvider({ children }: { children: ReactNod
     const release = useCallback(
         (chatId: string) => {
             const state = monitoredRef.current.get(chatId);
-            if (!state || !state.wsUnsub) return;
+            if (!state?.wsUnsub) return;
             state.wsUnsub();
             state.wsUnsub = null;
             emit();

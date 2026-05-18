@@ -18,7 +18,7 @@ import type { EntityManager } from '@mikro-orm/core';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/artifacts/artifact-version.entity';
-import type { ILockService } from '@/workers/_common/util/locks';
+import { type ILockService, lock } from '@/workers/_common/util/locks';
 
 // ============================================================================
 // SCOPE — project-scoped or user-scoped artifacts
@@ -64,10 +64,6 @@ function artifactLockId(scope: DocumentScope, normalizedName: string): string {
     return `artifact:${artifactLockScopePart(scope)}:${normalizedName}`;
 }
 
-function wait(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function acquireArtifactKeyLock({
     lockService,
     lockId,
@@ -75,13 +71,15 @@ async function acquireArtifactKeyLock({
     lockService: ILockService;
     lockId: string;
 }): Promise<number | false> {
-    for (let attempt = 1; attempt <= DOCUMENT_LOCK_MAX_ATTEMPTS; attempt++) {
-        const acquired = await lockService.acquire(lockId, DOCUMENT_LOCK_TTL_SECONDS, null);
-        if (acquired) return acquired.lease;
-        if (attempt < DOCUMENT_LOCK_MAX_ATTEMPTS) await wait(DOCUMENT_LOCK_POLL_MS);
-    }
-
-    return false;
+    const acquired = await lock(
+        lockService,
+        lockId,
+        null,
+        DOCUMENT_LOCK_TTL_SECONDS,
+        DOCUMENT_LOCK_MAX_ATTEMPTS,
+        DOCUMENT_LOCK_POLL_MS,
+    );
+    return acquired ? acquired.lease : false;
 }
 
 async function withArtifactKeyLock<T>({
@@ -107,7 +105,7 @@ async function withArtifactKeyLock<T>({
 
     const scheduleRenewal = () => {
         renewTimer = setTimeout(() => {
-            Promise.resolve(lockService.acquire(lockId, DOCUMENT_LOCK_TTL_SECONDS, lease))
+            lock(lockService, lockId, lease, DOCUMENT_LOCK_TTL_SECONDS, 1, DOCUMENT_LOCK_POLL_MS)
                 .then((renewed) => {
                     if (finished) return;
                     if (!renewed) {
@@ -567,6 +565,10 @@ function buildDocumentInfo(artifact: ArtifactEntity): DocumentInfo {
     };
 }
 
+function hasPersistedVersions(artifact: ArtifactEntity): boolean {
+    return artifact.versions.getItems().length > 0;
+}
+
 /**
  * Find document by name within a scope (project or user) with version status info.
  */
@@ -584,6 +586,7 @@ export async function findDocumentByName(
     );
 
     if (!artifact) return null;
+    if (!hasPersistedVersions(artifact)) return null;
 
     return buildDocumentInfo(artifact);
 }
@@ -761,26 +764,30 @@ export async function listDocuments(
         { populate: ['current_version', 'versions'] },
     );
 
-    return artifacts.map((artifact) => {
+    return artifacts.flatMap((artifact): DocumentListItem[] => {
         const versions = artifact.versions.getItems();
+        if (!hasPersistedVersions(artifact)) return [];
+
         const latest = [...versions].sort((leftVersion, rightVersion) => rightVersion.version - leftVersion.version)[0];
         const proposed = latestVersionWithStatus(versions, 'proposed');
 
         const contentForLines = proposed?.content ?? artifact.current_version?.content ?? '';
         const isReadOnly = artifact.is_public || !!(artifact.metadata as any)?.importedFromPublic;
 
-        return {
-            name: artifact.key,
-            title: proposed?.title ?? artifact.current_version?.title ?? '',
-            lines: countLines(contentForLines),
-            documentType: latest?.document_type ?? artifact.current_version?.document_type ?? 'Other',
-            currentVersion: artifact.current_version?.version ?? null,
-            currentStatus: artifact.current_version?.status ?? null,
-            latestVersion: latest?.version ?? 0,
-            latestStatus: latest?.status ?? 'approved',
-            hasProposed: !!proposed,
-            isReadOnly,
-        };
+        return [
+            {
+                name: artifact.key,
+                title: proposed?.title ?? artifact.current_version?.title ?? '',
+                lines: countLines(contentForLines),
+                documentType: latest.document_type,
+                currentVersion: artifact.current_version?.version ?? null,
+                currentStatus: artifact.current_version?.status ?? null,
+                latestVersion: latest.version,
+                latestStatus: latest.status,
+                hasProposed: !!proposed,
+                isReadOnly,
+            },
+        ];
     });
 }
 

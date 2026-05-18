@@ -3,7 +3,7 @@ import 'server-only';
 import { wrap } from '@mikro-orm/core';
 import type { PaginatedResponse } from '@/lib/api/pagination';
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
-import { loadVersionsForArtifacts } from '@/lib/artifacts/queries';
+import { loadVersionsForArtifacts, whereArtifactHasVersions } from '@/lib/artifacts/queries';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import type { UserEntity } from '@/lib/orm/entities/users/user.entity';
 import { getOrm } from '@/lib/orm/orm';
@@ -20,6 +20,7 @@ export async function fetchResources(
         .select('a.*')
         .leftJoinAndSelect('a.current_version', 'cv')
         .where({ user: user.id, project: null })
+        .andWhere(whereArtifactHasVersions('a'))
         .orderBy({ 'cv.document_type': 'ASC', 'a.created_at': 'DESC' });
 
     const { nodes, totalCount } = await getPaginatedResult(query, { page, perPage: limit });

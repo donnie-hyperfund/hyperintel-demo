@@ -5,7 +5,7 @@ import { createEmbeddingQueueAdapter } from '@/lib/api/client/queue/embedding-qu
 import { createPaginatedResponse, getPaginatedResult } from '@/lib/api/pagination';
 import { validatePayload } from '@/lib/api/validation';
 import { importArtifactsToProject } from '@/lib/artifacts/import';
-import { loadVersionsForArtifacts } from '@/lib/artifacts/queries';
+import { loadVersionsForArtifacts, whereArtifactHasVersions } from '@/lib/artifacts/queries';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { broadcastUserEvent } from '@/lib/broadcast/user-event';
 import { handleListChatArtifacts } from '@/lib/chats/handlers';
@@ -50,6 +50,7 @@ export async function handleGetVersions(req: NextRequest, projectId: string, use
             'p.id': projectId,
             'p.user': userId,
         })
+        .andWhere(whereArtifactHasVersions('a'))
         .getSingleResult();
 
     if (!artifact) {
@@ -93,6 +94,7 @@ export async function handleGetUserVersions(req: NextRequest, userId: string): P
             'a.user': userId,
             'a.project': null,
         })
+        .andWhere(whereArtifactHasVersions('a'))
         .getSingleResult();
 
     if (!artifact) {
@@ -216,6 +218,7 @@ export async function handleListProjectArtifacts(
                 'p.archived_at': null,
                 $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
             })
+            .andWhere(whereArtifactHasVersions('a'))
             .getSingleResult();
 
         if (!artifact) {
@@ -268,7 +271,8 @@ export async function handleListProjectArtifacts(
             'p.user': user.id,
             'p.archived_at': null,
             $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }],
-        });
+        })
+        .andWhere(whereArtifactHasVersions('a'));
 
     // Exclude imported resources and uploaded files (they are shown via the project resources endpoint)
     query.andWhere({
@@ -383,6 +387,7 @@ export async function handleIntakeArtifacts(req: NextRequest, user: UserEntity):
             'a.project': null,
             $or: ownershipConditions,
         })
+        .andWhere(whereArtifactHasVersions('a'))
         .orderBy({ 'a.created_at': 'DESC' });
 
     if (queryData.search) {
@@ -458,6 +463,7 @@ function findArtifactForOwner(
             'artifact.id': artifactId,
             $or: [{ 'project.user': ownerUserId }, { 'artifact.user': ownerUserId }],
         })
+        .andWhere(whereArtifactHasVersions('artifact'))
         .getSingleResult();
 }
 
@@ -750,6 +756,7 @@ export async function handleGetResourceByKey(req: NextRequest, key: string, user
             $or: [{ 'a.user': user.id }, { [raw("a.metadata->>'stagedBy'")]: user.id }],
             $and: [{ $or: [{ 'cv.status': null }, { 'cv.status': { $ne: 'deleted' } }] }],
         })
+        .andWhere(whereArtifactHasVersions('a'))
         .getSingleResult();
 
     if (!artifact) {
