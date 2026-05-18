@@ -19,6 +19,8 @@ import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-fil
 import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from '@/lib/presets';
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
+import { UserEventType } from '@/lib/schema/user-events';
+import { getLocksService } from '@/workers/_common/util/locks';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatHandlerOptions } from './chat-handler';
 import type { Ctx } from './context';
@@ -29,6 +31,8 @@ import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
+import { cleanupActiveDraftReservation } from './utils/active-draft-cleanup';
+import { broadcastUserEvent } from './utils/broadcast';
 import {
     CHAT_CONTEXT_LIMIT_TOKENS,
     createContextLimitError,
@@ -405,6 +409,25 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     const { anthropic, langfuse, em } = ctx;
 
     const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'intake-handler');
+    const userId = chat.user!.id;
+    const draftManager = new DraftManager();
+    const intakeChatType = chat.metadata?.framework === 'hpf' ? 'stakeholder' : 'company';
+    const lockService = getLocksService(ctx.env.LOCKS_SERVICE as unknown as DurableObjectNamespace);
+
+    const cleanupActiveDraft = (stage: string) =>
+        cleanupActiveDraftReservation({
+            stage,
+            source: 'intake-handler',
+            ctx,
+            em: em!,
+            lockService,
+            draftManager,
+            chatId,
+            scope: { userId, chatId: chat.id },
+            streamLocation: { domain: 'intake', chatType: intakeChatType, projectId: null },
+            pushStreamEvents: pusher.push,
+            onEvent: options.onEvent,
+        });
 
     try {
         if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
@@ -422,18 +445,18 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         // Track version IDs created during this turn
         const createdVersionIds: string[] = [];
 
-        const userId = chat.user!.id;
-
         const agentCtx: DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             em: em!,
+            lockService,
             userId,
             chatId: chat.id,
-            draftManager: new DraftManager(),
+            draftManager,
             createdVersionIds,
             // UserDecisionContext — request_user_decision pushes the prompt event
             // through this pusher and long-polls the DO for the user's click.
             pusher,
             streamDO,
+            pushStreamEvents: pusher.push,
             onVersionCreated: (event) => {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
@@ -484,7 +507,6 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string } | null = null;
 
         const outputSafetyEnabled = isOutputSafetyEnabled(ctx.env);
-
         // Inline safety monitor — checks content every few seconds, aborts on leak.
         const safetyMonitor = outputSafetyEnabled
             ? createSafetyMonitor({
@@ -511,6 +533,35 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             commonEventOpts: {
                 isCurrentDraftInternal: () => agentCtx.draftManager.getCurrent()?.is_internal === true,
             },
+            onDocumentEvent: (event) => {
+                if (event.type === 'document_start') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamStarted, {
+                        chatId,
+                        domain: 'intake' as const,
+                        chatType: intakeChatType,
+                        projectId: null,
+                        projectName: null,
+                        phaseName: null,
+                        phaseIndex: null,
+                        artifactId: event.artifactId,
+                        artifactKey: event.name,
+                        artifactName: event.title,
+                        version: event.pendingVersion,
+                        isInternal: event.isInternal,
+                        mode: event.mode,
+                        loadedVersion: event.loadedVersion,
+                    });
+                } else if (event.type === 'document_complete') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {
+                        chatId,
+                        domain: 'intake' as const,
+                        chatType: intakeChatType,
+                        projectId: null,
+                        artifactId: event.artifactId,
+                        artifactKey: event.name,
+                    });
+                }
+            },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
@@ -527,6 +578,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         const isAborted = !!event.aborted;
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
+                        await cleanupActiveDraft(isError ? 'error' : isAborted ? 'abort' : 'done');
                         const errorMetadata = isError
                             ? buildStoredErrorMetadata({
                                   classification: event.error!.classification,
@@ -651,6 +703,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
     } catch (error: any) {
+        await cleanupActiveDraft('catch');
         const classification = classifyWorkerError(error);
         const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(

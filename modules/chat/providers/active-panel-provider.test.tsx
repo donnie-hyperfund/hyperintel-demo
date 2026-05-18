@@ -11,7 +11,12 @@ import { ActivePanelProvider, type PanelState, panelReducer, useActivePanelConte
 describe('panelReducer', () => {
     const artifacts: NonNullable<PanelState> = { panel: 'artifacts' };
     const resources: NonNullable<PanelState> = { panel: 'resources' };
-    const preview: NonNullable<PanelState> = { panel: 'artifact-preview', artifactId: 'a1', version: 1 };
+    const preview: NonNullable<PanelState> = {
+        panel: 'artifact-preview',
+        artifactId: 'artifact-id-1',
+        artifactKey: 'a1',
+        version: 1,
+    };
     const filePreview: NonNullable<PanelState> = { panel: 'file-preview', artifactId: 'f1' };
 
     it('PUSH appends to the stack', () => {
@@ -91,7 +96,14 @@ describe('ActivePanelProvider', () => {
         const { result } = renderHook(() => useActivePanelContext(), { wrapper });
 
         act(() => result.current.pushPanel({ panel: 'artifacts' }));
-        act(() => result.current.pushPanel({ panel: 'artifact-preview', artifactId: 'a1', version: 1 }));
+        act(() =>
+            result.current.pushPanel({
+                panel: 'artifact-preview',
+                artifactId: 'artifact-id-1',
+                artifactKey: 'a1',
+                version: 1,
+            }),
+        );
         act(() => result.current.pushPanel({ panel: 'resources' }, { reset: true }));
 
         expect(result.current.panelState).toEqual({ panel: 'resources' });
@@ -102,7 +114,14 @@ describe('ActivePanelProvider', () => {
         const { result } = renderHook(() => useActivePanelContext(), { wrapper });
 
         act(() => result.current.pushPanel({ panel: 'artifacts' }));
-        act(() => result.current.pushPanel({ panel: 'artifact-preview', artifactId: 'a1', version: 1 }));
+        act(() =>
+            result.current.pushPanel({
+                panel: 'artifact-preview',
+                artifactId: 'artifact-id-1',
+                artifactKey: 'a1',
+                version: 1,
+            }),
+        );
         expect(result.current.canGoBack).toBe(true);
 
         act(() => result.current.popPanel());
@@ -122,15 +141,34 @@ describe('ActivePanelProvider', () => {
         act(() => result.current.togglePanel({ panel: 'artifacts' }));
         expect(result.current.panelState).toBeNull();
 
-        act(() => result.current.togglePanel({ panel: 'artifact-preview', artifactId: 'a1', version: 3 }));
-        expect(result.current.panelState).toEqual({ panel: 'artifact-preview', artifactId: 'a1', version: 3 });
+        act(() =>
+            result.current.togglePanel({
+                panel: 'artifact-preview',
+                artifactId: 'artifact-id-1',
+                artifactKey: 'a1',
+                version: 3,
+            }),
+        );
+        expect(result.current.panelState).toEqual({
+            panel: 'artifact-preview',
+            artifactId: 'artifact-id-1',
+            artifactKey: 'a1',
+            version: 3,
+        });
     });
 
     it('closePanel empties the entire stack', () => {
         const { result } = renderHook(() => useActivePanelContext(), { wrapper });
 
         act(() => result.current.pushPanel({ panel: 'artifacts' }));
-        act(() => result.current.pushPanel({ panel: 'artifact-preview', artifactId: 'a1', version: 1 }));
+        act(() =>
+            result.current.pushPanel({
+                panel: 'artifact-preview',
+                artifactId: 'artifact-id-1',
+                artifactKey: 'a1',
+                version: 1,
+            }),
+        );
         act(() => result.current.closePanel());
 
         expect(result.current.panelState).toBeNull();

@@ -72,14 +72,22 @@ export function useArtifactRestore({ artifactKey, artifactId }: UseArtifactResto
                 addArtifact(
                     {
                         ...updatedArtifact,
-                        id: artifactKey,
+                        id: updatedArtifact.id,
                         isLoading: false,
                         isStreaming: false,
                         isUpdating: false,
                     },
                     restoredVersion,
                 );
-                pushPanel({ panel: 'artifact-preview', artifactId: artifactKey, version: restoredVersion }, { reset: true });
+                pushPanel(
+                    {
+                        panel: 'artifact-preview',
+                        artifactId: updatedArtifact.id,
+                        artifactKey: updatedArtifact.key || artifactKey,
+                        version: restoredVersion,
+                    },
+                    { reset: true },
+                );
 
                 toast({
                     title: `Restored v${opts.sourceVersionNumber} as proposed v${restoredVersion} — awaiting approval`,

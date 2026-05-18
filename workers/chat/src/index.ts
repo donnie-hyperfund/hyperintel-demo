@@ -38,10 +38,10 @@ import { restoreArtifactHandler } from './artifact-restorer';
 import { chatActionHandler } from './chat-handler';
 import type { Ctx } from './context';
 import { intakeActionHandler } from './intake-handler';
+import { runScheduledCleanup } from './maintenance/scheduled-cleanup';
 import { summarizeActionHandler } from './summarizer-handler';
 import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './uploads/artifact-uploader';
 import { associateUploadsHandler } from './uploads/associate-handler';
-import { cleanupStaleUploads } from './uploads/cleanup';
 import { clearDraftsHandler } from './uploads/draft-clear-handler';
 import {
     ConfirmImageUploadSchema,
@@ -381,6 +381,6 @@ app.get('/', (c) => {
 export default {
     fetch: app.fetch,
     async scheduled(_event: ScheduledEvent, env: ChatEnv, ctx: ExecutionContext) {
-        ctx.waitUntil(cleanupStaleUploads(env));
+        ctx.waitUntil(runScheduledCleanup(env));
     },
 };

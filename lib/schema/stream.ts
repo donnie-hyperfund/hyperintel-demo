@@ -123,6 +123,8 @@ export type StreamEvent =
     // Documents/artifacts
     | {
           type: 'document_start';
+          /** Persisted ArtifactEntity id. */
+          artifactId: string;
           name: string;
           title?: string;
           pendingVersion: number;
@@ -142,25 +144,31 @@ export type StreamEvent =
       }
     | {
           type: 'document_delta';
+          artifactId: string;
           name: string;
-          pendingVersion?: number;
+          pendingVersion: number;
           content: string;
       }
-    | { type: 'document_edit'; name: string; pendingVersion?: number; edits: DocumentEdit[] }
-    | { type: 'document_progress'; name: string; progress: number }
+    | { type: 'document_edit'; artifactId: string; name: string; pendingVersion: number; edits: DocumentEdit[] }
+    | { type: 'document_progress'; artifactId: string; name: string; pendingVersion: number; progress: number }
     | {
           type: 'document_complete';
+          artifactId: string;
           name: string;
           version?: number;
           lines?: number;
           action?: string;
-          status?: 'proposed' | 'aborted';
+          status?: 'proposed' | 'superseded' | 'aborted';
+          supersededVersion?: number;
+          supersededByVersion?: number;
           /** Set when finalize_document persisted an internal-document version that will get an auto-generated summary. */
           summaryPending?: boolean;
       }
     // Internal-document PE-facing summaries (auto-generated, streamed alongside the parent doc).
     | {
           type: 'summary_start';
+          /** Parent ArtifactEntity id. */
+          artifactId: string;
           /** Parent document name (e.g. genesis-dna.md). */
           name: string;
           /** Parent artifact_versions row that this summary will be written to. */
@@ -171,6 +179,7 @@ export type StreamEvent =
       }
     | {
           type: 'summary_delta';
+          artifactId: string;
           name: string;
           versionId: string;
           version: number;
@@ -178,6 +187,7 @@ export type StreamEvent =
       }
     | {
           type: 'summary_complete';
+          artifactId: string;
           name: string;
           versionId: string;
           version: number;
@@ -220,6 +230,8 @@ export type StreamEvent =
 
 /** Partial document state tracked by Stream DO between document_start and document_complete */
 export type ActiveDocument = {
+    /** Persisted ArtifactEntity id. */
+    artifactId: string;
     name: string;
     title: string;
     mode: 'create' | 'edit' | 'replace';

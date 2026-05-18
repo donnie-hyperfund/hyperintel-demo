@@ -3,7 +3,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useReducer } from 'react';
 
 export type PanelState =
-    | { panel: 'artifact-preview'; artifactId: string; version: number }
+    | { panel: 'artifact-preview'; artifactId: string; artifactKey: string; version: number }
     | { panel: 'file-preview'; artifactId: string }
     | { panel: 'file-preview'; fileUrl: string; fileName: string; mimeType: string }
     | { panel: 'artifacts' }

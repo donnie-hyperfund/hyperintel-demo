@@ -14,6 +14,8 @@ import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-fil
 import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from '@/lib/presets';
 import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
+import { UserEventType } from '@/lib/schema/user-events';
+import { getLocksService } from '@/workers/_common/util/locks';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { captureWorkerPostHogEvent } from '@/workers/_common/vendor/posthog';
 import { handleForceBrief } from './chat-brief-handler';
@@ -29,6 +31,8 @@ import { createPhaseTransitionTools, PhaseTransitionToolGroup } from './tools/ph
 import { createPromptTools, PromptManagementToolGroup, PromptToolsContext } from './tools/prompt-management';
 import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
 import { createWebScrapeTools, WebScrapeToolGroup } from './tools/web-scrape';
+import { cleanupActiveDraftReservation } from './utils/active-draft-cleanup';
+import { broadcastUserEvent } from './utils/broadcast';
 import { looksLikeCompletionBriefIntent } from './utils/cb-intent';
 import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
@@ -518,6 +522,24 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
     const { anthropic, langfuse, em } = ctx;
 
     const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'chat-handler');
+    const draftManager = new DraftManager();
+    const projectId = chat.project!.id;
+    const lockService = getLocksService(ctx.env.LOCKS_SERVICE as unknown as DurableObjectNamespace);
+
+    const cleanupActiveDraft = (stage: string) =>
+        cleanupActiveDraftReservation({
+            stage,
+            source: 'chat-handler',
+            ctx,
+            em: em!,
+            lockService,
+            draftManager,
+            chatId,
+            scope: { projectId },
+            streamLocation: { domain: 'chat', chatType: 'phase', projectId },
+            pushStreamEvents: pusher.push,
+            onEvent: options.onEvent,
+        });
 
     try {
         if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
@@ -542,9 +564,10 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             loadedPrompts: new Set<string>(savedPrompts),
             em: em!,
-            projectId: chat.project!.id,
+            lockService,
+            projectId,
             chatId: chat.id,
-            draftManager: new DraftManager(),
+            draftManager,
             embeddingQueue: ctx.env.EMBEDDING_QUEUE,
             previewAlias: ctx.previewAlias,
             createdVersionIds,
@@ -686,6 +709,35 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             commonEventOpts: {
                 isCurrentDraftInternal: () => agentCtx.draftManager.getCurrent()?.is_internal === true,
             },
+            onDocumentEvent: (event) => {
+                if (event.type === 'document_start') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamStarted, {
+                        chatId,
+                        domain: 'chat' as const,
+                        chatType: 'phase' as const,
+                        projectId: agentCtx.projectId ?? null,
+                        projectName: chat.project?.name ?? null,
+                        phaseName: chat.name ?? null,
+                        phaseIndex: chat.phase_index ?? null,
+                        artifactId: event.artifactId,
+                        artifactKey: event.name,
+                        artifactName: event.title,
+                        version: event.pendingVersion,
+                        isInternal: event.isInternal,
+                        mode: event.mode,
+                        loadedVersion: event.loadedVersion,
+                    });
+                } else if (event.type === 'document_complete') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {
+                        chatId,
+                        domain: 'chat' as const,
+                        chatType: 'phase' as const,
+                        projectId: agentCtx.projectId ?? null,
+                        artifactId: event.artifactId,
+                        artifactKey: event.name,
+                    });
+                }
+            },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
@@ -709,6 +761,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         const isAborted = !!event.aborted;
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
+                        await cleanupActiveDraft(isError ? 'error' : isAborted ? 'abort' : 'done');
 
                         // --- Cost calculation from apiUsage ---
                         const apiUsage = event.apiUsage;
@@ -956,6 +1009,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
 
         await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
     } catch (error: any) {
+        await cleanupActiveDraft('catch');
         const classification = classifyWorkerError(error);
         const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(

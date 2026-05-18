@@ -28,6 +28,7 @@ export function CompanyChatInterface() {
                     <ArtifactPreviewPanel
                         version={panelState.version}
                         artifactId={panelState.artifactId}
+                        artifactKey={panelState.artifactKey}
                         onClose={popPanel}
                     />
                 )

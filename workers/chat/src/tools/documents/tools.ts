@@ -25,10 +25,12 @@ import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
+import type { ILockService } from '@/workers/_common/util/locks';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
 import {
     applyEdits,
+    cleanupOrphanArtifact,
     countLines,
     type DocumentListItem,
     type DocumentScope,
@@ -37,6 +39,7 @@ import {
     findDocumentByName,
     findVersionByStatus,
     listDocuments as listDocumentsDb,
+    reserveDraftVersion,
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
@@ -50,6 +53,8 @@ import { shouldGeneratePECP } from './pecp-service';
 export interface DocumentToolsContext {
     /** Entity manager for DB operations */
     em: EntityManager;
+    /** Worker-safe lock service used to serialize artifact key/version reservation. */
+    lockService: ILockService;
     /** Project scope — set for project chats */
     projectId?: string;
     /** User scope — set for user-level chats (intake) */
@@ -76,6 +81,7 @@ export interface DocumentToolsContext {
         versionId: string;
         version: number;
         action: 'created' | 'proposed';
+        status?: 'proposed' | 'superseded';
         documentType?: string | null;
     }) => void;
 }
@@ -378,7 +384,7 @@ You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
                 const { mode, name, title, document_type } = input;
-                const { em, draftManager } = ctx;
+                const { em, draftManager, lockService } = ctx;
                 const scope = getScope(ctx);
                 const scopeId = ctx.projectId ?? ctx.userId!;
 
@@ -387,59 +393,60 @@ You MUST call finalize_document when done or content will be lost.`,
 
                 const normalizedName = normalizeArtifactKey(name);
 
-                // Check for existing document
-                const existing = await findDocumentByName(em, scope, normalizedName);
+                // Reserve the version slot under a per-key worker lock. Parallel
+                // begin_document calls on the same artifactKey serialize here and end up
+                // with distinct reservedVersion numbers — without this, two phases racing
+                // on the same name both stream into (scope, key, version=1) and fight
+                // for that entry in the frontend artifact store.
+                const reservation = await reserveDraftVersion({ em, lockService, scope, name: normalizedName, mode });
 
-                // Block editing of read-only (public) artifacts
-                if (existing?.isReadOnly) {
+                if (reservation.kind === 'read-only') {
                     return {
                         error: `Document "${normalizedName}" is a read-only public resource and cannot be edited. You can only read it using read_document.`,
                     };
                 }
 
-                // Validate based on mode
-                // Allow create on deleted artifacts (overwrites / restores them)
-                const isDeleted = existing?.currentStatus === 'deleted';
-                if (mode === 'create' && existing && !isDeleted) {
+                if (reservation.kind === 'collision') {
                     return {
                         error: `Document "${normalizedName}" already exists. Call request_user_decision with options edit_existing ("Edit the existing document") and create_new ("Create with a different name"). Do NOT decide on your own.`,
                     };
                 }
-                if (mode === 'edit' && !existing) {
+
+                if (reservation.kind === 'not-found') {
                     return {
                         error: `Document "${normalizedName}" does not exist. Call request_user_decision with options create ("Create a new document with this name") and pick_existing ("Show existing documents and let me pick"). Do NOT decide on your own.`,
                     };
                 }
-                if (mode === 'replace' && !existing) {
-                    return {
-                        error: `Document "${normalizedName}" does not exist. Call request_user_decision with options create ("Create a new document with this name") and pick_existing ("Show existing documents and let me pick"). Do NOT decide on your own.`,
-                    };
-                }
-                // Handle CREATE mode
+
+                const { artifactId, existing, reservedVersion, wasDeleted } = reservation;
+
+                // Handle CREATE mode — fresh artifact, or restoring a previously-deleted one.
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
                     try {
-                        const draft = draftManager.begin(
+                        const draft = draftManager.begin({
+                            artifactId,
                             scopeId,
-                            normalizedName,
-                            docTitle,
-                            mode,
-                            '',
-                            undefined,
+                            name: normalizedName,
+                            title: docTitle,
+                            mode: 'create',
+                            reservedVersion,
                             is_internal,
                             document_type,
-                        );
+                        });
                         return {
                             result: {
                                 status: 'editing',
+                                artifactId: draft.artifactId,
                                 mode: 'create',
                                 name: normalizedName,
                                 title: draft.title,
                                 is_internal: draft.is_internal,
                                 document_type: draft.document_type,
+                                nextVersion: reservedVersion,
                                 lines: 0,
-                                ...(isDeleted && { previouslyDeleted: true }),
-                                message: isDeleted
+                                ...(wasDeleted && { previouslyDeleted: true }),
+                                message: wasDeleted
                                     ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
                                     : 'Draft started. Use write_document to add content, then finalize_document.',
                             },
@@ -450,47 +457,52 @@ You MUST call finalize_document when done or content will be lost.`,
                     }
                 }
 
-                // Handle EDIT/REPLACE mode - resolve best existing version.
-                // edit loads its content; replace keeps only version metadata and starts empty.
-                const docTitle = title || existing!.title;
+                // EDIT / REPLACE mode — reservation guarantees `existing` is set here.
+                if (!existing) {
+                    return { error: 'Internal error: missing artifact data for edit/replace path.' };
+                }
+
+                const docTitle = title || existing.title;
                 let contentToLoad: string;
                 let loadedFrom: string;
                 let loadedVersion: number | null;
                 let existingDocumentType: string | null = null;
                 let rejectionReason: string | null = null;
 
-                if (existing!.proposedVersion !== null && existing!.proposedContent !== null) {
-                    contentToLoad = existing!.proposedContent;
+                if (existing.proposedVersion !== null && existing.proposedContent !== null) {
+                    contentToLoad = existing.proposedContent;
                     loadedFrom = 'proposed';
-                    loadedVersion = existing!.proposedVersion;
-                    existingDocumentType = existing!.proposedDocumentType;
-                } else if (existing!.approvedContent !== null) {
-                    contentToLoad = existing!.approvedContent;
-                    loadedFrom = isDeleted ? 'deleted' : 'approved';
-                    loadedVersion = existing!.approvedVersion;
-                    existingDocumentType = existing!.approvedDocumentType;
-                } else if (existing!.rejectedVersion !== null && existing!.rejectedContent !== null) {
-                    contentToLoad = existing!.rejectedContent;
+                    loadedVersion = existing.proposedVersion;
+                    existingDocumentType = existing.proposedDocumentType;
+                } else if (existing.approvedContent !== null) {
+                    contentToLoad = existing.approvedContent;
+                    loadedFrom = wasDeleted ? 'deleted' : 'approved';
+                    loadedVersion = existing.approvedVersion;
+                    existingDocumentType = existing.approvedDocumentType;
+                } else if (existing.rejectedVersion !== null && existing.rejectedContent !== null) {
+                    contentToLoad = existing.rejectedContent;
                     loadedFrom = 'rejected';
-                    loadedVersion = existing!.rejectedVersion;
-                    existingDocumentType = existing!.rejectedDocumentType;
-                    rejectionReason = existing!.rejectionReason;
+                    loadedVersion = existing.rejectedVersion;
+                    existingDocumentType = existing.rejectedDocumentType;
+                    rejectionReason = existing.rejectionReason;
                 } else {
                     return { error: 'No version available to edit.' };
                 }
 
                 try {
                     const draftContent = mode === 'replace' ? '' : contentToLoad;
-                    const draft = draftManager.begin(
+                    const draft = draftManager.begin({
+                        artifactId,
                         scopeId,
-                        normalizedName,
-                        docTitle,
+                        name: normalizedName,
+                        title: docTitle,
                         mode,
-                        draftContent,
-                        loadedVersion ?? undefined,
+                        reservedVersion,
+                        initialContent: draftContent,
+                        ...(loadedVersion !== null ? { previousVersion: loadedVersion } : {}),
                         is_internal,
                         document_type,
-                    );
+                    });
 
                     const messages: Record<string, string> = {
                         proposed: `Continuing proposed v${loadedVersion}. Make changes, then finalize_document.`,
@@ -500,10 +512,10 @@ You MUST call finalize_document when done or content will be lost.`,
                     };
                     const replaceMessage = `Replacing ${loadedFrom} v${loadedVersion}. Write the full replacement content, then finalize_document.`;
 
-                    const nextVersion = existing!.latestVersion + 1;
                     return {
                         result: {
                             status: 'editing',
+                            artifactId: draft.artifactId,
                             mode,
                             name: normalizedName,
                             title: draft.title,
@@ -515,10 +527,10 @@ You MUST call finalize_document when done or content will be lost.`,
                                 }),
                             loadedFrom,
                             loadedVersion,
-                            nextVersion,
+                            nextVersion: reservedVersion,
                             lines: countLines(draft.content),
                             message: mode === 'replace' ? replaceMessage : messages[loadedFrom],
-                            ...(isDeleted && { previouslyDeleted: true }),
+                            ...(wasDeleted && { previouslyDeleted: true }),
                             ...(rejectionReason && { rejectionReason }),
                         },
                         metadata: { internal: draft.is_internal },
@@ -597,13 +609,13 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                     const draft = draftManager.requireCurrent();
 
                     // Convert to EditOperation format
-                    const editOps: EditOperation[] = edits.map((e) => ({
-                        startLine: e.startLine,
+                    const editOps: EditOperation[] = edits.map((edit) => ({
+                        startLine: edit.startLine,
                         endLine: PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE
-                            ? (e as { endLine?: number | null }).endLine
+                            ? (edit as { endLine?: number | null }).endLine
                             : undefined,
-                        oldContent: e.oldContent,
-                        newContent: e.newContent,
+                        oldContent: edit.oldContent,
+                        newContent: edit.newContent,
                     }));
 
                     // Apply edits atomically
@@ -649,7 +661,7 @@ If a proposed version already exists, it will be marked as "superseded".
 Use action="abort" to discard the active draft without saving.`,
             parameters: FinalizeDocumentParams,
             executor: async (input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
-                const { em, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
+                const { em, lockService, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
                 const scope = getScope(ctx);
 
                 try {
@@ -658,10 +670,15 @@ Use action="abort" to discard the active draft without saving.`,
 
                     if (action === 'abort') {
                         const discardedLines = countLines(draft.content);
+                        // Remove the empty ArtifactEntity that reserveDraftVersion created
+                        // for a brand-new key, so list_documents doesn't show a phantom row.
+                        // No-op when other versions already exist (edit/replace abort path).
+                        await cleanupOrphanArtifact({ em, lockService, scope, name: draft.name });
                         draftManager.discard();
                         return {
                             result: {
                                 action: 'aborted',
+                                artifactId: draft.artifactId,
                                 name: draft.name,
                                 lines: discardedLines,
                                 status: 'aborted',
@@ -672,16 +689,18 @@ Use action="abort" to discard the active draft without saving.`,
                     }
 
                     // Persist to database as proposed
-                    const result = await upsertDocument(
+                    const result = await upsertDocument({
                         em,
+                        lockService,
                         scope,
                         chatId,
-                        draft.name,
-                        draft.title,
-                        draft.content,
-                        draft.is_internal,
-                        draft.document_type,
-                    );
+                        name: draft.name,
+                        title: draft.title,
+                        content: draft.content,
+                        is_internal: draft.is_internal,
+                        document_type: draft.document_type,
+                        reservedVersion: draft.reservedVersion,
+                    });
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
@@ -692,13 +711,14 @@ Use action="abort" to discard the active draft without saving.`,
                         versionId: result.versionId,
                         version: result.version,
                         action: result.action,
+                        status: result.status,
                         documentType: draft.document_type,
                     });
 
                     draftManager.discard();
 
                     // ── Completion Brief tracking ────────────────────────────
-                    if (draft.document_type === 'Completion Brief') {
+                    if (result.status === 'proposed' && draft.document_type === 'Completion Brief') {
                         const chatEntity = await em.findOne(ChatEntity, { id: chatId });
                         if (chatEntity) {
                             chatEntity.completion_brief = em.getReference('ArtifactEntity', result.artifactId) as any;
@@ -708,7 +728,7 @@ Use action="abort" to discard the active draft without saving.`,
                     }
 
                     // ── Embedding (fire-and-forget, non-blocking) ────────
-                    if (embeddingQueue && (ctx.projectId || ctx.chatId)) {
+                    if (result.status === 'proposed' && embeddingQueue && (ctx.projectId || ctx.chatId)) {
                         const embedPromise = embeddingQueue
                             .send({
                                 type: 'index_artifact_version',
@@ -726,9 +746,10 @@ Use action="abort" to discard the active draft without saving.`,
 
                     const toolResult: Record<string, unknown> = {
                         action: result.action,
+                        artifactId: result.artifactId,
                         name: draft.name,
                         version: result.version,
-                        status: 'proposed',
+                        status: result.status,
                         lines: result.lines,
                     };
 
@@ -745,6 +766,12 @@ Use action="abort" to discard the active draft without saving.`,
                         response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded. STOP HERE — do not create any more documents until the user asks.`;
                     }
 
+                    if (result.supersededByVersion) {
+                        toolResult.supersededByVersion = result.supersededByVersion;
+                        response.supersededByVersion = result.supersededByVersion;
+                        response.message = `Saved as superseded v${result.version} because newer proposed v${result.supersededByVersion} already exists. STOP HERE — do not create any more documents until the user asks.`;
+                    }
+
                     // ── Internal-document summary (auto-generated PECP) ──────────
                     // Run a separate inference call against the just-finalized parent
                     // version. The generator streams summary_* events to the SSE
@@ -752,13 +779,19 @@ Use action="abort" to discard the active draft without saving.`,
                     // Awaited synchronously: the agent's own response is held until
                     // the summary completes, which keeps the SSE stream alive and
                     // the frontend's PECP UX in lockstep with the parent doc.
-                    if (rCtx && shouldGeneratePECP(draft.document_type) && draft.is_internal) {
+                    if (
+                        result.status === 'proposed' &&
+                        rCtx &&
+                        shouldGeneratePECP(draft.document_type) &&
+                        draft.is_internal
+                    ) {
                         toolResult.summaryPending = true;
                         try {
                             await generateInternalSummary({
                                 rCtx,
                                 em,
                                 versionId: result.versionId,
+                                artifactId: result.artifactId,
                                 version: result.version,
                                 documentName: draft.name,
                                 documentType: draft.document_type,

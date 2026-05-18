@@ -5,9 +5,19 @@ import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.e
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-file.entity';
 import { initInferredContext } from '@/workers/_common/context.helpers';
+import { createStaleCleanupCutoff, STALE_CLEANUP_BATCH_SIZE } from '../maintenance/cleanup-policy';
 
-const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
-const BATCH_SIZE = 100;
+export type UploadCleanupResult = {
+    staleArtifactUploads: number;
+    abandonedStagedArtifacts: number;
+    staleImageUploads: number;
+};
+
+export type CleanupStaleUploadsOptions = {
+    em: SqlEntityManager;
+    env: ChatEnv;
+    cutoff: Date;
+};
 
 /**
  * Sweep dead artifact files past the cutoff. Covers two cases:
@@ -21,7 +31,7 @@ const BATCH_SIZE = 100;
  * valid resting state for staged uploads awaiting association (post-deferred-extraction fix).
  * Staged-orphan cleanup is handled separately in processStaleStagedArtifactsBatch.
  */
-async function processArtifactBatch(em: SqlEntityManager, env: ChatEnv, cutoff: Date): Promise<number> {
+async function processArtifactBatch({ em, env, cutoff }: CleanupStaleUploadsOptions): Promise<number> {
     const staleFiles = await em.find(
         ArtifactFileEntity,
         {
@@ -41,12 +51,12 @@ async function processArtifactBatch(em: SqlEntityManager, env: ChatEnv, cutoff: 
                 },
             ],
         },
-        { populate: ['artifact_version.artifact'], limit: BATCH_SIZE },
+        { populate: ['artifact_version.artifact'], limit: STALE_CLEANUP_BATCH_SIZE },
     );
 
     if (staleFiles.length === 0) return 0;
 
-    await Promise.allSettled(staleFiles.map((f) => env.ARTIFACTS_BUCKET.delete(f.storage_key)));
+    await Promise.allSettled(staleFiles.map((file) => env.ARTIFACTS_BUCKET.delete(file.storage_key)));
 
     const orphanChecks = await Promise.all(
         staleFiles.map(async (file) => {
@@ -84,7 +94,7 @@ async function processArtifactBatch(em: SqlEntityManager, env: ChatEnv, cutoff: 
  * Post-fix, extraction is deferred for staged uploads so those objects shouldn't exist.
  * Any pre-fix leftovers need a separate R2-listing sweep.
  */
-async function processStaleStagedArtifactsBatch(em: SqlEntityManager, env: ChatEnv, cutoff: Date): Promise<number> {
+async function processStaleStagedArtifactsBatch({ em, env, cutoff }: CleanupStaleUploadsOptions): Promise<number> {
     const staleArtifacts = await em.find(
         ArtifactEntity,
         {
@@ -94,17 +104,17 @@ async function processStaleStagedArtifactsBatch(em: SqlEntityManager, env: ChatE
             [raw((alias) => `${alias}.metadata->>'stagedBy'`)]: { $ne: null },
             created_at: { $lt: cutoff },
         },
-        { populate: ['versions'], limit: BATCH_SIZE },
+        { populate: ['versions'], limit: STALE_CLEANUP_BATCH_SIZE },
     );
 
     if (staleArtifacts.length === 0) return 0;
 
-    const versionIds = staleArtifacts.flatMap((a) => a.versions.getItems().map((v) => v.id));
+    const versionIds = staleArtifacts.flatMap((artifact) => artifact.versions.getItems().map((version) => version.id));
 
     const files = versionIds.length ? await em.find(ArtifactFileEntity, { artifact_version: { $in: versionIds } }) : [];
 
     // Best-effort R2 deletion — DB rows go regardless.
-    await Promise.allSettled(files.map((f) => env.ARTIFACTS_BUCKET.delete(f.storage_key)));
+    await Promise.allSettled(files.map((file) => env.ARTIFACTS_BUCKET.delete(file.storage_key)));
 
     for (const file of files) em.remove(file);
     for (const artifact of staleArtifacts) {
@@ -132,19 +142,19 @@ async function processStaleStagedArtifactsBatch(em: SqlEntityManager, env: ChatE
  *   - R2 objects with no matching DB row (partial-write / race at upload or associate time).
  *     Would require a listing-based sweep, not the DB-driven one below.
  */
-async function processImageBatch(em: SqlEntityManager, env: ChatEnv, cutoff: Date): Promise<number> {
+async function processImageBatch({ em, env, cutoff }: CleanupStaleUploadsOptions): Promise<number> {
     const staleFiles = await em.find(
         ChatMessageFileEntity,
         {
             created_at: { $lt: cutoff },
             $or: [{ status: 'pending_upload' }, { chat_id: null }],
         },
-        { limit: BATCH_SIZE },
+        { limit: STALE_CLEANUP_BATCH_SIZE },
     );
 
     if (staleFiles.length === 0) return 0;
 
-    await Promise.allSettled(staleFiles.map((f) => env.USER_IMAGES_BUCKET.delete(f.storage_key)));
+    await Promise.allSettled(staleFiles.map((file) => env.USER_IMAGES_BUCKET.delete(file.storage_key)));
 
     for (const file of staleFiles) em.remove(file);
 
@@ -154,40 +164,64 @@ async function processImageBatch(em: SqlEntityManager, env: ChatEnv, cutoff: Dat
     return staleFiles.length;
 }
 
-export async function cleanupStaleUploads(env: ChatEnv) {
-    const ctx = await initInferredContext(env, {}, { withOrm: true });
-    const cutoff = new Date(Date.now() - STALE_THRESHOLD_MS);
+function hasUploadCleanupWork(result: UploadCleanupResult): boolean {
+    return result.staleArtifactUploads > 0 || result.abandonedStagedArtifacts > 0 || result.staleImageUploads > 0;
+}
+
+function logUploadCleanupResult(result: UploadCleanupResult): void {
+    if (!hasUploadCleanupWork(result)) return;
+    console.log(
+        `[cleanup] Removed ${result.staleArtifactUploads} stale artifact uploads, ` +
+            `${result.abandonedStagedArtifacts} abandoned staged artifacts, ` +
+            `${result.staleImageUploads} stale image uploads`,
+    );
+}
+
+async function cleanupStaleUploadsWithContext(options: CleanupStaleUploadsOptions): Promise<UploadCleanupResult> {
     let totalArtifacts = 0;
     let totalStagedArtifacts = 0;
     let totalImages = 0;
 
     const processArtifacts = async (): Promise<void> => {
-        const removed = await processArtifactBatch(ctx.em, env, cutoff);
+        const removed = await processArtifactBatch(options);
         totalArtifacts += removed;
-        if (removed >= BATCH_SIZE) await processArtifacts();
+        if (removed >= STALE_CLEANUP_BATCH_SIZE) await processArtifacts();
     };
 
     const processStagedArtifacts = async (): Promise<void> => {
-        const removed = await processStaleStagedArtifactsBatch(ctx.em, env, cutoff);
+        const removed = await processStaleStagedArtifactsBatch(options);
         totalStagedArtifacts += removed;
-        if (removed >= BATCH_SIZE) await processStagedArtifacts();
+        if (removed >= STALE_CLEANUP_BATCH_SIZE) await processStagedArtifacts();
     };
 
     const processImages = async (): Promise<void> => {
-        const removed = await processImageBatch(ctx.em, env, cutoff);
+        const removed = await processImageBatch(options);
         totalImages += removed;
-        if (removed >= BATCH_SIZE) await processImages();
+        if (removed >= STALE_CLEANUP_BATCH_SIZE) await processImages();
     };
 
     await processArtifacts();
     await processStagedArtifacts();
     await processImages();
 
-    if (totalArtifacts > 0 || totalStagedArtifacts > 0 || totalImages > 0) {
-        console.log(
-            `[cleanup] Removed ${totalArtifacts} stale artifact uploads, ` +
-                `${totalStagedArtifacts} abandoned staged artifacts, ` +
-                `${totalImages} stale image uploads`,
-        );
+    return {
+        staleArtifactUploads: totalArtifacts,
+        abandonedStagedArtifacts: totalStagedArtifacts,
+        staleImageUploads: totalImages,
+    };
+}
+
+export async function cleanupStaleUploads(input: ChatEnv | CleanupStaleUploadsOptions): Promise<UploadCleanupResult> {
+    if ('em' in input) {
+        return cleanupStaleUploadsWithContext(input);
     }
+
+    const ctx = await initInferredContext(input, {}, { withOrm: true });
+    const result = await cleanupStaleUploadsWithContext({
+        em: ctx.em,
+        env: input,
+        cutoff: createStaleCleanupCutoff(),
+    });
+    logUploadCleanupResult(result);
+    return result;
 }

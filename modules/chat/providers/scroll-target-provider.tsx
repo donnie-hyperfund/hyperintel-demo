@@ -1,7 +1,12 @@
 'use client';
 
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useOpenArtifactParam } from '@/hooks/use-open-artifact-param';
 import { useScrollToArtifactParam } from '@/hooks/use-scroll-to-artifact-param';
+import { useArtifactStreamMonitor } from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
+import { useRouteChatId } from '@/modules/chat/hooks/use-route-chat-id';
+import { useActivePanelContext } from './active-panel-provider';
+import { useChatContext } from './chat-provider';
 
 type ScrollTarget = { key: string; version: number | null };
 
@@ -25,10 +30,18 @@ const ScrollTargetContext = createContext<ScrollTargetContextValue>({
 
 export function ScrollTargetProvider({ children }: { children: ReactNode }) {
     const { target: paramTarget, clear: clearParams } = useScrollToArtifactParam();
+    const { target: openTarget, clear: clearOpenParams } = useOpenArtifactParam();
+    const { pushPanel } = useActivePanelContext();
+    const streamMonitor = useArtifactStreamMonitor();
+    const { chatId } = useChatContext();
+    const routeChatId = useRouteChatId();
+    const isRouteChatReady = !routeChatId || chatId === routeChatId;
     const [target, setTarget] = useState<ScrollTarget | null>(null);
     const foundRef = useRef(false);
     const clearParamsRef = useRef(clearParams);
     clearParamsRef.current = clearParams;
+    const clearOpenParamsRef = useRef(clearOpenParams);
+    clearOpenParamsRef.current = clearOpenParams;
 
     // Absorb URL params into local state, then immediately clean the URL.
     useEffect(() => {
@@ -38,6 +51,29 @@ export function ScrollTargetProvider({ children }: { children: ReactNode }) {
         foundRef.current = false;
         clearParamsRef.current();
     }, [paramTarget]);
+
+    useEffect(() => {
+        if (!openTarget || !isRouteChatReady) return;
+
+        pushPanel(
+            {
+                panel: 'artifact-preview',
+                artifactId: openTarget.id,
+                artifactKey: openTarget.key,
+                version: openTarget.version,
+            },
+            { reset: true },
+        );
+        clearOpenParamsRef.current();
+    }, [openTarget, isRouteChatReady, pushPanel]);
+
+    useEffect(() => {
+        if (!chatId || !isRouteChatReady) return;
+        streamMonitor.setActivationHandler(chatId, ({ artifactId, artifactKey, version }) => {
+            pushPanel({ panel: 'artifact-preview', artifactId, artifactKey, version }, { reset: true });
+        });
+        return () => streamMonitor.setActivationHandler(chatId, null);
+    }, [streamMonitor, chatId, isRouteChatReady, pushPanel]);
 
     const markFound = useCallback(() => {
         foundRef.current = true;

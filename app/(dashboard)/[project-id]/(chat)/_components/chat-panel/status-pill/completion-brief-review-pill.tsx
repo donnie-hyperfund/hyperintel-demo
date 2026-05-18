@@ -33,7 +33,8 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
             pushPanel(
                 {
                     panel: 'artifact-preview',
-                    artifactId: completionBriefKey,
+                    artifactId: proposedCompletionBrief.artifactId,
+                    artifactKey: proposedCompletionBrief.artifactKey,
                     version: proposedCompletionBrief.versionNumber,
                 },
                 { reset: true },
@@ -50,7 +51,7 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
             const latestVersion = fetched.proposedVersion?.version ?? fetched.currentVersion?.version ?? 1;
             addArtifact(
                 {
-                    id: completionBriefKey,
+                    id: fetched.id,
                     key: fetched.key,
                     currentVersion: fetched.currentVersion ?? undefined,
                     proposedVersion: fetched.proposedVersion ?? undefined,
@@ -61,7 +62,8 @@ export function CompletionBriefReviewPill({ className }: CompletionBriefReviewPi
             pushPanel(
                 {
                     panel: 'artifact-preview',
-                    artifactId: completionBriefKey,
+                    artifactId: fetched.id,
+                    artifactKey: fetched.key,
                     version: latestVersion,
                 },
                 { reset: true },

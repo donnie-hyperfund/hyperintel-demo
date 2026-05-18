@@ -3,7 +3,7 @@
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/index");
-		durableNamespaces: "UserGateway" | "ChatStreamDO" | "GenerationProxyDO";
+		durableNamespaces: "UserGateway" | "ChatStreamDO" | "GenerationProxyDO" | "LocksService";
 	}
 	interface ObjectsEnv {
 		CLERK_PUBLISHABLE_KEY: string;
@@ -17,6 +17,7 @@ declare namespace Cloudflare {
 		USER_GATEWAY: DurableObjectNamespace<import("./src/index").UserGateway>;
 		CHAT_STREAM_DO: DurableObjectNamespace<import("./src/index").ChatStreamDO>;
 		GENERATION_PROXY: DurableObjectNamespace<import("./src/index").GenerationProxyDO>;
+		LOCKS_SERVICE: DurableObjectNamespace<import("./src/index").LocksService>;
 		DATABASE_URL: SecretsStoreSecret;
 		CLERK_SECRET_KEY: SecretsStoreSecret;
 		STREAM_AE: AnalyticsEngineDataset;

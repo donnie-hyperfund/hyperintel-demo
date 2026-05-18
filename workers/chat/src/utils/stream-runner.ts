@@ -12,7 +12,7 @@ import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from '../context';
 import type { DraftManager } from '../tools/documents';
 import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
-import { createDocumentEventHandler, type DocumentContext } from './document-events';
+import { createDocumentEventHandler, type DocumentContext, type DocumentEvent } from './document-events';
 import {
     type CommonStreamEventOpts,
     createEventCollector,
@@ -68,6 +68,8 @@ export interface StreamLoopConfig {
     onSpecificEvent: (event: AgentStreamEvent) => void | Promise<void>;
     /** Test event tap — receives doc events and drained common events */
     onEvent?: (event: StreamEvent) => void;
+    /** Called on every emitted DocumentEvent — used to broadcast user-scoped events (artifact_stream_started/completed) cross-tab. */
+    onDocumentEvent?: (event: DocumentEvent) => void;
     /** Options forwarded to handleCommonStreamEvent (e.g. draft-internal callback for input redaction). */
     commonEventOpts?: CommonStreamEventOpts;
 }
@@ -82,6 +84,7 @@ export async function runStreamLoop(config: StreamLoopConfig): Promise<void> {
         const se = docEvent as StreamEvent;
         pendingDocEvents.push(se);
         config.onEvent?.(se);
+        config.onDocumentEvent?.(docEvent);
     });
     const collector = createEventCollector();
     const state = { wasTool: false };

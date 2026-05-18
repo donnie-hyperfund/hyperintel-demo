@@ -18,12 +18,19 @@ import type { EntityManager } from '@mikro-orm/core';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import { type ILockService, lock } from '@/workers/_common/util/locks';
 
 // ============================================================================
 // SCOPE — project-scoped or user-scoped artifacts
 // ============================================================================
 
 export type DocumentScope = { projectId: string } | { userId: string; chatId?: string };
+export type DocumentDraftMode = 'create' | 'edit' | 'replace';
+
+const DOCUMENT_LOCK_TTL_SECONDS = 30;
+const DOCUMENT_LOCK_MAX_ATTEMPTS = 30;
+const DOCUMENT_LOCK_POLL_MS = 1000;
+const DOCUMENT_LOCK_RENEW_MS = (DOCUMENT_LOCK_TTL_SECONDS * 1000) / 2;
 
 /** Build a MikroORM where-clause fragment from a scope. */
 function scopeFilter(scope: DocumentScope): Record<string, unknown> {
@@ -33,11 +40,99 @@ function scopeFilter(scope: DocumentScope): Record<string, unknown> {
 }
 
 /** Set the owner (project or user) on a new artifact entity. */
-function setArtifactOwner(artifact: ArtifactEntity, scope: DocumentScope, em: EntityManager) {
+function setArtifactOwner({
+    artifact,
+    scope,
+    em,
+}: {
+    artifact: ArtifactEntity;
+    scope: DocumentScope;
+    em: EntityManager;
+}) {
     if ('projectId' in scope) {
         artifact.project = em.getReference('ProjectEntity', scope.projectId) as any;
     } else {
         artifact.user = em.getReference('UserEntity', scope.userId) as any;
+    }
+}
+
+function artifactLockScopePart(scope: DocumentScope): string {
+    return 'projectId' in scope ? `project:${scope.projectId}` : `user:${scope.userId}`;
+}
+
+function artifactLockId(scope: DocumentScope, normalizedName: string): string {
+    return `artifact:${artifactLockScopePart(scope)}:${normalizedName}`;
+}
+
+async function acquireArtifactKeyLock({
+    lockService,
+    lockId,
+}: {
+    lockService: ILockService;
+    lockId: string;
+}): Promise<number | false> {
+    const acquired = await lock(
+        lockService,
+        lockId,
+        null,
+        DOCUMENT_LOCK_TTL_SECONDS,
+        DOCUMENT_LOCK_MAX_ATTEMPTS,
+        DOCUMENT_LOCK_POLL_MS,
+    );
+    return acquired ? acquired.lease : false;
+}
+
+async function withArtifactKeyLock<T>({
+    lockService,
+    scope,
+    normalizedName,
+    run,
+}: {
+    lockService: ILockService;
+    scope: DocumentScope;
+    normalizedName: string;
+    run: () => Promise<T>;
+}): Promise<T> {
+    const lockId = artifactLockId(scope, normalizedName);
+    const lease = await acquireArtifactKeyLock({ lockService, lockId });
+
+    if (lease === false) {
+        throw new Error(`Could not acquire document lock for "${normalizedName}". Please retry.`);
+    }
+
+    let finished = false;
+    let renewTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleRenewal = () => {
+        renewTimer = setTimeout(() => {
+            lock(lockService, lockId, lease, DOCUMENT_LOCK_TTL_SECONDS, 1, DOCUMENT_LOCK_POLL_MS)
+                .then((renewed) => {
+                    if (finished) return;
+                    if (!renewed) {
+                        console.error(`[document-service] document lock "${lockId}" could not be renewed`);
+                        return;
+                    }
+                    scheduleRenewal();
+                })
+                .catch((err) => {
+                    if (finished) return;
+                    console.error(`[document-service] failed to renew document lock "${lockId}":`, err);
+                });
+        }, DOCUMENT_LOCK_RENEW_MS);
+    };
+
+    scheduleRenewal();
+
+    try {
+        return await run();
+    } finally {
+        finished = true;
+        if (renewTimer) clearTimeout(renewTimer);
+        try {
+            await lockService.release(lockId, lease);
+        } catch (err) {
+            console.error(`[document-service] failed to release document lock "${lockId}":`, err);
+        }
     }
 }
 
@@ -285,7 +380,7 @@ export function applyEdits(content: string, edits: EditOperation[]): EditResult 
         });
     }
 
-    const sortedEdits = [...resolvedEdits].sort((a, b) => b.actualStart - a.actualStart);
+    const sortedEdits = [...resolvedEdits].sort((leftEdit, rightEdit) => rightEdit.actualStart - leftEdit.actualStart);
     for (let i = 1; i < sortedEdits.length; i++) {
         const previous = sortedEdits[i - 1];
         const current = sortedEdits[i];
@@ -421,34 +516,25 @@ export interface DocumentInfo {
     isReadOnly: boolean;
 }
 
-/**
- * Find document by name within a scope (project or user) with version status info.
- */
-export async function findDocumentByName(
-    em: EntityManager,
-    scope: DocumentScope,
-    name: string,
-): Promise<DocumentInfo | null> {
-    const normalizedName = normalizeArtifactKey(name);
+function latestVersionWithStatus(
+    versions: ArtifactVersionEntity[],
+    status: VersionStatus,
+): ArtifactVersionEntity | undefined {
+    return versions
+        .filter((version) => version.status === status)
+        .sort((leftVersion, rightVersion) => rightVersion.version - leftVersion.version)[0];
+}
 
-    const artifact = await em.findOne(
-        ArtifactEntity,
-        { ...scopeFilter(scope), key: normalizedName },
-        { populate: ['current_version', 'versions'] },
-    );
-
-    if (!artifact) return null;
-
+function buildDocumentInfo(artifact: ArtifactEntity): DocumentInfo {
     const versions = artifact.versions.getItems();
-    const proposed = versions.find((v) => v.status === 'proposed');
-    const rejected = versions.filter((v) => v.status === 'rejected').sort((a, b) => b.version - a.version)[0];
-    const lastApproved = versions.filter((v) => v.status === 'approved').sort((a, b) => b.version - a.version)[0];
+    const proposed = latestVersionWithStatus(versions, 'proposed');
+    const rejected = latestVersionWithStatus(versions, 'rejected');
+    const lastApproved = latestVersionWithStatus(versions, 'approved');
 
     const currentContent = artifact.current_version?.content ?? null;
     const proposedContent = proposed?.content ?? null;
     const approvedContent = lastApproved?.content ?? null;
 
-    // Public artifacts and copies imported from public artifacts are read-only
     const isReadOnly = artifact.is_public || !!(artifact.metadata as any)?.importedFromPublic;
 
     return {
@@ -477,6 +563,170 @@ export async function findDocumentByName(
         lineCount: countLines(proposedContent ?? approvedContent ?? ''),
         isReadOnly,
     };
+}
+
+function hasPersistedVersions(artifact: ArtifactEntity): boolean {
+    return artifact.versions.getItems().length > 0;
+}
+
+/**
+ * Find document by name within a scope (project or user) with version status info.
+ */
+export async function findDocumentByName(
+    em: EntityManager,
+    scope: DocumentScope,
+    name: string,
+): Promise<DocumentInfo | null> {
+    const normalizedName = normalizeArtifactKey(name);
+
+    const artifact = await em.findOne(
+        ArtifactEntity,
+        { ...scopeFilter(scope), key: normalizedName },
+        { populate: ['current_version', 'versions'] },
+    );
+
+    if (!artifact) return null;
+    if (!hasPersistedVersions(artifact)) return null;
+
+    return buildDocumentInfo(artifact);
+}
+
+/**
+ * Result of a `begin_document` version-slot reservation. The artifact-key worker lock
+ * is held around the short reservation transaction, so concurrent calls on the
+ * same key serialize and end up with distinct `reservedVersion` numbers (or a clean
+ * collision error before any DB write happens).
+ */
+export type ReserveDraftVersionResult =
+    | { kind: 'not-found' }
+    | { kind: 'read-only'; existing: DocumentInfo }
+    | { kind: 'collision'; existing: DocumentInfo }
+    | {
+          kind: 'reserved';
+          artifactId: string;
+          existing: DocumentInfo | null;
+          reservedVersion: number;
+          wasDeleted: boolean;
+      };
+
+export interface ReserveDraftVersionOptions {
+    em: EntityManager;
+    lockService: ILockService;
+    scope: DocumentScope;
+    name: string;
+    mode: DocumentDraftMode;
+}
+
+/**
+ * Serialize concurrent `begin_document` calls on the same artifact key and atomically
+ * reserve the next version slot.
+ *
+ * Strategy: a worker-safe LocksService lock keyed by `${scope}:${name}` serializes
+ * parallel callers before any DB transaction starts. Under the lock:
+ *   - mode='create' with no existing row → insert ArtifactEntity with `version = 1`,
+ *     return `{ reservedVersion: 1 }` (no ArtifactVersion row created — finalize_document
+ *     writes that, abort path cleans the empty artifact up via cleanupOrphanArtifact).
+ *   - mode='create' on a non-deleted existing artifact → `{ kind: 'collision' }`.
+ *   - mode='edit' | 'replace', or mode='create' on a deleted artifact → bump
+ *     `artifact.version` counter and return the new value as `reservedVersion`.
+ */
+export async function reserveDraftVersion(opts: ReserveDraftVersionOptions): Promise<ReserveDraftVersionResult> {
+    const { em, lockService, scope, name, mode } = opts;
+    const normalizedName = normalizeArtifactKey(name);
+
+    return withArtifactKeyLock({
+        lockService,
+        scope,
+        normalizedName,
+        run: () =>
+            em.transactional(async (txEm) => {
+                const artifact = await txEm.findOne(
+                    ArtifactEntity,
+                    { ...scopeFilter(scope), key: normalizedName },
+                    { populate: ['current_version', 'versions'] },
+                );
+
+                if (!artifact) {
+                    if (mode === 'edit' || mode === 'replace') {
+                        return { kind: 'not-found' };
+                    }
+                    const created = new ArtifactEntity();
+                    created.key = normalizedName;
+                    created.version = 1;
+                    setArtifactOwner({ artifact: created, scope, em: txEm });
+                    txEm.persist(created);
+                    await txEm.flush();
+                    return {
+                        kind: 'reserved',
+                        artifactId: created.id,
+                        existing: null,
+                        reservedVersion: 1,
+                        wasDeleted: false,
+                    };
+                }
+
+                const info = buildDocumentInfo(artifact);
+
+                if (info.isReadOnly) {
+                    return { kind: 'read-only', existing: info };
+                }
+
+                const isDeleted = info.currentStatus === 'deleted';
+                if (mode === 'create' && !isDeleted) {
+                    return { kind: 'collision', existing: info };
+                }
+
+                const reservedVersion = artifact.version + 1;
+                artifact.version = reservedVersion;
+                await txEm.flush();
+                return {
+                    kind: 'reserved',
+                    artifactId: artifact.id,
+                    existing: info,
+                    reservedVersion,
+                    wasDeleted: isDeleted,
+                };
+            }),
+    });
+}
+
+export interface CleanupOrphanArtifactOptions {
+    em: EntityManager;
+    lockService: ILockService;
+    scope: DocumentScope;
+    name: string;
+}
+
+/**
+ * Remove an ArtifactEntity that has no persisted ArtifactVersion rows. Called from
+ * finalize_document's abort path so the empty slot created by reserveDraftVersion
+ * for mode='create' on a brand-new key doesn't linger as a phantom in list_documents.
+ *
+ * Returns `true` if a row was removed, `false` if the artifact already had versions
+ * (intentionally not deleted) or wasn't found.
+ */
+export async function cleanupOrphanArtifact(opts: CleanupOrphanArtifactOptions): Promise<boolean> {
+    const { em, lockService, scope, name } = opts;
+    const normalizedName = normalizeArtifactKey(name);
+
+    return withArtifactKeyLock({
+        lockService,
+        scope,
+        normalizedName,
+        run: () =>
+            em.transactional(async (txEm) => {
+                const artifact = await txEm.findOne(
+                    ArtifactEntity,
+                    { ...scopeFilter(scope), key: normalizedName },
+                    { populate: ['versions'], refresh: true },
+                );
+                if (!artifact) return false;
+                if (artifact.versions.getItems().length > 0) return false;
+                txEm.remove(artifact);
+                await txEm.flush();
+                return true;
+            }),
+    });
 }
 
 export interface DocumentListItem {
@@ -514,151 +764,161 @@ export async function listDocuments(
         { populate: ['current_version', 'versions'] },
     );
 
-    return artifacts.map((a) => {
-        const versions = a.versions.getItems();
-        const latest = versions.sort((x, y) => y.version - x.version)[0];
-        const proposed = versions.find((v) => v.status === 'proposed');
+    return artifacts.flatMap((artifact): DocumentListItem[] => {
+        const versions = artifact.versions.getItems();
+        if (!hasPersistedVersions(artifact)) return [];
 
-        const contentForLines = proposed?.content ?? a.current_version?.content ?? '';
-        const isReadOnly = a.is_public || !!(a.metadata as any)?.importedFromPublic;
+        const latest = [...versions].sort((leftVersion, rightVersion) => rightVersion.version - leftVersion.version)[0];
+        const proposed = latestVersionWithStatus(versions, 'proposed');
 
-        return {
-            name: a.key,
-            title: proposed?.title ?? a.current_version?.title ?? '',
-            lines: countLines(contentForLines),
-            documentType: latest?.document_type ?? a.current_version?.document_type ?? 'Other',
-            currentVersion: a.current_version?.version ?? null,
-            currentStatus: a.current_version?.status ?? null,
-            latestVersion: latest?.version ?? 0,
-            latestStatus: latest?.status ?? 'approved',
-            hasProposed: !!proposed,
-            isReadOnly,
-        };
+        const contentForLines = proposed?.content ?? artifact.current_version?.content ?? '';
+        const isReadOnly = artifact.is_public || !!(artifact.metadata as any)?.importedFromPublic;
+
+        return [
+            {
+                name: artifact.key,
+                title: proposed?.title ?? artifact.current_version?.title ?? '',
+                lines: countLines(contentForLines),
+                documentType: latest.document_type,
+                currentVersion: artifact.current_version?.version ?? null,
+                currentStatus: artifact.current_version?.status ?? null,
+                latestVersion: latest.version,
+                latestStatus: latest.status,
+                hasProposed: !!proposed,
+                isReadOnly,
+            },
+        ];
     });
 }
 
-/**
- * Create or update a document with new content.
- * Creates version with status 'proposed' - does NOT update current_version.
- * If proposed version exists, it becomes superseded.
- */
-export async function upsertDocument(
-    em: EntityManager,
-    scope: DocumentScope,
-    chatId: string,
-    name: string,
-    title: string,
-    content: string,
-    is_internal = true,
-    document_type = 'Other',
-): Promise<{
+export interface UpsertDocumentOptions {
+    em: EntityManager;
+    lockService: ILockService;
+    scope: DocumentScope;
+    chatId: string;
+    name: string;
+    title: string;
+    content: string;
+    is_internal?: boolean;
+    document_type?: string;
+    /** Version number reserved by reserveDraftVersion. The new ArtifactVersion row is persisted at exactly this number. */
+    reservedVersion: number;
+}
+
+export interface UpsertDocumentResult {
     action: 'created' | 'proposed';
+    status: 'proposed' | 'superseded';
     artifactId: string;
     name: string;
     version: number;
     versionId: string;
     lines: number;
     supersededVersion?: number;
-}> {
+    supersededByVersion?: number;
+}
+
+/**
+ * Persist a finalized draft as a new ArtifactVersion row using the version number
+ * already reserved by reserveDraftVersion.
+ *
+ * Invariant: the parent ArtifactEntity must already exist — reserveDraftVersion creates
+ * it for mode='create' or bumps the counter for edit/replace.
+ *
+ * Concurrent edit/replace streams can finalize out of reservation order. The highest
+ * reserved version remains the active proposed version; an older stream that finishes
+ * later is saved as superseded instead of overriding a newer proposed version.
+ */
+export async function upsertDocument(opts: UpsertDocumentOptions): Promise<UpsertDocumentResult> {
+    const {
+        em,
+        lockService,
+        scope,
+        chatId,
+        name,
+        title,
+        content,
+        is_internal = true,
+        document_type = 'Other',
+        reservedVersion,
+    } = opts;
+
     const normalizedName = normalizeArtifactKey(name);
     const lineCount = countLines(content);
 
-    // Check if artifact exists
-    const existing = await em.findOne(
-        ArtifactEntity,
-        { ...scopeFilter(scope), key: normalizedName },
-        { populate: ['current_version', 'versions'] },
-    );
+    return withArtifactKeyLock({
+        lockService,
+        scope,
+        normalizedName,
+        run: () =>
+            em.transactional(async (txEm) => {
+                const existing = await txEm.findOne(
+                    ArtifactEntity,
+                    { ...scopeFilter(scope), key: normalizedName },
+                    { populate: ['current_version', 'versions'], refresh: true },
+                );
 
-    if (existing) {
-        // Find current max version number
-        const versions = existing.versions.getItems();
-        const maxVersion = Math.max(...versions.map((v) => v.version), 0);
-        const newVersionNum = maxVersion + 1;
+                if (!existing) {
+                    throw new Error(
+                        `Cannot finalize "${normalizedName}": parent artifact row missing. begin_document should have reserved a version slot first.`,
+                    );
+                }
 
-        // Supersede any existing proposed version
-        const existingProposed = versions.find((v) => v.status === 'proposed');
-        const supersededVersion = existingProposed?.version;
+                const versions = existing.versions.getItems();
+                const wasFirstVersion = versions.length === 0;
 
-        if (existingProposed) {
-            existingProposed.status = 'superseded';
-            existingProposed.rejection_reason = `Superseded by v${newVersionNum}`;
-            existingProposed.status_changed_at = new Date();
-        }
+                const existingProposed = latestVersionWithStatus(versions, 'proposed');
+                const shouldSupersedeExisting =
+                    existingProposed !== undefined && existingProposed.version < reservedVersion;
+                const supersededVersion = shouldSupersedeExisting ? existingProposed.version : undefined;
+                const supersededByVersion =
+                    existingProposed !== undefined && existingProposed.version > reservedVersion
+                        ? existingProposed.version
+                        : undefined;
+                const newStatus: 'proposed' | 'superseded' =
+                    supersededByVersion === undefined ? 'proposed' : 'superseded';
 
-        // Create new proposed version
-        const newVersion = new ArtifactVersionEntity();
-        newVersion.artifact = existing;
-        newVersion.version = newVersionNum;
-        newVersion.title = title;
-        newVersion.content = content;
-        newVersion.status = 'proposed';
-        newVersion.is_internal = is_internal;
-        newVersion.document_type = document_type as any;
-        newVersion.status_changed_at = new Date();
-        newVersion.chat = em.getReference('ChatEntity', chatId) as any;
+                if (shouldSupersedeExisting) {
+                    existingProposed.status = 'superseded';
+                    existingProposed.rejection_reason = `Superseded by v${reservedVersion}`;
+                    existingProposed.status_changed_at = new Date();
+                }
 
-        em.persist(newVersion);
+                const newVersion = new ArtifactVersionEntity();
+                newVersion.artifact = existing;
+                newVersion.version = reservedVersion;
+                newVersion.title = title;
+                newVersion.content = content;
+                newVersion.status = newStatus;
+                if (supersededByVersion !== undefined) {
+                    newVersion.rejection_reason = `Superseded by v${supersededByVersion}`;
+                }
+                newVersion.is_internal = is_internal;
+                newVersion.document_type = document_type as any;
+                newVersion.status_changed_at = new Date();
+                newVersion.chat = txEm.getReference('ChatEntity', chatId) as any;
+                txEm.persist(newVersion);
 
-        // Update artifact's version counter (but NOT current_version - that only changes on approval)
-        existing.version = newVersionNum;
+                // artifact.version was already bumped during reservation. Stay defensive against
+                // out-of-order finalize calls (e.g. a later reservation finalizing before an earlier one).
+                if (existing.version < reservedVersion) {
+                    existing.version = reservedVersion;
+                }
 
-        await em.flush();
+                await txEm.flush();
 
-        return {
-            action: 'proposed',
-            artifactId: existing.id,
-            name: normalizedName,
-            version: newVersionNum,
-            versionId: newVersion.id,
-            lines: lineCount,
-            supersededVersion,
-        };
-    } else {
-        // Create new - two-phase insert wrapped in transaction to handle circular FK
-        // Transaction ensures atomicity: if phase 2 fails, phase 1 is rolled back
-        let createdVersionId = '';
-        let createdArtifactId = '';
-
-        await em.transactional(async (txEm) => {
-            // Phase 1: Create artifact (current_version will be NULL - nothing approved yet)
-            const artifact = new ArtifactEntity();
-            artifact.key = normalizedName;
-            artifact.version = 1;
-            setArtifactOwner(artifact, scope, txEm);
-            // current_version stays null until first approval
-
-            txEm.persist(artifact);
-            await txEm.flush();
-            createdArtifactId = artifact.id;
-
-            // Phase 2: Create proposed version
-            const version = new ArtifactVersionEntity();
-            version.artifact = artifact;
-            version.version = 1;
-            version.title = title;
-            version.content = content;
-            version.status = 'proposed';
-            version.is_internal = is_internal;
-            version.document_type = document_type as any;
-            version.status_changed_at = new Date();
-            version.chat = txEm.getReference('ChatEntity', chatId) as any;
-
-            txEm.persist(version);
-            await txEm.flush();
-
-            createdVersionId = version.id;
-        });
-
-        return {
-            action: 'created',
-            artifactId: createdArtifactId,
-            name: normalizedName,
-            version: 1,
-            versionId: createdVersionId,
-            lines: lineCount,
-        };
-    }
+                return {
+                    action: wasFirstVersion ? 'created' : 'proposed',
+                    status: newStatus,
+                    artifactId: existing.id,
+                    name: normalizedName,
+                    version: reservedVersion,
+                    versionId: newVersion.id,
+                    lines: lineCount,
+                    ...(supersededVersion !== undefined && { supersededVersion }),
+                    ...(supersededByVersion !== undefined && { supersededByVersion }),
+                };
+            }),
+    });
 }
 
 /**
