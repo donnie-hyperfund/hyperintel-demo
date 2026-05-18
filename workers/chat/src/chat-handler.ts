@@ -15,6 +15,7 @@ import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from
 import type { SendChatActionDto, TokenBreakdown } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { UserEventType } from '@/lib/schema/user-events';
+import { getLocksService } from '@/workers/_common/util/locks';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import { captureWorkerPostHogEvent } from '@/workers/_common/vendor/posthog';
 import { handleForceBrief } from './chat-brief-handler';
@@ -524,6 +525,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
     const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'chat-handler');
     const draftManager = new DraftManager();
     const projectId = chat.project!.id;
+    const lockService = getLocksService(ctx.env.LOCKS_SERVICE as unknown as DurableObjectNamespace);
 
     const cleanupActiveDraftReservation = async (stage: string) => {
         const draft = draftManager.getCurrent();
@@ -548,9 +550,14 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             artifactKey: draft.name,
         });
 
-        await cleanupOrphanArtifact({ em: em!, scope: { projectId }, name: draft.name }).catch((cleanupError) => {
-            console.error(`[chat-handler] failed to cleanup active draft reservation after ${stage}:`, cleanupError);
-        });
+        await cleanupOrphanArtifact({ em: em!, lockService, scope: { projectId }, name: draft.name }).catch(
+            (cleanupError) => {
+                console.error(
+                    `[chat-handler] failed to cleanup active draft reservation after ${stage}:`,
+                    cleanupError,
+                );
+            },
+        );
         draftManager.discard();
     };
 
@@ -577,6 +584,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         const agentCtx: PromptToolsContext & DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             loadedPrompts: new Set<string>(savedPrompts),
             em: em!,
+            lockService,
             projectId,
             chatId: chat.id,
             draftManager,

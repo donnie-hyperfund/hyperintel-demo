@@ -20,6 +20,7 @@ import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import { UserEventType } from '@/lib/schema/user-events';
+import { getLocksService } from '@/workers/_common/util/locks';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { ChatHandlerOptions } from './chat-handler';
 import type { Ctx } from './context';
@@ -412,6 +413,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     const userId = chat.user!.id;
     const draftManager = new DraftManager();
     const intakeChatType = chat.metadata?.framework === 'hpf' ? 'stakeholder' : 'company';
+    const lockService = getLocksService(ctx.env.LOCKS_SERVICE as unknown as DurableObjectNamespace);
 
     const cleanupActiveDraftReservation = async (stage: string) => {
         const draft = draftManager.getCurrent();
@@ -436,14 +438,14 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             artifactKey: draft.name,
         });
 
-        await cleanupOrphanArtifact({ em: em!, scope: { userId, chatId: chat.id }, name: draft.name }).catch(
-            (cleanupError) => {
-                console.error(
-                    `[intake-handler] failed to cleanup active draft reservation after ${stage}:`,
-                    cleanupError,
-                );
-            },
-        );
+        await cleanupOrphanArtifact({
+            em: em!,
+            lockService,
+            scope: { userId, chatId: chat.id },
+            name: draft.name,
+        }).catch((cleanupError) => {
+            console.error(`[intake-handler] failed to cleanup active draft reservation after ${stage}:`, cleanupError);
+        });
         draftManager.discard();
     };
 
@@ -465,6 +467,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         const agentCtx: DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             em: em!,
+            lockService,
             userId,
             chatId: chat.id,
             draftManager,

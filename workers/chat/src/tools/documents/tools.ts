@@ -24,6 +24,7 @@ import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
+import type { ILockService } from '@/workers/_common/util/locks';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
 import {
@@ -51,6 +52,8 @@ import { shouldGeneratePECP } from './pecp-service';
 export interface DocumentToolsContext {
     /** Entity manager for DB operations */
     em: EntityManager;
+    /** Worker-safe lock service used to serialize artifact key/version reservation. */
+    lockService: ILockService;
     /** Project scope — set for project chats */
     projectId?: string;
     /** User scope — set for user-level chats (intake) */
@@ -324,7 +327,7 @@ You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
                 const { mode, name, title, document_type } = input;
-                const { em, draftManager } = ctx;
+                const { em, draftManager, lockService } = ctx;
                 const scope = getScope(ctx);
                 const scopeId = ctx.projectId ?? ctx.userId!;
 
@@ -333,12 +336,12 @@ You MUST call finalize_document when done or content will be lost.`,
 
                 const normalizedName = normalizeArtifactKey(name);
 
-                // Reserve the version slot under a per-key advisory lock. Parallel
+                // Reserve the version slot under a per-key worker lock. Parallel
                 // begin_document calls on the same artifactKey serialize here and end up
                 // with distinct reservedVersion numbers — without this, two phases racing
                 // on the same name both stream into (scope, key, version=1) and fight
                 // for that entry in the frontend artifact store.
-                const reservation = await reserveDraftVersion({ em, scope, name: normalizedName, mode });
+                const reservation = await reserveDraftVersion({ em, lockService, scope, name: normalizedName, mode });
 
                 if (reservation.kind === 'read-only') {
                     return {
@@ -599,7 +602,7 @@ If a proposed version already exists, it will be marked as "superseded".
 Use action="abort" to discard the active draft without saving.`,
             parameters: FinalizeDocumentParams,
             executor: async (input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
-                const { em, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
+                const { em, lockService, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
                 const scope = getScope(ctx);
 
                 try {
@@ -611,7 +614,7 @@ Use action="abort" to discard the active draft without saving.`,
                         // Remove the empty ArtifactEntity that reserveDraftVersion created
                         // for a brand-new key, so list_documents doesn't show a phantom row.
                         // No-op when other versions already exist (edit/replace abort path).
-                        await cleanupOrphanArtifact({ em, scope, name: draft.name });
+                        await cleanupOrphanArtifact({ em, lockService, scope, name: draft.name });
                         draftManager.discard();
                         return {
                             result: {
@@ -629,6 +632,7 @@ Use action="abort" to discard the active draft without saving.`,
                     // Persist to database as proposed
                     const result = await upsertDocument({
                         em,
+                        lockService,
                         scope,
                         chatId,
                         name: draft.name,

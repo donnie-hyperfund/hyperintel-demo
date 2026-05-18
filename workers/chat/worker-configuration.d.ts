@@ -21,6 +21,7 @@ declare namespace Cloudflare {
 		USER_GATEWAY: DurableObjectNamespace<import('../objects/src/index').UserGateway>;
 		CHAT_STREAM_DO: DurableObjectNamespace<import('../objects/src/index').ChatStreamDO>;
 		GENERATION_PROXY: DurableObjectNamespace<import('../objects/src/index').GenerationProxyDO>;
+		LOCKS_SERVICE: DurableObjectNamespace<import('../objects/src/index').LocksService>;
 		ARTIFACTS_BUCKET: R2Bucket;
 		USER_IMAGES_BUCKET: R2Bucket;
 		DATABASE_URL: SecretsStoreSecret;

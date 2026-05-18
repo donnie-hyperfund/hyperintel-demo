@@ -18,6 +18,7 @@ import type { EntityManager } from '@mikro-orm/core';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+import type { ILockService } from '@/workers/_common/util/locks';
 
 // ============================================================================
 // SCOPE — project-scoped or user-scoped artifacts
@@ -25,6 +26,11 @@ import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/ar
 
 export type DocumentScope = { projectId: string } | { userId: string; chatId?: string };
 export type DocumentDraftMode = 'create' | 'edit' | 'replace';
+
+const DOCUMENT_LOCK_TTL_SECONDS = 30;
+const DOCUMENT_LOCK_MAX_ATTEMPTS = 30;
+const DOCUMENT_LOCK_POLL_MS = 1000;
+const DOCUMENT_LOCK_RENEW_MS = (DOCUMENT_LOCK_TTL_SECONDS * 1000) / 2;
 
 /** Build a MikroORM where-clause fragment from a scope. */
 function scopeFilter(scope: DocumentScope): Record<string, unknown> {
@@ -54,21 +60,82 @@ function artifactLockScopePart(scope: DocumentScope): string {
     return 'projectId' in scope ? `project:${scope.projectId}` : `user:${scope.userId}`;
 }
 
-async function lockArtifactKey({
-    em,
+function artifactLockId(scope: DocumentScope, normalizedName: string): string {
+    return `artifact:${artifactLockScopePart(scope)}:${normalizedName}`;
+}
+
+function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function acquireArtifactKeyLock({
+    lockService,
+    lockId,
+}: {
+    lockService: ILockService;
+    lockId: string;
+}): Promise<number | false> {
+    for (let attempt = 1; attempt <= DOCUMENT_LOCK_MAX_ATTEMPTS; attempt++) {
+        const acquired = await lockService.acquire(lockId, DOCUMENT_LOCK_TTL_SECONDS, null);
+        if (acquired) return acquired.lease;
+        if (attempt < DOCUMENT_LOCK_MAX_ATTEMPTS) await wait(DOCUMENT_LOCK_POLL_MS);
+    }
+
+    return false;
+}
+
+async function withArtifactKeyLock<T>({
+    lockService,
     scope,
     normalizedName,
+    run,
 }: {
-    em: EntityManager;
+    lockService: ILockService;
     scope: DocumentScope;
     normalizedName: string;
-}): Promise<void> {
-    await em
-        .getConnection()
-        .execute('SELECT pg_advisory_xact_lock(hashtext(?), hashtext(?)) AS lock', [
-            artifactLockScopePart(scope),
-            normalizedName,
-        ]);
+    run: () => Promise<T>;
+}): Promise<T> {
+    const lockId = artifactLockId(scope, normalizedName);
+    const lease = await acquireArtifactKeyLock({ lockService, lockId });
+
+    if (lease === false) {
+        throw new Error(`Could not acquire document lock for "${normalizedName}". Please retry.`);
+    }
+
+    let finished = false;
+    let renewTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleRenewal = () => {
+        renewTimer = setTimeout(() => {
+            Promise.resolve(lockService.acquire(lockId, DOCUMENT_LOCK_TTL_SECONDS, lease))
+                .then((renewed) => {
+                    if (finished) return;
+                    if (!renewed) {
+                        console.error(`[document-service] document lock "${lockId}" could not be renewed`);
+                        return;
+                    }
+                    scheduleRenewal();
+                })
+                .catch((err) => {
+                    if (finished) return;
+                    console.error(`[document-service] failed to renew document lock "${lockId}":`, err);
+                });
+        }, DOCUMENT_LOCK_RENEW_MS);
+    };
+
+    scheduleRenewal();
+
+    try {
+        return await run();
+    } finally {
+        finished = true;
+        if (renewTimer) clearTimeout(renewTimer);
+        try {
+            await lockService.release(lockId, lease);
+        } catch (err) {
+            console.error(`[document-service] failed to release document lock "${lockId}":`, err);
+        }
+    }
 }
 
 // ============================================================================
@@ -522,8 +589,8 @@ export async function findDocumentByName(
 }
 
 /**
- * Result of a `begin_document` version-slot reservation. The artifact-key advisory lock
- * is held for the lifetime of the surrounding transaction, so concurrent calls on the
+ * Result of a `begin_document` version-slot reservation. The artifact-key worker lock
+ * is held around the short reservation transaction, so concurrent calls on the
  * same key serialize and end up with distinct `reservedVersion` numbers (or a clean
  * collision error before any DB write happens).
  */
@@ -541,6 +608,7 @@ export type ReserveDraftVersionResult =
 
 export interface ReserveDraftVersionOptions {
     em: EntityManager;
+    lockService: ILockService;
     scope: DocumentScope;
     name: string;
     mode: DocumentDraftMode;
@@ -550,9 +618,8 @@ export interface ReserveDraftVersionOptions {
  * Serialize concurrent `begin_document` calls on the same artifact key and atomically
  * reserve the next version slot.
  *
- * Strategy: a Postgres advisory transaction lock keyed by `${scope}:${name}` blocks
- * parallel callers (works for both existing-row and new-row paths — pessimistic_write
- * row locks would not cover the "no row yet" case). Under the lock:
+ * Strategy: a worker-safe LocksService lock keyed by `${scope}:${name}` serializes
+ * parallel callers before any DB transaction starts. Under the lock:
  *   - mode='create' with no existing row → insert ArtifactEntity with `version = 1`,
  *     return `{ reservedVersion: 1 }` (no ArtifactVersion row created — finalize_document
  *     writes that, abort path cleans the empty artifact up via cleanupOrphanArtifact).
@@ -561,51 +628,68 @@ export interface ReserveDraftVersionOptions {
  *     `artifact.version` counter and return the new value as `reservedVersion`.
  */
 export async function reserveDraftVersion(opts: ReserveDraftVersionOptions): Promise<ReserveDraftVersionResult> {
-    const { em, scope, name, mode } = opts;
+    const { em, lockService, scope, name, mode } = opts;
     const normalizedName = normalizeArtifactKey(name);
 
-    return em.transactional(async (txEm) => {
-        await lockArtifactKey({ em: txEm, scope, normalizedName });
+    return withArtifactKeyLock({
+        lockService,
+        scope,
+        normalizedName,
+        run: () =>
+            em.transactional(async (txEm) => {
+                const artifact = await txEm.findOne(
+                    ArtifactEntity,
+                    { ...scopeFilter(scope), key: normalizedName },
+                    { populate: ['current_version', 'versions'] },
+                );
 
-        const artifact = await txEm.findOne(
-            ArtifactEntity,
-            { ...scopeFilter(scope), key: normalizedName },
-            { populate: ['current_version', 'versions'] },
-        );
+                if (!artifact) {
+                    if (mode === 'edit' || mode === 'replace') {
+                        return { kind: 'not-found' };
+                    }
+                    const created = new ArtifactEntity();
+                    created.key = normalizedName;
+                    created.version = 1;
+                    setArtifactOwner({ artifact: created, scope, em: txEm });
+                    txEm.persist(created);
+                    await txEm.flush();
+                    return {
+                        kind: 'reserved',
+                        artifactId: created.id,
+                        existing: null,
+                        reservedVersion: 1,
+                        wasDeleted: false,
+                    };
+                }
 
-        if (!artifact) {
-            if (mode === 'edit' || mode === 'replace') {
-                return { kind: 'not-found' };
-            }
-            const created = new ArtifactEntity();
-            created.key = normalizedName;
-            created.version = 1;
-            setArtifactOwner({ artifact: created, scope, em: txEm });
-            txEm.persist(created);
-            await txEm.flush();
-            return { kind: 'reserved', artifactId: created.id, existing: null, reservedVersion: 1, wasDeleted: false };
-        }
+                const info = buildDocumentInfo(artifact);
 
-        const info = buildDocumentInfo(artifact);
+                if (info.isReadOnly) {
+                    return { kind: 'read-only', existing: info };
+                }
 
-        if (info.isReadOnly) {
-            return { kind: 'read-only', existing: info };
-        }
+                const isDeleted = info.currentStatus === 'deleted';
+                if (mode === 'create' && !isDeleted) {
+                    return { kind: 'collision', existing: info };
+                }
 
-        const isDeleted = info.currentStatus === 'deleted';
-        if (mode === 'create' && !isDeleted) {
-            return { kind: 'collision', existing: info };
-        }
-
-        const reservedVersion = artifact.version + 1;
-        artifact.version = reservedVersion;
-        await txEm.flush();
-        return { kind: 'reserved', artifactId: artifact.id, existing: info, reservedVersion, wasDeleted: isDeleted };
+                const reservedVersion = artifact.version + 1;
+                artifact.version = reservedVersion;
+                await txEm.flush();
+                return {
+                    kind: 'reserved',
+                    artifactId: artifact.id,
+                    existing: info,
+                    reservedVersion,
+                    wasDeleted: isDeleted,
+                };
+            }),
     });
 }
 
 export interface CleanupOrphanArtifactOptions {
     em: EntityManager;
+    lockService: ILockService;
     scope: DocumentScope;
     name: string;
 }
@@ -619,22 +703,26 @@ export interface CleanupOrphanArtifactOptions {
  * (intentionally not deleted) or wasn't found.
  */
 export async function cleanupOrphanArtifact(opts: CleanupOrphanArtifactOptions): Promise<boolean> {
-    const { em, scope, name } = opts;
+    const { em, lockService, scope, name } = opts;
     const normalizedName = normalizeArtifactKey(name);
 
-    return em.transactional(async (txEm) => {
-        await lockArtifactKey({ em: txEm, scope, normalizedName });
-
-        const artifact = await txEm.findOne(
-            ArtifactEntity,
-            { ...scopeFilter(scope), key: normalizedName },
-            { populate: ['versions'], refresh: true },
-        );
-        if (!artifact) return false;
-        if (artifact.versions.getItems().length > 0) return false;
-        txEm.remove(artifact);
-        await txEm.flush();
-        return true;
+    return withArtifactKeyLock({
+        lockService,
+        scope,
+        normalizedName,
+        run: () =>
+            em.transactional(async (txEm) => {
+                const artifact = await txEm.findOne(
+                    ArtifactEntity,
+                    { ...scopeFilter(scope), key: normalizedName },
+                    { populate: ['versions'], refresh: true },
+                );
+                if (!artifact) return false;
+                if (artifact.versions.getItems().length > 0) return false;
+                txEm.remove(artifact);
+                await txEm.flush();
+                return true;
+            }),
     });
 }
 
@@ -698,6 +786,7 @@ export async function listDocuments(
 
 export interface UpsertDocumentOptions {
     em: EntityManager;
+    lockService: ILockService;
     scope: DocumentScope;
     chatId: string;
     name: string;
@@ -735,6 +824,7 @@ export interface UpsertDocumentResult {
 export async function upsertDocument(opts: UpsertDocumentOptions): Promise<UpsertDocumentResult> {
     const {
         em,
+        lockService,
         scope,
         chatId,
         name,
@@ -748,73 +838,79 @@ export async function upsertDocument(opts: UpsertDocumentOptions): Promise<Upser
     const normalizedName = normalizeArtifactKey(name);
     const lineCount = countLines(content);
 
-    return em.transactional(async (txEm) => {
-        await lockArtifactKey({ em: txEm, scope, normalizedName });
+    return withArtifactKeyLock({
+        lockService,
+        scope,
+        normalizedName,
+        run: () =>
+            em.transactional(async (txEm) => {
+                const existing = await txEm.findOne(
+                    ArtifactEntity,
+                    { ...scopeFilter(scope), key: normalizedName },
+                    { populate: ['current_version', 'versions'], refresh: true },
+                );
 
-        const existing = await txEm.findOne(
-            ArtifactEntity,
-            { ...scopeFilter(scope), key: normalizedName },
-            { populate: ['current_version', 'versions'], refresh: true },
-        );
+                if (!existing) {
+                    throw new Error(
+                        `Cannot finalize "${normalizedName}": parent artifact row missing. begin_document should have reserved a version slot first.`,
+                    );
+                }
 
-        if (!existing) {
-            throw new Error(
-                `Cannot finalize "${normalizedName}": parent artifact row missing. begin_document should have reserved a version slot first.`,
-            );
-        }
+                const versions = existing.versions.getItems();
+                const wasFirstVersion = versions.length === 0;
 
-        const versions = existing.versions.getItems();
-        const wasFirstVersion = versions.length === 0;
+                const existingProposed = latestVersionWithStatus(versions, 'proposed');
+                const shouldSupersedeExisting =
+                    existingProposed !== undefined && existingProposed.version < reservedVersion;
+                const supersededVersion = shouldSupersedeExisting ? existingProposed.version : undefined;
+                const supersededByVersion =
+                    existingProposed !== undefined && existingProposed.version > reservedVersion
+                        ? existingProposed.version
+                        : undefined;
+                const newStatus: 'proposed' | 'superseded' =
+                    supersededByVersion === undefined ? 'proposed' : 'superseded';
 
-        const existingProposed = latestVersionWithStatus(versions, 'proposed');
-        const shouldSupersedeExisting = existingProposed !== undefined && existingProposed.version < reservedVersion;
-        const supersededVersion = shouldSupersedeExisting ? existingProposed.version : undefined;
-        const supersededByVersion =
-            existingProposed !== undefined && existingProposed.version > reservedVersion
-                ? existingProposed.version
-                : undefined;
-        const newStatus: 'proposed' | 'superseded' = supersededByVersion === undefined ? 'proposed' : 'superseded';
+                if (shouldSupersedeExisting) {
+                    existingProposed.status = 'superseded';
+                    existingProposed.rejection_reason = `Superseded by v${reservedVersion}`;
+                    existingProposed.status_changed_at = new Date();
+                }
 
-        if (shouldSupersedeExisting) {
-            existingProposed.status = 'superseded';
-            existingProposed.rejection_reason = `Superseded by v${reservedVersion}`;
-            existingProposed.status_changed_at = new Date();
-        }
+                const newVersion = new ArtifactVersionEntity();
+                newVersion.artifact = existing;
+                newVersion.version = reservedVersion;
+                newVersion.title = title;
+                newVersion.content = content;
+                newVersion.status = newStatus;
+                if (supersededByVersion !== undefined) {
+                    newVersion.rejection_reason = `Superseded by v${supersededByVersion}`;
+                }
+                newVersion.is_internal = is_internal;
+                newVersion.document_type = document_type as any;
+                newVersion.status_changed_at = new Date();
+                newVersion.chat = txEm.getReference('ChatEntity', chatId) as any;
+                txEm.persist(newVersion);
 
-        const newVersion = new ArtifactVersionEntity();
-        newVersion.artifact = existing;
-        newVersion.version = reservedVersion;
-        newVersion.title = title;
-        newVersion.content = content;
-        newVersion.status = newStatus;
-        if (supersededByVersion !== undefined) {
-            newVersion.rejection_reason = `Superseded by v${supersededByVersion}`;
-        }
-        newVersion.is_internal = is_internal;
-        newVersion.document_type = document_type as any;
-        newVersion.status_changed_at = new Date();
-        newVersion.chat = txEm.getReference('ChatEntity', chatId) as any;
-        txEm.persist(newVersion);
+                // artifact.version was already bumped during reservation. Stay defensive against
+                // out-of-order finalize calls (e.g. a later reservation finalizing before an earlier one).
+                if (existing.version < reservedVersion) {
+                    existing.version = reservedVersion;
+                }
 
-        // artifact.version was already bumped during reservation. Stay defensive against
-        // out-of-order finalize calls (e.g. a later reservation finalizing before an earlier one).
-        if (existing.version < reservedVersion) {
-            existing.version = reservedVersion;
-        }
+                await txEm.flush();
 
-        await txEm.flush();
-
-        return {
-            action: wasFirstVersion ? 'created' : 'proposed',
-            status: newStatus,
-            artifactId: existing.id,
-            name: normalizedName,
-            version: reservedVersion,
-            versionId: newVersion.id,
-            lines: lineCount,
-            ...(supersededVersion !== undefined && { supersededVersion }),
-            ...(supersededByVersion !== undefined && { supersededByVersion }),
-        };
+                return {
+                    action: wasFirstVersion ? 'created' : 'proposed',
+                    status: newStatus,
+                    artifactId: existing.id,
+                    name: normalizedName,
+                    version: reservedVersion,
+                    versionId: newVersion.id,
+                    lines: lineCount,
+                    ...(supersededVersion !== undefined && { supersededVersion }),
+                    ...(supersededByVersion !== undefined && { supersededByVersion }),
+                };
+            }),
     });
 }
 

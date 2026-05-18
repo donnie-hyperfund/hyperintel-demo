@@ -25,6 +25,7 @@ import { createDocumentTools, type DocumentToolsContext } from './index';
 import { DraftManager } from './draft-manager';
 import { reserveDraftVersion, upsertDocument, type DocumentScope } from './document-service';
 import type { Ctx } from '../../context';
+import type { ILockService } from '@/workers/_common/util/locks';
 
 // ============================================================================
 // MOCK R2 SIGNING
@@ -55,6 +56,14 @@ import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 // ============================================================================
 
 const HAS_DB = !!process.env.DATABASE_URL;
+
+const lockService: ILockService = {
+    acquire: (lockId, ttl) => {
+        const now = Date.now();
+        return { lockId, lease: 1, deadline: now + ttl * 1000, lastUsed: now };
+    },
+    release: () => true,
+};
 
 /** Markdown with two artifact-image:// refs embedded. */
 const MD_WITH_IMAGES = [
@@ -151,6 +160,7 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
     function makeDocCtx(emFork?: EntityManager): DocumentToolsContext {
         return {
             em: emFork ?? em.fork(),
+            lockService,
             projectId,
             chatId,
             draftManager,
@@ -160,12 +170,13 @@ describe.skipIf(!HAS_DB)('read_document image resolution', () => {
 
     async function seedDocument(name: string, content: string) {
         const seedEm = em.fork();
-        const reservation = await reserveDraftVersion({ em: seedEm, scope, name, mode: 'create' });
+        const reservation = await reserveDraftVersion({ em: seedEm, lockService, scope, name, mode: 'create' });
         if (reservation.kind !== 'reserved') {
             throw new Error(`seedDocument: unexpected reservation result "${reservation.kind}" for "${name}"`);
         }
         return upsertDocument({
             em: seedEm,
+            lockService,
             scope,
             chatId,
             name,

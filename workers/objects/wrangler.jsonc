@@ -59,6 +59,10 @@
 			{
 				"name": "GENERATION_PROXY",
 				"class_name": "GenerationProxyDO"
+			},
+			{
+				"name": "LOCKS_SERVICE",
+				"class_name": "LocksService"
 			}
 		]
 	},
@@ -74,6 +78,12 @@
 			"tag": "v2_generation_proxy",
 			"new_sqlite_classes": [
 				"GenerationProxyDO"
+			]
+		},
+		{
+			"tag": "v3_locks_service",
+			"new_sqlite_classes": [
+				"LocksService"
 			]
 		}
 	],
@@ -120,6 +130,10 @@
 					{
 						"name": "GENERATION_PROXY",
 						"class_name": "GenerationProxyDO"
+					},
+					{
+						"name": "LOCKS_SERVICE",
+						"class_name": "LocksService"
 					}
 				]
 			},
@@ -172,6 +186,10 @@
 					{
 						"name": "GENERATION_PROXY",
 						"class_name": "GenerationProxyDO"
+					},
+					{
+						"name": "LOCKS_SERVICE",
+						"class_name": "LocksService"
 					}
 				]
 			},
@@ -224,6 +242,10 @@
 					{
 						"name": "GENERATION_PROXY",
 						"class_name": "GenerationProxyDO"
+					},
+					{
+						"name": "LOCKS_SERVICE",
+						"class_name": "LocksService"
 					}
 				]
 			},

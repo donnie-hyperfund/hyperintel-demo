@@ -40,6 +40,12 @@ jobs:
           DATABASE_URL: ${{ secrets.NEON_PROD_DATABASE_URL }}
           DATABASE_URL_DIRECT: ${{ secrets.NEON_PROD_DATABASE_URL_DIRECT }}
 
+      - name: Deploy prod objects worker
+        run: npx wrangler deploy --config workers/objects/wrangler.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Deploy prod workers
         run: |
           failed=0

@@ -117,6 +117,11 @@
 				"name": "GENERATION_PROXY",
 				"class_name": "GenerationProxyDO",
 				"script_name": "hi-objects"
+			},
+			{
+				"name": "LOCKS_SERVICE",
+				"class_name": "LocksService",
+				"script_name": "hi-objects"
 			}
 		]
 	},
@@ -238,6 +243,11 @@
 					{
 						"name": "GENERATION_PROXY",
 						"class_name": "GenerationProxyDO",
+						"script_name": "hi-objects-dev"
+					},
+					{
+						"name": "LOCKS_SERVICE",
+						"class_name": "LocksService",
 						"script_name": "hi-objects-dev"
 					}
 				]
@@ -362,6 +372,11 @@
 						"name": "GENERATION_PROXY",
 						"class_name": "GenerationProxyDO",
 						"script_name": "hi-objects-exp"
+					},
+					{
+						"name": "LOCKS_SERVICE",
+						"class_name": "LocksService",
+						"script_name": "hi-objects-exp"
 					}
 				]
 			},
@@ -484,6 +499,11 @@
 					{
 						"name": "GENERATION_PROXY",
 						"class_name": "GenerationProxyDO",
+						"script_name": "hi-objects-dexp"
+					},
+					{
+						"name": "LOCKS_SERVICE",
+						"class_name": "LocksService",
 						"script_name": "hi-objects-dexp"
 					}
 				]
