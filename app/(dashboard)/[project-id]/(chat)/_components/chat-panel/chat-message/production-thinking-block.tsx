@@ -7,14 +7,12 @@ import { useThinkingLabel } from './use-thinking-label';
 type ProductionThinkingBlockProps = {
     blocks: StreamBlock[];
     isStreaming?: boolean;
-    hasTextContent?: boolean;
     status?: string;
 };
 
-export function ProductionThinkingBlock({ blocks, isStreaming, hasTextContent, status }: ProductionThinkingBlockProps) {
+export function ProductionThinkingBlock({ blocks, isStreaming, status }: ProductionThinkingBlockProps) {
     const { doneLabel, isThinking } = useThinkingLabel(blocks, isStreaming, {
         includeActions: false,
-        hasTextContent,
     });
 
     if (isThinking) {

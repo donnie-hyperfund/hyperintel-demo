@@ -16,14 +16,12 @@ function formatDuration(ms: number): string | null {
 
 type UseThinkingLabelOptions = {
     includeActions?: boolean;
-    hasTextContent?: boolean;
 };
 
-// `isThinking` flips off as soon as text content starts streaming (or the message stops streaming), so the label switches from "Thinking" to "Thought for X" at the right moment instead of staying on "Thinking" through the whole text stream.
 export function useThinkingLabel(
     blocks: StreamBlock[],
     isStreaming?: boolean,
-    { includeActions = true, hasTextContent = false }: UseThinkingLabelOptions = {},
+    { includeActions = true }: UseThinkingLabelOptions = {},
 ) {
     const actionSuffix = includeActions
         ? (() => {
@@ -39,5 +37,5 @@ export function useThinkingLabel(
     const formattedDuration = formatDuration(totalReasoningMs);
     const doneLabel = formattedDuration ? `Thought for ${formattedDuration}${actionSuffix}` : `Thinking${actionSuffix}`;
 
-    return { doneLabel, isThinking: !!isStreaming && !hasTextContent };
+    return { doneLabel, isThinking: !!isStreaming };
 }

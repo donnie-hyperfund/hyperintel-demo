@@ -82,7 +82,6 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                         blocks={thinkingBlocks}
                         defaultExpanded={!!isStreaming}
                         isStreaming={isStreaming}
-                        hasTextContent={!!textContent}
                         status={message.status}
                     />
                 )}
