@@ -253,6 +253,30 @@ export async function persistErrorMessage({
                 debug_data: { error: serializeException(error) },
             });
             em.persist(errorMsg);
+        } else {
+            const existingMetadata = ((existing.metadata as Record<string, unknown> | null) ?? {}) as Record<
+                string,
+                unknown
+            >;
+            const existingDebugData = ((existing.debug_data as Record<string, unknown> | null) ?? {}) as Record<
+                string,
+                unknown
+            >;
+            const hasErrorMetadata =
+                typeof (existingMetadata.error as Record<string, unknown> | undefined)?.code === 'string';
+            const hasPersistedPayload =
+                !!existing.content?.trim() ||
+                !!existing.reasoning?.trim() ||
+                (Array.isArray(existing.blocks) && existing.blocks.length > 0);
+
+            // A stream-recovery placeholder may already exist with empty content,
+            // empty blocks, and no metadata. Do not leave that row opaque when the
+            // worker has the real classified error available.
+            if (!hasErrorMetadata && (existing.is_error || !hasPersistedPayload)) {
+                existing.is_error = true;
+                existing.metadata = { ...existingMetadata, error: errorMetadata };
+                existing.debug_data = { ...existingDebugData, error: serializeException(error) };
+            }
         }
         chat.active_agent_message_id = null;
         await em.flush();
