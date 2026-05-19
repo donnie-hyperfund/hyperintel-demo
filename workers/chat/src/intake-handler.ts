@@ -5,7 +5,7 @@
  * Kept alive by GenerationProxyDO. Events delivered via UserGateway WS.
  */
 
-import { runAgentStream } from '@common/ai/agent';
+import { runAgentStream, shapeContextForInference } from '@common/ai/agent';
 import { buildMessageUsage } from '@common/ai/agent/usage-builder';
 import { extractInferenceMetadata, withCommonParams } from '@common/ai/inference';
 import { ensurePricingCache } from '@common/ai/inference/openrouter-pricing';
@@ -19,7 +19,10 @@ import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-fil
 import { getDefaultPresetId, type ReasoningPromptMode, resolveModelPreset } from '@/lib/presets';
 import type { SendIntakeChatActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
+import { UserEventType } from '@/lib/schema/user-events';
+import { getLocksService } from '@/workers/_common/util/locks';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
+import { CORE_BEHAVIORAL_GUIDANCE } from './agent-guidance';
 import type { ChatHandlerOptions } from './chat-handler';
 import type { Ctx } from './context';
 import { createNoopSafetyMonitor, createSafetyMonitor } from './safety/analyzer';
@@ -29,6 +32,8 @@ import { finalizeSafetyMonitor, injectSafetyContext } from './safety/helpers';
 import { createDocumentTools, DocumentToolGroup, type DocumentToolsContext, DraftManager } from './tools/documents';
 import { createKnowledgeTools, type KnowledgeSearchContext, KnowledgeSearchToolGroup } from './tools/knowledge-search';
 import { createUserDecisionTools, type UserDecisionContext, UserDecisionToolGroup } from './tools/user-decision';
+import { cleanupActiveDraftReservation } from './utils/active-draft-cleanup';
+import { broadcastUserEvent } from './utils/broadcast';
 import {
     CHAT_CONTEXT_LIMIT_TOKENS,
     createContextLimitError,
@@ -185,9 +190,14 @@ async function prepareIntakeGenerationInput({
 
     const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath, reasoningPromptMode);
     const { allTools, toolGroups } = getIntakeToolsAndGroups();
+    const shapedForEstimate = shapeContextForInference({
+        history: estimationContextMessages,
+        tools: allTools,
+        ctx: null,
+    });
     const estimatedTokens = estimateInferenceInputTokens({
         instructions: systemPrompt,
-        context: estimationContextMessages,
+        context: shapedForEstimate,
         tools: allTools,
         toolGroups,
     });
@@ -400,6 +410,25 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
     const { anthropic, langfuse, em } = ctx;
 
     const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'intake-handler');
+    const userId = chat.user!.id;
+    const draftManager = new DraftManager();
+    const intakeChatType = chat.metadata?.framework === 'hpf' ? 'stakeholder' : 'company';
+    const lockService = getLocksService(ctx.env.LOCKS_SERVICE as unknown as DurableObjectNamespace);
+
+    const cleanupActiveDraft = (stage: string) =>
+        cleanupActiveDraftReservation({
+            stage,
+            source: 'intake-handler',
+            ctx,
+            em: em!,
+            lockService,
+            draftManager,
+            chatId,
+            scope: { userId, chatId: chat.id },
+            streamLocation: { domain: 'intake', chatType: intakeChatType, projectId: null },
+            pushStreamEvents: pusher.push,
+            onEvent: options.onEvent,
+        });
 
     try {
         if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
@@ -417,18 +446,18 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         // Track version IDs created during this turn
         const createdVersionIds: string[] = [];
 
-        const userId = chat.user!.id;
-
         const agentCtx: DocumentToolsContext & KnowledgeSearchContext & UserDecisionContext = {
             em: em!,
+            lockService,
             userId,
             chatId: chat.id,
-            draftManager: new DraftManager(),
+            draftManager,
             createdVersionIds,
             // UserDecisionContext — request_user_decision pushes the prompt event
             // through this pusher and long-polls the DO for the user's click.
             pusher,
             streamDO,
+            pushStreamEvents: pusher.push,
             onVersionCreated: (event) => {
                 ugStub
                     .broadcastToAll({ type: 'user_event', eventType: 'artifact_version_created', payload: event })
@@ -454,6 +483,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             ctx,
             {
                 ...inferenceParams,
+                cacheId: chat.id,
                 instructions: systemPrompt,
                 context: allMessages,
                 countReasoningAsContent: true,
@@ -464,9 +494,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                 toolGroups,
                 config: {
                     maxToolCalls: 100,
-                    behavioralGuidance: [
-                        'DECISION ESCALATION: Use `request_user_decision` for GENUINE ambiguity only — multiple valid paths where the user must pick (project type at ambiguous initiation, persona disambiguation, framework branching, deliverable type, intent ambiguity, tool errors with multiple named recovery paths). Do NOT silently pick yourself, and do NOT ask in plain text when concrete options exist. FORBIDDEN: (1) refusal-disguise — presenting alternatives when the user already gave an unambiguous command (that is Authority Inversion in tool-call form; if execution is blocked, say so plainly); (2) false ambiguity — asking about details a competent SME can reasonably default. Pre-flight test: "Could a competent SME proceed without clarification?" If yes, proceed. After the user clicks, act on the choice immediately without re-confirming.',
-                    ],
+                    behavioralGuidance: [...CORE_BEHAVIORAL_GUIDANCE],
                     statusUpdates: { enabled: true },
                     autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
                     abortSignal: abortController.signal,
@@ -478,7 +506,6 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string } | null = null;
 
         const outputSafetyEnabled = isOutputSafetyEnabled(ctx.env);
-
         // Inline safety monitor — checks content every few seconds, aborts on leak.
         const safetyMonitor = outputSafetyEnabled
             ? createSafetyMonitor({
@@ -505,6 +532,35 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             commonEventOpts: {
                 isCurrentDraftInternal: () => agentCtx.draftManager.getCurrent()?.is_internal === true,
             },
+            onDocumentEvent: (event) => {
+                if (event.type === 'document_start') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamStarted, {
+                        chatId,
+                        domain: 'intake' as const,
+                        chatType: intakeChatType,
+                        projectId: null,
+                        projectName: null,
+                        phaseName: null,
+                        phaseIndex: null,
+                        artifactId: event.artifactId,
+                        artifactKey: event.name,
+                        artifactName: event.title,
+                        version: event.pendingVersion,
+                        isInternal: event.isInternal,
+                        mode: event.mode,
+                        loadedVersion: event.loadedVersion,
+                    });
+                } else if (event.type === 'document_complete') {
+                    void broadcastUserEvent(ctx, UserEventType.ArtifactStreamCompleted, {
+                        chatId,
+                        domain: 'intake' as const,
+                        chatType: intakeChatType,
+                        projectId: null,
+                        artifactId: event.artifactId,
+                        artifactKey: event.name,
+                    });
+                }
+            },
             onAgentEvent: (event) => {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
@@ -521,6 +577,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         const isAborted = !!event.aborted;
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
+                        await cleanupActiveDraft(isError ? 'error' : isAborted ? 'abort' : 'done');
                         const errorMetadata = isError
                             ? buildStoredErrorMetadata({
                                   classification: event.error!.classification,
@@ -645,6 +702,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
 
         await finalizeStream(streamDO, ugStub, `intake:${chatId}`);
     } catch (error: any) {
+        await cleanupActiveDraft('catch');
         const classification = classifyWorkerError(error);
         const errorMetadata = buildStoredErrorMetadata({ classification, requestId: ctx.requestId });
         logWorkerError(

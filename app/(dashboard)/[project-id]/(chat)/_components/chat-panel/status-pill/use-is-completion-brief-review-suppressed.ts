@@ -13,7 +13,7 @@ export function useIsCompletionBriefReviewSuppressed(phaseIndex: number | null):
 
     const isReviewingProposedCompletionBrief =
         panelState?.panel === 'artifact-preview' &&
-        panelState.artifactId === completionBriefKey &&
+        panelState.artifactKey === completionBriefKey &&
         panelState.version === proposedCompletionBrief.versionNumber;
 
     const isApprovingOrRejectingProposedCompletionBrief = visibleEntries.some(

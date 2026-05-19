@@ -178,6 +178,16 @@ export abstract class WebsocketClient {
         };
     }
 
+    /**
+     * Request a fresh subscribe snapshot for an already tracked topic without
+     * changing the local ref count. Useful when ownership moves between local
+     * consumers while the underlying socket subscription stays alive.
+     */
+    refreshSubscription(topic: string): void {
+        if (!this.subscriptions[topic]?.length) return;
+        this.send({ action: ClientAction.Subscribe, topic });
+    }
+
     private removeRef(sid: string, topic: string): void {
         const subs = this.subscriptions[topic];
         if (!subs) return;

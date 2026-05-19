@@ -11,6 +11,8 @@
 import type { AppliedEdit } from './document-service';
 
 export interface DraftSession {
+    /** Persisted ArtifactEntity id reserved by begin_document */
+    artifactId: string;
     /** Document name (with .md extension) */
     name: string;
     title: string;
@@ -21,11 +23,31 @@ export interface DraftSession {
     mode: 'create' | 'replace' | 'edit';
     /** Previous version number (for replace/edit modes) */
     previousVersion?: number;
+    /**
+     * Version number reserved at begin_document under a per-key DB lock.
+     * finalize_document persists the new ArtifactVersion with this exact
+     * number — concurrent agents on the same artifactKey get distinct slots
+     * and their streaming state stops colliding.
+     */
+    reservedVersion: number;
     /** Whether this is an internal document (content redacted from frontend) */
     is_internal: boolean;
     /** Document type classification */
     document_type: string;
     createdAt: Date;
+}
+
+export interface BeginDraftOptions {
+    artifactId: string;
+    scopeId: string;
+    name: string;
+    title: string;
+    mode: 'create' | 'replace' | 'edit';
+    reservedVersion: number;
+    initialContent?: string;
+    previousVersion?: number;
+    is_internal?: boolean;
+    document_type?: string;
 }
 
 /**
@@ -49,32 +71,25 @@ export class DraftManager {
      * Create a new draft session and set it as current.
      * @throws Error if there's already an active draft (must finalize first)
      */
-    begin(
-        scopeId: string,
-        name: string,
-        title: string,
-        mode: 'create' | 'replace' | 'edit',
-        initialContent = '',
-        previousVersion?: number,
-        is_internal = true,
-        document_type = 'Other',
-    ): DraftSession {
+    begin(opts: BeginDraftOptions): DraftSession {
         if (this.currentDraft) {
             throw new Error(
-                `Cannot begin draft for "${name}" - already have active draft "${this.currentDraft.name}". ` +
+                `Cannot begin draft for "${opts.name}" - already have active draft "${this.currentDraft.name}". ` +
                     `Call finalize_document first.`,
             );
         }
 
         this.currentDraft = {
-            name,
-            title,
-            scopeId,
-            content: initialContent,
-            mode,
-            previousVersion,
-            is_internal,
-            document_type,
+            artifactId: opts.artifactId,
+            name: opts.name,
+            title: opts.title,
+            scopeId: opts.scopeId,
+            content: opts.initialContent ?? '',
+            mode: opts.mode,
+            ...(opts.previousVersion !== undefined ? { previousVersion: opts.previousVersion } : {}),
+            reservedVersion: opts.reservedVersion,
+            is_internal: opts.is_internal ?? true,
+            document_type: opts.document_type ?? 'Other',
             createdAt: new Date(),
         };
         return this.currentDraft;

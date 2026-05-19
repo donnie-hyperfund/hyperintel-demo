@@ -3,10 +3,10 @@
 import { useRouter } from 'next/navigation';
 import { type ReactNode, Suspense, useCallback } from 'react';
 import { buildProjectOriginQuery } from '@/lib/intake/project-origin';
+import { ArtifactScopeProvider, getArtifactScopeForProject } from '@/modules/artifacts/providers/artifact-provider';
 import { ChatLoader } from '@/modules/chat/components/chat-loader';
 import { ModelSelectionProvider } from '@/modules/chat/providers/model-selection-provider';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
-import { ArtifactProvider } from '../../artifacts/providers/artifact-provider';
 import type { Message } from '../types';
 import { ActivePanelProvider } from './active-panel-provider';
 import { ChatProvider } from './chat-provider';
@@ -41,6 +41,7 @@ export function ChatModule({
 }: ChatModuleProps) {
     const router = useRouter();
     const { origin } = useOptionalProjectOrigin();
+    const artifactScope = getArtifactScopeForProject(projectId);
 
     const buildChatRoute = useCallback(
         (nextChatId: string) => {
@@ -68,7 +69,7 @@ export function ChatModule({
 
     return (
         <ActivePanelProvider>
-            <ArtifactProvider>
+            <ArtifactScopeProvider scope={artifactScope}>
                 <ModelSelectionProvider projectId={projectId}>
                     <ChatProvider
                         projectId={projectId}
@@ -82,7 +83,7 @@ export function ChatModule({
                         </Suspense>
                     </ChatProvider>
                 </ModelSelectionProvider>
-            </ArtifactProvider>
+            </ArtifactScopeProvider>
         </ActivePanelProvider>
     );
 }

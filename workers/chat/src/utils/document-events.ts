@@ -24,6 +24,7 @@ type EmittedEdit = AppliedEdit;
 export type DocumentEvent =
     | {
           type: 'document_start';
+          artifactId: string;
           name: string;
           title: string;
           mode: 'create' | 'edit' | 'replace';
@@ -37,23 +38,27 @@ export type DocumentEvent =
           rejectionReason?: string;
           loadedContent?: string;
       }
-    | { type: 'document_delta'; name: string; content: string }
-    | { type: 'document_progress'; name: string; progress: number }
+    | { type: 'document_delta'; artifactId: string; name: string; pendingVersion: number; content: string }
+    | { type: 'document_progress'; artifactId: string; name: string; pendingVersion: number; progress: number }
     | {
           type: 'document_edit';
+          artifactId: string;
           name: string;
+          pendingVersion: number;
           edits: EmittedEdit[];
           editsApplied: number;
           linesNow: number;
       }
     | {
           type: 'document_complete';
+          artifactId: string;
           name: string;
           version?: number;
           lines: number;
           action: string;
-          status: 'proposed' | 'aborted';
+          status: 'proposed' | 'superseded' | 'aborted';
           supersededVersion?: number;
+          supersededByVersion?: number;
           summaryPending?: boolean;
       };
 
@@ -78,9 +83,11 @@ export interface DocumentContext {
 export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentEventEmitter) {
     // Current document being written (set by begin_document, cleared by finalize_document)
     let activeDoc: {
+        artifactId: string;
         name: string;
         title: string;
         isInternal: boolean;
+        pendingVersion: number;
     } | null = null;
 
     // Parser for write_document content streaming
@@ -106,7 +113,9 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
             );
             emit({
                 type: 'document_progress',
+                artifactId: activeDoc.artifactId,
                 name: activeDoc.name,
+                pendingVersion: activeDoc.pendingVersion,
                 progress: rawProgress,
             });
         }
@@ -130,10 +139,15 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
 
                 // begin_document: set active doc and emit document_start
                 if (result.status === 'editing' && result.name) {
+                    if (typeof result.artifactId !== 'string') return;
+                    const pendingVersion = result.nextVersion ?? (result.loadedVersion ? result.loadedVersion + 1 : 1);
+
                     activeDoc = {
+                        artifactId: result.artifactId,
                         name: result.name,
                         title: result.title || result.name,
                         isInternal: result.is_internal ?? true,
+                        pendingVersion,
                     };
 
                     // Reset progress tracking
@@ -144,10 +158,9 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES.Other)
                         : DOCUMENT_CHAR_ESTIMATES.Other;
 
-                    const pendingVersion = result.nextVersion ?? (result.loadedVersion ? result.loadedVersion + 1 : 1);
-
                     const startEvent: DocumentEvent = {
                         type: 'document_start',
+                        artifactId: activeDoc.artifactId,
                         name: activeDoc.name,
                         title: activeDoc.title,
                         mode: result.mode || 'create',
@@ -190,7 +203,9 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     if (!activeDoc.isInternal && edits.length) {
                         emit({
                             type: 'document_edit',
+                            artifactId: activeDoc.artifactId,
                             name: activeDoc.name,
+                            pendingVersion: activeDoc.pendingVersion,
                             edits,
                             editsApplied: result.editsApplied ?? edits.length,
                             linesNow: result.linesNow ?? 0,
@@ -201,9 +216,11 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                 // finalize_document: emit document_complete and clear state
                 if (result.action === 'aborted' && result.lines !== undefined) {
                     const name = result.name || activeDoc?.name;
-                    if (name) {
+                    const artifactId = result.artifactId ?? activeDoc?.artifactId;
+                    if (name && artifactId) {
                         emit({
                             type: 'document_complete',
+                            artifactId,
                             name,
                             lines: result.lines,
                             action: 'aborted',
@@ -217,18 +234,23 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     lastEmittedProgress = 0;
                 } else if (result.version !== undefined && result.lines !== undefined) {
                     const name = result.name || activeDoc?.name;
-                    if (name) {
+                    const artifactId = result.artifactId ?? activeDoc?.artifactId;
+                    if (name && artifactId) {
                         const completeEvent: DocumentEvent = {
                             type: 'document_complete',
+                            artifactId,
                             name,
                             version: result.version,
                             lines: result.lines,
                             action: result.action || 'created',
-                            status: 'proposed',
+                            status: result.status ?? 'proposed',
                         };
 
                         if (result.supersededVersion !== undefined) {
                             completeEvent.supersededVersion = result.supersededVersion;
+                        }
+                        if (result.supersededByVersion !== undefined) {
+                            completeEvent.supersededByVersion = result.supersededByVersion;
                         }
                         if (result.summaryPending) {
                             completeEvent.summaryPending = true;
@@ -262,7 +284,9 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                                 if (!activeDoc.isInternal) {
                                     emit({
                                         type: 'document_delta',
+                                        artifactId: activeDoc.artifactId,
                                         name: activeDoc.name,
+                                        pendingVersion: activeDoc.pendingVersion,
                                         content: delta,
                                     });
                                 }

@@ -12,9 +12,15 @@ try {
 } catch {}
 const isProd = !['development', 'preview'].includes(process.env.VERCEL_ENV);
 
+// Stable env branches deploy as full workers (no preview alias).
+// Frontend on these branches must NOT prefix worker URLs.
+const STABLE_BRANCHES = new Set(['exp', 'dexp']);
+
 const workerAlias = (() => {
   if (process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_GIT_COMMIT_REF) {
-    return process.env.VERCEL_GIT_COMMIT_REF
+    const branch = process.env.VERCEL_GIT_COMMIT_REF;
+    if (STABLE_BRANCHES.has(branch)) return undefined;
+    return branch
       .replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
   }
   return undefined;

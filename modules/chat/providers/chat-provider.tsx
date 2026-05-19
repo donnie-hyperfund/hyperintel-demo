@@ -9,8 +9,8 @@ import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
-import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
+import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { ApiClientError, type CamelCaseDto } from '@/lib/api/client/types';
 import {
     abort,
@@ -24,8 +24,10 @@ import type { ChatDto, ChatMessageDto } from '@/lib/schema/message';
 import type { PendingDecision, StreamEvent, StreamStatus, TokenUsage } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
 import { draftKey } from '@/lib/storage/storage-keys';
+import { useArtifactRevalidator } from '@/modules/artifacts/hooks/use-artifact-revalidator';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactStreamMonitor } from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
@@ -159,6 +161,8 @@ type ChatProviderProps = {
     onChatCreated?: (chatId: string) => void;
 };
 
+type StreamSubscribeStatus = 'idle' | 'streaming' | 'stale';
+
 function buildContextValue(
     chatType: ChatType,
     projectId: string | undefined,
@@ -257,6 +261,8 @@ export function ChatProvider({
     onChatCreated,
 }: ChatProviderProps) {
     const artifactContext = useArtifactActions();
+    const streamMonitor = useArtifactStreamMonitor();
+    const revalidateArtifact = useArtifactRevalidator();
     const { hasPendingNudge, clearPendingNudge } = useArtifactProcessing();
 
     const { pushPanel, closePanel, panelState } = useActivePanelContext();
@@ -270,6 +276,7 @@ export function ChatProvider({
 
     // Create API client with auth
     const api = useMemo(() => createApiClient(getToken), [getToken]);
+    const { data: project } = useFetchProject(chatType === 'phase' ? projectId : undefined);
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
@@ -321,6 +328,7 @@ export function ChatProvider({
     // Forward ref for reconnect handler (loadMessages is defined later)
     const loadMessagesRef = useRef<() => void>(() => {});
     const loadedChatIdRef = useRef<string | null>(null);
+    const streamSubscribeStatusRef = useRef<{ chatId: string; status: StreamSubscribeStatus } | null>(null);
 
     // When ensureChatId creates a chat, the draft moves from the new-chat
     // session key to the created-chat key before route state changes.
@@ -352,6 +360,7 @@ export function ChatProvider({
 
                 skipNextLoad.current = true;
                 migrateDraft(nextChatId);
+                chatIdRef.current = nextChatId;
                 setChatId(nextChatId);
                 setState((prev) => ({ ...prev, phaseIndex: newChat.phaseIndex, phaseName: newChat.name ?? null }));
 
@@ -369,6 +378,7 @@ export function ChatProvider({
 
             skipNextLoad.current = true;
             migrateDraft(nextChatId);
+            chatIdRef.current = nextChatId;
             setChatId(nextChatId);
             onChatCreated?.(nextChatId);
 
@@ -389,42 +399,31 @@ export function ChatProvider({
     // ========================================================================
 
     const revalidateArtifactByKeyAndVersion = useCallback(
-        async (keyId: string, version: number) => {
-            if (projectId) {
-                // TODO void correct?
-                void globalMutate(serializeProjectArtifactListKey(projectId));
-            }
-
-            const fetcher = projectId
-                ? (v: number) => api.projectArtifacts.getByKey(projectId, keyId, v)
-                : (v: number) => api.artifacts.getByKey(keyId, v);
-
-            const slots = artifactContext.getStore()[keyId] ?? {};
-            const stalePrevProposedVersions = Object.entries(slots)
-                .map(([slot, data]) => [Number(slot), data] as const)
-                .filter(([slot, data]) => slot !== version && getLatestArtifactVersion(data)?.status === 'proposed')
-                .map(([slot]) => slot);
-
-            const targets = [...new Set([version, ...stalePrevProposedVersions])];
-
+        async ({ artifactId, artifactKey, version }: { artifactId?: string; artifactKey: string; version: number }) => {
             try {
-                const results = await Promise.all(targets.map((v) => fetcher(v).catch(() => null)));
-
-                for (const data of results) {
-                    if (!data) continue;
-                    artifactContext.updateArtifact(
-                        keyId,
-                        { ...data, id: keyId, key: data.key || keyId },
-                        getLatestArtifactVersion(data)?.version,
-                        { merge: false },
-                    );
-                }
+                await revalidateArtifact({ artifactId, artifactKey, version, projectId });
             } catch {
                 // SWR revalidation will still keep the list up to date
             }
         },
-        [globalMutate, projectId, artifactContext, api.projectArtifacts, api.artifacts],
+        [projectId, revalidateArtifact],
     );
+
+    useEffect(() => {
+        if (panelState?.panel !== 'artifact-preview') {
+            streamMonitor.setViewedArtifact(null);
+            return;
+        }
+        streamMonitor.setViewedArtifact({
+            projectId: projectId ?? null,
+            artifactId: panelState.artifactId,
+            version: panelState.version,
+        });
+    }, [streamMonitor, projectId, panelState]);
+
+    useEffect(() => {
+        return () => streamMonitor.setViewedArtifact(null);
+    }, [streamMonitor]);
 
     const onDocumentStart = useCallback(() => {
         setState((prev) => ({ ...prev, hasPendingChanges: true }));
@@ -466,9 +465,9 @@ export function ChatProvider({
     }, []);
 
     const handleArtifactOpen = useCallback(
-        (artifactId: string, version: number) => {
+        ({ artifactId, artifactKey, version }: { artifactId: string; artifactKey: string; version: number }) => {
             if (state.isSummarizing) return;
-            pushPanel({ panel: 'artifact-preview', artifactId, version }, { reset: true });
+            pushPanel({ panel: 'artifact-preview', artifactId, artifactKey, version }, { reset: true });
         },
         [pushPanel, state.isSummarizing],
     );
@@ -483,8 +482,8 @@ export function ChatProvider({
                     artifactContext.addArtifact(
                         {
                             ...artifact,
-                            id: artifactKey,
-                            key: artifact.key,
+                            id: artifact.id,
+                            key: artifact.key || artifactKey,
                         },
                         version,
                     );
@@ -748,6 +747,13 @@ export function ChatProvider({
         onArtifactOpen: handleArtifactOpen,
         fetchArtifact,
         revalidateArtifact: revalidateArtifactByKeyAndVersion,
+        streamLocation: {
+            chatType,
+            projectId,
+            projectName: project?.name ?? null,
+            phaseName: state.phaseName,
+            phaseIndex: state.phaseIndex,
+        },
         onStreamStarted: handleStreamStarted,
         onTerminalTool,
         onMessageCreated: handleMessageCreated,
@@ -756,23 +762,42 @@ export function ChatProvider({
         // when the initial WS subscribe_response confirms no active stream.
         // Also sync selectedModel from the subscribe response.
         onSubscribeResponse: (
-            status: 'idle' | 'streaming' | 'stale',
+            status: StreamSubscribeStatus,
             selectedModel: string | null,
             completionBriefStatus: string | null,
         ) => {
+            if (chatId) {
+                streamSubscribeStatusRef.current = { chatId, status };
+            }
             if (selectedModel) {
                 setSelectedModel(selectedModel);
             }
             setState((prev) => {
                 const next = { ...prev, completionBriefStatus };
-                if (status === 'idle' && !sendInFlightRef.current && (prev.isGenerating || prev.isSummarizing)) {
+                const hasStreamingMessages = prev.messages.some((message) => message.isStreaming);
+                if (
+                    status === 'idle' &&
+                    !sendInFlightRef.current &&
+                    (prev.isGenerating || prev.isSummarizing || prev.activeResponseId || hasStreamingMessages)
+                ) {
                     summarizeInFlightRef.current = false;
                     next.isGenerating = false;
                     next.isSummarizing = false;
                     next.activeResponseId = null;
+                    if (hasStreamingMessages) {
+                        next.messages = prev.messages.map((message) =>
+                            message.isStreaming ? { ...message, isStreaming: false, status: undefined } : message,
+                        );
+                    }
                 }
                 return next;
             });
+            if (status === 'idle' && chatId) {
+                const cleared = artifactContext.clearStaleStreamingForChat(chatId);
+                for (const { artifactId, artifactKey, version } of cleared) {
+                    void revalidateArtifactByKeyAndVersion({ artifactId, artifactKey, version });
+                }
+            }
         },
         onModelChanged: (model: string) => {
             setSelectedModel(model);
@@ -792,13 +817,9 @@ export function ChatProvider({
         (payload: ArtifactVersionEventPayload): string | null => {
             if (!payload.artifactId) return null;
 
-            for (const [storedKey, versions] of Object.entries(artifactContext.getStore())) {
-                for (const artifact of Object.values(versions)) {
-                    if (artifact.id === payload.artifactId) {
-                        return artifact.key || storedKey;
-                    }
-                }
-            }
+            const versions = artifactContext.getStore()[payload.artifactId];
+            const artifact = versions ? Object.values(versions)[0] : undefined;
+            if (artifact?.key) return artifact.key;
 
             return null;
         },
@@ -819,12 +840,12 @@ export function ChatProvider({
 
             const nextArtifact = {
                 ...artifactFromApi,
-                id: artifactKey,
+                id: artifactFromApi.id,
                 key: artifactKey,
             };
 
-            if (artifactContext.getArtifact(artifactKey, version)) {
-                artifactContext.updateArtifact(artifactKey, nextArtifact, version, { merge: false });
+            if (artifactContext.getArtifact(artifactFromApi.id, version)) {
+                artifactContext.updateArtifact(artifactFromApi.id, nextArtifact, version, { merge: false });
             } else {
                 artifactContext.addArtifact(nextArtifact, version);
             }
@@ -865,9 +886,9 @@ export function ChatProvider({
                 const requestedVersion = typeof eventPayload.version === 'number' ? eventPayload.version : undefined;
 
                 if (eventType === 'artifact_version_update_started') {
-                    if (!artifactKey || requestedVersion === undefined) return;
-                    if (!artifactContext.getArtifact(artifactKey, requestedVersion)) return;
-                    artifactContext.updateArtifact(artifactKey, { isUpdating: true }, requestedVersion);
+                    if (!eventPayload.artifactId || requestedVersion === undefined) return;
+                    if (!artifactContext.getArtifact(eventPayload.artifactId, requestedVersion)) return;
+                    artifactContext.updateArtifact(eventPayload.artifactId, { isUpdating: true }, requestedVersion);
                     return;
                 }
 
@@ -879,8 +900,12 @@ export function ChatProvider({
                     void sync
                         .then((artifact) => upsertSyncedArtifact(artifact, artifactKey, requestedVersion))
                         .catch(() => {
-                            if (requestedVersion !== undefined) {
-                                artifactContext.updateArtifact(artifactKey, { isUpdating: false }, requestedVersion);
+                            if (eventPayload.artifactId && requestedVersion !== undefined) {
+                                artifactContext.updateArtifact(
+                                    eventPayload.artifactId,
+                                    { isUpdating: false },
+                                    requestedVersion,
+                                );
                             }
                         });
                     return;
@@ -909,12 +934,12 @@ export function ChatProvider({
     );
 
     const cleanupTransientArtifacts = useCallback(
-        (docs: Array<{ name: string; pendingVersion: number }>) => {
+        (docs: Array<{ artifactId: string; name: string; pendingVersion: number }>) => {
             if (docs.length === 0) return;
 
-            const transientVersions = new Set(docs.map((d) => `${d.name}:${d.pendingVersion}`));
+            const transientVersions = new Set(docs.map((doc) => `${doc.artifactId}:${doc.pendingVersion}`));
             for (const doc of docs) {
-                artifactContext.removeArtifact(doc.name, doc.pendingVersion);
+                artifactContext.removeArtifact(doc.artifactId, doc.pendingVersion);
             }
 
             const currentPanel = panelStateRef.current;
@@ -1068,9 +1093,16 @@ export function ChatProvider({
                     api.messages.list(targetChatId, { page: 1 }),
                     api.chats.get(targetChatId),
                 ]);
+                if (chatIdRef.current !== targetChatId) return;
+
+                const subscribeStatus = streamSubscribeStatusRef.current;
+                const subscribeConfirmedIdle =
+                    subscribeStatus?.chatId === targetChatId && subscribeStatus.status === 'idle';
+                const activeAgentMessageId = subscribeConfirmedIdle ? null : chatData.activeAgentMessageId;
+
                 // API returns DESC order (newest first), reverse for display (newest at bottom)
                 const apiMessages: Message[] =
-                    messagesData.data?.map((m) => mapApiMessage(m, chatData.activeAgentMessageId)) || [];
+                    messagesData.data?.map((message) => mapApiMessage(message, activeAgentMessageId)) || [];
 
                 // Sync model selection — DB is source of truth for existing chats
                 if (chatData.selectedModel) {
@@ -1082,14 +1114,14 @@ export function ChatProvider({
 
                     // Preserve the active streaming bubble if it hasn't hit the DB yet
                     // so it doesn't blink out of existence during the HTTP load
-                    const streamingMsg = prev.messages.find((m) => m.isStreaming);
+                    const streamingMsg = activeAgentMessageId ? prev.messages.find((m) => m.isStreaming) : undefined;
                     if (streamingMsg && !apiMessagesReversed.some((m) => m.id === streamingMsg.id)) {
                         apiMessagesReversed.push(streamingMsg);
                     }
 
                     // Don't set isGenerating if we already know this is a summary stream
                     // (active_agent_message_id is set for both chat and summary streams in DB)
-                    const hasActiveStream = !!chatData.activeAgentMessageId;
+                    const hasActiveStream = !!activeAgentMessageId;
 
                     const transitionMarker = chatData.metadata?.contextLimitTransition as
                         | { status: string; message?: string }
@@ -1111,7 +1143,7 @@ export function ChatProvider({
                         messages: apiMessagesReversed,
                         isLoading: false,
                         isGenerating: prev.isSummarizing ? false : hasActiveStream,
-                        activeResponseId: prev.isSummarizing ? null : (chatData.activeAgentMessageId ?? null),
+                        activeResponseId: prev.isSummarizing ? null : (activeAgentMessageId ?? null),
                         tokenUsage: chatData.tokenUsage ?? null,
                         totalCost: chatData.totalCost != null ? Number(chatData.totalCost) : null,
                         hasPendingChanges: chatData.hasPendingChanges ?? false,
@@ -1131,6 +1163,7 @@ export function ChatProvider({
                 });
                 loadedChatIdRef.current = targetChatId;
             } catch (error) {
+                if (chatIdRef.current !== targetChatId) return;
                 console.error('Error loading messages:', error);
                 setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
             }
@@ -1149,6 +1182,8 @@ export function ChatProvider({
             if (nextChatId === chatIdRef.current && loadedChatIdRef.current === nextChatId) return;
 
             if (nextChatId !== chatIdRef.current) {
+                streamSubscribeStatusRef.current = null;
+                chatIdRef.current = nextChatId;
                 setChatId(nextChatId);
                 setPagination(createInitialPagination());
                 setState((prev) => ({
@@ -1168,6 +1203,8 @@ export function ChatProvider({
         skipNextLoad.current = false;
         chatCreationPromiseRef.current = null;
         loadedChatIdRef.current = null;
+        streamSubscribeStatusRef.current = null;
+        chatIdRef.current = null;
         setChatId(null);
         setPagination(createInitialPagination());
         setState(createInitialChatState());
