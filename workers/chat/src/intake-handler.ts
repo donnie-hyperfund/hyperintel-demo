@@ -457,7 +457,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                 instructions: systemPrompt,
                 context: allMessages,
                 countReasoningAsContent: true,
-                contentThreshold: 5,
+                contentThreshold: 2, // 5,
             },
             allTools,
             {

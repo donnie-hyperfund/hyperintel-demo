@@ -623,7 +623,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                 instructions: systemPromptForRun,
                 context: allMessages,
                 countReasoningAsContent: true,
-                contentThreshold: 5,
+                contentThreshold: 2, // 5,
             },
             allTools,
             {
