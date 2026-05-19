@@ -38,6 +38,7 @@ import {
     extractViewport,
     findDocumentByName,
     findVersionByStatus,
+    hasPendingDocument,
     listDocuments as listDocumentsDb,
     reserveDraftVersion,
     upsertDocument,
@@ -426,6 +427,18 @@ You MUST call finalize_document when done or content will be lost.`,
                 const is_internal = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
 
                 const normalizedName = normalizeArtifactKey(name);
+
+                // Hard gate: block creating any new document while another is pending approval.
+                // Checked before reserveDraftVersion to avoid creating a phantom artifact entry.
+                // In replace mode, the same document may still be updated (old proposed becomes superseded).
+                if (mode === 'create' || mode === 'replace') {
+                    const excludeForReplace = mode === 'replace' ? normalizedName : undefined;
+                    if (await hasPendingDocument(em, scope, excludeForReplace)) {
+                        return {
+                            error: `A document is already awaiting user approval. You MUST stop — do not create any more documents until the user approves or rejects the pending one. STOP HERE.`,
+                        };
+                    }
+                }
 
                 // Reserve the version slot under a per-key worker lock. Parallel
                 // begin_document calls on the same artifactKey serialize here and end up
