@@ -130,7 +130,7 @@ const SearchKnowledgeParams = z.object({
 
 function collapseKnowledgeSearch(block: ToolCallStreamBlock): { toolOutput?: string } {
     const output = block.toolOutput;
-    if (typeof output !== 'string' || output.length < 1000) return {};
+    if (typeof output !== 'string' || output.length < 1000 || !block.toolSuccess) return {};
 
     const sections = [...output.matchAll(/^##\s+(.+?)\s+\((.+?)\)\n\*\*Relevance:\*\*\s+(.+)$/gm)].map((match) => ({
         title: match[1],
@@ -138,6 +138,7 @@ function collapseKnowledgeSearch(block: ToolCallStreamBlock): { toolOutput?: str
         relevance: match[3],
     }));
     const headingCount = (output.match(/^##\s+/gm) ?? []).length;
+    const resultCount = Math.max(sections.length, headingCount);
 
     const input = block.toolInput as { query?: unknown; limit?: unknown; includeImages?: unknown } | undefined;
     return {
@@ -145,11 +146,11 @@ function collapseKnowledgeSearch(block: ToolCallStreamBlock): { toolOutput?: str
             query: typeof input?.query === 'string' ? input.query : undefined,
             limit: input?.limit,
             includeImages: input?.includeImages,
-            resultCount: Math.max(sections.length, headingCount),
+            resultCount,
             results: sections,
             outputCollapsed: true,
             originalChars: output.length,
-            recallHint: 'Use recall_tool_call with this tool_call_id to retrieve the full search result chunks.',
+            ...(resultCount > 0 && { recallHint: 'Use recall_tool_call to retrieve the full search result chunks.' }),
         }),
     };
 }

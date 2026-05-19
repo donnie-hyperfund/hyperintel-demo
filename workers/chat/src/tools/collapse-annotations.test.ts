@@ -31,27 +31,50 @@ function toolBlock(overrides: Partial<ToolCallStreamBlock>): ToolCallStreamBlock
 }
 
 describe('tool collapse annotations', () => {
-    it('collapses write_document input content to a sentinel', () => {
+    it('collapses write_document input to collapsedContent and injects recallHint on success', () => {
         const tool = getTool(createDocumentTools(), 'write_document');
         const collapsed = collapseWithTool(
             tool,
             toolBlock({
                 toolName: 'write_document',
-                toolInput: { content: 'Large draft body', other: 'kept' },
+                toolInput: { content: 'Large draft body' },
                 toolOutput: JSON.stringify({ status: 'written', charsAdded: 16 }),
             }),
         );
 
         expect(collapsed.toolInput).toEqual({
-            content: '[collapsed]',
-            other: 'kept',
+            collapsedContent: '[__tool_collapsed__]',
+            originalChars: 16,
         });
         expect(JSON.stringify(collapsed.toolInput)).not.toContain('Large draft body');
         expect(JSON.parse(collapsed.toolOutput ?? '')).toEqual({
             status: 'written',
             charsAdded: 16,
+            recallHint: 'Use recall_tool_call to retrieve the original content.',
             toolCallId: 'call-1',
         });
+    });
+
+    it('collapses write_document input but preserves error output on failure', () => {
+        const tool = getTool(createDocumentTools(), 'write_document');
+        const errorOutput = JSON.stringify({ error: 'No active draft. Call begin_document first.' });
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'write_document',
+                toolInput: { content: 'Large draft body' },
+                toolOutput: errorOutput,
+                toolSuccess: false,
+            }),
+        );
+
+        expect(collapsed.toolInput).toEqual({
+            collapsedContent: '[__tool_collapsed__]',
+            originalChars: 16,
+        });
+        const output = JSON.parse(collapsed.toolOutput ?? '');
+        expect(output.error).toBe('No active draft. Call begin_document first.');
+        expect(output.recallHint).toBeUndefined();
     });
 
     it('collapses patch_document edit bodies into deterministic stats', () => {
@@ -99,6 +122,11 @@ describe('tool collapse annotations', () => {
         });
         expect(JSON.stringify(collapsed.toolInput)).not.toContain('old line');
         expect(JSON.stringify(collapsed.toolInput)).not.toContain('replacement');
+        expect(JSON.parse(collapsed.toolOutput ?? '')).toMatchObject({
+            status: 'edited',
+            editsApplied: 2,
+            recallHint: 'Use recall_tool_call to retrieve the original edits.',
+        });
     });
 
     it('collapses read_document output content but keeps document metadata', () => {
@@ -161,6 +189,7 @@ describe('tool collapse annotations', () => {
             includeImages: true,
             resultCount: 2,
             outputCollapsed: true,
+            recallHint: 'Use recall_tool_call to retrieve the full search result chunks.',
             results: [
                 { title: 'Market Report', key: 'market.md', relevance: '0.92' },
                 { title: 'Strategy Memo', key: 'strategy.md', relevance: '0.84' },

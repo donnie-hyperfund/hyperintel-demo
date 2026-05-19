@@ -310,28 +310,56 @@ function textStats(value: unknown): { chars: number; lines: number } {
     return { chars: value.length, lines: countLines(value) };
 }
 
-function collapsePatchDocument(block: ToolCallStreamBlock): { toolInput?: unknown } {
+const COLLAPSED_SENTINEL = '[__tool_collapsed__]';
+const COLLAPSED_SENTINEL_RE = /\[__tool_collapsed__\]/g;
+
+function collapseWriteDocument(block: ToolCallStreamBlock): { toolInput?: unknown; toolOutput?: string } {
+    const input = block.toolInput as { content?: string } | undefined;
+    const collapsedInput = { __collapsedContent: COLLAPSED_SENTINEL, originalChars: input?.content?.length ?? 0 };
+
+    if (!block.toolSuccess) {
+        return { toolInput: collapsedInput };
+    }
+
+    const output = parseToolOutputObject(block);
+    if (output) {
+        output.recallHint = 'Use recall_tool_call to retrieve the original content.';
+        return { toolInput: collapsedInput, toolOutput: JSON.stringify(output) };
+    }
+    return { toolInput: collapsedInput };
+}
+
+function collapsePatchDocument(block: ToolCallStreamBlock): { toolInput?: unknown; toolOutput?: string | undefined } {
     const input = block.toolInput as { edits?: unknown } | undefined;
     const edits = Array.isArray(input?.edits) ? input.edits : [];
 
-    return {
-        toolInput: {
-            editsCount: edits.length,
-            edits: edits.map((rawEdit) => {
-                const edit = rawEdit && typeof rawEdit === 'object' ? (rawEdit as Record<string, unknown>) : {};
-                const oldStats = textStats(edit.oldContent);
-                const newStats = textStats(edit.newContent);
-                return {
-                    startLine: edit.startLine,
-                    ...(edit.endLine != null && { endLine: edit.endLine }),
-                    oldContentLines: oldStats.lines,
-                    oldContentChars: oldStats.chars,
-                    newContentLines: newStats.lines,
-                    newContentChars: newStats.chars,
-                };
-            }),
-        },
+    const collapsedInput = {
+        editsCount: edits.length,
+        edits: edits.map((rawEdit) => {
+            const edit = rawEdit && typeof rawEdit === 'object' ? (rawEdit as Record<string, unknown>) : {};
+            const oldStats = textStats(edit.oldContent);
+            const newStats = textStats(edit.newContent);
+            return {
+                startLine: edit.startLine,
+                ...(edit.endLine != null && { endLine: edit.endLine }),
+                oldContentLines: oldStats.lines,
+                oldContentChars: oldStats.chars,
+                newContentLines: newStats.lines,
+                newContentChars: newStats.chars,
+            };
+        }),
     };
+
+    if (!block.toolSuccess) {
+        return { toolInput: collapsedInput };
+    }
+
+    const output = parseToolOutputObject(block);
+    if (output) {
+        output.recallHint = 'Use recall_tool_call to retrieve the original edits.';
+        return { toolInput: collapsedInput, toolOutput: JSON.stringify(output) };
+    }
+    return { toolInput: collapsedInput };
 }
 
 function collapseReadDocument(block: ToolCallStreamBlock): { toolOutput?: string } {
@@ -550,12 +578,20 @@ You MUST call finalize_document when done or content will be lost.`,
 
 Requires an active draft started with begin_document.
 Content is appended to the active draft. For full rewrites of existing documents, start with begin_document(mode="replace") so the draft is empty before writing.
-Content streams to the UI in real-time.`,
+Content streams to the UI in real-time.
+Past write_document calls may show collapsedContent="[__tool_collapsed__]" — that is a system marker for omitted content, not text to write. Always generate actual document content.`,
             parameters: WriteDocumentParams,
-            collapseFields: ['input.content'],
+            collapseResult: collapseWriteDocument,
             executor: (input: z.infer<typeof WriteDocumentParams>, ctx: DocumentToolsContext) => {
                 const { content } = input;
                 const { draftManager } = ctx;
+
+                if (content.replace(COLLAPSED_SENTINEL_RE, '').trim().length === 0) {
+                    return {
+                        error: '"[__tool_collapsed__]" is a system marker for omitted historical content, not document text. '
+                             + 'Write the actual document content. Use recall_tool_call if you need prior content, or read_document should that fail.',
+                    };
+                }
 
                 try {
                     const draft = draftManager.append(content);
@@ -588,7 +624,8 @@ Content streams to the UI in real-time.`,
 Each edit: startLine anchor + exact oldContent to find + newContent replacement.
 ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '`endLine` is optional; use it only to narrow the search window.' : 'Provide exactly `startLine`, `oldContent`, and `newContent`; the replacement span is inferred from `oldContent`.'}
 IMPORTANT: \`read_document\` shows lines prefixed with \`N: \` (e.g. \`5: some text\`) — that prefix is display-only. Do NOT include it in \`oldContent\`; copy only the line text after \`N: \`.
-Edits are atomic - all succeed or none apply. No need to read_document between patches.`,
+Edits are atomic - all succeed or none apply. No need to read_document between patches.
+"[__tool_collapsed__]" in historical edits is a system marker for omitted content, not text to use in oldContent or newContent.`,
             parameters: PatchDocumentParams,
             collapseResult: collapsePatchDocument,
             executor: (
