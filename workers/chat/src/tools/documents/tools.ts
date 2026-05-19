@@ -35,6 +35,7 @@ import {
     extractViewport,
     findDocumentByName,
     findVersionByStatus,
+    hasPendingDocument,
     listDocuments as listDocumentsDb,
     upsertDocument,
 } from './document-service';
@@ -332,6 +333,17 @@ You MUST call finalize_document when done or content will be lost.`,
 
                 // Check for existing document
                 const existing = await findDocumentByName(em, scope, normalizedName);
+
+                // Hard gate: block creating any new document while another is pending approval.
+                // In replace mode, the same document may still be updated (old proposed becomes superseded).
+                if (mode === 'create' || mode === 'replace') {
+                    const excludeForReplace = mode === 'replace' ? normalizedName : undefined;
+                    if (await hasPendingDocument(em, scope, excludeForReplace)) {
+                        return {
+                            error: `A document is already awaiting user approval. You MUST stop — do not create any more documents until the user approves or rejects the pending one. STOP HERE.`,
+                        };
+                    }
+                }
 
                 // Block editing of read-only (public) artifacts
                 if (existing?.isReadOnly) {
