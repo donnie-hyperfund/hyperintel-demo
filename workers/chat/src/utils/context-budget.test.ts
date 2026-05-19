@@ -94,7 +94,10 @@ describe('preflight shaping matches runner context', () => {
         const shaped = shapeContextForInference({ history, tools, ctx: null });
 
         const collapsedBlock = (shaped[1] as any).blocks[0];
-        expect(collapsedBlock.toolOutput).toBe('Read document "report". Content collapsed.');
+        expect(JSON.parse(collapsedBlock.toolOutput)).toEqual({
+            collapsed: 'Read document "report". Content collapsed.',
+            toolCallId: 'tc_1',
+        });
         expect(collapsedBlock.toolOutput.length).toBeLessThan(largeOutput.length);
     });
 
