@@ -15,19 +15,24 @@
  * - If agent finalizes again before approval → old proposed becomes "superseded"
  */
 
+import { COLLAPSED_FIELD_SENTINEL } from '@common/ai/agent/collapse';
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
+import type { ToolCallStreamBlock } from '@common/ai/agent/types';
 import type { QueueAdapter } from '@common/common/queue.adapter';
 import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
+import type { ILockService } from '@/workers/_common/util/locks';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
 import {
     applyEdits,
+    cleanupOrphanArtifact,
     countLines,
     type DocumentListItem,
     type DocumentScope,
@@ -35,12 +40,14 @@ import {
     extractViewport,
     findDocumentByName,
     findVersionByStatus,
+    hasPendingDocument,
     listDocuments as listDocumentsDb,
+    reserveDraftVersion,
     upsertDocument,
 } from './document-service';
 import { DraftManager } from './draft-manager';
 import { generateInternalSummary } from './pecp-generator';
-import { shouldGeneratePECP } from './pecp-service';
+import { shouldGenerateInternalSummary } from './pecp-service';
 
 // ============================================================================
 // TYPES
@@ -49,6 +56,8 @@ import { shouldGeneratePECP } from './pecp-service';
 export interface DocumentToolsContext {
     /** Entity manager for DB operations */
     em: EntityManager;
+    /** Worker-safe lock service used to serialize artifact key/version reservation. */
+    lockService: ILockService;
     /** Project scope — set for project chats */
     projectId?: string;
     /** User scope — set for user-level chats (intake) */
@@ -66,7 +75,7 @@ export interface DocumentToolsContext {
     /**
      * Push stream events to the active SSE / DO stream (frontend listens via useStream).
      * Set by chat-handler / summarizer when wiring tool execution into a streaming session.
-     * The PECP summary generator pushes `summary_start` / `summary_delta` / `summary_complete` here.
+     * The Internal Summary generator pushes `summary_start` / `summary_delta` / `summary_complete` here.
      */
     pushStreamEvents?: (events: StreamEvent[]) => void;
     /** Optional callback fired when a new artifact version is created (for user-scoped broadcasts) */
@@ -75,6 +84,7 @@ export interface DocumentToolsContext {
         versionId: string;
         version: number;
         action: 'created' | 'proposed';
+        status?: 'proposed' | 'superseded';
         documentType?: string | null;
     }) => void;
 }
@@ -97,21 +107,24 @@ export const DocumentToolGroup: AgentToolGroup = {
     slug: 'document_',
     description: 'Tools for creating, reading, and editing documents with version control.',
     guidance: `## Workflow
-1. \`begin_document\` - Start editing (auto-loads best version to work from)
+1. \`begin_document\` - Start a draft. \`edit\` loads existing content; \`create\` and \`replace\` start empty.
 2. \`write_document\` / \`patch_document\` - Make changes
 3. \`finalize_document\` - Save (MUST call or content is lost)
 
 ## Editing Strategy
 - For existing-document patch edits, use this sequence: \`begin_document(mode="edit")\` → \`read_document\` if you need exact current lines → \`patch_document\` → \`finalize_document\`.
+- For appending content to an existing document, use this sequence: \`begin_document(mode="edit")\` → \`write_document\` with the new content → \`finalize_document\`.
+- For existing-document full rewrites (≥50% of content changing), use this sequence: \`begin_document(mode="replace")\` → \`write_document\` with the full replacement content → \`finalize_document\`.
 - If you authored or patched this document earlier in the same conversation, skip \`read_document\` and patch directly — your own content is authoritative.
 - Never call \`patch_document\` before \`begin_document\`; patches edit only the active draft.
-- \`patch_document\` edits are **atomic and verified** — the tool confirms success. Do NOT re-read a document after patching to check your work.
-- when using \`patch_document\` make sure the fields in your JSON output are properly escaped. JSON does not allow plain newlines for example - the tool call will fail to parse.
+- After \`begin_document(mode="create")\`, call \`write_document\` to add the content.
+- \`patch_document\` edits are atomic and verified. Do not re-read only to confirm a successful patch.
+- For \`patch_document\`, multiline \`oldContent\` and \`newContent\` are allowed. Ensure tool arguments remain valid JSON strings; do not place raw unescaped newlines inside JSON string literals.
 - \`read_document\` output prefixes each line with \`N: \` (e.g. \`5: some text\`) for orientation. This prefix is DISPLAY ONLY — do NOT include it in \`oldContent\` when patching. Copy only the actual line text that comes after \`N: \`.
 ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '- For `patch_document` edits, provide `startLine`, `oldContent`, and `newContent`; `endLine` is optional and only narrows the search window.' : '- For `patch_document` edits, provide exactly `startLine`, `oldContent`, and `newContent`. The replacement span is inferred from `oldContent`.'}
-- Batch independent pending edits into a single \`patch_document\` call. If an edit heavily changes line counts above later edits, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors.
-- If you need to rewrite most of a document (>50% changing), use \`write_document\` to replace the entire content instead of many patches.
-- The pattern \`read → patch → read → patch\` is a wasteful anti-pattern. Read once, patch once (with all edits), finalize.
+- Batch all known edits into a single \`patch_document\` call so original line numbers from your \`read_document\` stay valid for every edit — re-reading between successive \`patch_document\` calls in the same turn is wasted work; combine them instead.
+- For long-document simplification or structural rewrites, use patches that cover whole stable contiguous sections rather than many tiny edits.
+- If you decide to abandon the active draft without saving, call \`finalize_document({ action: "abort" })\`.
 
 ## Document Statuses
 - \`proposed\`: Saved, awaiting user approval
@@ -149,7 +162,7 @@ When the user approves, rejects, or restores a document via the UI (not chat), y
 When a **regular** user message (not a \`<system>\` event) contains approval or rejection signals, you MUST process them BEFORE acting on any other part of the message.
 - **Approval signals:** "approved", "looks good", "accept", "approve it", "LGTM", "ship it", "all good", "proceed" (when a proposed document is pending), or similar positive confirmation.
 - **Rejection signals:** "reject", "redo", "not good", "change X", "needs work", or explicit revision requests for a pending proposed document.
-- **Compound messages:** If the user says something like "approved, now do X" or "looks good, proceed with Y" — FIRST call \`approve_document\` for the pending document, THEN proceed with the rest of the request.
+- **Compound messages:** If the user says something like "approved, now do X" or "looks good, proceed with Y" — FIRST call \`approve_document\` for the pending document, THEN do exactly that one explicit follow-up (X / Y) and stop. Do NOT chain into "what's next".
 - **Ambiguity:** If it's unclear whether the user is approving or just continuing, and there IS a pending proposed document, ask for clarification before proceeding.
 
 ## Conflict Resolution — ALWAYS Ask the User
@@ -172,8 +185,14 @@ Never skip straight to \`read_document\` with a guessed name — always discover
 ## PE Communication Summaries (Auto-Generated)
 When you finalize an internal working document (Genesis DNA, Legacy DNA, Team Specification, MID, PSEB, Action Plan, Completion Brief, Company Profile, Human Persona), the backend automatically generates the PE-facing summary for it. You do NOT call any tools to produce it — it is written to the parent version's \`summary_internal\` field by a separate summary agent during finalize_document. After finalize_document returns, STOP and wait for the user.
 
+**CRITICAL: Do NOT write any PECP-style content in your chat reply.** After finalizing an internal document, your text response must be a single brief confirmation — no structure, no headers, no bullet points. Do NOT:
+- Summarize the document contents in your message
+- Write client-facing narrative, executive summaries, or "what we built / why this matters" style text
+- Echo or paraphrase the document in any form
+The PECP summary is written automatically by a separate agent and displayed in the UI — your chat response is only a confirmation that the document was saved.
+
 ## Proactive Actions (FORBIDDEN)
-**NEVER create documents the user did not explicitly request.** After an approval, rejection, or restore (whether via chat or \`<system>\` event), STOP and wait for the user's next message. Do NOT:
+**NEVER create documents the user did not explicitly request.** After an approval, rejection, or restore, STOP and wait for the user's next message — UNLESS the same chat message also contained an explicit follow-up request (compound case above), in which case do exactly that one follow-up and then stop. \`<system>\` approval/rejection/restore events are NEVER compound — always stop. Do NOT:
 - Automatically start creating "the next logical document"
 - Generate follow-up content without being asked
 - Chain approvals into new document creation
@@ -181,7 +200,7 @@ When you finalize an internal working document (Genesis DNA, Legacy DNA, Team Sp
 - Call any document tools (begin_document, write_document, finalize_document, etc.) unless the user explicitly asks
 - Mention "Phase 2", "next step", or suggest what comes next — let the user drive the workflow
 Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
-    behavioralGuidance: `NEVER re-read a document after patching — patches are atomic and confirmed. If you authored or patched this document earlier in the same conversation, skip read_document and patch directly — your own content is authoritative. Before patching an existing document, call begin_document(mode="edit") so there is an active draft. ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? 'Patch edits may include optional endLine only to narrow the search window.' : 'Patch edits have exactly three fields: startLine, oldContent, and newContent.'} When copying text from read_document into oldContent, strip the leading "N: " line-number prefix — it is display-only and must not appear in oldContent. Batch independent edits into a single patch_document call. When an earlier edit heavily shifts later line numbers, prefer one larger edit covering the affected section, or split only when later edits have stable nearby anchors. If rewriting most of a document, use write_document instead of many patches. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: When you receive a <system> event indicating a RESTORE, the selected content has been saved as a new PROPOSED version awaiting the user's decision — it is NOT live and the action is NOT complete. The system event itself contains the exact ::document[…] directive and instructions inline — follow them verbatim, briefly acknowledge, and ask what the user wants to do. Do NOT manufacture ::document[…] directives on your own outside of this restore flow — they belong in finalize_document/list_documents tool output and in restore system events only. Do NOT preemptively call approve_document or reject_document on your own initiative — the restored proposed version is approved/rejected the same way as any other proposed version: via UI, or by the user signaling it in their next chat message (in which case follow the normal chat-based approval protocol and call approve_document/reject_document). CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request. The PE-facing summary for an internal document is generated automatically by the backend during finalize_document — you do not need to (and must not) create a separate "PECP" document yourself. After approving, rejecting, or restoring a document, STOP and wait for the user's next instruction — do NOT automatically start creating the next document, generate follow-up content, or take any action beyond confirming the action. Only create documents when the user explicitly asks for them. CRITICAL: When a document tool returns an error with multiple concrete recovery paths (name conflict, not found, mode mismatch, etc.), NEVER silently recover or decide on your own. Call request_user_decision with a clear question and the concrete named options, then act on the user's choice.`,
+    behavioralGuidance: `Do not re-read only to confirm a successful patch. If you authored or patched this document earlier in the same conversation, skip read_document and patch directly — your own content is authoritative. Before patching an existing document, call begin_document(mode="edit") so there is an active draft. For rewriting most of an existing document, call begin_document(mode="replace") and then write_document with the full replacement content. After begin_document(mode="create") or begin_document(mode="replace"), call write_document with the document content. ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? 'Patch edits may include optional endLine only to narrow the search window.' : 'Patch edits have exactly three fields: startLine, oldContent, and newContent.'} When copying text from read_document into oldContent, strip the leading "N: " line-number prefix — it is display-only and must not appear in oldContent. Batch all known edits into a single patch_document call so original line numbers from read_document stay valid for every edit — re-reading between successive patch_document calls in the same turn is wasted work; combine them instead. For long-document simplification or structural rewrites, use patches that cover whole stable contiguous sections rather than many tiny edits. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: When you receive a <system> event indicating an artifact was RESTORED, the selected content has been saved as a new PROPOSED version awaiting the user's decision — it is NOT live and the action is NOT complete. The system event itself contains the exact ::document[…] directive and instructions inline — follow them verbatim, briefly acknowledge, and ask what the user wants to do. Do NOT manufacture ::document[…] directives on your own outside of this restore flow — they belong in finalize_document/list_documents tool output and in restore system events only. Do NOT preemptively call approve_document or reject_document — the restored proposed version follows the normal approval flow (UI button or explicit user signal in next chat message). CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request. The PE-facing summary for an internal document is generated automatically by the backend during finalize_document — you do not need to (and must not) create a separate "PECP" document yourself. CRITICAL: After finalize_document for an internal document, your chat reply must be a single brief confirmation — no structure, no headers, no bullet points. Do NOT write PECP-style summaries, client-facing narratives, document recaps, or "what we built / why this matters" content in your chat message — the PECP is generated by a separate agent and displayed in the UI. After approving, rejecting, or restoring a document, STOP and wait for the user's next instruction — UNLESS the same message had an explicit follow-up request (e.g. "approved, now do X"), in which case do exactly X and then stop. Never chain into "what's next" or generate proactive follow-up content. \`<system>\` approval/rejection/restore events are never compound — always stop. CRITICAL: When a document tool returns an error with multiple concrete recovery paths (name conflict, not found, mode mismatch, etc.), NEVER silently recover or decide on your own. Call request_user_decision with a clear question and the concrete named options, then act on the user's choice.`,
     tools: [
         'begin_document',
         'write_document',
@@ -201,9 +220,9 @@ Only create, edit, or finalize documents when the user explicitly asks for them 
 
 const BeginDocumentParams = z.object({
     mode: z
-        .enum(['create', 'edit'])
+        .enum(['create', 'edit', 'replace'])
         .describe(
-            'Operation mode: "create" (new document, fails if exists), "edit" (modify existing, loads best version to edit)',
+            'Operation mode: "create" (new document, fails if exists), "edit" (modify existing content in place), "replace" (rewrite existing document from scratch)',
         ),
     name: z.string().min(1).describe('Document name (e.g., "analysis.md"). Extension auto-appended if missing.'),
     title: z.string().optional().nullable().describe('Display title for the document (required for create).'),
@@ -213,7 +232,7 @@ const BeginDocumentParams = z.object({
 });
 
 const WriteDocumentParams = z.object({
-    content: z.string().describe('Content to append to the current editing draft.'),
+    content: z.string().describe('Content to write to the current editing draft.'),
 });
 
 const PatchDocumentParams = z.object({
@@ -242,7 +261,15 @@ const PatchDocumentParams = z.object({
         .describe('List of edit operations to apply atomically.'),
 });
 
-const FinalizeDocumentParams = z.object({});
+const FinalizeDocumentParams = z.object({
+    action: z
+        .enum(['save', 'abort'])
+        .optional()
+        .default('save')
+        .describe(
+            'Finalize behavior: "save" persists the draft as a proposed version; "abort" discards the active draft without saving.',
+        ),
+});
 
 const ReadDocumentParams = z.object({
     name: z.string().min(1).describe('Document name to read.'),
@@ -275,6 +302,87 @@ const RejectDocumentParams = z.object({
     reason: z.string().min(1).describe('Reason for rejection - feedback for the author on what needs to change.'),
 });
 
+function parseToolOutputObject(block: ToolCallStreamBlock): Record<string, unknown> | null {
+    if (typeof block.toolOutput !== 'string') return null;
+    try {
+        const parsed = JSON.parse(block.toolOutput);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+function textStats(value: unknown): { chars: number; lines: number } {
+    if (typeof value !== 'string') return { chars: 0, lines: 0 };
+    return { chars: value.length, lines: countLines(value) };
+}
+
+function collapseWriteDocument(block: ToolCallStreamBlock): { toolInput?: unknown; toolOutput?: string } {
+    const input = block.toolInput as { content?: string } | undefined;
+    const collapsedInput = { __collapsedContent: COLLAPSED_FIELD_SENTINEL, originalChars: input?.content?.length ?? 0 };
+
+    if (!block.toolSuccess) {
+        return { toolInput: collapsedInput };
+    }
+
+    const output = parseToolOutputObject(block);
+    if (output) {
+        output.recallHint = 'Use recall_tool_call to retrieve the original content.';
+        return { toolInput: collapsedInput, toolOutput: JSON.stringify(output) };
+    }
+    return { toolInput: collapsedInput };
+}
+
+function collapsePatchDocument(block: ToolCallStreamBlock): { toolInput?: unknown; toolOutput?: string | undefined } {
+    const input = block.toolInput as { edits?: unknown } | undefined;
+    const edits = Array.isArray(input?.edits) ? input.edits : [];
+
+    const collapsedInput = {
+        editsCount: edits.length,
+        edits: edits.map((rawEdit) => {
+            const edit = rawEdit && typeof rawEdit === 'object' ? (rawEdit as Record<string, unknown>) : {};
+            const oldStats = textStats(edit.oldContent);
+            const newStats = textStats(edit.newContent);
+            return {
+                startLine: edit.startLine,
+                ...(edit.endLine != null && { endLine: edit.endLine }),
+                oldContentLines: oldStats.lines,
+                oldContentChars: oldStats.chars,
+                newContentLines: newStats.lines,
+                newContentChars: newStats.chars,
+            };
+        }),
+    };
+
+    if (!block.toolSuccess) {
+        return { toolInput: collapsedInput };
+    }
+
+    const output = parseToolOutputObject(block);
+    if (output) {
+        output.recallHint = 'Use recall_tool_call to retrieve the original edits.';
+        return { toolInput: collapsedInput, toolOutput: JSON.stringify(output) };
+    }
+    return { toolInput: collapsedInput };
+}
+
+function collapseReadDocument(block: ToolCallStreamBlock): { toolOutput?: string } {
+    const output = parseToolOutputObject(block);
+    if (!output || !Object.hasOwn(output, 'content')) return {};
+
+    const contentStats = textStats(output.content);
+    const collapsed = { ...output };
+    delete collapsed.content;
+    collapsed.contentCollapsed = true;
+    collapsed.contentLines = contentStats.lines;
+    collapsed.contentChars = contentStats.chars;
+    collapsed.recallHint = 'Use recall_tool_call with this tool_call_id to retrieve the full document content.';
+
+    return { toolOutput: JSON.stringify(collapsed) };
+}
+
 // ============================================================================
 // TOOL FACTORY
 // ============================================================================
@@ -294,6 +402,7 @@ Modes:
   • If proposed version exists → loads it (continue your pending work)
   • If rejected version exists → loads it with rejection reason (revise it)
   • Otherwise → loads approved version (start new changes)
+- "replace": Replace existing document from scratch - starts an empty draft for the next proposed version
 
 Document Type (also controls visibility):
 - Classify the document with the appropriate document_type.
@@ -301,12 +410,15 @@ Document Type (also controls visibility):
 - All other types (Research Report, Executive Summary, Other) are client-visible deliverables.
 - In edit mode, you should generally keep the same document_type as the existing version.
 
-After calling this, use write_document to add content or patch_document for precise edits.
+After calling this:
+- use write_document to add content in create or replace mode
+- use patch_document for precise edits in edit mode
+- use mode="replace" instead of edit+patch when rewriting most of an existing document from scratch
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
                 const { mode, name, title, document_type } = input;
-                const { em, draftManager } = ctx;
+                const { em, draftManager, lockService } = ctx;
                 const scope = getScope(ctx);
                 const scopeId = ctx.projectId ?? ctx.userId!;
 
@@ -315,101 +427,128 @@ You MUST call finalize_document when done or content will be lost.`,
 
                 const normalizedName = normalizeArtifactKey(name);
 
-                // Check for existing document
-                const existing = await findDocumentByName(em, scope, normalizedName);
+                // Hard gate: block creating any new document while another is pending approval.
+                // Checked before reserveDraftVersion to avoid creating a phantom artifact entry.
+                // In replace mode, the same document may still be updated (old proposed becomes superseded).
+                if (mode === 'create' || mode === 'replace') {
+                    const excludeForReplace = mode === 'replace' ? normalizedName : undefined;
+                    if (await hasPendingDocument(em, scope, excludeForReplace)) {
+                        return {
+                            error: `A document is already awaiting user approval. You MUST stop — do not create any more documents until the user approves or rejects the pending one. STOP HERE.`,
+                        };
+                    }
+                }
 
-                // Block editing of read-only (public) artifacts
-                if (existing?.isReadOnly) {
+                // Reserve the version slot under a per-key worker lock. Parallel
+                // begin_document calls on the same artifactKey serialize here and end up
+                // with distinct reservedVersion numbers — without this, two phases racing
+                // on the same name both stream into (scope, key, version=1) and fight
+                // for that entry in the frontend artifact store.
+                const reservation = await reserveDraftVersion({ em, lockService, scope, name: normalizedName, mode });
+
+                if (reservation.kind === 'read-only') {
                     return {
                         error: `Document "${normalizedName}" is a read-only public resource and cannot be edited. You can only read it using read_document.`,
                     };
                 }
 
-                // Validate based on mode
-                // Allow create on deleted artifacts (overwrites / restores them)
-                const isDeleted = existing?.currentStatus === 'deleted';
-                if (mode === 'create' && existing && !isDeleted) {
+                if (reservation.kind === 'collision') {
                     return {
                         error: `Document "${normalizedName}" already exists. Call request_user_decision with options edit_existing ("Edit the existing document") and create_new ("Create with a different name"). Do NOT decide on your own.`,
                     };
                 }
-                if (mode === 'edit' && !existing) {
+
+                if (reservation.kind === 'not-found') {
                     return {
                         error: `Document "${normalizedName}" does not exist. Call request_user_decision with options create ("Create a new document with this name") and pick_existing ("Show existing documents and let me pick"). Do NOT decide on your own.`,
                     };
                 }
 
-                // Handle CREATE mode
+                const { artifactId, existing, reservedVersion, wasDeleted } = reservation;
+
+                // Handle CREATE mode — fresh artifact, or restoring a previously-deleted one.
                 if (mode === 'create') {
                     const docTitle = title || normalizedName;
                     try {
-                        const draft = draftManager.begin(
+                        const draft = draftManager.begin({
+                            artifactId,
                             scopeId,
-                            normalizedName,
-                            docTitle,
-                            mode,
-                            '',
-                            undefined,
+                            name: normalizedName,
+                            title: docTitle,
+                            mode: 'create',
+                            reservedVersion,
                             is_internal,
                             document_type,
-                        );
+                        });
                         return {
-                            status: 'editing',
-                            mode: 'create',
-                            name: normalizedName,
-                            title: draft.title,
-                            is_internal: draft.is_internal,
-                            document_type: draft.document_type,
-                            lines: 0,
-                            ...(isDeleted && { previouslyDeleted: true }),
-                            message: isDeleted
-                                ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
-                                : 'Draft started. Use write_document to add content, then finalize_document.',
+                            result: {
+                                status: 'editing',
+                                artifactId: draft.artifactId,
+                                mode: 'create',
+                                name: normalizedName,
+                                title: draft.title,
+                                is_internal: draft.is_internal,
+                                document_type: draft.document_type,
+                                nextVersion: reservedVersion,
+                                lines: 0,
+                                ...(wasDeleted && { previouslyDeleted: true }),
+                                message: wasDeleted
+                                    ? `Document "${normalizedName}" was previously deleted. Creating fresh content. Finalize to save.`
+                                    : 'Draft started. Use write_document to add content, then finalize_document.',
+                            },
+                            metadata: { internal: draft.is_internal },
                         };
                     } catch (err: any) {
                         return { error: err.message };
                     }
                 }
 
-                // Handle EDIT mode - load best version based on status
-                const docTitle = title || existing!.title;
+                // EDIT / REPLACE mode — reservation guarantees `existing` is set here.
+                if (!existing) {
+                    return { error: 'Internal error: missing artifact data for edit/replace path.' };
+                }
+
+                const docTitle = title || existing.title;
                 let contentToLoad: string;
                 let loadedFrom: string;
                 let loadedVersion: number | null;
                 let existingDocumentType: string | null = null;
                 let rejectionReason: string | null = null;
 
-                if (existing!.proposedVersion !== null && existing!.proposedContent !== null) {
-                    contentToLoad = existing!.proposedContent;
+                if (existing.proposedVersion !== null && existing.proposedContent !== null) {
+                    contentToLoad = existing.proposedContent;
                     loadedFrom = 'proposed';
-                    loadedVersion = existing!.proposedVersion;
-                    existingDocumentType = existing!.proposedDocumentType;
-                } else if (existing!.approvedContent !== null) {
-                    contentToLoad = existing!.approvedContent;
-                    loadedFrom = isDeleted ? 'deleted' : 'approved';
-                    loadedVersion = existing!.approvedVersion;
-                    existingDocumentType = existing!.approvedDocumentType;
-                } else if (existing!.rejectedVersion !== null && existing!.rejectedContent !== null) {
-                    contentToLoad = existing!.rejectedContent;
+                    loadedVersion = existing.proposedVersion;
+                    existingDocumentType = existing.proposedDocumentType;
+                } else if (existing.approvedContent !== null) {
+                    contentToLoad = existing.approvedContent;
+                    loadedFrom = wasDeleted ? 'deleted' : 'approved';
+                    loadedVersion = existing.approvedVersion;
+                    existingDocumentType = existing.approvedDocumentType;
+                } else if (existing.rejectedVersion !== null && existing.rejectedContent !== null) {
+                    contentToLoad = existing.rejectedContent;
                     loadedFrom = 'rejected';
-                    loadedVersion = existing!.rejectedVersion;
-                    existingDocumentType = existing!.rejectedDocumentType;
-                    rejectionReason = existing!.rejectionReason;
+                    loadedVersion = existing.rejectedVersion;
+                    existingDocumentType = existing.rejectedDocumentType;
+                    rejectionReason = existing.rejectionReason;
                 } else {
                     return { error: 'No version available to edit.' };
                 }
 
                 try {
-                    const draft = draftManager.begin(
+                    const draftContent = mode === 'replace' ? '' : contentToLoad;
+                    const draft = draftManager.begin({
+                        artifactId,
                         scopeId,
-                        normalizedName,
-                        docTitle,
+                        name: normalizedName,
+                        title: docTitle,
                         mode,
-                        contentToLoad,
-                        loadedVersion ?? undefined,
+                        reservedVersion,
+                        initialContent: draftContent,
+                        ...(loadedVersion !== null ? { previousVersion: loadedVersion } : {}),
                         is_internal,
                         document_type,
-                    );
+                    });
 
                     const messages: Record<string, string> = {
                         proposed: `Continuing proposed v${loadedVersion}. Make changes, then finalize_document.`,
@@ -417,24 +556,30 @@ You MUST call finalize_document when done or content will be lost.`,
                         approved: `Editing from approved v${loadedVersion}. Make changes, then finalize_document.`,
                         deleted: `Document was deleted (v${loadedVersion}). Loaded deleted content. Finalizing will restore it as a new proposed version.`,
                     };
+                    const replaceMessage = `Replacing ${loadedFrom} v${loadedVersion}. Write the full replacement content, then finalize_document.`;
 
-                    const nextVersion = existing!.latestVersion + 1;
                     return {
-                        status: 'editing',
-                        mode: 'edit',
-                        name: normalizedName,
-                        title: draft.title,
-                        is_internal: draft.is_internal,
-                        document_type: draft.document_type,
-                        ...(existingDocumentType &&
-                            existingDocumentType !== document_type && { previousDocumentType: existingDocumentType }),
-                        loadedFrom,
-                        loadedVersion,
-                        nextVersion,
-                        lines: countLines(draft.content),
-                        message: messages[loadedFrom],
-                        ...(isDeleted && { previouslyDeleted: true }),
-                        ...(rejectionReason && { rejectionReason }),
+                        result: {
+                            status: 'editing',
+                            artifactId: draft.artifactId,
+                            mode,
+                            name: normalizedName,
+                            title: draft.title,
+                            is_internal: draft.is_internal,
+                            document_type: draft.document_type,
+                            ...(existingDocumentType &&
+                                existingDocumentType !== document_type && {
+                                    previousDocumentType: existingDocumentType,
+                                }),
+                            loadedFrom,
+                            loadedVersion,
+                            nextVersion: reservedVersion,
+                            lines: countLines(draft.content),
+                            message: mode === 'replace' ? replaceMessage : messages[loadedFrom],
+                            ...(wasDeleted && { previouslyDeleted: true }),
+                            ...(rejectionReason && { rejectionReason }),
+                        },
+                        metadata: { internal: draft.is_internal },
                     };
                 } catch (err: any) {
                     return { error: err.message };
@@ -443,30 +588,62 @@ You MUST call finalize_document when done or content will be lost.`,
         },
 
         // ----------------------------------------------------------------
-        // write_document - Append to editing draft
+        // write_document - Write to editing draft
         // ----------------------------------------------------------------
         {
             name: 'write_document' as const,
-            description: `Append content to the current editing draft.
+            description: `Write content to the current editing draft.
 
 Requires an active draft started with begin_document.
-Can be called multiple times to add content in chunks.
-Content streams to the UI in real-time.`,
+Content is appended to the active draft. For full rewrites of existing documents, start with begin_document(mode="replace") so the draft is empty before writing.
+Content streams to the UI in real-time.
+Past write_document calls may show __collapsedContent="${COLLAPSED_FIELD_SENTINEL}" — that is a system marker for omitted content, not text to write. Always generate actual document content.`,
             parameters: WriteDocumentParams,
+            collapseResult: collapseWriteDocument,
             executor: (input: z.infer<typeof WriteDocumentParams>, ctx: DocumentToolsContext) => {
-                const { content } = input;
+                const raw = (input ?? {}) as { content?: unknown; __collapsedContent?: unknown };
+                const { content } = raw;
                 const { draftManager } = ctx;
 
+                // Strip stray sentinels so an echoed marker never lands in the saved document.
+                const cleanedContent =
+                    typeof content === 'string' ? content.replaceAll(COLLAPSED_FIELD_SENTINEL, '') : '';
+                const strippedMarker = typeof content === 'string' && content !== cleanedContent;
+
+                // `__collapsedContent` is not a real parameter, and content that is nothing but
+                // the sentinel both mean the model echoed a collapsed historical marker as a live call.
+                const reusedCollapsedMarker =
+                    '__collapsedContent' in raw || (strippedMarker && cleanedContent.trim().length === 0);
+
+                if (reusedCollapsedMarker) {
+                    return {
+                        error:
+                            `"${COLLAPSED_FIELD_SENTINEL}" is a system marker for omitted historical content, not document text, and __collapsedContent is not a real argument.` +
+                            'Write the actual document content in the "content" field. Use recall_tool_call if you need prior content, or read_document should that fail.',
+                    };
+                }
+
+                if (typeof content !== 'string' || cleanedContent.trim().length === 0) {
+                    return { error: 'write_document requires non-empty content in the "content" field.' };
+                }
+
                 try {
-                    const draft = draftManager.append(content);
-                    const addedLines = countLines(content);
+                    const draft = draftManager.append(cleanedContent);
+                    const addedLines = countLines(cleanedContent);
                     const totalLines = countLines(draft.content);
 
                     return {
-                        status: 'written',
-                        charsAdded: content.length,
-                        linesAdded: addedLines,
-                        totalLines,
+                        result: {
+                            status: 'written',
+                            charsAdded: cleanedContent.length,
+                            charsWritten: cleanedContent.length,
+                            linesAdded: addedLines,
+                            totalLines,
+                            ...(strippedMarker && {
+                                note: `Stray "${COLLAPSED_FIELD_SENTINEL}" marker(s) were removed from the content before saving — never include that marker in document content.`,
+                            }),
+                        },
+                        metadata: { internal: draft.is_internal },
                     };
                 } catch (err: any) {
                     return { error: err.message };
@@ -484,8 +661,10 @@ Content streams to the UI in real-time.`,
 Each edit: startLine anchor + exact oldContent to find + newContent replacement.
 ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '`endLine` is optional; use it only to narrow the search window.' : 'Provide exactly `startLine`, `oldContent`, and `newContent`; the replacement span is inferred from `oldContent`.'}
 IMPORTANT: \`read_document\` shows lines prefixed with \`N: \` (e.g. \`5: some text\`) — that prefix is display-only. Do NOT include it in \`oldContent\`; copy only the line text after \`N: \`.
-Edits are atomic - all succeed or none apply. No need to read_document between patches.`,
+Edits are atomic - all succeed or none apply. No need to read_document between patches.
+"${COLLAPSED_FIELD_SENTINEL}" in historical edits is a system marker for omitted content, not text to use in oldContent or newContent.`,
             parameters: PatchDocumentParams,
+            collapseResult: collapsePatchDocument,
             executor: (
                 input: z.infer<typeof PatchDocumentParams>,
                 ctx: DocumentToolsContext,
@@ -500,17 +679,40 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                     return { error: 'patch_document requires at least one edit in the edits array.' };
                 }
 
+                const hasCollapsedEdit = edits.some((edit) => {
+                    const e = edit as { oldContent?: unknown; newContent?: unknown };
+                    return typeof e.oldContent !== 'string' || typeof e.newContent !== 'string';
+                });
+                if (hasCollapsedEdit) {
+                    return {
+                        error:
+                            'patch_document edits must contain real "oldContent" and "newContent" strings. ' +
+                            `A collapsed historical edit (oldContentChars/newContentChars stats, or "${COLLAPSED_FIELD_SENTINEL}") is a system marker, ` +
+                            'not a reusable argument — use recall_tool_call to retrieve the original edits.',
+                    };
+                }
+
+                // oldContent may legitimately contain the sentinel (to patch corruption out of a
+                // document); newContent is written verbatim, so it must never carry the marker.
+                if (edits.some((edit) => edit.newContent.includes(COLLAPSED_FIELD_SENTINEL))) {
+                    return {
+                        error:
+                            `"${COLLAPSED_FIELD_SENTINEL}" is a system marker for omitted historical content, not document text — it must not appear in an edit's newContent. ` +
+                            'Provide the real replacement text. Use recall_tool_call if you need prior content.',
+                    };
+                }
+
                 try {
                     const draft = draftManager.requireCurrent();
 
                     // Convert to EditOperation format
-                    const editOps: EditOperation[] = edits.map((e) => ({
-                        startLine: e.startLine,
+                    const editOps: EditOperation[] = edits.map((edit) => ({
+                        startLine: edit.startLine,
                         endLine: PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE
-                            ? (e as { endLine?: number | null }).endLine
+                            ? (edit as { endLine?: number | null }).endLine
                             : undefined,
-                        oldContent: e.oldContent,
-                        newContent: e.newContent,
+                        oldContent: edit.oldContent,
+                        newContent: edit.newContent,
                     }));
 
                     // Apply edits atomically
@@ -521,7 +723,7 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                     }
 
                     // Update draft with new content
-                    draftManager.setContent(result.newContent!);
+                    const updatedDraft = draftManager.setContent(result.newContent!);
 
                     // Stash canonical edits for document-events (side channel — keeps full-range content out of the model-facing tool result).
                     if (toolCallId && result.appliedEdits) {
@@ -529,9 +731,12 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                     }
 
                     return {
-                        status: 'edited',
-                        editsApplied: edits.length,
-                        linesNow: result.linesNow,
+                        result: {
+                            status: 'edited',
+                            editsApplied: edits.length,
+                            linesNow: result.linesNow,
+                        },
+                        metadata: { internal: updatedDraft.is_internal },
                     };
                 } catch (err: any) {
                     return { error: err.message };
@@ -540,34 +745,59 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
         },
 
         // ----------------------------------------------------------------
-        // finalize_document - Save as proposed version
+        // finalize_document - Save as proposed version or abort draft
         // ----------------------------------------------------------------
         {
             name: 'finalize_document' as const,
-            description: `Save the current editing draft as a proposed version.
+            description: `Finish the current editing draft.
 
 You MUST call this after begin_document or the content will be lost.
-The version is saved with status "proposed" - it will NOT be live until a user approves it.
-If a proposed version already exists, it will be marked as "superseded".`,
+Use action="save" to persist the draft as a proposed version.
+The saved version will NOT be live until a user approves it.
+If a proposed version already exists, it will be marked as "superseded".
+Use action="abort" to discard the active draft without saving.`,
             parameters: FinalizeDocumentParams,
-            executor: async (_input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
-                const { em, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
+            executor: async (input: z.infer<typeof FinalizeDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
+                const { em, lockService, chatId, draftManager, embeddingQueue, createdVersionIds } = ctx;
                 const scope = getScope(ctx);
 
                 try {
                     const draft = draftManager.requireCurrent();
+                    const action = input?.action ?? 'save';
+
+                    if (action === 'abort') {
+                        const discardedLines = countLines(draft.content);
+                        // Remove the empty ArtifactEntity that reserveDraftVersion created
+                        // for a brand-new key, so list_documents doesn't show a phantom row.
+                        // No-op when other versions already exist (edit/replace abort path).
+                        await cleanupOrphanArtifact({ em, lockService, scope, name: draft.name });
+                        draftManager.discard();
+                        return {
+                            result: {
+                                action: 'aborted',
+                                artifactId: draft.artifactId,
+                                name: draft.name,
+                                lines: discardedLines,
+                                status: 'aborted',
+                            },
+                            metadata: { internal: draft.is_internal },
+                            message: `Aborted draft "${draft.name}" without saving.`,
+                        };
+                    }
 
                     // Persist to database as proposed
-                    const result = await upsertDocument(
+                    const result = await upsertDocument({
                         em,
+                        lockService,
                         scope,
                         chatId,
-                        draft.name,
-                        draft.title,
-                        draft.content,
-                        draft.is_internal,
-                        draft.document_type,
-                    );
+                        name: draft.name,
+                        title: draft.title,
+                        content: draft.content,
+                        is_internal: draft.is_internal,
+                        document_type: draft.document_type,
+                        reservedVersion: draft.reservedVersion,
+                    });
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
@@ -578,13 +808,14 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         versionId: result.versionId,
                         version: result.version,
                         action: result.action,
+                        status: result.status,
                         documentType: draft.document_type,
                     });
 
                     draftManager.discard();
 
                     // ── Completion Brief tracking ────────────────────────────
-                    if (draft.document_type === 'Completion Brief') {
+                    if (result.status === 'proposed' && draft.document_type === 'Completion Brief') {
                         const chatEntity = await em.findOne(ChatEntity, { id: chatId });
                         if (chatEntity) {
                             chatEntity.completion_brief = em.getReference('ArtifactEntity', result.artifactId) as any;
@@ -594,7 +825,7 @@ If a proposed version already exists, it will be marked as "superseded".`,
                     }
 
                     // ── Embedding (fire-and-forget, non-blocking) ────────
-                    if (embeddingQueue && (ctx.projectId || ctx.chatId)) {
+                    if (result.status === 'proposed' && embeddingQueue && (ctx.projectId || ctx.chatId)) {
                         const embedPromise = embeddingQueue
                             .send({
                                 type: 'index_artifact_version',
@@ -612,14 +843,16 @@ If a proposed version already exists, it will be marked as "superseded".`,
 
                     const toolResult: Record<string, unknown> = {
                         action: result.action,
+                        artifactId: result.artifactId,
                         name: draft.name,
                         version: result.version,
-                        status: 'proposed',
+                        status: result.status,
                         lines: result.lines,
                     };
 
                     const response: Record<string, unknown> = {
                         result: toolResult,
+                        metadata: { internal: draft.is_internal },
                         appendedOutput: `::document[${draft.name}]{version=${result.version} lines=${result.lines} documentType="${draft.document_type}"}`,
                         message: `Saved as proposed v${result.version}. Awaiting user approval to become live. STOP HERE — do not create any more documents until the user asks.`,
                     };
@@ -630,25 +863,38 @@ If a proposed version already exists, it will be marked as "superseded".`,
                         response.message = `Saved as proposed v${result.version}. Previous proposed v${result.supersededVersion} was superseded. STOP HERE — do not create any more documents until the user asks.`;
                     }
 
-                    // ── Internal-document summary (auto-generated PECP) ──────────
+                    if (result.supersededByVersion) {
+                        toolResult.supersededByVersion = result.supersededByVersion;
+                        response.supersededByVersion = result.supersededByVersion;
+                        response.message = `Saved as superseded v${result.version} because newer proposed v${result.supersededByVersion} already exists. STOP HERE — do not create any more documents until the user asks.`;
+                    }
+
+                    // ── Internal Summary (auto-generated drawer brief) ──────────
                     // Run a separate inference call against the just-finalized parent
                     // version. The generator streams summary_* events to the SSE
                     // pipeline and writes the final text into version.summary_internal.
                     // Awaited synchronously: the agent's own response is held until
                     // the summary completes, which keeps the SSE stream alive and
-                    // the frontend's PECP UX in lockstep with the parent doc.
-                    if (rCtx && shouldGeneratePECP(draft.document_type) && draft.is_internal) {
+                    // the frontend drawer in lockstep with the parent doc.
+                    if (
+                        result.status === 'proposed' &&
+                        rCtx &&
+                        shouldGenerateInternalSummary(draft.document_type) &&
+                        draft.is_internal
+                    ) {
                         toolResult.summaryPending = true;
                         try {
                             await generateInternalSummary({
                                 rCtx,
                                 em,
                                 versionId: result.versionId,
+                                artifactId: result.artifactId,
                                 version: result.version,
                                 documentName: draft.name,
                                 documentType: draft.document_type,
                                 content: draft.content,
                                 pushStreamEvents: ctx.pushStreamEvents,
+                                hadPriorSummary: Boolean(result.supersededSummaryInternal),
                             });
                         } catch (err) {
                             console.error('[finalize_document] summary generator failed:', err);
@@ -684,6 +930,7 @@ Version options:
 
 Embedded images are included by default. Pass skipImages: true for text-only output.`,
             parameters: ReadDocumentParams,
+            collapseResult: collapseReadDocument,
             executor: async (input: z.infer<typeof ReadDocumentParams>, ctx: DocumentToolsContext, rCtx?: Ctx) => {
                 const { name, version: versionMode, startLine, endLine, skipImages } = input;
                 const { em, draftManager } = ctx;
@@ -696,12 +943,15 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                 if (draft && draft.name === normalizedName) {
                     const viewport = extractViewport(draft.content, startLine ?? undefined, endLine ?? undefined);
                     return {
-                        source: 'editing_draft',
-                        name: normalizedName,
-                        totalLines: viewport.totalLines,
-                        viewport: { startLine: viewport.startLine, endLine: viewport.endLine },
-                        content: viewport.content,
-                        message: 'Reading from your current editing session (not yet saved).',
+                        result: {
+                            source: 'editing_draft',
+                            name: normalizedName,
+                            totalLines: viewport.totalLines,
+                            viewport: { startLine: viewport.startLine, endLine: viewport.endLine },
+                            content: viewport.content,
+                            message: 'Reading from your current editing session (not yet saved).',
+                        },
+                        metadata: { internal: draft.is_internal },
                     };
                 }
 
@@ -717,12 +967,14 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                 let content: string | null = null;
                 let source: string;
                 let version: number | null = null;
+                let isInternal = true;
 
                 switch (versionMode) {
                     case 'approved':
                         content = doc.approvedContent;
                         version = doc.approvedVersion;
                         source = 'approved';
+                        isInternal = doc.approvedIsInternal ?? true;
                         if (!content) {
                             return {
                                 error: `No approved version exists for "${normalizedName}". Document may be pending first approval.`,
@@ -736,6 +988,7 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                         content = doc.proposedContent;
                         version = doc.proposedVersion;
                         source = 'proposed';
+                        isInternal = doc.proposedIsInternal ?? true;
                         if (!content) {
                             return {
                                 error: `No proposed version exists for "${normalizedName}".`,
@@ -752,14 +1005,17 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                             content = doc.proposedContent;
                             version = doc.proposedVersion;
                             source = 'proposed';
+                            isInternal = doc.proposedIsInternal ?? true;
                         } else if (doc.approvedContent !== null) {
                             content = doc.approvedContent;
                             version = doc.approvedVersion;
                             source = 'approved';
+                            isInternal = doc.approvedIsInternal ?? true;
                         } else if (doc.rejectedContent !== null) {
                             content = doc.rejectedContent;
                             version = doc.rejectedVersion;
                             source = 'rejected';
+                            isInternal = doc.rejectedIsInternal ?? true;
                         } else {
                             return { error: `No content available for "${normalizedName}".` };
                         }
@@ -776,7 +1032,7 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                         ? doc.proposedDocumentType
                         : source === 'rejected'
                           ? doc.rejectedDocumentType
-                          : (doc.currentDocumentType ?? 'Other');
+                          : (doc.approvedDocumentType ?? 'Other');
 
                 const response: Record<string, unknown> = {
                     source,
@@ -809,13 +1065,14 @@ Embedded images are included by default. Pass skipImages: true for text-only out
                     if (hydrated) {
                         return {
                             result: response,
+                            metadata: { internal: isInternal },
                             imageRefs: hydrated.imageRefs,
                             contentParts: hydrated.contentParts,
                         };
                     }
                 }
 
-                return response;
+                return { result: response, metadata: { internal: isInternal } };
             },
         },
 

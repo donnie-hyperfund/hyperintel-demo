@@ -71,7 +71,8 @@ const AutoExpandingTextarea = forwardRef<AutoExpandingTextareaRef, AutoExpanding
             <textarea
                 ref={textareaRef}
                 className={cn('resize-none overflow-y-auto', className)}
-                style={{ minHeight: `${minHeight}px` }}
+                // Inline height matches minHeight so SSR + first paint don't render at the browser's default rows-based height (~40px for 2 rows) before useLayoutEffect adjusts — avoids a layout shift in the form area on cold load.
+                style={{ minHeight: `${minHeight}px`, height: `${minHeight}px` }}
                 onInput={handleInput}
                 value={value}
                 {...props}

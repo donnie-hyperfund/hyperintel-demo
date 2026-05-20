@@ -5,9 +5,27 @@
  * version-loading logic.
  */
 
-import { type FilterQuery } from '@mikro-orm/core';
+import { type FilterQuery, raw } from '@mikro-orm/core';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/artifacts/artifact-version.entity';
+
+/**
+ * Predicate that excludes ArtifactEntity rows with no persisted ArtifactVersion children.
+ *
+ * `reserveDraftVersion` inserts an ArtifactEntity at begin_document and only writes the
+ * matching ArtifactVersion row at finalize_document. If finalize never runs (agent
+ * abort, worker crash) the parent row lingers with `current_version = null` and zero
+ * versions until the scheduled-cleanup sweeper removes it. Every user-facing read
+ * needs to hide those rows so the UI never shows phantom "no content" documents.
+ *
+ * Pass the alias used for ArtifactEntity in the calling query — required because
+ * MikroORM's `raw()` does not know the alias context.
+ */
+export function whereArtifactHasVersions(alias: string): Record<string, unknown> {
+    return {
+        [raw(`EXISTS (SELECT 1 FROM artifact_versions av WHERE av.artifact_id = ${alias}.id)`)]: [],
+    };
+}
 
 /**
  * Batch-load one version per artifact, filtered by optional status.

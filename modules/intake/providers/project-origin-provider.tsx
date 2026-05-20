@@ -2,12 +2,13 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, type ReactNode, Suspense, useCallback, useContext, useMemo, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { importArtifacts } from '@/lib/api/requests/worker/projects';
 import { buildProjectReturnHref, type ProjectOrigin } from '@/lib/intake/project-origin';
 import { ImportResultSchema } from '@/lib/schema/project';
+import { OriginRouteSync } from './origin-route-sync';
 
 type ProjectOriginContextValue = {
     origin: ProjectOrigin | null;
@@ -20,7 +21,8 @@ type ProjectOriginContextValue = {
 };
 
 type ProjectOriginProviderProps = {
-    origin: ProjectOrigin | null;
+    /** When provided, the provider uses this origin directly. When omitted, origin is parsed from URL search params. */
+    origin?: ProjectOrigin | null;
     resourceType: 'company' | 'stakeholder';
     children: ReactNode;
 };
@@ -42,7 +44,11 @@ const resourceLabels = {
     stakeholder: 'Stakeholder profile',
 } as const;
 
-export function ProjectOriginProvider({ origin, resourceType, children }: ProjectOriginProviderProps) {
+export function ProjectOriginProvider({ origin: originProp, resourceType, children }: ProjectOriginProviderProps) {
+    const isRouteSynced = originProp === undefined;
+    const [routeOrigin, setRouteOrigin] = useState<ProjectOrigin | null>(null);
+    const origin = isRouteSynced ? routeOrigin : originProp;
+
     const { getToken } = useAuth();
     const router = useRouter();
     const [isLinking, setIsLinking] = useState(false);
@@ -122,7 +128,16 @@ export function ProjectOriginProvider({ origin, resourceType, children }: Projec
         [backHref, handleApprovedArtifact, isLinking, origin, project?.name, resourceLabel],
     );
 
-    return <ProjectOriginContext.Provider value={value}>{children}</ProjectOriginContext.Provider>;
+    return (
+        <ProjectOriginContext.Provider value={value}>
+            {isRouteSynced && (
+                <Suspense fallback={null}>
+                    <OriginRouteSync onChange={setRouteOrigin} />
+                </Suspense>
+            )}
+            {children}
+        </ProjectOriginContext.Provider>
+    );
 }
 
 export function useOptionalProjectOrigin(): ProjectOriginContextValue {

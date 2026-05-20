@@ -43,7 +43,7 @@ export async function register() {
         });
 
         // Strip cwd, normalize to forward slashes, and prefix with ./ so IDEs auto-link file:line:col
-        const cwd = process.cwd().replaceAll('\\', '/') + '/';
+        const cwd = `${process.cwd().replaceAll('\\', '/')}/`;
         const smsPrepare = Error.prepareStackTrace!;
         Error.prepareStackTrace = (err, stack) => {
             const result = smsPrepare(err, stack);

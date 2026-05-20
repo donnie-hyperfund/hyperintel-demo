@@ -3,12 +3,12 @@
 import { useAuth } from '@clerk/nextjs';
 import { cva } from 'class-variance-authority';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createArtifactApi } from '@/lib/api/client/fetchers/artifacts';
 import { createProjectArtifactApi } from '@/lib/api/client/fetchers/project-artifacts';
 import { cn } from '@/lib/utils';
 import { DEFAULT_DOCUMENT_TYPE_ICON } from '@/modules/artifacts/constants';
-import { useArtifact, useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { getDocumentTypeIcon, isDocumentType } from '@/modules/artifacts/utils';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -47,33 +47,25 @@ export function ArtifactIndicator({
 }: ArtifactIndicatorProps) {
     const { getToken } = useAuth();
 
-    const { panelState, openPanel, closePanel } = useActivePanelContext();
-    const { addArtifact, updateArtifact } = useArtifactActions();
+    const { panelState, pushPanel, closePanel } = useActivePanelContext();
+    const { addArtifact } = useArtifactActions();
     const { projectId } = useChatContext();
     const { target: scrollTarget, markFound, clear: clearScrollTarget } = useScrollTargetContext();
     const Icon = isDocumentType(documentType) ? getDocumentTypeIcon(documentType) : DEFAULT_DOCUMENT_TYPE_ICON;
 
     const buttonRef = useRef<HTMLButtonElement>(null);
-
-    const artifact = useArtifact(documentName, documentVersion);
-    const isLoading = artifact?.isLoading ?? false;
+    const [isLoading, setIsLoading] = useState(false);
 
     const isScrollTarget =
         !isReference && scrollTarget?.key === documentName && scrollTarget.version === documentVersion;
 
     const isSelected =
         panelState?.panel === 'artifact-preview' &&
-        panelState.artifactId === documentName &&
+        panelState.artifactKey === documentName &&
         panelState.version === documentVersion;
 
     const openArtifactPreview = useCallback(async () => {
-        if (artifact) {
-            openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
-            return;
-        }
-
-        addArtifact({ id: documentName, key: documentName, isLoading: true }, documentVersion);
-        openPanel({ panel: 'artifact-preview', artifactId: documentName, version: documentVersion });
+        setIsLoading(true);
 
         try {
             const fetchedArtifact = projectId
@@ -81,32 +73,38 @@ export function ArtifactIndicator({
                 : await createArtifactApi(getToken).getByKey(documentName, documentVersion);
 
             if (fetchedArtifact) {
-                updateArtifact(
-                    documentName,
+                addArtifact(
                     {
+                        ...fetchedArtifact,
+                        id: fetchedArtifact.id,
                         key: fetchedArtifact.key,
-                        currentVersion: fetchedArtifact.currentVersion ?? undefined,
-                        proposedVersion: fetchedArtifact.proposedVersion ?? undefined,
-                        updatedAt: fetchedArtifact.updatedAt,
                         isLoading: false,
                     },
                     documentVersion,
                 );
-            } else {
-                updateArtifact(documentName, { isLoading: false }, documentVersion);
+                pushPanel(
+                    {
+                        panel: 'artifact-preview',
+                        artifactId: fetchedArtifact.id,
+                        artifactKey: fetchedArtifact.key,
+                        version: documentVersion,
+                    },
+                    { reset: true },
+                );
             }
         } catch (error) {
             console.error('Failed to fetch artifact:', error);
-            updateArtifact(documentName, { isLoading: false }, documentVersion);
+        } finally {
+            setIsLoading(false);
         }
-    }, [documentName, documentVersion, artifact, getToken, addArtifact, updateArtifact, openPanel, projectId]);
+    }, [documentName, documentVersion, getToken, addArtifact, pushPanel, projectId]);
 
     const handleClick = () => {
         if (isSelected) {
             closePanel();
             return;
         }
-        openArtifactPreview();
+        void openArtifactPreview();
     };
 
     useEffect(() => {
@@ -119,7 +117,7 @@ export function ArtifactIndicator({
         let raf1: number | undefined;
         let raf2: number | undefined;
 
-        openArtifactPreview();
+        void openArtifactPreview();
 
         // Double-rAF waits for React commit + browser paint,
         //    so the ResizablePanelGroup layout has settled before we scroll

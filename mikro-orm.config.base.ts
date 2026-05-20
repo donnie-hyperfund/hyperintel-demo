@@ -10,6 +10,7 @@ class CustomUnderscoreNamingStrategy extends UnderscoreNamingStrategy {
         type: 'primary' | 'foreign' | 'unique' | 'index' | 'sequence' | 'check',
     ): string {
         if (tableName.includes('.')) {
+            // biome-ignore lint/style/noParameterAssign: ok
             tableName = tableName.substring(tableName.indexOf('.') + 1);
         }
         if (type === 'foreign') {

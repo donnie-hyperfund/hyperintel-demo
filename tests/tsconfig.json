@@ -2,8 +2,26 @@
     "extends": "../tsconfig.json",
     "compilerOptions": {
         "noEmit": true,
+        "noImplicitAny": false,
         "types": ["vitest/globals", "@cloudflare/workers-types/2023-07-01"]
     },
-    "include": ["./**/*.ts", "../workers/chat/worker-configuration.d.ts"],
-    "exclude": []
+    "include": [
+        "../cf-types-fallback.d.ts",
+        "../worker-env-types.d.ts",
+        "./**/*.ts",
+        "../**/*.test.ts",
+        "../**/*.test.tsx"
+    ],
+    "exclude": [
+        "../node_modules",
+        "../.next",
+        "../tools",
+        "../workers",
+        "../.claude/worktrees",
+        "../.claude/worktrees/**",
+        "../.codex/worktrees",
+        "../.codex/worktrees/**",
+        "../.codex/**/worktrees",
+        "../.codex/**/worktrees/**"
+    ]
 }

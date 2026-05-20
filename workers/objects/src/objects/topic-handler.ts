@@ -13,6 +13,7 @@ export type SubscribeResponse =
           status: 'streaming';
           agentMessageId: string;
           snapshot: unknown;
+          seqHigh?: number;
           streamType?: 'chat' | 'summary';
           selectedModel?: string | null;
           completionBriefStatus?: string | null;
@@ -29,16 +30,16 @@ export type ActionResult = {
 
 export interface TopicHandler {
     /** Check if a user is allowed to subscribe to a given identifier (part after prefix) */
-    canSubscribe(userId: string, identifier: string, env: Env): Promise<boolean>;
+    canSubscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<boolean>;
 
     /** Subscribe a user to a topic — returns snapshot or idle status */
-    subscribe(userId: string, identifier: string, env: Env): Promise<SubscribeResponse>;
+    subscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<SubscribeResponse>;
 
     /** Unsubscribe a user from a topic */
     unsubscribe(userId: string, identifier: string): void;
 
     /** Handle a domain-specific action. UG broadcasts result.broadcast if set. */
-    handleAction(userId: string, action: string, payload: unknown, env: Env): Promise<ActionResult | void>;
+    handleAction(userId: string, action: string, payload: unknown, env: ObjectsEnv): Promise<ActionResult | void>;
 
     /** Called when a socket closes. Handler can track connected-ness but should NOT unsubscribe. */
     onSocketClose?(userId: string, identifier: string): void;

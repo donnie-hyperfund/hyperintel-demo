@@ -16,7 +16,7 @@ import { useScrollTargetContext } from '@/modules/chat/providers/scroll-target-p
 import ChatPanel from './chat-panel';
 
 export default function PhaseChatInterface() {
-    const { panelState, closePanel } = useActivePanelContext();
+    const { panelState, closePanel, popPanel } = useActivePanelContext();
     const { chatId, projectId } = useChatContext();
     const { activeEntries, checkProjectEntry } = useArtifactProcessing();
     const { scrollTo } = useScrollTargetContext();
@@ -74,16 +74,22 @@ export default function PhaseChatInterface() {
                 <>
                     {panelState?.panel === 'artifact-preview' && (
                         <ArtifactPreviewPanel
-                            onClose={closePanel}
+                            onClose={popPanel}
                             version={panelState.version}
                             artifactId={panelState.artifactId}
+                            artifactKey={panelState.artifactKey}
                         />
                     )}
                     {panelState?.panel === 'file-preview' && (
                         <FilePreviewPanel
-                            onClose={closePanel}
-                            artifactId={panelState.artifactId}
-                            version={panelState.version}
+                            onClose={popPanel}
+                            {...('artifactId' in panelState
+                                ? { artifactId: panelState.artifactId }
+                                : {
+                                      fileUrl: panelState.fileUrl,
+                                      fileName: panelState.fileName,
+                                      mimeType: panelState.mimeType,
+                                  })}
                         />
                     )}
                     {activePanel === 'artifacts' && <ProjectArtifactsPanel onClose={closePanel} />}

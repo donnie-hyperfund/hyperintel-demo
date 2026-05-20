@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/auth-guard';
-import { IS_DEV } from '@/lib/config';
 import { handleGetMessage, handleSetMessageFeedback } from '@/lib/chats/handlers';
+import { IS_DEV } from '@/lib/config';
+import { SetMessageFeedbackBodySchema } from '@/lib/schema/message';
 
 export async function GET(
     req: NextRequest,
@@ -21,7 +22,13 @@ export async function PATCH(
 
     return withAuth(async (_request, user) => {
         const { chatId, messageId } = await params;
-        const body = await req.json();
-        return handleSetMessageFeedback(chatId, messageId, user, body);
+        const parsed = SetMessageFeedbackBodySchema.safeParse(await req.json());
+        if (!parsed.success) {
+            return NextResponse.json(
+                { error: 'Invalid request body', details: parsed.error.flatten() },
+                { status: 400 },
+            );
+        }
+        return handleSetMessageFeedback(chatId, messageId, user, parsed.data);
     })(req);
 }

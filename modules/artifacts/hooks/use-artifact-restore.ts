@@ -30,7 +30,7 @@ export function useArtifactRestore({ artifactKey, artifactId }: UseArtifactResto
     const { chatId, setProcessingArtifactAction, state: chatState } = chatContext;
     const projectId = chatContext.chatType === 'phase' ? chatContext.projectId : undefined;
     const { addArtifact } = useArtifactActions();
-    const { openPanel } = useActivePanelContext();
+    const { pushPanel } = useActivePanelContext();
     const { startProcessing, failProcessing, isAnyActionProcessing } = useArtifactProcessing();
     const { data: project } = useFetchProject(projectId);
     const { data: chat } = useFetchChat(projectId, chatId ?? undefined);
@@ -72,14 +72,22 @@ export function useArtifactRestore({ artifactKey, artifactId }: UseArtifactResto
                 addArtifact(
                     {
                         ...updatedArtifact,
-                        id: artifactKey,
+                        id: updatedArtifact.id,
                         isLoading: false,
                         isStreaming: false,
                         isUpdating: false,
                     },
                     restoredVersion,
                 );
-                openPanel({ panel: 'artifact-preview', artifactId: artifactKey, version: restoredVersion });
+                pushPanel(
+                    {
+                        panel: 'artifact-preview',
+                        artifactId: updatedArtifact.id,
+                        artifactKey: updatedArtifact.key || artifactKey,
+                        version: restoredVersion,
+                    },
+                    { reset: true },
+                );
 
                 toast({
                     title: `Restored v${opts.sourceVersionNumber} as proposed v${restoredVersion} — awaiting approval`,
@@ -117,7 +125,7 @@ export function useArtifactRestore({ artifactKey, artifactId }: UseArtifactResto
             chatId,
             restoreVersion,
             addArtifact,
-            openPanel,
+            pushPanel,
         ],
     );
 

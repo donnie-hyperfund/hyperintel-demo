@@ -1,7 +1,6 @@
 import { Analytics } from '@vercel/analytics/next';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
-import type React from 'react';
 import 'katex/dist/katex.min.css';
 import './globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
@@ -12,19 +11,19 @@ import { Toaster } from '@/components/ui/toaster';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-    title: 'HYPERINTEL™',
-    description: 'Dual-panel AI chatbot comparison interface',
-    generator: 'v0.app',
+    title: {
+        default: 'HYPERINTEL™',
+        template: '%s | HYPERINTEL™',
+    },
+    description: 'AI-powered strategic intelligence platform',
     icons: {
         icon: '/favicon.ico',
     },
 };
 
-export default function RootLayout({
-    children,
-}: Readonly<{
-    children: React.ReactNode;
-}>) {
+type RootLayoutProps = LayoutProps<'/'>;
+
+export default function RootLayout({ children }: RootLayoutProps) {
     return (
         <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up" afterSignOutUrl="/sign-in">
             <html lang="en" className="dark">

@@ -5,6 +5,10 @@ secrets:
   - DATABASE_URL
   - CLERK_SECRET_KEY
 
+analytics_engine_datasets:
+  - binding: STREAM_AE
+    dataset: hyperintel_stream_metrics
+
 durable_objects:
   - name: USER_GATEWAY
     class_name: UserGateway
@@ -15,6 +19,9 @@ durable_objects:
   - name: GENERATION_PROXY
     class_name: GenerationProxyDO
     local: true
+  - name: LOCKS_SERVICE
+    class_name: LocksService
+    local: true
 
 migrations:
   - tag: v1_initial
@@ -24,3 +31,6 @@ migrations:
   - tag: v2_generation_proxy
     new_sqlite_classes:
       - GenerationProxyDO
+  - tag: v3_locks_service
+    new_sqlite_classes:
+      - LocksService

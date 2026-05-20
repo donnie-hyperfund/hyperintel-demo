@@ -268,7 +268,7 @@ export const UploadArtifactSchema = zfd.formData({
 export type UploadArtifactDto = z4.infer<typeof UploadArtifactSchema>;
 
 export const UploadArtifactResponseSchema = z.object({
-    success: z.boolean(),
+    success: z.literal(true),
     action: z.enum(['created', 'new_version']),
     artifactId: z.string().uuid(),
     versionId: z.string().uuid(),
@@ -308,7 +308,7 @@ export const ConfirmUploadSchema = z.object({
 export type ConfirmUploadDto = z.infer<typeof ConfirmUploadSchema>;
 
 export const ConfirmUploadResponseSchema = z.object({
-    success: z.boolean(),
+    success: z.literal(true),
     action: z.enum(['created', 'new_version']),
     artifactId: z.string().uuid(),
     versionId: z.string().uuid(),
@@ -317,6 +317,11 @@ export const ConfirmUploadResponseSchema = z.object({
     supersededVersion: z.number().int().positive().optional(),
 });
 export type ConfirmUploadResponseDto = z.infer<typeof ConfirmUploadResponseSchema>;
+
+export const ArtifactFileUrlResponseSchema = z.object({
+    url: z.string().url(),
+});
+export type ArtifactFileUrlResponseDto = z.infer<typeof ArtifactFileUrlResponseSchema>;
 
 export const AssociateUploadsSchema = z
     .object({

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import createNeonSql from '@/workers/_common/vendor/neon';
-import type { StreamEvent, StreamSnapshot } from './chat-stream-do';
+import type { StreamEvent, StreamSubscribeResult } from './chat-stream-do';
 import type { ActionResult, SubscribeResponse, TopicHandler } from './topic-handler';
 
 // ============================================================================
@@ -19,7 +19,7 @@ export interface ChatStreamDOStub {
 
     /** Push events with a sequence number for reorder-safe fire-and-forget delivery. */
     push(events: StreamEvent[], seq: number): Promise<void>;
-    subscribe(userId: string, ugDoName: string): Promise<StreamSnapshot>;
+    subscribe(userId: string, ugDoName: string): Promise<StreamSubscribeResult>;
     unsubscribe(userId: string): Promise<void>;
     abort(): Promise<void>;
     toolApprove(toolCallId: string): Promise<void>;
@@ -88,7 +88,7 @@ export abstract class StreamTopicHandler implements TopicHandler {
      * Domain-specific permission check.
      * Result is cached in-memory for the lifetime of the UG DO instance.
      */
-    abstract checkPermission(userId: string, identifier: string, env: Env): Promise<boolean>;
+    abstract checkPermission(userId: string, identifier: string, env: ObjectsEnv): Promise<boolean>;
 
     // ========================================================================
     // STORAGE KEY PREFIX (overridable by subclasses)
@@ -107,7 +107,7 @@ export abstract class StreamTopicHandler implements TopicHandler {
     // PERMISSION CHECK
     // ========================================================================
 
-    async canSubscribe(userId: string, identifier: string, env: Env): Promise<boolean> {
+    async canSubscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<boolean> {
         // const cacheKey = `${userId}:${identifier}`;
         // const cached = this.permissionCache.get(cacheKey);
         // if (cached !== undefined) return cached;
@@ -134,7 +134,7 @@ export abstract class StreamTopicHandler implements TopicHandler {
     // SUBSCRIBE
     // ========================================================================
 
-    async subscribe(userId: string, identifier: string, env: Env): Promise<SubscribeResponse> {
+    async subscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<SubscribeResponse> {
         const agentMessageId = await this.storage.get<string>(`${this.skPrefix}${identifier}`);
 
         if (!agentMessageId) {
@@ -145,13 +145,13 @@ export abstract class StreamTopicHandler implements TopicHandler {
         try {
             const stub = this.getStreamStub(env, agentMessageId);
             // UG DO name = userId (or userId@alias on dev preview branches)
-            const snapshot = await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
+            const { snapshot, seqHigh } = await stub.subscribe(userId, branchDoName(userId, this.previewAlias));
             if (snapshot.status === 'done' || snapshot.status === 'aborted' || snapshot.status === 'error') {
                 await this.cleanupStreamKeys(identifier);
                 await this.clearActiveAgentMessageId(identifier, agentMessageId, env);
                 return { status: 'idle' };
             }
-            return { status: 'streaming', agentMessageId, snapshot };
+            return { status: 'streaming', agentMessageId, snapshot, ...(seqHigh !== undefined && { seqHigh }) };
         } catch (err) {
             // ChatStream DO is gone (already finalized) — stale registry entry
             console.warn(`${this.constructor.name}: ChatStream DO gone for ${identifier}, cleaning up`, err);
@@ -175,7 +175,12 @@ export abstract class StreamTopicHandler implements TopicHandler {
     // ACTION HANDLING (base handles 'abort'; subclasses handle domain actions)
     // ========================================================================
 
-    async handleAction(_userId: string, action: string, payload: unknown, env: Env): Promise<ActionResult | void> {
+    async handleAction(
+        _userId: string,
+        action: string,
+        payload: unknown,
+        env: ObjectsEnv,
+    ): Promise<ActionResult | void> {
         switch (action) {
             case 'abort': {
                 const { identifier } = AbortActionSchema.parse(payload);
@@ -203,20 +208,24 @@ export abstract class StreamTopicHandler implements TopicHandler {
     }
 
     /** Resolve identifier → ChatStream DO stub. Returns null if no active stream. */
-    protected async resolveStream(identifier: string, env: Env): Promise<ChatStreamDOStub | null> {
+    protected async resolveStream(identifier: string, env: ObjectsEnv): Promise<ChatStreamDOStub | null> {
         const agentMessageId = await this.storage.get<string>(`${this.skPrefix}${identifier}`);
         if (!agentMessageId) return null;
         return this.getStreamStub(env, agentMessageId);
     }
 
     /** Get ChatStream DO stub from the local binding */
-    protected getStreamStub(env: Env, agentMessageId: string): ChatStreamDOStub {
+    protected getStreamStub(env: ObjectsEnv, agentMessageId: string): ChatStreamDOStub {
         const id = env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, this.previewAlias));
         return env.CHAT_STREAM_DO.get(id) as unknown as ChatStreamDOStub;
     }
 
     /** Clear activeAgentMessageId on the Chat entity (lazy fallback for stale DOs) */
-    protected async clearActiveAgentMessageId(identifier: string, agentMessageId: string, env: Env): Promise<void> {
+    protected async clearActiveAgentMessageId(
+        identifier: string,
+        agentMessageId: string,
+        env: ObjectsEnv,
+    ): Promise<void> {
         try {
             const sql = await this.getSql(env);
             await sql`
@@ -229,7 +238,7 @@ export abstract class StreamTopicHandler implements TopicHandler {
     }
 
     /** Get (or initialize) a postgres client for DB queries */
-    protected getSql(env: Env) {
+    protected getSql(env: ObjectsEnv) {
         if (!this.sqlPromise) {
             this.sqlPromise = createNeonSql(env, this.previewAlias ?? undefined);
         }

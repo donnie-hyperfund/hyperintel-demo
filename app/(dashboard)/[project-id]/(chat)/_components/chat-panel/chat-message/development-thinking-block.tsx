@@ -4,6 +4,7 @@ import { Brain, Check, ChevronDown, ChevronRight, Loader2, Wrench, X } from 'luc
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import type { StreamBlock } from '@/common/ai/agent/types';
+import { ShimmerText } from '@/components/ui/shimmer-text';
 import { useThinkingLabel } from './use-thinking-label';
 
 type DevelopmentThinkingBlockProps = {
@@ -22,7 +23,7 @@ export function DevelopmentThinkingBlock({
     const [expanded, setExpanded] = useState(defaultExpanded);
     const wasStreaming = useRef(isStreaming);
     const contentRef = useRef<HTMLDivElement>(null);
-    const { doneLabel } = useThinkingLabel(blocks, isStreaming);
+    const { doneLabel, isThinking } = useThinkingLabel(blocks, isStreaming);
 
     useEffect(() => {
         if (defaultExpanded) setExpanded(true);
@@ -47,13 +48,13 @@ export function DevelopmentThinkingBlock({
         setExpanded((prev) => !prev);
     };
 
-    const label = isStreaming && status ? status : doneLabel;
+    const label = isThinking && status ? status : isThinking ? 'Thinking' : doneLabel;
 
     return (
         // biome-ignore lint/a11y/useKeyWithClickEvents: visual toggle, not critical interaction
         <div className="mb-2 overflow-hidden cursor-pointer text-muted-foreground/70" onClick={handleClick}>
             <div className="flex items-center gap-2 py-2 text-sm">
-                <span className="font-medium">{label}</span>
+                <span className="font-medium">{isThinking ? <ShimmerText>{label}</ShimmerText> : label}</span>
                 {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </div>
 

@@ -170,6 +170,8 @@ export type Artifact = Partial<CamelCaseDto<ArtifactDto>> & {
     summaryStreaming?: string;
     /** True while a `summary_*` SSE stream is in flight for this artifact. */
     isSummaryStreaming?: boolean;
+    /** Chat the stream was kicked off from. Set on document_start so a stale isStreaming flag can be cleared per-chat on idle subscribe response after a navigation-interrupted stream. */
+    sourceChatId?: string;
 };
 
 // =============================================================================

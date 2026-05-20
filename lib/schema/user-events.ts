@@ -4,7 +4,37 @@ export const UserEventType = {
     ProjectResourceUploadUpdated: 'project_resource_upload_updated',
     ProjectResourceDeleted: 'project_resource_deleted',
     ProjectResourceImported: 'project_resource_imported',
+    ArtifactStreamStarted: 'artifact_stream_started',
+    ArtifactStreamCompleted: 'artifact_stream_completed',
 } as const;
+
+export const ArtifactStreamStartedPayloadSchema = z.object({
+    chatId: z.string().uuid(),
+    domain: z.enum(['chat', 'intake']),
+    chatType: z.enum(['phase', 'company', 'stakeholder']).optional(),
+    projectId: z.string().uuid().nullable().optional(),
+    projectName: z.string().nullable().optional(),
+    phaseName: z.string().nullable().optional(),
+    phaseIndex: z.number().int().nullable().optional(),
+    artifactId: z.string().uuid(),
+    artifactKey: z.string(),
+    artifactName: z.string(),
+    version: z.number().int(),
+    isInternal: z.boolean().optional(),
+    mode: z.enum(['create', 'edit', 'replace']).optional(),
+    loadedVersion: z.number().int().optional(),
+});
+export type ArtifactStreamStartedPayload = z.infer<typeof ArtifactStreamStartedPayloadSchema>;
+
+export const ArtifactStreamCompletedPayloadSchema = z.object({
+    chatId: z.string().uuid(),
+    domain: z.enum(['chat', 'intake']),
+    chatType: z.enum(['phase', 'company', 'stakeholder']).optional(),
+    projectId: z.string().uuid().nullable().optional(),
+    artifactId: z.string().uuid(),
+    artifactKey: z.string(),
+});
+export type ArtifactStreamCompletedPayload = z.infer<typeof ArtifactStreamCompletedPayloadSchema>;
 
 export const ARTIFACT_PROCESSING_STAGES = ['queued', 'saving', 'publishing', 'indexing', 'finalizing'] as const;
 

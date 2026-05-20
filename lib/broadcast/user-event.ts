@@ -27,7 +27,7 @@ export async function broadcastUserEvent(userId: string, eventType: string, payl
     try {
         if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS) {
             // Local dev — use mock DO namespace directly
-            const { workerEnv } = await import('@/lib/local/cf-env-secret-mock');
+            const { workerEnv } = await import('@/lib/local/cf-env-secret-mock' as string);
             const ugNamespace = workerEnv.USER_GATEWAY as any;
             if (!ugNamespace) return;
             const ugId = ugNamespace.idFromName(userId);

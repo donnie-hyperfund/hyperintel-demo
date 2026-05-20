@@ -6,12 +6,12 @@ import { convertBlocksToGlobalAnnotations } from '@/components/ui/markdown-rende
 import { DevSlot } from '@/lib/dev-slots';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import type { Message } from '@/modules/chat/types';
-import { TypingIndicator } from '../chat-conversation/typing-indicator';
 import { ActiveInternalDocs } from './active-internal-docs';
 import { DocumentDirective } from './document-directive';
 import { ErrorBanner } from './error-banner';
 import { UploadDirective } from './file-directive';
 import { MessageThinkingBlock } from './message-thinking-block';
+import { ThinkingShimmer } from './thinking-shimmer';
 
 type ChatMessageProps = {
     message: Message;
@@ -98,7 +98,7 @@ export const ChatMessage = memo(({ message, renderMarkdown = true }: ChatMessage
                         <p className="text-sm whitespace-pre-wrap">{textContent}</p>
                     ))}
 
-                {isStreaming && !textContent && thinkingBlocks.length === 0 && <TypingIndicator />}
+                {isStreaming && !textContent && thinkingBlocks.length === 0 && <ThinkingShimmer />}
 
                 {isStreaming && <ActiveInternalDocs />}
 

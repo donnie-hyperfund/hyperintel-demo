@@ -5,6 +5,10 @@ on:
     branches-ignore:
       - main
       - prod
+      - exp
+      - dexp
+      - 'exp-*'
+      - 'dexp-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

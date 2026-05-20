@@ -1,4 +1,4 @@
-import type { Root, PhrasingContent } from 'mdast';
+import type { Root } from 'mdast';
 import { visit } from 'unist-util-visit';
 
 /**
@@ -10,12 +10,12 @@ export function remarkDirectivesHandler(handlers?: Record<string, any>) {
     return function transformer() {
         return function (tree: Root) {
             visit(tree, (node: any) => {
-                if (!node || !node.type) return;
+                if (!node?.type) return;
 
                 // Handle leaf directives like ::document[name]{attrs}
                 if (node.type === 'leafDirective') {
                     // Check if we have a handler for this directive
-                    if (handlers && handlers[node.name]) {
+                    if (handlers?.[node.name]) {
                         // Extract label from children
                         const label = node.children?.[0]?.value || node.children?.[0]?.children?.[0]?.value || '';
 
@@ -47,7 +47,7 @@ export function remarkDirectivesHandler(handlers?: Record<string, any>) {
 
                 // Handle text directives like :document[name]{attrs}
                 if (node.type === 'textDirective') {
-                    if (handlers && handlers[node.name]) {
+                    if (handlers?.[node.name]) {
                         const label = node.children?.[0]?.value || node.children?.[0]?.children?.[0]?.value || '';
 
                         node.data = node.data || {};
@@ -75,7 +75,7 @@ export function remarkDirectivesHandler(handlers?: Record<string, any>) {
 
                 // Handle container directives like :::document[name]{attrs}
                 if (node.type === 'containerDirective') {
-                    if (handlers && handlers[node.name]) {
+                    if (handlers?.[node.name]) {
                         const label = node.children?.[0]?.value || node.children?.[0]?.children?.[0]?.value || '';
 
                         node.data = node.data || {};

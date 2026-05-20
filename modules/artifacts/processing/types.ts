@@ -1,6 +1,7 @@
 import type { ArtifactProcessingStage } from '@/lib/schema/user-events';
 
-export type ProcessingAction = 'approve' | 'reject' | 'restore';
+export type ApprovalAction = 'approve' | 'reject';
+export type ProcessingAction = ApprovalAction | 'restore';
 export type ProcessingStatus = 'processing' | 'completed' | 'failed';
 export type ProcessingStage = ArtifactProcessingStage;
 
@@ -24,7 +25,7 @@ type BaseProcessingEntry = {
 };
 
 export type ApprovalProcessingEntry = BaseProcessingEntry & {
-    action: 'approve' | 'reject';
+    action: ApprovalAction;
     artifactVersion: number;
 };
 

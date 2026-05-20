@@ -3,7 +3,7 @@
  */
 
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import type { AnalysisResult, SafetyMonitor } from './analyzer';
+import type { SafetyMonitor } from './analyzer';
 import type { SafetyVerdict } from './guard';
 
 type HistoryMessage = { role: 'user' | 'assistant'; content: string; blocks?: any };

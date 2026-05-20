@@ -14,8 +14,8 @@ import { MockRustWorkerFetcher } from '@/workers/extract-rust/tester/local-mock'
 // eslint-disable-next-line -- require() to avoid pulling worker files into root tsc
 const { UserGateway } = require('@/workers/objects/src/objects/user-gateway');
 const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do');
-
-
+const { GenerationProxyDO } = require('@/workers/objects/src/objects/generation-proxy-do');
+const { LocksService } = require('@/workers/objects/src/objects/locks-service');
 
 // --- Secrets & plain config ---
 const envSecrets: Record<string, unknown> = {
@@ -41,6 +41,11 @@ const envSecrets: Record<string, unknown> = {
     LANGFUSE_HOST: process.env.LANGFUSE_HOST ?? '',
     POSTHOG_HOST: process.env.POSTHOG_HOST ?? '',
     CHAT_OUTPUT_SAFETY_ENABLED: process.env.CHAT_OUTPUT_SAFETY_ENABLED ?? 'true',
+    ALLOWED_PRESETS: process.env.ALLOWED_PRESETS ?? '',
+    BLOCKED_PRESETS: process.env.BLOCKED_PRESETS ?? '',
+    DEFAULT_PRESET: process.env.DEFAULT_PRESET ?? '',
+    WORKER_NAME: process.env.WORKER_NAME ?? 'hi-chat-local',
+    WORKER_NAME_FULL: process.env.WORKER_NAME_FULL ?? 'hi-chat-local',
     // TODO IS_DEV?
     ENV: process.env.NODE_ENV === 'production' ? 'production' : 'dev',
     CORS_ALLOWED_ORIGIN: '*',
@@ -87,17 +92,24 @@ workerEnv.EXTRACTION_QUEUE = new MockQueue<ExtractionQueueMessage>(
 // since that object gets recreated on hot reload.
 const DO_KEY = Symbol.for('__hyperintel_dev_do_mocks');
 export function ensureDOMocks() {
-    let cached = (globalThis as any)[DO_KEY] as { USER_GATEWAY: any; CHAT_STREAM_DO: any } | undefined;
+    let cached = (globalThis as any)[DO_KEY] as
+        | { USER_GATEWAY: any; CHAT_STREAM_DO: any; GENERATION_PROXY: any; LOCKS_SERVICE: any }
+        | undefined;
     if (!cached) {
         cached = {
             USER_GATEWAY: new MockDurableObjectNamespace(UserGateway, workerEnv),
             CHAT_STREAM_DO: new MockDurableObjectNamespace(ChatStreamDO, workerEnv),
+            GENERATION_PROXY: new MockDurableObjectNamespace(GenerationProxyDO, workerEnv),
+            LOCKS_SERVICE: new MockDurableObjectNamespace(LocksService, workerEnv),
         };
         (globalThis as any)[DO_KEY] = cached;
     }
+    cached.LOCKS_SERVICE ??= new MockDurableObjectNamespace(LocksService, workerEnv);
     // Always re-assign — workerEnv is a fresh object after hot reload
     workerEnv.USER_GATEWAY = cached.USER_GATEWAY;
     workerEnv.CHAT_STREAM_DO = cached.CHAT_STREAM_DO;
+    workerEnv.GENERATION_PROXY = cached.GENERATION_PROXY;
+    workerEnv.LOCKS_SERVICE = cached.LOCKS_SERVICE;
 }
 
 // --- Dev WS server (lazy, starts on first API route hit) ---

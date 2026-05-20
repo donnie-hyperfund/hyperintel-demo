@@ -6,6 +6,7 @@ export {
     type AppliedEdit,
     applyEdits,
     approveVersion,
+    cleanupOrphanArtifact,
     countLines,
     type DocumentInfo,
     type DocumentListItem,
@@ -25,5 +26,5 @@ export {
 } from './document-service';
 export { DraftManager, type DraftSession } from './draft-manager';
 export { generateInternalSummary } from './pecp-generator';
-export { shouldGeneratePECP } from './pecp-service';
+export { shouldGenerateInternalSummary } from './pecp-service';
 export { createDocumentTools, DocumentToolGroup, type DocumentToolsContext } from './tools';

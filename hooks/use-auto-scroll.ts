@@ -1,132 +1,123 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 
 export type UseAutoScrollOptions = {
-    /**
-     * Distance from bottom in pixels to consider "at bottom"
-     * @default 100
-     */
+    /** Distance from bottom in pixels to consider "at bottom". @default 100 */
     threshold?: number;
+    /** Default behavior for scrollToTop / scrollToBottom when no override is passed. @default 'smooth' */
     behavior?: ScrollBehavior;
-    /**
-     * When true, disables automatic scrolling on content changes
-     * @default false
-     */
+    /** Initial value of the internal follow flag. @default true */
+    initialFollow?: boolean;
+    /** Disables auto-pin on dependency changes. @default false */
     disabled?: boolean;
 };
 
 export type UseAutoScrollReturn<T extends HTMLElement> = {
-    containerRef: React.RefObject<T | null>;
+    containerRef: RefObject<T | null>;
     isAtBottom: boolean;
-    isAutoScrollEnabled: boolean;
+    isFollowing: () => boolean;
     scrollToBottom: (options?: { behavior?: ScrollBehavior }) => void;
+    scrollToTop: (options?: { behavior?: ScrollBehavior }) => void;
 };
 
 export function useAutoScroll<T extends HTMLElement = HTMLDivElement>(
-    dependencies: React.DependencyList,
+    dependencies: React.DependencyList = [],
     options: UseAutoScrollOptions = {},
 ): UseAutoScrollReturn<T> {
-    const { threshold = 100, behavior = 'smooth', disabled = false } = options;
+    const { threshold = 100, behavior = 'smooth', initialFollow = true, disabled = false } = options;
 
     const containerRef = useRef<T | null>(null);
-    const isAutoScrollEnabled = useRef(true);
+    const followRef = useRef(initialFollow);
     const [isAtBottom, setIsAtBottom] = useState(true);
 
-    const checkIsAtBottom = useCallback(() => {
-        const container = containerRef.current;
-        if (!container) return true;
-
-        const { scrollTop, scrollHeight, clientHeight } = container;
-        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-
-        return distanceFromBottom <= threshold;
-    }, [threshold]);
-
     const scrollToBottom = useCallback(
-        (scrollOptions?: { behavior?: ScrollBehavior }) => {
+        (opts?: { behavior?: ScrollBehavior }) => {
             const container = containerRef.current;
             if (!container) return;
-
-            container.scrollTo({
-                top: container.scrollHeight,
-                behavior: scrollOptions?.behavior ?? behavior,
-            });
-
-            // Re-enable auto-scroll when manually scrolling to bottom
-            isAutoScrollEnabled.current = true;
+            container.scrollTo({ top: container.scrollHeight, behavior: opts?.behavior ?? behavior });
+            followRef.current = true;
             setIsAtBottom(true);
         },
         [behavior],
     );
+
+    const scrollToTop = useCallback(
+        (opts?: { behavior?: ScrollBehavior }) => {
+            const container = containerRef.current;
+            if (!container) return;
+            container.scrollTo({ top: 0, behavior: opts?.behavior ?? behavior });
+            followRef.current = false;
+            const distance = container.scrollHeight - container.clientHeight;
+            setIsAtBottom(distance <= threshold);
+        },
+        [behavior, threshold],
+    );
+
+    const isFollowing = useCallback(() => followRef.current, []);
 
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
 
         let ticking = false;
-        let previousScrollTop = container.scrollTop;
-        let previousScrollHeight = container.scrollHeight;
+        let prevScrollTop = container.scrollTop;
+        let prevScrollHeight = container.scrollHeight;
 
         const handleScroll = () => {
-            if (ticking) return;
+            const { scrollTop, scrollHeight } = container;
 
+            // Must run sync — RAF would settle too late to beat a concurrent auto-pin.
+            // scrollHeight check: shrinkage means browser-clamped scrollTop, not user up-scroll.
+            if (scrollTop < prevScrollTop && scrollHeight >= prevScrollHeight) {
+                followRef.current = false;
+            }
+
+            if (ticking) return;
             ticking = true;
             requestAnimationFrame(() => {
-                const currentScrollTop = container.scrollTop;
-                const currentScrollHeight = container.scrollHeight;
-                const atBottom = checkIsAtBottom();
+                const { scrollTop: top, scrollHeight: height, clientHeight } = container;
+                const distance = height - top - clientHeight;
+                const atBottom = distance <= threshold;
+
+                if (atBottom) followRef.current = true;
+
                 setIsAtBottom(atBottom);
-
-                // Only count it as a user up-scroll if scrollHeight didn't shrink — a shrink
-                // means the browser clamped scrollTop involuntarily (content unmount, etc.).
-                if (atBottom) {
-                    isAutoScrollEnabled.current = true;
-                } else if (currentScrollTop < previousScrollTop && currentScrollHeight >= previousScrollHeight) {
-                    isAutoScrollEnabled.current = false;
-                }
-
-                previousScrollTop = currentScrollTop;
-                previousScrollHeight = currentScrollHeight;
+                prevScrollTop = top;
+                prevScrollHeight = height;
                 ticking = false;
             });
         };
 
         container.addEventListener('scroll', handleScroll, { passive: true });
-        return () => container.removeEventListener('scroll', handleScroll);
-    }, [checkIsAtBottom]);
+
+        const observer = new ResizeObserver(() => {
+            if (followRef.current) {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
+            }
+            handleScroll();
+        });
+        observer.observe(container);
+
+        handleScroll();
+
+        return () => {
+            container.removeEventListener('scroll', handleScroll);
+            observer.disconnect();
+        };
+    }, [threshold]);
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
-        const container = containerRef.current;
-        if (!container || !isAutoScrollEnabled.current || disabled) return;
-
+        if (disabled || !followRef.current) return;
         requestAnimationFrame(() => {
-            container.scrollTo({
-                top: container.scrollHeight,
-                behavior: 'instant',
-            });
+            // Re-check — followRef can flip between the outer check and this frame.
+            if (!followRef.current) return;
+            const container = containerRef.current;
+            if (!container) return;
+            container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
         });
     }, [...dependencies, disabled]);
 
-    // Re-pin to bottom when the container itself resizes (the scroll-and-deps effect above
-    // doesn't fire when only clientHeight changes).
-    useEffect(() => {
-        const container = containerRef.current;
-        if (!container || disabled) return;
-
-        const observer = new ResizeObserver(() => {
-            if (!isAutoScrollEnabled.current) return;
-            container.scrollTo({ top: container.scrollHeight, behavior: 'instant' });
-        });
-        observer.observe(container);
-        return () => observer.disconnect();
-    }, [disabled]);
-
-    return {
-        containerRef,
-        isAtBottom,
-        isAutoScrollEnabled: isAutoScrollEnabled.current,
-        scrollToBottom,
-    };
+    return { containerRef, isAtBottom, isFollowing, scrollToBottom, scrollToTop };
 }

@@ -6,6 +6,7 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
+import type { ToolCallStreamBlock } from '@common/ai/agent/types';
 import { z } from 'zod';
 import type { Ctx } from '../context';
 
@@ -43,6 +44,26 @@ const ScrapePageParams = z.object({
         .describe('Output format: "markdown" for clean readable text, "html" for raw HTML.'),
 });
 
+function collapseScrapePage(block: ToolCallStreamBlock): { toolOutput?: string } {
+    const output = block.toolOutput;
+    if (typeof output !== 'string' || output.length < 1000) return {};
+
+    const title = output.match(/^#\s+(.+)$/m)?.[1] ?? 'Untitled';
+    const source = output.match(/^\*\*Source:\*\*\s+(.+)$/m)?.[1];
+    const input = block.toolInput as { url?: unknown; format?: unknown } | undefined;
+
+    return {
+        toolOutput: JSON.stringify({
+            title,
+            source: source ?? (typeof input?.url === 'string' ? input.url : undefined),
+            format: input?.format,
+            outputCollapsed: true,
+            originalChars: output.length,
+            recallHint: 'Use recall_tool_call with this tool_call_id to retrieve the full scraped page content.',
+        }),
+    };
+}
+
 // ============================================================================
 // TOOL FACTORY
 // ============================================================================
@@ -54,6 +75,7 @@ export function createWebScrapeTools() {
             description:
                 'Fetch and read the content of a web page. Returns the page content in the specified format (markdown or HTML). Use this when you have a specific URL to visit.',
             parameters: ScrapePageParams,
+            collapseResult: collapseScrapePage,
             executor: async (
                 input: z.infer<typeof ScrapePageParams>,
                 _ctx: WebScrapeContext,

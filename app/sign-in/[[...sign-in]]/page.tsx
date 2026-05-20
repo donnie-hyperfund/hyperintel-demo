@@ -1,5 +1,10 @@
 import { SignIn } from '@clerk/nextjs';
 import { dark } from '@clerk/themes';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+    title: 'Sign in',
+};
 
 export default function SignInPage() {
     return (

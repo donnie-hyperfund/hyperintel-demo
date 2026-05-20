@@ -35,8 +35,8 @@ export async function exportArtifactHandler(data: ExportArtifactQueryDto, ctx: C
     throw new PublicError(400, { message: `Unsupported format: ${format}`, code: 'UNSUPPORTED_FORMAT' });
 }
 
-async function convertToDocx(markdown: string, title: string): Promise<Response> {
-    const doc = await markdownDocx(markdown, {
+async function convertToDocx(markdown: string | null | undefined, title: string): Promise<Response> {
+    const doc = await markdownDocx(markdown ?? '', {
         ignoreImage: true,
         document: { title },
     });

@@ -1,18 +1,16 @@
 'use client';
 
-import { useUser } from '@clerk/nextjs';
 import { FileCode, Loader2, Plus } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import useInfiniteScroll from 'react-infinite-scroll-hook';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { useOpenProject } from '@/hooks/use-open-project';
 import { registerProjectListMutator } from '@/lib/api/client/cache/project-lists';
 import { useFetchProjectsInfinite } from '@/lib/api/client/hooks/use-projects';
-import type { CamelCaseDto } from '@/lib/api/client/types';
-import { setCurrentProjectCookie } from '@/lib/cookies/project';
-import type { ProjectDto, ProjectListStatus } from '@/lib/schema/project';
+import type { ProjectListStatus } from '@/lib/schema/project';
 import { ProjectItem, ProjectItemSkeleton } from './project-item';
 
 const PAGE_SIZE = 20;
@@ -23,7 +21,7 @@ type ProjectListProps = {
 };
 
 export const ProjectList = ({ status, onEmptyChange }: ProjectListProps) => {
-    const { user } = useUser();
+    const { markProjectActive } = useOpenProject();
     const { data, error, isLoading, size, setSize, hasNextPage, mutate } = useFetchProjectsInfinite({
         limit: PAGE_SIZE,
         status,
@@ -65,14 +63,6 @@ export const ProjectList = ({ status, onEmptyChange }: ProjectListProps) => {
         onLoadMore: () => setSize(size + 1),
         rootMargin: '0px 0px 100px 0px',
     });
-
-    const handleProjectNavigate = useCallback(
-        (project: CamelCaseDto<ProjectDto>) => {
-            if (!user?.id) return;
-            setCurrentProjectCookie(user.id, project.id);
-        },
-        [user?.id],
-    );
 
     if (error) {
         return (
@@ -135,7 +125,7 @@ export const ProjectList = ({ status, onEmptyChange }: ProjectListProps) => {
                         <ProjectItem
                             project={project}
                             href={status === 'active' ? `/${project.id}` : undefined}
-                            onNavigate={status === 'active' ? () => handleProjectNavigate(project) : undefined}
+                            onNavigate={status === 'active' ? () => markProjectActive(project) : undefined}
                         />
                     </motion.div>
                 ))}

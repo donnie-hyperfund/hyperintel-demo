@@ -123,41 +123,42 @@ function assertBlocksRedacted(blocks: any[]) {
 
 describe('history block redaction — internal document messages', () => {
     it('GET /messages — list redacts document tool calls', async () => {
-        const { GET } = await import('@/app/api/projects/[projectId]/chats/[chatId]/messages/route');
-        const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages`), {
-            params: Promise.resolve({ projectId, chatId }),
+        const { GET } = await import('@/app/api/chats/[chatId]/messages/route');
+        const res = await GET(req(`/api/chats/${chatId}/messages`), {
+            params: Promise.resolve({ chatId }),
         });
         expect(res.status).toBe(200);
-        const body = await res.json();
-        const msg = body.data?.find((m: any) => m.id === internalMessageId);
+        const body: any = await res.json();
+        const msg = body.data?.find((m) => m.id === internalMessageId);
         expect(msg).toBeDefined();
+        if (!msg) throw new Error('Expected internal message in response');
         assertBlocksRedacted(msg.blocks);
         expect(JSON.stringify(msg.blocks)).not.toContain(SECRET);
     });
 
     it('GET /messages/:mid — single message redacts document tool calls', async () => {
-        const { GET } = await import('@/app/api/projects/[projectId]/chats/[chatId]/messages/[messageId]/route');
-        const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages/${internalMessageId}`), {
-            params: Promise.resolve({ projectId, chatId, messageId: internalMessageId }),
+        const { GET } = await import('@/app/api/chats/[chatId]/messages/[messageId]/route');
+        const res = await GET(req(`/api/chats/${chatId}/messages/${internalMessageId}`), {
+            params: Promise.resolve({ chatId, messageId: internalMessageId }),
         });
         expect(res.status).toBe(200);
-        const body = await res.json();
+        const body: any = await res.json();
         assertBlocksRedacted(body.blocks);
         expect(JSON.stringify(body.blocks)).not.toContain(SECRET);
     });
 
     it('text blocks and non-document tools survive', async () => {
-        const { GET } = await import('@/app/api/projects/[projectId]/chats/[chatId]/messages/[messageId]/route');
-        const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages/${internalMessageId}`), {
-            params: Promise.resolve({ projectId, chatId, messageId: internalMessageId }),
+        const { GET } = await import('@/app/api/chats/[chatId]/messages/[messageId]/route');
+        const res = await GET(req(`/api/chats/${chatId}/messages/${internalMessageId}`), {
+            params: Promise.resolve({ chatId, messageId: internalMessageId }),
         });
-        const body = await res.json();
-        const text = body.blocks.filter((b: any) => b.type === 'text');
+        const body: any = await res.json();
+        const text = body.blocks.filter((b) => b.type === 'text');
         expect(text.length).toBe(2);
         expect(text[0].content).toBe('Creating your document.');
         expect(text[1].content).toBe('Done.');
 
-        const search = body.blocks.find((b: any) => b.toolName === 'web_search');
+        const search = body.blocks.find((b) => b.toolName === 'web_search');
         expect(search.content).not.toBe('REDACTED');
     });
 });
@@ -165,23 +166,23 @@ describe('history block redaction — internal document messages', () => {
 /** Block redaction is always unconditional — real content lives on ArtifactVersionEntity. */
 describe('history block redaction — non-internal document messages (still redacted)', () => {
     it('GET /messages/:mid — non-internal write_document blocks are still redacted', async () => {
-        const { GET } = await import('@/app/api/projects/[projectId]/chats/[chatId]/messages/[messageId]/route');
-        const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages/${publicMessageId}`), {
-            params: Promise.resolve({ projectId, chatId, messageId: publicMessageId }),
+        const { GET } = await import('@/app/api/chats/[chatId]/messages/[messageId]/route');
+        const res = await GET(req(`/api/chats/${chatId}/messages/${publicMessageId}`), {
+            params: Promise.resolve({ chatId, messageId: publicMessageId }),
         });
         expect(res.status).toBe(200);
-        const body = await res.json();
+        const body: any = await res.json();
         assertBlocksRedacted(body.blocks);
         expect(JSON.stringify(body.blocks)).not.toContain(PUBLIC_BODY);
     });
 
     it('text blocks in non-internal messages survive', async () => {
-        const { GET } = await import('@/app/api/projects/[projectId]/chats/[chatId]/messages/[messageId]/route');
-        const res = await GET(req(`/api/projects/${projectId}/chats/${chatId}/messages/${publicMessageId}`), {
-            params: Promise.resolve({ projectId, chatId, messageId: publicMessageId }),
+        const { GET } = await import('@/app/api/chats/[chatId]/messages/[messageId]/route');
+        const res = await GET(req(`/api/chats/${chatId}/messages/${publicMessageId}`), {
+            params: Promise.resolve({ chatId, messageId: publicMessageId }),
         });
-        const body = await res.json();
-        const text = body.blocks.filter((b: any) => b.type === 'text');
+        const body: any = await res.json();
+        const text = body.blocks.filter((b) => b.type === 'text');
         expect(text.length).toBe(2);
         expect(text[0].content).toBe('Creating your deliverable.');
         expect(text[1].content).toBe('Deliverable ready.');

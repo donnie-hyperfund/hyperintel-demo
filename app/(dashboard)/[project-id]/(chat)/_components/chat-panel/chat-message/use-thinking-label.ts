@@ -14,7 +14,15 @@ function formatDuration(ms: number): string | null {
     return `${formatSeconds(secs)}s`;
 }
 
-export function useThinkingLabel(blocks: StreamBlock[], isStreaming?: boolean, { includeActions = true } = {}) {
+type UseThinkingLabelOptions = {
+    includeActions?: boolean;
+};
+
+export function useThinkingLabel(
+    blocks: StreamBlock[],
+    isStreaming?: boolean,
+    { includeActions = true }: UseThinkingLabelOptions = {},
+) {
     const actionSuffix = includeActions
         ? (() => {
               const c = blocks.filter((b) => b.type === 'tool_call').length;

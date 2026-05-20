@@ -5,6 +5,6 @@ const USER_COOKIES = [CURRENT_PROJECT_COOKIE_NAME] as const;
 
 export function clearAllUserCookies(): void {
     for (const cookieName of USER_COOKIES) {
-        deleteCookie(cookieName, { path: '/' });
+        void deleteCookie(cookieName, { path: '/' });
     }
 }

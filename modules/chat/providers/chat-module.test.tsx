@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatModule } from './chat-module';
 
+const replaceMock = vi.fn();
 const activePanelProviderMock = vi.fn(({ children }: { children: ReactNode }) => <div>{children}</div>);
 const artifactProviderMock = vi.fn(({ children }: { children: ReactNode }) => <div>{children}</div>);
 const chatProviderMock = vi.fn(
@@ -16,7 +17,7 @@ const chatProviderMock = vi.fn(
         projectId?: string;
         chatType?: 'phase' | 'company' | 'stakeholder';
         initialChatId?: string;
-        chatRouteBuilder?: (chatId: string) => string;
+        onChatCreated?: (chatId: string) => void;
     }) => <div data-props={JSON.stringify(props)}>{children}</div>,
 );
 const scrollTargetProviderMock = vi.fn(({ children }: { children: ReactNode }) => <div>{children}</div>);
@@ -39,8 +40,12 @@ vi.mock('./chat-provider', () => ({
         chatType?: 'phase' | 'company' | 'stakeholder';
         initialChatId?: string;
         initialMessages?: unknown[];
-        chatRouteBuilder?: (chatId: string) => string;
+        onChatCreated?: (chatId: string) => void;
     }) => chatProviderMock(props),
+}));
+
+vi.mock('next/navigation', () => ({
+    useRouter: () => ({ replace: replaceMock }),
 }));
 
 vi.mock('./model-selection-provider', () => ({
@@ -87,20 +92,20 @@ describe('ChatModule', () => {
         );
     });
 
-    it('passes a custom chat route builder to ChatProvider', () => {
-        const chatRouteBuilder = (chatId: string) => `/companies/${chatId}?origin=project&projectId=project-1`;
+    it('uses a custom created-chat href when a chat is created', () => {
+        const buildCreatedChatHref = (chatId: string) => `/companies/${chatId}?origin=project&projectId=project-1`;
 
         render(
-            <ChatModule chatType="company" chatRouteBuilder={chatRouteBuilder}>
+            <ChatModule chatType="company" buildCreatedChatHref={buildCreatedChatHref}>
                 <span>company-intake</span>
             </ChatModule>,
         );
 
-        expect(chatProviderMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                chatType: 'company',
-                chatRouteBuilder,
-            }),
-        );
+        const providerProps = chatProviderMock.mock.calls.at(-1)?.[0];
+        providerProps?.onChatCreated?.('company-chat-1');
+
+        expect(replaceMock).toHaveBeenCalledWith('/companies/company-chat-1?origin=project&projectId=project-1', {
+            scroll: false,
+        });
     });
 });

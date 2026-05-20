@@ -22,7 +22,7 @@ export interface GlobalCitation {
  */
 export function convertBlocksToGlobalAnnotations(
     blocks: StreamBlock[],
-    separator: string = '\n\n'
+    separator = '\n\n',
 ): { fullText: string; citations: GlobalCitation[] } {
     const textBlocks = blocks.filter(b => b.type === 'text');
     const separatorLength = separator.length;

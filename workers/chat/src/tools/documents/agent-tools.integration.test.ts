@@ -33,6 +33,7 @@ const MODEL = 'claude-sonnet-4-6';
 // ============================================================================
 
 interface StoredDocument {
+    id: string;
     name: string;
     title: string;
     content: string;
@@ -52,7 +53,16 @@ class InMemoryDocumentStore {
         if (existing?.status === 'proposed') {
             existing.status = 'approved'; // simplified
         }
-        this.docs.set(name, { name, title, content, version, status: 'proposed', is_internal, document_type });
+        this.docs.set(name, {
+            id: existing?.id ?? `artifact-${name}`,
+            name,
+            title,
+            content,
+            version,
+            status: 'proposed',
+            is_internal,
+            document_type,
+        });
         return {
             versionId: `v-${name}-${version}`,
             version,
@@ -115,9 +125,9 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
     const beginDoc: AgentTool<'begin_document', any, TestToolCtx> = {
         name: 'begin_document',
         description:
-            'Start a document editing draft session. Modes: "create" (new doc), "edit" (modify existing). MUST call finalize_document when done.',
+            'Start a document editing draft session. Modes: "create" (new doc), "edit" (modify existing in place), "replace" (rewrite existing from scratch). MUST call finalize_document when done.',
         parameters: z.object({
-            mode: z.enum(['create', 'edit']),
+            mode: z.enum(['create', 'edit', 'replace']),
             name: z.string().min(1).describe('Document name'),
             title: z.string().optional().nullable().describe('Display title'),
             is_internal: z.boolean().default(true),
@@ -130,22 +140,24 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
             if (input.mode === 'create' && existing && existing.status !== 'deleted') {
                 return { error: `Document "${name}" already exists. Use mode="edit".` };
             }
-            if (input.mode === 'edit' && !existing) {
+            if ((input.mode === 'edit' || input.mode === 'replace') && !existing) {
                 return { error: `Document "${name}" does not exist. Use mode="create".` };
             }
 
             try {
                 const initialContent = input.mode === 'edit' && existing ? existing.content : '';
-                const draft = draftManager.begin(
-                    'test-scope',
+                const draft = draftManager.begin({
+                    artifactId: existing?.id ?? `artifact-${name}`,
+                    scopeId: 'test-scope',
                     name,
-                    input.title || name,
-                    input.mode,
+                    title: input.title || name,
+                    mode: input.mode,
+                    reservedVersion: existing ? existing.version + 1 : 1,
                     initialContent,
-                    existing?.version,
-                    input.is_internal,
-                    input.document_type,
-                );
+                    ...(existing?.version !== undefined ? { previousVersion: existing.version } : {}),
+                    is_internal: input.is_internal,
+                    document_type: input.document_type,
+                });
                 return {
                     status: 'editing',
                     mode: input.mode,
@@ -167,12 +179,19 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
 
     const writeDoc: AgentTool<'write_document', any, TestToolCtx> = {
         name: 'write_document',
-        description: 'Append content to the current editing draft.',
-        parameters: z.object({ content: z.string() }),
+        description: 'Write content to the current editing draft.',
+        parameters: z.object({
+            content: z.string(),
+        }),
         executor: (input) => {
             try {
                 const draft = draftManager.append(input.content);
-                return { status: 'written', charsAdded: input.content.length, totalLines: countLines(draft.content) };
+                return {
+                    status: 'written',
+                    charsAdded: input.content.length,
+                    charsWritten: input.content.length,
+                    totalLines: countLines(draft.content),
+                };
             } catch (err: any) {
                 return { error: err.message };
             }
@@ -226,11 +245,22 @@ function createTestDocumentTools(store: InMemoryDocumentStore, draftManager: Dra
 
     const finalizeDoc: AgentTool<'finalize_document', any, TestToolCtx> = {
         name: 'finalize_document',
-        description: 'Save the current editing draft as a proposed version. MUST call after begin_document.',
-        parameters: z.object({}),
-        executor: () => {
+        description:
+            'Finish the current editing draft. Use action="save" to persist it or action="abort" to discard it.',
+        parameters: z.object({
+            action: z.enum(['save', 'abort']).optional().default('save'),
+        }),
+        executor: (input) => {
             try {
                 const draft = draftManager.requireCurrent();
+                if ((input.action ?? 'save') === 'abort') {
+                    const lines = countLines(draft.content);
+                    draftManager.discard();
+                    return {
+                        result: { action: 'aborted', name: draft.name, status: 'aborted', lines },
+                        message: `Aborted draft "${draft.name}" without saving.`,
+                    };
+                }
                 const result = store.upsert(
                     draft.name,
                     draft.title,
@@ -355,8 +385,9 @@ function baseInput(userMessage: string) {
         instructions: `You are a document management assistant. You have tools to create, edit, read, list, delete, and search documents.
 Always use the tools to complete document tasks. Be concise in your responses.
 When creating documents, use document_type "Other" unless told otherwise.
-When asked to create a document, use begin_document → write_document → finalize_document.
-When asked to edit, use begin_document(mode="edit") → patch_document or write_document → finalize_document.`,
+When asked to create a document, use begin_document(mode="create") → write_document → finalize_document.
+When asked to edit part of an existing document, use begin_document(mode="edit") → patch_document → finalize_document.
+When asked to rewrite most of an existing document, use begin_document(mode="replace") → write_document → finalize_document.`,
         context: [{ role: 'user' as const, content: userMessage }],
         maxTokens: 4096,
         contentThreshold: 0,
@@ -390,6 +421,70 @@ function getDoneEvent(events: AgentStreamEvent[]) {
 // ============================================================================
 // TESTS
 // ============================================================================
+
+describe('Document tool contract (no inference)', () => {
+    it('write_document appends to create/edit drafts, while begin_document mode="replace" starts an empty replacement draft', () => {
+        const store = new InMemoryDocumentStore();
+        store.upsert('report.md', 'Report', 'Original content\n', false, 'Other');
+        const draftManager = new DraftManager();
+        const tools = createTestDocumentTools(store, draftManager);
+
+        const beginDoc = tools.find((t) => t.name === 'begin_document')!;
+        const writeDoc = tools.find((t) => t.name === 'write_document')!;
+
+        const beginResult = beginDoc.executor!(
+            { mode: 'edit', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
+            { store, draftManager },
+        ) as any;
+        expect(beginResult.error).toBeUndefined();
+        expect(draftManager.requireCurrent().content).toBe('Original content\n');
+
+        const appendResult = writeDoc.executor!({ content: 'Appended line\n' }, { store, draftManager }) as any;
+        expect(appendResult.error).toBeUndefined();
+        expect(draftManager.requireCurrent().content).toBe('Original content\nAppended line\n');
+
+        draftManager.discard();
+
+        const replaceBeginResult = beginDoc.executor!(
+            { mode: 'replace', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
+            { store, draftManager },
+        ) as any;
+        expect(replaceBeginResult.error).toBeUndefined();
+        expect(draftManager.requireCurrent().content).toBe('');
+
+        const replacementWriteResult = writeDoc.executor!(
+            { content: 'Replacement only\n' },
+            { store, draftManager },
+        ) as any;
+        expect(replacementWriteResult.error).toBeUndefined();
+        expect(draftManager.requireCurrent().content).toBe('Replacement only\n');
+    });
+
+    it('finalize_document action="abort" discards the draft without saving', () => {
+        const store = new InMemoryDocumentStore();
+        store.upsert('report.md', 'Report', 'Original content\n', false, 'Other');
+        const draftManager = new DraftManager();
+        const tools = createTestDocumentTools(store, draftManager);
+
+        const beginDoc = tools.find((t) => t.name === 'begin_document')!;
+        const writeDoc = tools.find((t) => t.name === 'write_document')!;
+        const finalizeDoc = tools.find((t) => t.name === 'finalize_document')!;
+
+        beginDoc.executor!(
+            { mode: 'edit', name: 'report.md', title: 'Report', is_internal: false, document_type: 'Other' },
+            { store, draftManager },
+        );
+        writeDoc.executor!({ content: 'Temporary change\n' }, { store, draftManager });
+
+        const abortResult = finalizeDoc.executor!({ action: 'abort' }, { store, draftManager }) as any;
+
+        expect(abortResult.error).toBeUndefined();
+        expect(abortResult.result.action).toBe('aborted');
+        expect(draftManager.hasActive()).toBe(false);
+        expect(store.find('report.md')?.content).toBe('Original content\n');
+        expect(store.find('report.md')?.version).toBe(1);
+    });
+});
 
 describe.skipIf(!API_KEY || process.env.TEST_LLM !== 'true')('Agent document tools (real inference)', () => {
     let store: InMemoryDocumentStore;

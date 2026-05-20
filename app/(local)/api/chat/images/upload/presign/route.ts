@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        const ctx = await initNextjsWorkerContext({ skipAI: true });
+        const ctx = await initNextjsWorkerContext<ChatEnv>({ skipAI: true });
         const result = await presignImageUploadHandler(parsed.data, ctx);
         return NextResponse.json(result);
     } catch (err) {

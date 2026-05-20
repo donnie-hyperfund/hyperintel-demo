@@ -1,0 +1,28 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "types": ["vitest/globals", "@cloudflare/workers-types/2023-07-01"]
+    },
+    "include": [
+        "next-env.d.ts",
+        "worker-env-types.d.ts",
+        "workers/**/worker-configuration.d.ts",
+        "app/(local)/**/*.ts",
+        "app/(local)/**/*.tsx",
+        "lib/local/**/*.ts",
+        "lib/local/**/*.tsx",
+        "common/common/local*.ts",
+        "common/common/local*.tsx",
+        "workers/extract-rust/tester/local-mock.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        ".next",
+        ".claude/worktrees",
+        ".claude/worktrees/**",
+        ".codex/worktrees",
+        ".codex/worktrees/**",
+        ".codex/**/worktrees",
+        ".codex/**/worktrees/**"
+    ]
+}

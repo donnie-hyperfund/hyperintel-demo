@@ -15,9 +15,25 @@ jobs:
                   ref: ${{ github.head_ref }}
                   fetch-depth: 0
 
-            - uses: ./.github/actions/init
+            - name: Init repo and submodules
+              uses: ./.github/actions/init
               with:
                   clone-token: ${{ secrets.CLONE_TOKEN }}
+
+            - name: Generate type artifacts
+              env:
+                  NO_POSTHOG: 'true'
+                  DATABASE_URL: 'postgresql://user@127.0.0.1/hidb?sslmode=disable'
+                  DATABASE_URL_DIRECT: 'postgresql://user@127.0.0.1/hidb?sslmode=disable'
+              run: |
+                  pnpm exec next typegen
+                  pnpm run db:compile-metadata
+
+            - name: Typecheck
+              run: pnpm run tsc:check:ci
+
+            - name: Restore generated Next env file
+              run: git checkout -- next-env.d.ts
 
             - name: Get changed files
               id: changed
@@ -28,17 +44,16 @@ jobs:
                       echo "EOF"
                   } >> "$GITHUB_OUTPUT"
 
-# TODO: typecheck will fail currently
-#            - name: Typecheck
-#              run: pnpm run tsc:check
-
-            - name: Biome fix changed files
+            - name: Biome lint fix changed files
               if: steps.changed.outputs.files != ''
               run: |
                   mapfile -t files <<'EOF'
                   ${{ steps.changed.outputs.files }}
                   EOF
-                  pnpm biome check --write "${files[@]}"
+                  pnpm exec biome check --write --formatter-enabled=false --assist-enabled=false --reporter=github "${files[@]}"
+
+            - name: Biome format changed PR lines
+              run: pnpm run fix:old-formatting:hunks -- --only-changed-lines=origin/${{ github.base_ref }}
 
             - name: Commit fixes
               uses: stefanzweifel/git-auto-commit-action@v5

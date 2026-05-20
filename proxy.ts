@@ -17,6 +17,12 @@ const isBrowsableRoute = createRouteMatcher([
     '/stakeholders(.*)',
 ]);
 
+const UUID_PROJECT_ROOT_PATTERN = /^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i;
+
+function getProjectRootPathId(pathname: string): string | null {
+    return UUID_PROJECT_ROOT_PATTERN.exec(pathname)?.[1] ?? null;
+}
+
 /**
  * Test-only auth bypass for Playwright.
  * Only active when E2E_AUTH_BYPASS=true (set in .env.test, NEVER in .env/.env.dev/.env.prd).
@@ -53,6 +59,28 @@ export default clerkMiddleware(async (auth, req) => {
                     return NextResponse.redirect(new URL('/launch-pad', req.url));
                 }
 
+                // Resolve project root → last chat here so no RSC streams the empty layout first.
+                const projectRootPathId = getProjectRootPathId(pathname);
+                if (hasProjects && projectRootPathId && !req.nextUrl.searchParams.has('new')) {
+                    const project = await em.findOne(ProjectEntity, {
+                        id: projectRootPathId,
+                        user: user.id,
+                        archived_at: null,
+                    });
+
+                    if (project) {
+                        const lastChat = await em.findOne(
+                            ChatEntity,
+                            { project: projectRootPathId },
+                            { orderBy: { phase_index: 'desc' } },
+                        );
+                        const target = lastChat
+                            ? `/${projectRootPathId}/${lastChat.id}`
+                            : `/${projectRootPathId}?new=true`;
+                        return NextResponse.redirect(new URL(target, req.url));
+                    }
+                }
+
                 if (hasProjects && pathname === '/') {
                     const cookieValue = req.cookies.get(CURRENT_PROJECT_COOKIE_NAME)?.value;
                     const parsedCookie = parseProjectCookie(cookieValue);
@@ -76,7 +104,7 @@ export default clerkMiddleware(async (auth, req) => {
                         { project: validProjectId },
                         { orderBy: { phase_index: 'desc' } },
                     );
-                    const target = lastChat ? `/${validProjectId}/${lastChat.id}` : `/${validProjectId}`;
+                    const target = lastChat ? `/${validProjectId}/${lastChat.id}` : `/${validProjectId}?new=true`;
                     return NextResponse.redirect(new URL(target, req.url));
                 }
             }

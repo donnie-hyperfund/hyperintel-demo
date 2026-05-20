@@ -1,25 +1,29 @@
-/**
- * Computes the base localStorage key for a draft session (text input).
- * Accepts `string` for chatType so this utility stays independent of module-level types.
- */
-export function getDraftBaseKey(chatType: string, chatId: string | null, projectId?: string): string {
-    if (chatId) return `draft:${chatType}:${chatId}`;
-    if (projectId) return `draft:${chatType}:${projectId}:new`;
-    return `draft:${chatType}:new`;
+import type { ChatType } from '@/modules/chat/types';
+
+export type UploadScope =
+    | { kind: 'project-resources'; projectId: string }
+    | { kind: 'chat-input'; chatType: ChatType; projectId?: string; chatId?: string };
+
+type ChatInputScope = Extract<UploadScope, { kind: 'chat-input' }>;
+
+export function uploadStorageKey(scope: UploadScope): string {
+    if (scope.kind === 'project-resources') {
+        return `resource-uploads:project:${scope.projectId}`;
+    }
+    const session = scope.projectId ? `project:${scope.projectId}` : `chat:${scope.chatType}`;
+    return scope.chatId ? `chat-uploads:${session}:chat:${scope.chatId}` : `chat-uploads:${session}:new`;
 }
 
-/**
- * Computes the localStorage key for persisting in-progress file upload entries.
- * Returns `null` when there isn't enough scope info to form a key.
- */
-export function getUploadStorageKey(scope?: { projectId?: string; chatId?: string }, isDraft = false): string | null {
-    if (isDraft) {
-        if (scope?.chatId) return `draft-uploads:${scope.chatId}`;
-        if (scope?.projectId) return `draft-uploads:${scope.projectId}:new`;
-        return null;
-    }
-    if (scope?.projectId) return `resource-uploads:${scope.projectId}`;
-    return null;
+export function draftKey(scope: ChatInputScope): string {
+    return `draft:${uploadStorageKey(scope)}`;
+}
+
+// new → created: the in-place session just got its chatId. Provider migrates persisted entries.
+export function isUploadScopePromotion(previous: UploadScope, next: UploadScope): boolean {
+    if (previous.kind !== 'chat-input' || next.kind !== 'chat-input') return false;
+    if (previous.chatType !== next.chatType) return false;
+    if (previous.projectId !== next.projectId) return false;
+    return !previous.chatId && !!next.chatId;
 }
 
 /** sessionStorage key for tracking in-flight artifact approval/rejection operations. */
