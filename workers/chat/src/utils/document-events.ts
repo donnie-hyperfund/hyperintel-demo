@@ -60,6 +60,8 @@ export type DocumentEvent =
           supersededVersion?: number;
           supersededByVersion?: number;
           summaryPending?: boolean;
+          summaryInternal?: string;
+          summaryVersionId?: string;
       };
 
 export interface DocumentContext {
@@ -254,6 +256,10 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         }
                         if (result.summaryPending) {
                             completeEvent.summaryPending = true;
+                        }
+                        if (typeof result.summaryInternal === 'string') {
+                            completeEvent.summaryInternal = result.summaryInternal;
+                            completeEvent.summaryVersionId = result.versionId;
                         }
 
                         emit(completeEvent);
