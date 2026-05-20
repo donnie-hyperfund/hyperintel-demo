@@ -715,8 +715,26 @@ export async function handleListResources(
     const cvIds = nodes.map((a: ArtifactEntity) => a.current_version?.id).filter(Boolean) as string[];
     const fileByVersion = await loadFilesForVersions(em, cvIds);
 
+    // Imported copies don't carry a user — resolve ownership from the source artifact.
+    let sourceOwnerById: Map<string, string> | undefined;
+    if (projectId) {
+        const sourceIds = nodes
+            .map((a: ArtifactEntity) => a.metadata?.importedFrom as string | undefined)
+            .filter(Boolean) as string[];
+        if (sourceIds.length > 0) {
+            const sources = await em.find(ArtifactEntity, { id: { $in: sourceIds } }, { fields: ['id', 'user'] });
+            sourceOwnerById = new Map(
+                sources.map((s) => {
+                    const uid = typeof s.user === 'object' && s.user ? s.user.id : (s.user as unknown as string);
+                    return [s.id, uid];
+                }),
+            );
+        }
+    }
+
     const data = nodes.map((a: ArtifactEntity) => {
-        const ownerId = typeof a.user === 'object' && a.user ? a.user.id : a.user;
+        const ownerId = sourceOwnerById?.get(a.metadata?.importedFrom as string)
+            ?? (typeof a.user === 'object' && a.user ? a.user.id : a.user);
         const proposed = proposedMap.get(a.id);
         return {
             ...wrap(a).toJSON(),
