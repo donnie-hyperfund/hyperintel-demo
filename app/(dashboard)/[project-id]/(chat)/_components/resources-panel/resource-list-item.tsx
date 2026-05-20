@@ -48,6 +48,7 @@ export function ResourceListItem({ artifact, onRemove, isHighlighted = false, it
     const docType = getArtifactDocumentType(artifact);
     const alwaysAttached = isPublicImport(artifact);
     const href = getResourceRoute(artifact);
+    const isShared = !artifact.isOwn && !!docType && docType in routePrefixByType;
     const isUploaded = version?.isUploaded === true;
     const file = (version as any)?.file as { id?: string; originalName?: string; mimeType?: string } | undefined;
     const fileName = file?.originalName ?? artifact.key;
@@ -74,11 +75,16 @@ export function ResourceListItem({ artifact, onRemove, isHighlighted = false, it
 
     return (
         <div ref={itemRef} className={cn('group relative rounded-lg', isHighlighted && 'highlight-pulse')}>
-            <ResourceListItemContainer href={href} onClick={href ? undefined : handlePreview} title={title}>
+            <ResourceListItemContainer href={href} onClick={href || isShared ? undefined : handlePreview} title={title}>
                 <ResourceListItemIcon isUploaded={isUploaded} fileName={fileName} documentType={docType} file={file} />
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                         <span className="line-clamp-1 text-sm font-medium">{title}</span>
+                        {isShared && (
+                            <Badge variant="secondary" className="rounded px-1.5 py-0.25 text-[10px]">
+                                Shared
+                            </Badge>
+                        )}
                         {alwaysAttached && <AlwaysAttachedBadge />}
                     </div>
                     <ResourceListItemMeta artifact={artifact} isUploaded={isUploaded} fileName={fileName} />
