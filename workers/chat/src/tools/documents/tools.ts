@@ -15,6 +15,7 @@
  * - If agent finalizes again before approval → old proposed becomes "superseded"
  */
 
+import { COLLAPSED_FIELD_SENTINEL } from '@common/ai/agent/collapse';
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
 import type { ToolCallStreamBlock } from '@common/ai/agent/types';
 import type { QueueAdapter } from '@common/common/queue.adapter';
@@ -317,12 +318,9 @@ function textStats(value: unknown): { chars: number; lines: number } {
     return { chars: value.length, lines: countLines(value) };
 }
 
-const COLLAPSED_SENTINEL = '[__tool_collapsed__]';
-const COLLAPSED_SENTINEL_RE = /\[__tool_collapsed__\]/g;
-
 function collapseWriteDocument(block: ToolCallStreamBlock): { toolInput?: unknown; toolOutput?: string } {
     const input = block.toolInput as { content?: string } | undefined;
-    const collapsedInput = { __collapsedContent: COLLAPSED_SENTINEL, originalChars: input?.content?.length ?? 0 };
+    const collapsedInput = { __collapsedContent: COLLAPSED_FIELD_SENTINEL, originalChars: input?.content?.length ?? 0 };
 
     if (!block.toolSuccess) {
         return { toolInput: collapsedInput };
@@ -598,32 +596,51 @@ You MUST call finalize_document when done or content will be lost.`,
 Requires an active draft started with begin_document.
 Content is appended to the active draft. For full rewrites of existing documents, start with begin_document(mode="replace") so the draft is empty before writing.
 Content streams to the UI in real-time.
-Past write_document calls may show collapsedContent="[__tool_collapsed__]" — that is a system marker for omitted content, not text to write. Always generate actual document content.`,
+Past write_document calls may show __collapsedContent="${COLLAPSED_FIELD_SENTINEL}" — that is a system marker for omitted content, not text to write. Always generate actual document content.`,
             parameters: WriteDocumentParams,
             collapseResult: collapseWriteDocument,
             executor: (input: z.infer<typeof WriteDocumentParams>, ctx: DocumentToolsContext) => {
-                const { content } = input;
+                const raw = (input ?? {}) as { content?: unknown; __collapsedContent?: unknown };
+                const { content } = raw;
                 const { draftManager } = ctx;
 
-                if (content.replace(COLLAPSED_SENTINEL_RE, '').trim().length === 0) {
+                // Strip stray sentinels so an echoed marker never lands in the saved document.
+                const cleanedContent =
+                    typeof content === 'string' ? content.replaceAll(COLLAPSED_FIELD_SENTINEL, '') : '';
+                const strippedMarker = typeof content === 'string' && content !== cleanedContent;
+
+                // `__collapsedContent` is not a real parameter, and content that is nothing but
+                // the sentinel both mean the model echoed a collapsed historical marker as a live call.
+                const reusedCollapsedMarker =
+                    '__collapsedContent' in raw || (strippedMarker && cleanedContent.trim().length === 0);
+
+                if (reusedCollapsedMarker) {
                     return {
-                        error: '"[__tool_collapsed__]" is a system marker for omitted historical content, not document text. '
-                             + 'Write the actual document content. Use recall_tool_call if you need prior content, or read_document should that fail.',
+                        error:
+                            `"${COLLAPSED_FIELD_SENTINEL}" is a system marker for omitted historical content, not document text, and __collapsedContent is not a real argument.` +
+                            'Write the actual document content in the "content" field. Use recall_tool_call if you need prior content, or read_document should that fail.',
                     };
                 }
 
+                if (typeof content !== 'string' || cleanedContent.trim().length === 0) {
+                    return { error: 'write_document requires non-empty content in the "content" field.' };
+                }
+
                 try {
-                    const draft = draftManager.append(content);
-                    const addedLines = countLines(content);
+                    const draft = draftManager.append(cleanedContent);
+                    const addedLines = countLines(cleanedContent);
                     const totalLines = countLines(draft.content);
 
                     return {
                         result: {
                             status: 'written',
-                            charsAdded: content.length,
-                            charsWritten: content.length,
+                            charsAdded: cleanedContent.length,
+                            charsWritten: cleanedContent.length,
                             linesAdded: addedLines,
                             totalLines,
+                            ...(strippedMarker && {
+                                note: `Stray "${COLLAPSED_FIELD_SENTINEL}" marker(s) were removed from the content before saving — never include that marker in document content.`,
+                            }),
                         },
                         metadata: { internal: draft.is_internal },
                     };
@@ -644,7 +661,7 @@ Each edit: startLine anchor + exact oldContent to find + newContent replacement.
 ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '`endLine` is optional; use it only to narrow the search window.' : 'Provide exactly `startLine`, `oldContent`, and `newContent`; the replacement span is inferred from `oldContent`.'}
 IMPORTANT: \`read_document\` shows lines prefixed with \`N: \` (e.g. \`5: some text\`) — that prefix is display-only. Do NOT include it in \`oldContent\`; copy only the line text after \`N: \`.
 Edits are atomic - all succeed or none apply. No need to read_document between patches.
-"[__tool_collapsed__]" in historical edits is a system marker for omitted content, not text to use in oldContent or newContent.`,
+"${COLLAPSED_FIELD_SENTINEL}" in historical edits is a system marker for omitted content, not text to use in oldContent or newContent.`,
             parameters: PatchDocumentParams,
             collapseResult: collapsePatchDocument,
             executor: (
@@ -659,6 +676,29 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
 
                 if (!edits?.length) {
                     return { error: 'patch_document requires at least one edit in the edits array.' };
+                }
+
+                const hasCollapsedEdit = edits.some((edit) => {
+                    const e = edit as { oldContent?: unknown; newContent?: unknown };
+                    return typeof e.oldContent !== 'string' || typeof e.newContent !== 'string';
+                });
+                if (hasCollapsedEdit) {
+                    return {
+                        error:
+                            'patch_document edits must contain real "oldContent" and "newContent" strings. ' +
+                            `A collapsed historical edit (oldContentChars/newContentChars stats, or "${COLLAPSED_FIELD_SENTINEL}") is a system marker, ` +
+                            'not a reusable argument — use recall_tool_call to retrieve the original edits.',
+                    };
+                }
+
+                // oldContent may legitimately contain the sentinel (to patch corruption out of a
+                // document); newContent is written verbatim, so it must never carry the marker.
+                if (edits.some((edit) => edit.newContent.includes(COLLAPSED_FIELD_SENTINEL))) {
+                    return {
+                        error:
+                            `"${COLLAPSED_FIELD_SENTINEL}" is a system marker for omitted historical content, not document text — it must not appear in an edit's newContent. ` +
+                            'Provide the real replacement text. Use recall_tool_call if you need prior content.',
+                    };
                 }
 
                 try {

@@ -1,4 +1,4 @@
-import { collapseHistoricalToolCalls } from '@common/ai/agent';
+import { COLLAPSED_FIELD_SENTINEL, collapseHistoricalToolCalls } from '@common/ai/agent';
 import type { ToolCallStreamBlock } from '@common/ai/agent/types';
 import { describe, expect, it } from 'vitest';
 import { createDocumentTools } from './documents';
@@ -31,7 +31,7 @@ function toolBlock(overrides: Partial<ToolCallStreamBlock>): ToolCallStreamBlock
 }
 
 describe('tool collapse annotations', () => {
-    it('collapses write_document input to collapsedContent and injects recallHint on success', () => {
+    it('collapses write_document input to __collapsedContent and injects recallHint on success', () => {
         const tool = getTool(createDocumentTools(), 'write_document');
         const collapsed = collapseWithTool(
             tool,
@@ -43,7 +43,7 @@ describe('tool collapse annotations', () => {
         );
 
         expect(collapsed.toolInput).toEqual({
-            collapsedContent: '[__tool_collapsed__]',
+            __collapsedContent: COLLAPSED_FIELD_SENTINEL,
             originalChars: 16,
         });
         expect(JSON.stringify(collapsed.toolInput)).not.toContain('Large draft body');
@@ -69,7 +69,7 @@ describe('tool collapse annotations', () => {
         );
 
         expect(collapsed.toolInput).toEqual({
-            collapsedContent: '[__tool_collapsed__]',
+            __collapsedContent: COLLAPSED_FIELD_SENTINEL,
             originalChars: 16,
         });
         const output = JSON.parse(collapsed.toolOutput ?? '');
