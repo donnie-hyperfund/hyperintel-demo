@@ -17,7 +17,7 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { SUMMARY_INTERNAL_CHAR_ESTIMATE } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../../context';
-import { captureWorkerPostHogEvent } from '../../utils/posthog';
+import { captureWorkerPostHogEvent } from '@/workers/_common/vendor/posthog';
 import { getPromptContent, resolveLocalPromptPath } from '../../utils/prompt-loader';
 
 const INTERNAL_SUMMARY_PROMPT_SLUG = 'pma/pecp-generator';
@@ -169,7 +169,7 @@ export async function generateInternalSummary(params: GenerateInternalSummaryPar
     ]);
 
     rCtx.eCtx?.waitUntil(
-        captureWorkerPostHogEvent(rCtx, 'worker_internal_summary_generated', rCtx.user.userId, {
+        captureWorkerPostHogEvent(rCtx.env, 'worker_internal_summary_generated', rCtx.user.userId, {
             document_type: documentType,
             document_name: documentName,
             version_id: versionId,
