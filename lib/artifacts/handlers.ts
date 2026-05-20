@@ -733,8 +733,9 @@ export async function handleListResources(
     }
 
     const data = nodes.map((a: ArtifactEntity) => {
-        const ownerId = sourceOwnerById?.get(a.metadata?.importedFrom as string)
-            ?? (typeof a.user === 'object' && a.user ? a.user.id : a.user);
+        const ownerId =
+            sourceOwnerById?.get(a.metadata?.importedFrom as string) ??
+            (typeof a.user === 'object' && a.user ? a.user.id : a.user);
         const proposed = proposedMap.get(a.id);
         return {
             ...wrap(a).toJSON(),
