@@ -102,7 +102,7 @@ function getStableRangeValue(range: ProgressRange, seed: string): number {
     return Math.round(min + getHashRatio(seed) * (max - min));
 }
 
-function getApprovalWorkSize({ contentLength, documentType }: ApprovalWorkInput): number {
+function _getApprovalWorkSize({ contentLength, documentType }: ApprovalWorkInput): number {
     const measuredLength = contentLength > 0 ? contentLength : 0;
     const typeEstimate = documentType ? DOCUMENT_CHAR_ESTIMATES[documentType] : DEFAULT_CONTENT_LENGTH;
     return clamp(Math.max(measuredLength, typeEstimate), 1000, 60_000);

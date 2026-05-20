@@ -1,0 +1,52 @@
+name: Deploy Dexp
+
+on:
+  push:
+    branches:
+      - dexp
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-dexp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/init
+        with:
+          clone-token: ${{ secrets.CLONE_TOKEN }}
+
+      - name: Compile ORM
+        run: pnpm run db:compile
+        env:
+          DATABASE_URL: ${{ secrets.NEON_MAIN_DATABASE_URL }}
+          DATABASE_URL_DIRECT: ${{ secrets.NEON_MAIN_DATABASE_URL_DIRECT }}
+
+      - name: Run migrations
+        run: pnpm run db:migration:up
+        env:
+          DATABASE_URL: ${{ secrets.NEON_MAIN_DATABASE_URL }}
+          DATABASE_URL_DIRECT: ${{ secrets.NEON_MAIN_DATABASE_URL_DIRECT }}
+
+      - name: Deploy dexp workers
+        run: |
+          failed=0
+          for dir in workers/*/; do
+            name=$(basename "$dir")
+            [[ "$name" == _common || "$name" == node_modules ]] && continue
+            [[ ! -f "$dir/wrangler.jsonc" ]] && continue
+            echo "::group::Deploying $name"
+            if ! npx wrangler deploy --env=dexp --config "$dir/wrangler.jsonc"; then
+              echo "::error::Failed to deploy $name"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

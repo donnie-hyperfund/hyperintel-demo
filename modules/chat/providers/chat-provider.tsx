@@ -2,7 +2,6 @@
 
 import { useAuth } from '@clerk/nextjs';
 import camelcaseKeys from 'camelcase-keys';
-import { useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_serialize, useSWRConfig } from 'swr';
 import { v4 as uuidv4 } from 'uuid';
@@ -10,8 +9,8 @@ import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import { type ApiClient, createApiClient } from '@/lib/api/client';
 import { insertChatToCache } from '@/lib/api/client/cache/chats';
 import { chatKeys } from '@/lib/api/client/fetchers/chats';
-import { serializeProjectArtifactListKey } from '@/lib/api/client/fetchers/project-artifacts';
 import { projectKeys } from '@/lib/api/client/fetchers/projects';
+import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { ApiClientError, type CamelCaseDto } from '@/lib/api/client/types';
 import {
     abort,
@@ -21,12 +20,14 @@ import {
     sendIntakeAction,
     summarize,
 } from '@/lib/api/requests/worker/chat';
-import type { ChatMessageDto } from '@/lib/schema/message';
-import type { PendingDecision, StreamEvent, StreamStatus } from '@/lib/schema/stream';
+import type { ChatDto, ChatMessageDto } from '@/lib/schema/message';
+import type { PendingDecision, StreamEvent, StreamStatus, TokenUsage } from '@/lib/schema/stream';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
-import { getDraftBaseKey } from '@/lib/storage/storage-keys';
+import { draftKey } from '@/lib/storage/storage-keys';
+import { useArtifactRevalidator } from '@/modules/artifacts/hooks/use-artifact-revalidator';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactStreamMonitor } from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
 import { getLatestArtifactVersion } from '@/modules/artifacts/utils';
 import { intakeConfigMap } from '@/modules/chat/constants';
 import { useActivePanelContext } from '@/modules/chat/providers/active-panel-provider';
@@ -83,12 +84,16 @@ export type BaseChatContextValue = {
     stopGeneration: () => void;
     /** Set the current chat ID */
     setChatId: (chatId: string | null) => void;
+    /** Open an existing chat from a routed chat ID */
+    openChat: (chatId: string) => Promise<void>;
+    /** Reset provider state for the routed new-chat page */
+    startNewChat: () => void;
+    /** Seed metadata fields from a server-fetched chat — bridges the gap before openChat resolves. */
+    seedChatState: (chatId: string, chat: SeedableChatData) => void;
     /** Summarize the current chat and prepare the new phase */
     summarizeChat: () => void;
     /** Cancel an in-progress summarization */
     cancelSummary: () => void;
-    /** Navigate to the new phase chat (after summarization completes) */
-    navigateToNewPhase: () => void;
     /** Set hasPendingChanges to false (call after approve/reject) */
     clearPendingChanges: () => void;
     /** Clear the pending phase transition flag (called after dialog handles it) */
@@ -111,8 +116,6 @@ export type BaseChatContextValue = {
     sendForceBrief: () => Promise<void>;
     /** Dismiss the hard-stop modal */
     dismissHardStopModal: () => void;
-    /** Navigate to the already-existing next phase chat (from hard-stop modal) */
-    navigateToExistingNextChat: () => void;
     /** Lazily create the chat if it doesn't exist yet, returns the chatId */
     ensureChatId: () => Promise<string>;
     /** Pending `request_user_decision` cards awaiting the user's click. */
@@ -154,9 +157,11 @@ type ChatProviderProps = {
     initialChatId?: string;
     /** Initial messages to display */
     initialMessages?: Message[];
-    /** Optional route builder used after creating a new chat */
-    chatRouteBuilder?: (chatId: string) => string;
+    /** Boundary callback used after creating a chat so routing stays outside provider state. */
+    onChatCreated?: (chatId: string) => void;
 };
+
+type StreamSubscribeStatus = 'idle' | 'streaming' | 'stale';
 
 function buildContextValue(
     chatType: ChatType,
@@ -178,6 +183,63 @@ function createUserMessage(content: string): Message {
     };
 }
 
+type InitialChatStateOptions = {
+    initialMessages?: Message[];
+    cached?: Partial<CamelCaseDto<ChatDto>>;
+    isLoading?: boolean;
+};
+
+export type SeedableChatData = {
+    name?: string | null;
+    phaseIndex?: number;
+    tokenUsage?: TokenUsage | null;
+    totalCost?: number | null;
+    hasPendingChanges?: boolean;
+    completionBriefStatus?: string | null;
+};
+
+function createInitialPagination(): PaginationState {
+    return {
+        page: 1,
+        totalPages: 1,
+        isLoadingMore: false,
+        hasMore: false,
+    };
+}
+
+function createInitialChatState({
+    initialMessages = [],
+    cached,
+    isLoading = false,
+}: InitialChatStateOptions = {}): ChatState {
+    return {
+        messages: initialMessages,
+        isGenerating: false,
+        isSummarizing: false,
+        isLoading,
+        error: null,
+        streamingMessageId: null,
+        tokenUsage: cached?.tokenUsage ?? null,
+        totalCost: cached?.totalCost ?? null,
+        hasPendingChanges: cached?.hasPendingChanges ?? false,
+        phaseIndex: cached?.phaseIndex ?? null,
+        phaseName: cached?.name ?? null,
+        summaryNewChatId: null,
+        pendingPhaseTransition: false,
+        activeResponseId: null,
+        summaryStatus: null,
+        isProcessingArtifactAction: false,
+        showInvalidModelAlert: false,
+        completionBriefStatus: cached?.completionBriefStatus ?? null,
+        showContextLimitAlert: false,
+        showContextWarningModal: false,
+        hardStopModalState: 'closed',
+        hardStopExistingNextChatId: null,
+        hardStopError: null,
+        contextOverflow: null,
+    };
+}
+
 type ArtifactVersionEventPayload = {
     artifactId?: string;
     artifactName?: string;
@@ -196,34 +258,39 @@ export function ChatProvider({
     chatType,
     initialChatId,
     initialMessages = [],
-    chatRouteBuilder,
+    onChatCreated,
 }: ChatProviderProps) {
     const artifactContext = useArtifactActions();
+    const streamMonitor = useArtifactStreamMonitor();
+    const revalidateArtifact = useArtifactRevalidator();
     const { hasPendingNudge, clearPendingNudge } = useArtifactProcessing();
 
-    const { openPanel, closePanel, panelState } = useActivePanelContext();
+    const { pushPanel, closePanel, panelState } = useActivePanelContext();
     const panelStateRef = useRef(panelState);
     panelStateRef.current = panelState;
     const { getToken } = useAuth();
     const { isProjectFlow, handleApprovedArtifact } = useOptionalProjectOrigin();
 
     const { mutate: globalMutate, cache, fallback } = useSWRConfig();
-    const router = useRouter();
     const chatCreationPromiseRef = useRef<Promise<string> | null>(null);
 
     // Create API client with auth
     const api = useMemo(() => createApiClient(getToken), [getToken]);
+    const { data: project } = useFetchProject(chatType === 'phase' ? projectId : undefined);
 
     // Chat ID state
     const [chatId, setChatId] = useState<string | null>(initialChatId ?? null);
+    const chatIdRef = useRef<string | null>(initialChatId ?? null);
+    useEffect(() => {
+        chatIdRef.current = chatId;
+    }, [chatId]);
+
     const { selectedModel, setSelectedModel, persistSelection, isModelAvailable, setIsChangingModel } =
         useModelSelection();
     const skipNextLoad = useRef(false);
 
-    // Track latest chat_name in a ref so analytics capture always sees the
-    // freshest value without invalidating callbacks that use captureChatAnalytics.
-    // Used by the "deploy safety" PostHog dashboard to show what an in-flight
-    // user is currently working on without needing to deep-link into the app.
+    // Mirrors state.phaseName so captureChatAnalytics doesn't need it as a dep — keeps the
+    // PostHog "deploy safety" dashboard accurate without invalidating downstream callbacks.
     const chatNameRef = useRef<string | null>(null);
 
     const captureChatAnalytics = useCallback(
@@ -244,72 +311,31 @@ export function ChatProvider({
     const [state, setState] = useState<ChatState>(() => {
         const cached = initialChatId ? fallback?.[unstable_serialize(chatKeys.detail(initialChatId))] : undefined;
 
-        return {
-            messages: initialMessages,
-            isGenerating: false,
-            isSummarizing: false,
+        return createInitialChatState({
+            initialMessages,
+            cached: cached as Partial<CamelCaseDto<ChatDto>> | undefined,
             isLoading: !!initialChatId,
-            error: null,
-            streamingMessageId: null,
-            tokenUsage: cached?.tokenUsage ?? null,
-            totalCost: cached?.totalCost ?? null,
-            hasPendingChanges: cached?.hasPendingChanges ?? false,
-            phaseIndex: cached?.phaseIndex ?? null,
-            phaseName: cached?.name ?? null,
-            summaryNewChatId: null,
-            pendingPhaseTransition: false,
-            activeResponseId: null,
-            summaryStatus: null,
-            isProcessingArtifactAction: false,
-            showInvalidModelAlert: false,
-            completionBriefStatus: cached?.completionBriefStatus ?? null,
-            showContextLimitAlert: false,
-            showContextWarningModal: false,
-            hardStopModalState: 'closed',
-            hardStopExistingNextChatId: null,
-            hardStopError: null,
-            contextOverflow: null,
-        };
+        });
     });
 
-    // Mirror state.phaseName into the analytics ref so capture sees fresh value.
-    chatNameRef.current = state.phaseName;
-
-    const buildChatRoute = useCallback(
-        (nextChatId: string) => {
-            if (chatRouteBuilder) {
-                return chatRouteBuilder(nextChatId);
-            }
-
-            if (chatType === 'phase') {
-                if (!projectId) throw new Error('Project ID is required for phase chats');
-                return `/${projectId}/${nextChatId}`;
-            }
-
-            return `/${chatType === 'company' ? 'companies' : 'stakeholders'}/${nextChatId}`;
-        },
-        [chatRouteBuilder, chatType, projectId],
-    );
+    useEffect(() => {
+        chatNameRef.current = state.phaseName;
+    }, [state.phaseName]);
 
     // Pagination state for infinite scroll
-    const [pagination, setPagination] = useState<PaginationState>({
-        page: 1,
-        totalPages: 1,
-        isLoadingMore: false,
-        hasMore: false,
-    });
+    const [pagination, setPagination] = useState<PaginationState>(() => createInitialPagination());
 
     // Forward ref for reconnect handler (loadMessages is defined later)
     const loadMessagesRef = useRef<() => void>(() => {});
+    const loadedChatIdRef = useRef<string | null>(null);
+    const streamSubscribeStatusRef = useRef<{ chatId: string; status: StreamSubscribeStatus } | null>(null);
 
-    // NOTE: When ensureChatId creates a chat, chatId changes from null → id,
-    // which flips isEmpty in ChatPanel and remounts ChatMessageForm.
-    // migrateDraft bridges the localStorage draft to the new chatId-scoped key
-    // so the remounted form picks it up via useChatDraft.
+    // When ensureChatId creates a chat, the draft moves from the new-chat
+    // session key to the created-chat key before route state changes.
     const migrateDraft = useCallback(
         (nextChatId: string) => {
-            const oldKey = getDraftBaseKey(chatType, null, projectId);
-            const newKey = getDraftBaseKey(chatType, nextChatId, projectId);
+            const oldKey = draftKey({ kind: 'chat-input', chatType, projectId });
+            const newKey = draftKey({ kind: 'chat-input', chatType, projectId, chatId: nextChatId });
             const draft = safeGetItem(oldKey);
             if (draft) {
                 safeSetItem(newKey, draft);
@@ -334,11 +360,12 @@ export function ChatProvider({
 
                 skipNextLoad.current = true;
                 migrateDraft(nextChatId);
+                chatIdRef.current = nextChatId;
                 setChatId(nextChatId);
-                setState((prev) => ({ ...prev, phaseIndex: newChat.phaseIndex }));
+                setState((prev) => ({ ...prev, phaseIndex: newChat.phaseIndex, phaseName: newChat.name ?? null }));
 
-                window.history.replaceState(null, '', buildChatRoute(nextChatId));
                 insertChatToCache(cache, globalMutate, projectId, newChat);
+                onChatCreated?.(nextChatId);
 
                 return nextChatId;
             }
@@ -351,8 +378,9 @@ export function ChatProvider({
 
             skipNextLoad.current = true;
             migrateDraft(nextChatId);
+            chatIdRef.current = nextChatId;
             setChatId(nextChatId);
-            window.history.replaceState(null, '', buildChatRoute(nextChatId));
+            onChatCreated?.(nextChatId);
 
             return nextChatId;
         })();
@@ -364,42 +392,38 @@ export function ChatProvider({
         } finally {
             chatCreationPromiseRef.current = null;
         }
-    }, [api.chats, buildChatRoute, cache, chatId, chatType, globalMutate, migrateDraft, projectId]);
+    }, [api.chats, cache, chatId, chatType, globalMutate, migrateDraft, onChatCreated, projectId]);
 
     // ========================================================================
     // CALLBACKS FOR STREAM HOOK
     // ========================================================================
 
     const revalidateArtifactByKeyAndVersion = useCallback(
-        async (keyId: string, version: number) => {
-            if (projectId) {
-                globalMutate(serializeProjectArtifactListKey(projectId));
-            }
-
-            const fetcher = projectId
-                ? (v: number) => api.projectArtifacts.getByKey(projectId, keyId, v)
-                : (v: number) => api.artifacts.getByKey(keyId, v);
-
+        async ({ artifactId, artifactKey, version }: { artifactId?: string; artifactKey: string; version: number }) => {
             try {
-                const allVersions = Array.from({ length: version }, (_, i) => version - i);
-                const results = await Promise.all(allVersions.map((v) => fetcher(v).catch(() => null)));
-
-                for (const data of results) {
-                    if (data) {
-                        artifactContext.updateArtifact(
-                            keyId,
-                            { ...data, id: keyId, key: data.key || keyId },
-                            getLatestArtifactVersion(data)?.version,
-                            { merge: false },
-                        );
-                    }
-                }
+                await revalidateArtifact({ artifactId, artifactKey, version, projectId });
             } catch {
                 // SWR revalidation will still keep the list up to date
             }
         },
-        [globalMutate, projectId, artifactContext, api.projectArtifacts, api.artifacts],
+        [projectId, revalidateArtifact],
     );
+
+    useEffect(() => {
+        if (panelState?.panel !== 'artifact-preview') {
+            streamMonitor.setViewedArtifact(null);
+            return;
+        }
+        streamMonitor.setViewedArtifact({
+            projectId: projectId ?? null,
+            artifactId: panelState.artifactId,
+            version: panelState.version,
+        });
+    }, [streamMonitor, projectId, panelState]);
+
+    useEffect(() => {
+        return () => streamMonitor.setViewedArtifact(null);
+    }, [streamMonitor]);
 
     const onDocumentStart = useCallback(() => {
         setState((prev) => ({ ...prev, hasPendingChanges: true }));
@@ -441,11 +465,11 @@ export function ChatProvider({
     }, []);
 
     const handleArtifactOpen = useCallback(
-        (artifactId: string, version: number) => {
+        ({ artifactId, artifactKey, version }: { artifactId: string; artifactKey: string; version: number }) => {
             if (state.isSummarizing) return;
-            openPanel({ panel: 'artifact-preview', artifactId, version });
+            pushPanel({ panel: 'artifact-preview', artifactId, artifactKey, version }, { reset: true });
         },
-        [openPanel, state.isSummarizing],
+        [pushPanel, state.isSummarizing],
     );
 
     const fetchArtifact = useCallback(
@@ -458,8 +482,8 @@ export function ChatProvider({
                     artifactContext.addArtifact(
                         {
                             ...artifact,
-                            id: artifactKey,
-                            key: artifact.key,
+                            id: artifact.id,
+                            key: artifact.key || artifactKey,
                         },
                         version,
                     );
@@ -723,6 +747,13 @@ export function ChatProvider({
         onArtifactOpen: handleArtifactOpen,
         fetchArtifact,
         revalidateArtifact: revalidateArtifactByKeyAndVersion,
+        streamLocation: {
+            chatType,
+            projectId,
+            projectName: project?.name ?? null,
+            phaseName: state.phaseName,
+            phaseIndex: state.phaseIndex,
+        },
         onStreamStarted: handleStreamStarted,
         onTerminalTool,
         onMessageCreated: handleMessageCreated,
@@ -731,23 +762,42 @@ export function ChatProvider({
         // when the initial WS subscribe_response confirms no active stream.
         // Also sync selectedModel from the subscribe response.
         onSubscribeResponse: (
-            status: 'idle' | 'streaming' | 'stale',
+            status: StreamSubscribeStatus,
             selectedModel: string | null,
             completionBriefStatus: string | null,
         ) => {
+            if (chatId) {
+                streamSubscribeStatusRef.current = { chatId, status };
+            }
             if (selectedModel) {
                 setSelectedModel(selectedModel);
             }
             setState((prev) => {
                 const next = { ...prev, completionBriefStatus };
-                if (status === 'idle' && !sendInFlightRef.current && (prev.isGenerating || prev.isSummarizing)) {
+                const hasStreamingMessages = prev.messages.some((message) => message.isStreaming);
+                if (
+                    status === 'idle' &&
+                    !sendInFlightRef.current &&
+                    (prev.isGenerating || prev.isSummarizing || prev.activeResponseId || hasStreamingMessages)
+                ) {
                     summarizeInFlightRef.current = false;
                     next.isGenerating = false;
                     next.isSummarizing = false;
                     next.activeResponseId = null;
+                    if (hasStreamingMessages) {
+                        next.messages = prev.messages.map((message) =>
+                            message.isStreaming ? { ...message, isStreaming: false, status: undefined } : message,
+                        );
+                    }
                 }
                 return next;
             });
+            if (status === 'idle' && chatId) {
+                const cleared = artifactContext.clearStaleStreamingForChat(chatId);
+                for (const { artifactId, artifactKey, version } of cleared) {
+                    void revalidateArtifactByKeyAndVersion({ artifactId, artifactKey, version });
+                }
+            }
         },
         onModelChanged: (model: string) => {
             setSelectedModel(model);
@@ -767,13 +817,9 @@ export function ChatProvider({
         (payload: ArtifactVersionEventPayload): string | null => {
             if (!payload.artifactId) return null;
 
-            for (const [storedKey, versions] of Object.entries(artifactContext.getStore())) {
-                for (const artifact of Object.values(versions)) {
-                    if (artifact.id === payload.artifactId) {
-                        return artifact.key || storedKey;
-                    }
-                }
-            }
+            const versions = artifactContext.getStore()[payload.artifactId];
+            const artifact = versions ? Object.values(versions)[0] : undefined;
+            if (artifact?.key) return artifact.key;
 
             return null;
         },
@@ -794,12 +840,12 @@ export function ChatProvider({
 
             const nextArtifact = {
                 ...artifactFromApi,
-                id: artifactKey,
+                id: artifactFromApi.id,
                 key: artifactKey,
             };
 
-            if (artifactContext.getArtifact(artifactKey, version)) {
-                artifactContext.updateArtifact(artifactKey, nextArtifact, version, { merge: false });
+            if (artifactContext.getArtifact(artifactFromApi.id, version)) {
+                artifactContext.updateArtifact(artifactFromApi.id, nextArtifact, version, { merge: false });
             } else {
                 artifactContext.addArtifact(nextArtifact, version);
             }
@@ -840,9 +886,9 @@ export function ChatProvider({
                 const requestedVersion = typeof eventPayload.version === 'number' ? eventPayload.version : undefined;
 
                 if (eventType === 'artifact_version_update_started') {
-                    if (!artifactKey || requestedVersion === undefined) return;
-                    if (!artifactContext.getArtifact(artifactKey, requestedVersion)) return;
-                    artifactContext.updateArtifact(artifactKey, { isUpdating: true }, requestedVersion);
+                    if (!eventPayload.artifactId || requestedVersion === undefined) return;
+                    if (!artifactContext.getArtifact(eventPayload.artifactId, requestedVersion)) return;
+                    artifactContext.updateArtifact(eventPayload.artifactId, { isUpdating: true }, requestedVersion);
                     return;
                 }
 
@@ -854,8 +900,12 @@ export function ChatProvider({
                     void sync
                         .then((artifact) => upsertSyncedArtifact(artifact, artifactKey, requestedVersion))
                         .catch(() => {
-                            if (requestedVersion !== undefined) {
-                                artifactContext.updateArtifact(artifactKey, { isUpdating: false }, requestedVersion);
+                            if (eventPayload.artifactId && requestedVersion !== undefined) {
+                                artifactContext.updateArtifact(
+                                    eventPayload.artifactId,
+                                    { isUpdating: false },
+                                    requestedVersion,
+                                );
                             }
                         });
                     return;
@@ -884,12 +934,12 @@ export function ChatProvider({
     );
 
     const cleanupTransientArtifacts = useCallback(
-        (docs: Array<{ name: string; pendingVersion: number }>) => {
+        (docs: Array<{ artifactId: string; name: string; pendingVersion: number }>) => {
             if (docs.length === 0) return;
 
-            const transientVersions = new Set(docs.map((d) => `${d.name}:${d.pendingVersion}`));
+            const transientVersions = new Set(docs.map((doc) => `${doc.artifactId}:${doc.pendingVersion}`));
             for (const doc of docs) {
-                artifactContext.removeArtifact(doc.name, doc.pendingVersion);
+                artifactContext.removeArtifact(doc.artifactId, doc.pendingVersion);
             }
 
             const currentPanel = panelStateRef.current;
@@ -931,7 +981,11 @@ export function ChatProvider({
             setState((prev) => {
                 const msgId = s.agentMessageId!;
                 const existing = prev.messages.find((m) => m.id === msgId);
-                const hasErrorState = s.status === 'error' || !!s.error || !!existing?.isError;
+                const suppressGenericError =
+                    s.status === 'done' &&
+                    shouldTreatStreamErrorAsContextLimit(existing?.metadata, prev.contextOverflow);
+                const hasErrorState =
+                    !suppressGenericError && (s.status === 'error' || !!s.error || !!existing?.isError);
                 const streamMsg: Message = {
                     id: msgId,
                     role: 'assistant',
@@ -1020,99 +1074,157 @@ export function ChatProvider({
 
     // (mapApiMessage was moved above handleStreamStarted)
 
-    /** Load messages from API for the current chat (initial load - gets newest messages) */
-    const loadMessages = useCallback(async () => {
-        if (!chatId) return;
+    /** Load messages from API for a chat (initial load - gets newest messages) */
+    const loadMessagesForChat = useCallback(
+        async (targetChatId: string) => {
+            if (!targetChatId) return;
 
-        // Skip reload if we just created this chat
-        if (skipNextLoad.current) {
-            skipNextLoad.current = false;
-            return;
-        }
-
-        setState((prev) => ({ ...prev, isLoading: true }));
-
-        try {
-            const [messagesData, chatData] = await Promise.all([
-                api.messages.list(chatId, { page: 1 }),
-                api.chats.get(chatId),
-            ]);
-            // API returns DESC order (newest first), reverse for display (newest at bottom)
-            const apiMessages: Message[] =
-                messagesData.data?.map((m) => mapApiMessage(m, chatData.activeAgentMessageId)) || [];
-
-            // Sync model selection — DB is source of truth for existing chats
-            if (chatData.selectedModel) {
-                setSelectedModel(chatData.selectedModel);
+            // Skip reload if we just created this chat
+            if (skipNextLoad.current) {
+                skipNextLoad.current = false;
+                loadedChatIdRef.current = targetChatId;
+                return;
             }
 
-            setState((prev) => {
-                const apiMessagesReversed = apiMessages.reverse();
+            setState((prev) => ({ ...prev, isLoading: true }));
 
-                // Preserve the active streaming bubble if it hasn't hit the DB yet
-                // so it doesn't blink out of existence during the HTTP load
-                const streamingMsg = prev.messages.find((m) => m.isStreaming);
-                if (streamingMsg && !apiMessagesReversed.some((m) => m.id === streamingMsg.id)) {
-                    apiMessagesReversed.push(streamingMsg);
+            try {
+                const [messagesData, chatData] = await Promise.all([
+                    api.messages.list(targetChatId, { page: 1 }),
+                    api.chats.get(targetChatId),
+                ]);
+                if (chatIdRef.current !== targetChatId) return;
+
+                const subscribeStatus = streamSubscribeStatusRef.current;
+                const subscribeConfirmedIdle =
+                    subscribeStatus?.chatId === targetChatId && subscribeStatus.status === 'idle';
+                const activeAgentMessageId = subscribeConfirmedIdle ? null : chatData.activeAgentMessageId;
+
+                // API returns DESC order (newest first), reverse for display (newest at bottom)
+                const apiMessages: Message[] =
+                    messagesData.data?.map((message) => mapApiMessage(message, activeAgentMessageId)) || [];
+
+                // Sync model selection — DB is source of truth for existing chats
+                if (chatData.selectedModel) {
+                    setSelectedModel(chatData.selectedModel);
                 }
 
-                // Don't set isGenerating if we already know this is a summary stream
-                // (active_agent_message_id is set for both chat and summary streams in DB)
-                const hasActiveStream = !!chatData.activeAgentMessageId;
+                setState((prev) => {
+                    const apiMessagesReversed = apiMessages.reverse();
 
-                const transitionMarker = chatData.metadata?.contextLimitTransition as
-                    | { status: string; message?: string }
-                    | undefined;
-                let hardStopModalState = prev.hardStopModalState;
-                let hardStopError = prev.hardStopError;
-                if (transitionMarker) {
-                    if (transitionMarker.status === 'failed') {
-                        hardStopModalState = 'idle';
-                        hardStopError = transitionMarker.message ?? 'Operation failed';
-                    } else {
-                        hardStopModalState = 'forcing';
-                        hardStopError = null;
+                    // Preserve the active streaming bubble if it hasn't hit the DB yet
+                    // so it doesn't blink out of existence during the HTTP load
+                    const streamingMsg = activeAgentMessageId ? prev.messages.find((m) => m.isStreaming) : undefined;
+                    if (streamingMsg && !apiMessagesReversed.some((m) => m.id === streamingMsg.id)) {
+                        apiMessagesReversed.push(streamingMsg);
                     }
-                }
 
-                return {
-                    ...prev,
-                    messages: apiMessagesReversed,
-                    isLoading: false,
-                    isGenerating: prev.isSummarizing ? false : hasActiveStream,
-                    activeResponseId: prev.isSummarizing ? null : (chatData.activeAgentMessageId ?? null),
-                    tokenUsage: chatData.tokenUsage ?? null,
-                    totalCost: chatData.totalCost != null ? Number(chatData.totalCost) : null,
-                    hasPendingChanges: chatData.hasPendingChanges ?? false,
-                    phaseIndex: chatData.phaseIndex,
-                    completionBriefStatus: chatData.completionBriefStatus ?? null,
-                    contextOverflow: (chatData.metadata?.contextOverflow as 'soft' | 'hard') ?? null,
-                    hardStopModalState,
-                    hardStopError,
-                };
-            });
-            setPagination({
-                page: messagesData.pagination.page,
-                totalPages: messagesData.pagination.totalPages,
-                isLoadingMore: false,
-                hasMore: messagesData.pagination.page < messagesData.pagination.totalPages,
-            });
-        } catch (error) {
-            console.error('Error loading messages:', error);
-            setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
-        }
-    }, [api, chatId, mapApiMessage, setSelectedModel]);
+                    // Don't set isGenerating if we already know this is a summary stream
+                    // (active_agent_message_id is set for both chat and summary streams in DB)
+                    const hasActiveStream = !!activeAgentMessageId;
+
+                    const transitionMarker = chatData.metadata?.contextLimitTransition as
+                        | { status: string; message?: string }
+                        | undefined;
+                    let hardStopModalState = prev.hardStopModalState;
+                    let hardStopError = prev.hardStopError;
+                    if (transitionMarker) {
+                        if (transitionMarker.status === 'failed') {
+                            hardStopModalState = 'idle';
+                            hardStopError = transitionMarker.message ?? 'Operation failed';
+                        } else {
+                            hardStopModalState = 'forcing';
+                            hardStopError = null;
+                        }
+                    }
+
+                    return {
+                        ...prev,
+                        messages: apiMessagesReversed,
+                        isLoading: false,
+                        isGenerating: prev.isSummarizing ? false : hasActiveStream,
+                        activeResponseId: prev.isSummarizing ? null : (activeAgentMessageId ?? null),
+                        tokenUsage: chatData.tokenUsage ?? null,
+                        totalCost: chatData.totalCost != null ? Number(chatData.totalCost) : null,
+                        hasPendingChanges: chatData.hasPendingChanges ?? false,
+                        phaseIndex: chatData.phaseIndex,
+                        phaseName: chatData.name ?? null,
+                        completionBriefStatus: chatData.completionBriefStatus ?? null,
+                        contextOverflow: (chatData.metadata?.contextOverflow as 'soft' | 'hard') ?? null,
+                        hardStopModalState,
+                        hardStopError,
+                    };
+                });
+                setPagination({
+                    page: messagesData.pagination.page,
+                    totalPages: messagesData.pagination.totalPages,
+                    isLoadingMore: false,
+                    hasMore: messagesData.pagination.page < messagesData.pagination.totalPages,
+                });
+                loadedChatIdRef.current = targetChatId;
+            } catch (error) {
+                if (chatIdRef.current !== targetChatId) return;
+                console.error('Error loading messages:', error);
+                setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
+            }
+        },
+        [api, mapApiMessage, setSelectedModel],
+    );
+
+    /** Load messages from API for the current chat. */
+    const loadMessages = useCallback(async () => {
+        if (!chatId) return;
+        await loadMessagesForChat(chatId);
+    }, [chatId, loadMessagesForChat]);
+
+    const openChat = useCallback(
+        async (nextChatId: string) => {
+            if (nextChatId === chatIdRef.current && loadedChatIdRef.current === nextChatId) return;
+
+            if (nextChatId !== chatIdRef.current) {
+                streamSubscribeStatusRef.current = null;
+                chatIdRef.current = nextChatId;
+                setChatId(nextChatId);
+                setPagination(createInitialPagination());
+                setState((prev) => ({
+                    ...createInitialChatState({ isLoading: true }),
+                    phaseIndex: prev.phaseIndex,
+                    phaseName: prev.phaseName,
+                    tokenUsage: prev.tokenUsage,
+                    totalCost: prev.totalCost,
+                }));
+            }
+            await loadMessagesForChat(nextChatId);
+        },
+        [loadMessagesForChat],
+    );
+
+    const startNewChat = useCallback(() => {
+        skipNextLoad.current = false;
+        chatCreationPromiseRef.current = null;
+        loadedChatIdRef.current = null;
+        streamSubscribeStatusRef.current = null;
+        chatIdRef.current = null;
+        setChatId(null);
+        setPagination(createInitialPagination());
+        setState(createInitialChatState());
+    }, []);
+
+    const seedChatState = useCallback((seedChatId: string, chat: SeedableChatData) => {
+        if (loadedChatIdRef.current === seedChatId) return;
+        setState((prev) => ({
+            ...prev,
+            phaseIndex: chat.phaseIndex ?? prev.phaseIndex,
+            phaseName: chat.name ?? prev.phaseName,
+            tokenUsage: chat.tokenUsage ?? prev.tokenUsage,
+            totalCost: chat.totalCost ?? prev.totalCost,
+            hasPendingChanges: chat.hasPendingChanges ?? prev.hasPendingChanges,
+            completionBriefStatus: chat.completionBriefStatus ?? prev.completionBriefStatus,
+        }));
+    }, []);
 
     // Keep reconnect ref in sync with loadMessages
     loadMessagesRef.current = loadMessages;
-
-    // Auto-load messages when an initial chat ID is provided
-    useEffect(() => {
-        if (initialChatId) {
-            loadMessages();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [initialChatId]);
 
     /** Load more (older) messages for infinite scroll */
     const loadMoreMessages = useCallback(async () => {
@@ -1292,11 +1404,12 @@ export function ChatProvider({
                 const result = await response.json();
 
                 // Reconcile client-side user message ID with server-assigned ID
-                if (result.userMessageId) {
+                const userMessageId = 'userMessageId' in result ? result.userMessageId : undefined;
+                if (userMessageId) {
                     setState((prev) => ({
                         ...prev,
                         messages: prev.messages.map((m) =>
-                            m.id === userMessage.id ? { ...m, id: result.userMessageId, tempId: m.tempId || m.id } : m,
+                            m.id === userMessage.id ? { ...m, id: userMessageId, tempId: m.tempId || m.id } : m,
                         ),
                     }));
                 }
@@ -1364,7 +1477,7 @@ export function ChatProvider({
             // If the backend skipped the nudge (no pending system event to respond to),
             // reset isGenerating — no SSE stream will fire to reset it otherwise.
             const body = await response.json().catch(() => null);
-            if (body?.nudge === 'skipped') {
+            if (body && 'nudge' in body && body.nudge === 'skipped') {
                 setState((prev) => ({ ...prev, isGenerating: false }));
             }
         } catch (error) {
@@ -1466,12 +1579,6 @@ export function ChatProvider({
         }
     }, [chatId, state.isSummarizing, stream, cleanupTransientArtifacts, getToken]);
 
-    /** Navigate to the new phase chat after summarization */
-    const navigateToNewPhase = useCallback(() => {
-        if (!state.summaryNewChatId) return;
-        router.push(`/${projectId}/${state.summaryNewChatId}`);
-    }, [projectId, router, state.summaryNewChatId]);
-
     // ========================================================================
     // STOP GENERATION
     // ========================================================================
@@ -1518,7 +1625,8 @@ export function ChatProvider({
                 await api.chats.updateModel(chatId, presetId);
                 // Backend propagated to project — keep SWR cache in sync for next new-chat init
                 if (projectId) {
-                    globalMutate(
+                    // TODO void correct?
+                    void globalMutate(
                         projectKeys.detail(projectId),
                         (prev: Record<string, unknown> | undefined) =>
                             prev ? { ...prev, preferredModel: presetId } : prev,
@@ -1555,18 +1663,6 @@ export function ChatProvider({
             hardStopError: null,
         }));
     }, []);
-
-    const navigateToExistingNextChat = useCallback(() => {
-        if (!state.hardStopExistingNextChatId) return;
-        const nextId = state.hardStopExistingNextChatId;
-        setState((prev) => ({
-            ...prev,
-            hardStopModalState: 'closed',
-            hardStopExistingNextChatId: null,
-            hardStopError: null,
-        }));
-        router.push(`/${projectId}/${nextId}`);
-    }, [projectId, router, state.hardStopExistingNextChatId]);
 
     const forceBriefInFlightRef = useRef(false);
 
@@ -1628,9 +1724,11 @@ export function ChatProvider({
                 sendNudge,
                 stopGeneration,
                 setChatId,
+                openChat,
+                startNewChat,
+                seedChatState,
                 summarizeChat,
                 cancelSummary,
-                navigateToNewPhase,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
                 requestPhaseTransition,
@@ -1642,7 +1740,6 @@ export function ChatProvider({
                 dismissContextWarningModal,
                 sendForceBrief,
                 dismissHardStopModal,
-                navigateToExistingNextChat,
                 ensureChatId,
                 pendingDecisions: stream.pendingDecisions,
                 submittingDecisions: stream.submittingDecisions,

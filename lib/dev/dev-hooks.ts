@@ -1,4 +1,4 @@
-import { setDevHookEmitter, type DevHookEvents } from '@/lib/dev-hooks-stub';
+import { type DevHookEvents, setDevHookEmitter } from '@/lib/dev-hooks-stub';
 
 // ============================================================================
 // TYPED EVENT BUS — real implementation, only exists inside lib/dev/

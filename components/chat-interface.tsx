@@ -4,6 +4,7 @@ import { Code, FileCode, Layers, Loader2, MessageSquare } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { typedFetch } from '@/lib/api/client/fetch';
 import { cn } from '@/lib/utils';
 
 type Message = {
@@ -104,7 +105,7 @@ export default function ChatInterface() {
         // Simulate AI responses for both panels
         try {
             const responses = await Promise.all([
-                fetch('/api/chat', {
+                typedFetch<{ message: string }, { message: string }>('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -112,7 +113,7 @@ export default function ChatInterface() {
                         conversationId: 'left',
                     }),
                 }),
-                fetch('/api/chat', {
+                typedFetch<{ message: string }, { message: string }>('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -187,6 +188,7 @@ export default function ChatInterface() {
                                     : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
                             )}
                             title={item.label}
+                            type="button"
                         >
                             <item.icon className="w-5 h-5 flex-shrink-0" />
                             {sidebarExpanded && <span className="text-sm">{item.label}</span>}
@@ -412,7 +414,7 @@ export default function ChatInterface() {
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
-                                    handleSend();
+                                    void handleSend();
                                 }
                             }}
                             placeholder="Type your message..."

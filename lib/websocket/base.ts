@@ -1,6 +1,6 @@
+import { emitDevHook } from '@/lib/dev-hooks-stub';
 import type { ClientMessage, ServerMessage } from '@/lib/schema/ws-protocol';
 import { ClientAction } from '@/lib/schema/ws-protocol';
-import { emitDevHook } from '@/lib/dev-hooks-stub';
 
 // ============================================================================
 // TYPED EVENT EMITTER (inline — no external dependency)
@@ -176,6 +176,16 @@ export abstract class WebsocketClient {
             called = true;
             this.removeRef(sid, topic);
         };
+    }
+
+    /**
+     * Request a fresh subscribe snapshot for an already tracked topic without
+     * changing the local ref count. Useful when ownership moves between local
+     * consumers while the underlying socket subscription stays alive.
+     */
+    refreshSubscription(topic: string): void {
+        if (!this.subscriptions[topic]?.length) return;
+        this.send({ action: ClientAction.Subscribe, topic });
     }
 
     private removeRef(sid: string, topic: string): void {

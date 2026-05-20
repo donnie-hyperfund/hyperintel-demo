@@ -6,6 +6,7 @@ import {
 } from '@/lib/api/client/hooks/use-project-artifacts';
 import { useFetchProject } from '@/lib/api/client/hooks/use-projects';
 import { useArtifactProcessing } from '@/modules/artifacts/processing/artifact-processing-provider';
+import type { ApprovalAction } from '@/modules/artifacts/processing/types';
 import { useArtifactActions } from '@/modules/artifacts/providers/artifact-provider';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
 import { useOptionalProjectOrigin } from '@/modules/intake/providers/project-origin-provider';
@@ -15,10 +16,9 @@ type UseArtifactApprovalOptions = {
     artifactKey: string;
     version: number;
     artifactVersionId: string;
-    /** Label used in error toasts — e.g. "document" or "workflow item" */
     entityLabel?: string;
     disabled?: boolean;
-    onProcessingChange?: (isProcessing: boolean) => void;
+    onProcessingChange?: (action: ApprovalAction | null) => void;
 };
 
 export function useArtifactApproval({
@@ -56,7 +56,7 @@ export function useArtifactApproval({
 
     const isProcessing = isApproving || isRejecting || isLinkingToProject || disabled;
 
-    const registerProcessing = (action: 'approve' | 'reject') => {
+    const registerProcessing = (action: ApprovalAction) => {
         startProcessing({
             versionId: artifactVersionId,
             artifactId,
@@ -74,7 +74,7 @@ export function useArtifactApproval({
 
     const approve = async () => {
         try {
-            onProcessingChange?.(true);
+            onProcessingChange?.('approve');
             setProcessingArtifactAction(true);
             registerProcessing('approve');
             const updated = await approveRequest();
@@ -95,14 +95,14 @@ export function useArtifactApproval({
             failProcessing(artifactVersionId);
             toast({ title: `Failed to approve ${entityLabel}.`, variant: 'destructive' });
         } finally {
-            onProcessingChange?.(false);
+            onProcessingChange?.(null);
             setProcessingArtifactAction(false);
         }
     };
 
     const reject = async () => {
         try {
-            onProcessingChange?.(true);
+            onProcessingChange?.('reject');
             setProcessingArtifactAction(true);
             registerProcessing('reject');
             const updated = await rejectRequest('rejected');
@@ -119,7 +119,7 @@ export function useArtifactApproval({
             failProcessing(artifactVersionId);
             toast({ title: `Failed to reject ${entityLabel}.`, variant: 'destructive' });
         } finally {
-            onProcessingChange?.(false);
+            onProcessingChange?.(null);
             setProcessingArtifactAction(false);
         }
     };

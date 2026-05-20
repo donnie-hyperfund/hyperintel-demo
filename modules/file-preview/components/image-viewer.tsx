@@ -182,11 +182,13 @@ export function ImageViewer({ src, alt, viewportGap = 0 }: ImageViewerProps) {
                         draggable={false}
                         className="select-none"
                         onLoad={handleImageLoad}
-                        style={
-                            isZoomedIn
+                        style={{
+                            ...(isZoomedIn
                                 ? { width: '100%', height: '100%' }
-                                : { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }
-                        }
+                                : { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' as const }),
+                            opacity: isZoomedIn ? 1 : 0,
+                            transition: 'none',
+                        }}
                     />
                 </div>
             </div>

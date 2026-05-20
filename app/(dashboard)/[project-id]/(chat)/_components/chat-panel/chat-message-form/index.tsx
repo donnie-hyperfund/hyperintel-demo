@@ -3,6 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowUp, Loader2, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import {
@@ -20,6 +21,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { ApiClientError } from '@/lib/api/client/types';
 import { IS_DEV } from '@/lib/config';
+import { getFileExtension } from '@/lib/files';
+import { isImageExtension } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
 import { useChatDraft } from '@/modules/chat/hooks/use-chat-draft';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -28,9 +31,9 @@ import { getContextBypassForChat, setContextBypassForChat } from '@/modules/chat
 import { useFileUploadContext } from '@/modules/file-uploads/providers/file-upload-provider';
 import { ContextHardStopModal } from '../../context-hard-stop-modal';
 import { ContextWarningModal } from '../../context-warning-modal';
-import { ContextUsageIndicator } from '../context-usage-indicator';
 import { AttachFileButton } from './attach-file-button';
 import { FilePreviewItem } from './file-preview-item/file-preview-item';
+import { ImageUploadModeSelector } from './image-upload-mode-selector';
 import { type ChatMessageFormValues, chatMessageFormSchema } from './schema';
 import { SwitchModelSelector } from './switch-model-selector';
 
@@ -51,7 +54,6 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         dismissContextWarningModal,
         sendForceBrief,
         dismissHardStopModal,
-        navigateToExistingNextChat,
         requestPhaseTransition,
         state: {
             isGenerating,
@@ -69,26 +71,26 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
     } = useChatContext();
     const { selectedModel } = useModelSelection();
 
-    const {
-        files,
-        addFiles,
-        removeFile,
-        submitFiles,
-        waitForArtifactsReady,
-        isSubmitting,
-        consumeStagedArtifactIds,
-        consumeStagedImageFileIds,
-        consumeDraftArtifactIds,
-    } = useFileUploadContext();
-    const { initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
+    const { files, addFiles, removeFile, submitFiles, waitForArtifactsReady, isSubmitting, getMessageAttachments } =
+        useFileUploadContext();
+    const { draftKey, initialDraft, saveDraft, clearDraft } = useChatDraft(chatType, chatId, projectId);
     const textareaRef = useRef<AutoExpandingTextareaRef>(null);
     const bypassContextWarningRef = useRef(false);
+    const router = useRouter();
+
+    const handleHardStopNavigate = useCallback(() => {
+        if (!hardStopExistingNextChatId || !projectId) return;
+        const nextChatId = hardStopExistingNextChatId;
+        dismissHardStopModal();
+        router.push(`/${projectId}/${nextChatId}`);
+    }, [dismissHardStopModal, hardStopExistingNextChatId, projectId, router]);
 
     const {
         register,
         handleSubmit,
         reset,
         watch,
+        setValue,
         formState: { errors },
     } = useForm<ChatMessageFormValues>({
         resolver: zodResolver(chatMessageFormSchema),
@@ -98,6 +100,13 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
     });
 
     const message = watch('message');
+
+    // Sync the form value when the chat changes. Keyed on draftKey (not initialDraft value)
+    // so the effect fires on every chatId switch even when both drafts are empty strings.
+    useEffect(() => {
+        reset({ message: initialDraft });
+        textareaRef.current?.updateTextareaHeight();
+    }, [draftKey, initialDraft, reset]);
 
     // Clear draft + input when the send actually starts streaming. This is the shared
     // cleanup for the deferred path (whose remounted form instance hydrates with the
@@ -112,11 +121,11 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         prevActiveResponseIdRef.current = activeResponseId;
     }, [activeResponseId, clearDraft, reset]);
     const hasContent = message && message.trim().length > 0;
-    const hasDeferredFilesAwaitingAssociation = !chatId && files.some((f) => f.requiresAssociation);
+    const hasDeferredFilesAwaitingAssociation = !chatId && files.some((fileEntry) => fileEntry.requiresAssociation);
     const hasBlockingFiles = files.some(
-        (f) =>
-            (f.status === 'uploading' || f.status === 'processing') &&
-            !(f.status === 'processing' && !chatId && f.requiresAssociation),
+        (fileEntry) =>
+            (fileEntry.status === 'uploading' || fileEntry.status === 'processing') &&
+            !(fileEntry.status === 'processing' && !chatId && fileEntry.requiresAssociation),
     );
     const isBusy =
         isGenerating || isSummarizing || isLoading || isSubmitting || hasBlockingFiles || isProcessingArtifactAction;
@@ -132,31 +141,38 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             name: entry.name,
             size: entry.size,
             imageFileId: entry.imageFileId,
+            artifactFileId: entry.fileId,
+            artifactId: entry.artifactId,
             imageWidth: entry.imageWidth,
             imageHeight: entry.imageHeight,
         }));
 
-        const stagedArtifactIds = [
-            ...new Set(
-                files.flatMap((entry) => (entry.requiresAssociation && entry.artifactId ? [entry.artifactId] : [])),
-            ),
-        ];
-        const draftArtifactIds = [...new Set(files.flatMap((entry) => (entry.artifactId ? [entry.artifactId] : [])))];
-        const imageFileIds = [...new Set(files.flatMap((entry) => (entry.imageFileId ? [entry.imageFileId] : [])))];
+        const { artifactIds, requiresAssociationIds, imageFileIds } = getMessageAttachments();
 
         const hasStagedUploads =
-            hasDeferredFilesAwaitingAssociation && (stagedArtifactIds.length > 0 || imageFileIds.length > 0);
+            hasDeferredFilesAwaitingAssociation && (requiresAssociationIds.length > 0 || imageFileIds.length > 0);
 
         const fileDirective =
             uploadedFiles.length > 0
                 ? uploadedFiles
-                      .map((f) => {
-                          const attrs = [`size=${f.size}`];
-                          if (f.imageFileId) {
-                              attrs.push(`fileid=${f.imageFileId}`, 'type=image');
-                              if (f.imageWidth && f.imageHeight) attrs.push(`w=${f.imageWidth}`, `h=${f.imageHeight}`);
+                      .map((uploadedFile) => {
+                          const attrs = [`size=${uploadedFile.size}`];
+                          if (uploadedFile.artifactId) attrs.push(`artifactid=${uploadedFile.artifactId}`);
+                          if (uploadedFile.imageFileId) {
+                              attrs.push(`fileid=${uploadedFile.imageFileId}`, 'type=image');
+                              if (uploadedFile.imageWidth && uploadedFile.imageHeight) {
+                                  attrs.push(`w=${uploadedFile.imageWidth}`, `h=${uploadedFile.imageHeight}`);
+                              }
+                          } else if (
+                              uploadedFile.artifactFileId &&
+                              isImageExtension(`.${getFileExtension(uploadedFile.name).toLowerCase()}`)
+                          ) {
+                              attrs.push(`artifactfileid=${uploadedFile.artifactFileId}`, 'type=image');
+                              if (uploadedFile.imageWidth && uploadedFile.imageHeight) {
+                                  attrs.push(`w=${uploadedFile.imageWidth}`, `h=${uploadedFile.imageHeight}`);
+                              }
                           }
-                          return `::upload[${f.name}]{${attrs.join(' ')}}`;
+                          return `::upload[${uploadedFile.name}]{${attrs.join(' ')}}`;
                       })
                       .join('\n')
                 : '';
@@ -172,21 +188,16 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 isDeferredSend?: boolean;
                 bypassContextWarning?: boolean;
             } = {};
-
             const shouldBypass = bypassContextWarningRef.current || (chatId ? getContextBypassForChat(chatId) : false);
             bypassContextWarningRef.current = false;
             if (shouldBypass) opts.bypassContextWarning = true;
-            if (hasStagedUploads && stagedArtifactIds.length > 0) opts.stagedArtifactIds = stagedArtifactIds;
-            if (draftArtifactIds.length > 0) opts.draftArtifactIds = draftArtifactIds;
+            if (hasStagedUploads && requiresAssociationIds.length > 0) opts.stagedArtifactIds = requiresAssociationIds;
+            if (artifactIds.length > 0) opts.draftArtifactIds = artifactIds;
             if (imageFileIds.length > 0) opts.imageFileIds = imageFileIds;
-            if (hasStagedUploads && stagedArtifactIds.length > 0) {
-                opts.onUploadsAssociated = () => waitForArtifactsReady(stagedArtifactIds);
+            if (hasStagedUploads && requiresAssociationIds.length > 0) {
+                opts.onUploadsAssociated = () => waitForArtifactsReady(requiresAssociationIds);
                 opts.isDeferredSend = true;
             }
-
-            consumeStagedArtifactIds();
-            consumeStagedImageFileIds();
-            consumeDraftArtifactIds();
 
             // Don't clear input or files until the POST resolves successfully. This keeps both
             // halves of the draft in sync with the transcript (visible during the POST round-trip,
@@ -220,35 +231,63 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
             if (!isSubmitDisabled) {
-                handleSubmit(onFormSubmit)();
+                void handleSubmit(onFormSubmit)();
             }
         }
     };
 
     const handlePaste = useCallback(
-        (e: React.ClipboardEvent) => {
+        (event: React.ClipboardEvent) => {
             if (isAwaitingStream) return;
 
-            const imageFiles = Array.from(e.clipboardData.items)
+            const imageFiles = Array.from(event.clipboardData.items)
                 .filter((item) => item.type.startsWith('image/'))
                 .map((item) => item.getAsFile())
-                .filter((f): f is File => f !== null);
+                .filter((file): file is File => file !== null);
 
             if (imageFiles.length > 0) {
                 // Give pasted screenshots a sensible name
-                const named = imageFiles.map((f, i) => {
-                    const ext = f.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png';
+                const named = imageFiles.map((file, i) => {
+                    const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png';
                     const name = `screenshot-${Date.now()}${imageFiles.length > 1 ? `-${i + 1}` : ''}.${ext}`;
-                    return new File([f], name, { type: f.type });
+                    return new File([file], name, { type: file.type });
                 });
                 addFiles(named, { source: 'paste' });
+                return;
+            }
+
+            // Rich content paste (e.g. from Notion) — extract clean text from HTML
+            // to avoid markdown image references like ![...](attachment:...) breaking the message
+            const html = event.clipboardData.getData('text/html');
+            if (html) {
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const cleanText = doc.body.textContent || '';
+
+                if (cleanText) {
+                    event.preventDefault();
+                    const textarea = textareaRef.current;
+                    if (textarea) {
+                        const start = textarea.selectionStart ?? 0;
+                        const end = textarea.selectionEnd ?? 0;
+                        const current = message || '';
+                        const newValue = current.slice(0, start) + cleanText + current.slice(end);
+                        setValue('message', newValue);
+                        saveDraft(newValue);
+                        // Set cursor position after inserted text
+                        requestAnimationFrame(() => {
+                            textarea.selectionStart = start + cleanText.length;
+                            textarea.selectionEnd = start + cleanText.length;
+                            textareaRef.current?.updateTextareaHeight();
+                        });
+                    }
+                }
             }
         },
-        [addFiles, isAwaitingStream],
+        [addFiles, isAwaitingStream, message, setValue, saveDraft],
     );
 
     const handleContainerClick = useCallback(() => {
@@ -277,7 +316,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             if (dontRemindAgain && chatId) setContextBypassForChat(chatId);
             dismissContextWarningModal();
             bypassContextWarningRef.current = true;
-            handleSubmit(onFormSubmit)();
+            void handleSubmit(onFormSubmit)();
         },
         [chatId, dismissContextWarningModal, handleSubmit, onFormSubmit],
     );
@@ -346,9 +385,9 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                 name={name}
                                 ref={mergedRef}
                                 value={message || ''}
-                                onChange={(e) => {
-                                    onChange(e);
-                                    saveDraft(e.target.value);
+                                onChange={(event) => {
+                                    void onChange(event);
+                                    saveDraft(event.target.value);
                                 }}
                                 onBlur={onBlur}
                                 onKeyDown={handleKeyDown}
@@ -360,31 +399,43 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                                 disabled={isAwaitingStream}
                             />
 
-                            {(chatId || chatType !== 'phase') && <AttachFileButton disabled={isAwaitingStream} />}
-
-                            <div className="flex items-end gap-2 ml-auto">
-                                {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
-
-                                {isGenerating ? (
-                                    activeResponseId ? (
-                                        <Button
-                                            type="button"
-                                            onClick={stopGeneration}
-                                            variant="unstyled"
-                                            className="size-9 bg-transparent hover:bg-accent text-white border border-neutral-500/35"
-                                        >
-                                            <Square className="size-3.5 fill-current" />
-                                        </Button>
-                                    ) : (
-                                        <Button type="button" disabled className="size-9 shrink-0" variant="secondary">
-                                            <Loader2 className="size-4 animate-spin" />
-                                        </Button>
-                                    )
-                                ) : (
-                                    <Button type="submit" disabled={isSubmitDisabled} className="size-9 shrink-0">
-                                        <ArrowUp className="size-5" />
-                                    </Button>
+                            <div className="flex flex-nowrap gap-2 flex-1 items-center min-w-0">
+                                {(chatId || chatType !== 'phase') && (
+                                    <div className="flex items-center gap-0.5 md:gap-2 flex-nowrap min-w-0">
+                                        <AttachFileButton disabled={isAwaitingStream} />
+                                        {chatType === 'phase' && <ImageUploadModeSelector disabled={isBusy} />}
+                                    </div>
                                 )}
+
+                                <div className="flex items-end gap-2 ml-auto min-w-0">
+                                    {IS_DEV && <SwitchModelSelector disabled={isBusy} />}
+
+                                    {isGenerating ? (
+                                        activeResponseId ? (
+                                            <Button
+                                                type="button"
+                                                onClick={stopGeneration}
+                                                variant="unstyled"
+                                                className="size-9 bg-transparent hover:bg-accent text-white border border-neutral-500/35"
+                                            >
+                                                <Square className="size-3.5 fill-current" />
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                type="button"
+                                                disabled
+                                                className="size-9 shrink-0"
+                                                variant="secondary"
+                                            >
+                                                <Loader2 className="size-4 animate-spin" />
+                                            </Button>
+                                        )
+                                    ) : (
+                                        <Button type="submit" disabled={isSubmitDisabled} className="size-9 shrink-0">
+                                            <ArrowUp className="size-5" />
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
                         </motion.div>
 
@@ -429,7 +480,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 state={hardStopModalState === 'closed' ? 'idle' : hardStopModalState}
                 onConfirm={sendForceBrief}
                 onCancel={dismissHardStopModal}
-                onNavigate={navigateToExistingNextChat}
+                onNavigate={handleHardStopNavigate}
                 existingNextChatId={hardStopExistingNextChatId ?? undefined}
                 error={hardStopError}
             />

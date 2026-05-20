@@ -16,6 +16,7 @@ type PersistedUploadEntry = {
 
 type PersistedUploadState = {
     entries: PersistedUploadEntry[];
+    imageUploadMode?: 'artifact' | 'chat-image';
 };
 
 function isPersistedUploadState(value: unknown): value is PersistedUploadState {
@@ -34,6 +35,7 @@ export function normalizePersistedUploadState(value: unknown): PersistedUploadSt
                 ...entry,
                 fileId: entry.fileId ?? entry.presignData?.fileId,
             })),
+            imageUploadMode: value.imageUploadMode ?? 'artifact',
         };
     }
 

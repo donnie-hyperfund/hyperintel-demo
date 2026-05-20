@@ -71,7 +71,7 @@ export class ChatTopicHandler extends StreamTopicHandler {
     // PERMISSION CHECK
     // ========================================================================
 
-    async checkPermission(userId: string, chatId: string, env: Env): Promise<boolean> {
+    async checkPermission(userId: string, chatId: string, env: ObjectsEnv): Promise<boolean> {
         const sql = await this.getSql(env);
         const rows = await sql`
 			SELECT 1 FROM chats c
@@ -96,7 +96,7 @@ export class ChatTopicHandler extends StreamTopicHandler {
     // SUBSCRIBE OVERRIDE — includes streamType in streaming response
     // ========================================================================
 
-    async subscribe(userId: string, identifier: string, env: Env): Promise<SubscribeResponse> {
+    async subscribe(userId: string, identifier: string, env: ObjectsEnv): Promise<SubscribeResponse> {
         const base = await super.subscribe(userId, identifier, env);
 
         // Fetch selected_model and completion_brief_status from DB
@@ -123,7 +123,12 @@ export class ChatTopicHandler extends StreamTopicHandler {
     // ACTION HANDLING
     // ========================================================================
 
-    async handleAction(_userId: string, action: string, payload: unknown, env: Env): Promise<ActionResult | void> {
+    async handleAction(
+        _userId: string,
+        action: string,
+        payload: unknown,
+        env: ObjectsEnv,
+    ): Promise<ActionResult | void> {
         switch (action) {
             // --- System actions (called by Workers via UG.systemAction RPC) ---
             case 'registerStream': {

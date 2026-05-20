@@ -9,7 +9,7 @@ export function usePanelIntentParam() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const pathname = usePathname();
-    const { openPanel } = useActivePanelContext();
+    const { pushPanel } = useActivePanelContext();
     const handledRef = useRef<string | null>(null);
 
     const panelIntent = searchParams.get(SEARCH_PARAMS.OPEN_PANEL);
@@ -17,12 +17,12 @@ export function usePanelIntentParam() {
     useEffect(() => {
         if (panelIntent !== 'resources' || handledRef.current === panelIntent) return;
 
-        openPanel({ panel: 'resources' });
+        pushPanel({ panel: 'resources' }, { reset: true });
         handledRef.current = panelIntent;
 
         const params = new URLSearchParams(searchParams.toString());
         params.delete(SEARCH_PARAMS.OPEN_PANEL);
         const query = params.toString();
         router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-    }, [openPanel, panelIntent, searchParams, router, pathname]);
+    }, [pushPanel, panelIntent, searchParams, router, pathname]);
 }

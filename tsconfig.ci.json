@@ -1,0 +1,26 @@
+{
+    "extends": "./tsconfig.json",
+    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/routes.d.ts", ".next/dev/types/routes.d.ts"],
+    "exclude": [
+        "node_modules",
+        "tools",
+        "worker-env-types.d.ts",
+        "lib/local",
+        "lib/local/**",
+        "common/common/local*.ts",
+        "common/common/local*.tsx",
+        "workers",
+        "tests",
+        ".claude/worktrees",
+        ".claude/worktrees/**",
+        ".codex/worktrees",
+        ".codex/worktrees/**",
+        ".codex/**/worktrees",
+        ".codex/**/worktrees/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "app/*local*",
+        ".next/types/validator.ts",
+        ".next/dev/types/validator.ts"
+    ]
+}

@@ -12,6 +12,7 @@ import type { EntityManager } from '@mikro-orm/core';
 import type { DocumentInfo } from '@/workers/chat/src/tools/documents/document-service';
 import { DraftManager } from '@/workers/chat/src/tools/documents/draft-manager';
 import { createDocumentTools, type DocumentToolsContext } from '@/workers/chat/src/tools/documents/tools';
+import { getToolResult } from '@/tests/helpers/tool-result';
 
 // -- mocks --------------------------------------------------------------------
 
@@ -36,14 +37,23 @@ function makeDocInfo(overrides: Partial<DocumentInfo> = {}): DocumentInfo {
         currentContent: '# Original content',
         currentStatus: 'approved',
         currentDocumentType: 'Other',
+        currentIsInternal: null,
+        approvedVersion: 1,
+        approvedContent: '# Original content',
+        approvedDocumentType: 'Other',
+        approvedIsInternal: null,
+        latestVersion: 1,
         proposedVersion: null,
         proposedContent: null,
         proposedDocumentType: null,
+        proposedIsInternal: null,
         rejectedVersion: null,
         rejectedContent: null,
         rejectedDocumentType: null,
+        rejectedIsInternal: null,
         rejectionReason: null,
         lineCount: 1,
+        isReadOnly: false,
         ...overrides,
     };
 }
@@ -81,10 +91,10 @@ describe('begin_document create mode on deleted artifact', () => {
         mockFindDocumentByName.mockResolvedValue(deletedDocInfo());
         const ctx = makeCtx();
 
-        const result = await beginDocument.executor(
-            { mode: 'create', name: 'test-doc.md', document_type: 'Other', is_internal: true },
+        const result = getToolResult(await beginDocument.executor(
+            { mode: 'create', name: 'test-doc.md', document_type: 'Other' },
             ctx,
-        );
+        ));
 
         expect(result).not.toHaveProperty('error');
         expect(result).toHaveProperty('status', 'editing');
@@ -98,10 +108,10 @@ describe('begin_document create mode on deleted artifact', () => {
         mockFindDocumentByName.mockResolvedValue(makeDocInfo());
         const ctx = makeCtx();
 
-        const result = await beginDocument.executor(
-            { mode: 'create', name: 'test-doc.md', document_type: 'Other', is_internal: true },
+        const result = getToolResult(await beginDocument.executor(
+            { mode: 'create', name: 'test-doc.md', document_type: 'Other' },
             ctx,
-        );
+        ));
 
         expect(result).toHaveProperty('error');
         expect((result as any).error).toContain('already exists');
@@ -113,10 +123,10 @@ describe('begin_document create mode on new document', () => {
         mockFindDocumentByName.mockResolvedValue(null);
         const ctx = makeCtx();
 
-        const result = await beginDocument.executor(
-            { mode: 'create', name: 'new-doc.md', document_type: 'Other', is_internal: true },
+        const result = getToolResult(await beginDocument.executor(
+            { mode: 'create', name: 'new-doc.md', document_type: 'Other' },
             ctx,
-        );
+        ));
 
         expect(result).not.toHaveProperty('previouslyDeleted');
         expect(result).toHaveProperty('status', 'editing');
@@ -128,13 +138,20 @@ describe('begin_document create mode on new document', () => {
 describe('begin_document edit mode on deleted artifact', () => {
     it('loads deleted content with correct labeling and flags', async () => {
         const content = '# Deleted document body';
-        mockFindDocumentByName.mockResolvedValue(deletedDocInfo({ currentContent: content, currentVersion: 3 }));
+        mockFindDocumentByName.mockResolvedValue(
+            deletedDocInfo({
+                currentContent: content,
+                currentVersion: 3,
+                approvedContent: content,
+                approvedVersion: 3,
+            }),
+        );
         const ctx = makeCtx();
 
-        const result = await beginDocument.executor(
-            { mode: 'edit', name: 'test-doc.md', document_type: 'Other', is_internal: true },
+        const result = getToolResult(await beginDocument.executor(
+            { mode: 'edit', name: 'test-doc.md', document_type: 'Other' },
             ctx,
-        );
+        ));
 
         expect(ctx.draftManager.getCurrent()?.content).toBe(content);
         expect(result).toHaveProperty('loadedFrom', 'deleted');
@@ -152,10 +169,10 @@ describe('begin_document edit mode on deleted artifact', () => {
         );
         const ctx = makeCtx();
 
-        const result = await beginDocument.executor(
-            { mode: 'edit', name: 'test-doc.md', document_type: 'Other', is_internal: true },
+        const result = getToolResult(await beginDocument.executor(
+            { mode: 'edit', name: 'test-doc.md', document_type: 'Other' },
             ctx,
-        );
+        ));
 
         expect(result).toHaveProperty('loadedFrom', 'proposed');
         expect(ctx.draftManager.getCurrent()?.content).toBe('# Proposed content');
@@ -171,10 +188,10 @@ describe('begin_document edit mode on deleted artifact', () => {
         );
         const ctx = makeCtx();
 
-        const result = await beginDocument.executor(
-            { mode: 'edit', name: 'test-doc.md', document_type: 'Other', is_internal: true },
+        const result = getToolResult(await beginDocument.executor(
+            { mode: 'edit', name: 'test-doc.md', document_type: 'Other' },
             ctx,
-        );
+        ));
 
         expect(result).toHaveProperty('loadedFrom', 'rejected');
         expect(ctx.draftManager.getCurrent()?.content).toBe('# Rejected content');
@@ -188,10 +205,10 @@ describe('begin_document edit mode on approved artifact', () => {
         mockFindDocumentByName.mockResolvedValue(makeDocInfo());
         const ctx = makeCtx();
 
-        const result = await beginDocument.executor(
-            { mode: 'edit', name: 'test-doc.md', document_type: 'Other', is_internal: true },
+        const result = getToolResult(await beginDocument.executor(
+            { mode: 'edit', name: 'test-doc.md', document_type: 'Other' },
             ctx,
-        );
+        ));
 
         expect(result).not.toHaveProperty('previouslyDeleted');
         expect(result).toHaveProperty('loadedFrom', 'approved');

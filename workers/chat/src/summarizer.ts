@@ -1,4 +1,4 @@
-import { runAgentStream } from '@common/ai/agent';
+import { runAgentStream, shapeContextForInference } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
@@ -10,8 +10,11 @@ import type { StreamEvent } from '@/lib/schema/stream';
 import type { ChatActionResult, chatActionHandler } from './chat-handler';
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
+import { createDocumentTools } from './tools/documents';
+import { createKnowledgeTools } from './tools/knowledge-search';
+import { createWebScrapeTools } from './tools/web-scrape';
 import { listDocuments } from './tools/documents/document-service';
-import { estimateInferenceInputTokens, SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS } from './utils/context-budget';
+import { estimateInferenceInputTokens } from './utils/context-budget';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -58,22 +61,31 @@ export interface SummarizerDeps {
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
 
 function getSummarizerInferenceParams(contextTokens: number): ParamsWithType {
-    if (contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS) {
-        return {
-            paramsType: AIParamsType.Anthropic,
-            params: {
-                model: ANTHROPIC_MODELS.SONNET_4_6,
-                reasoning: { exclude: true, effort: 'medium' },
-            },
-        };
-    }
-
+    // if (contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS) {
+    //     return {
+    //         paramsType: AIParamsType.Anthropic,
+    //         params: {
+    //             model: ANTHROPIC_MODELS.SONNET_4_6,
+    //             reasoning: { exclude: true, effort: 'medium' },
+    //         },
+    //     };
+    // }
+    //
+    // return {
+    //     paramsType: AIParamsType.Anthropic,
+    //     params: {
+    //         model: ANTHROPIC_MODELS.SONNET,
+    //         reasoning: true,
+    //         reasoningBudget: 8000,
+    //     },
+    // };
+    void contextTokens;
     return {
         paramsType: AIParamsType.Anthropic,
         params: {
-            model: ANTHROPIC_MODELS.SONNET,
-            reasoning: true,
-            reasoningBudget: 8000,
+            model: ANTHROPIC_MODELS.SONNET_4_6,
+            reasoning: { exclude: true, effort: 'medium' },
+            maxTokens: 64_000,
         },
     };
 }
@@ -192,12 +204,20 @@ Do not end your turn without calling \`generate_blurb\`. The tool call is requir
         });
 
         const blurbTools = createBlurbTools();
+        // TODO: unify with getChatToolsAndGroups() so collapse config stays in sync
+        const collapseToolRegistry = [...createDocumentTools(), ...createKnowledgeTools(), ...createWebScrapeTools()];
+        const shapedForEstimate = shapeContextForInference({
+            history: historyMessages,
+            tools: [...blurbTools],
+            collapseToolRegistry,
+            preprocessContext,
+            ctx: null,
+        });
         const estimatedContextTokens = estimateInferenceInputTokens({
             instructions,
-            context: historyMessages,
+            context: shapedForEstimate,
             tools: [...blurbTools],
             toolGroups: [BlurbToolGroup],
-            preprocessContext,
         });
         const inferenceParams = options.overrideInference ?? getSummarizerInferenceParams(estimatedContextTokens);
 
@@ -206,6 +226,7 @@ Do not end your turn without calling \`generate_blurb\`. The tool call is requir
             workerCtx,
             {
                 ...inferenceParams,
+                cacheId: chat.id,
                 instructions,
                 context: historyMessages,
                 countReasoningAsContent: true,
@@ -217,6 +238,8 @@ Do not end your turn without calling \`generate_blurb\`. The tool call is requir
                 toolGroups: [BlurbToolGroup],
                 config: {
                     preprocessContext,
+                    autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
+                    collapseToolRegistry,
                     abortSignal: abortController.signal,
                 },
             },

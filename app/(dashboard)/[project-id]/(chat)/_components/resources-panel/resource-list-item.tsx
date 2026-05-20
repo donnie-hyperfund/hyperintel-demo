@@ -7,6 +7,7 @@ import { type Ref, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { IconButton } from '@/components/ui/icon-button';
+import { ImageThumbnail } from '@/components/ui/image-thumbnail';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { CamelCaseDto } from '@/lib/api/client/types';
@@ -42,20 +43,20 @@ type ResourceListItemProps = {
 
 export function ResourceListItem({ artifact, onRemove, isHighlighted = false, itemRef }: ResourceListItemProps) {
     const [isRemoving, setIsRemoving] = useState(false);
-    const { openPanel } = useActivePanelContext();
+    const { pushPanel } = useActivePanelContext();
     const version = getLatestArtifactVersion(artifact);
     const docType = getArtifactDocumentType(artifact);
     const alwaysAttached = isPublicImport(artifact);
     const href = getResourceRoute(artifact);
+    const isShared = !artifact.isOwn && !!docType && docType in routePrefixByType;
     const isUploaded = version?.isUploaded === true;
-    const file = (version as any)?.file as { originalName?: string } | undefined;
+    const file = (version as any)?.file as { id?: string; originalName?: string; mimeType?: string } | undefined;
     const fileName = file?.originalName ?? artifact.key;
 
     const handlePreview = () => {
-        openPanel({
+        pushPanel({
             panel: 'file-preview',
             artifactId: artifact.id,
-            version: artifact.version,
         });
     };
 
@@ -74,11 +75,16 @@ export function ResourceListItem({ artifact, onRemove, isHighlighted = false, it
 
     return (
         <div ref={itemRef} className={cn('group relative rounded-lg', isHighlighted && 'highlight-pulse')}>
-            <ResourceListItemContainer href={href} onClick={href ? undefined : handlePreview} title={title}>
-                <ResourceListItemIcon isUploaded={isUploaded} fileName={fileName} documentType={docType} />
+            <ResourceListItemContainer href={href} onClick={href || isShared ? undefined : handlePreview} title={title}>
+                <ResourceListItemIcon isUploaded={isUploaded} fileName={fileName} documentType={docType} file={file} />
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                         <span className="line-clamp-1 text-sm font-medium">{title}</span>
+                        {isShared && (
+                            <Badge variant="secondary" className="rounded px-1.5 py-0.25 text-[10px]">
+                                Shared
+                            </Badge>
+                        )}
                         {alwaysAttached && <AlwaysAttachedBadge />}
                     </div>
                     <ResourceListItemMeta artifact={artifact} isUploaded={isUploaded} fileName={fileName} />
@@ -133,9 +139,14 @@ type ResourceListItemIconProps = {
     isUploaded: boolean;
     fileName: string;
     documentType?: string;
+    file?: { id?: string; mimeType?: string };
 };
 
-function ResourceListItemIcon({ isUploaded, fileName, documentType }: ResourceListItemIconProps) {
+function ResourceListItemIcon({ isUploaded, fileName, documentType, file }: ResourceListItemIconProps) {
+    if (isUploaded && file?.id && file.mimeType?.startsWith('image/')) {
+        return <ImageThumbnail fileId={file.id} className="mt-0.5" />;
+    }
+
     if (isUploaded) {
         return <FileTypeIcon filename={fileName} size={20} className="shrink-0 mt-0.5" />;
     }

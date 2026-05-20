@@ -1,11 +1,13 @@
+/** biome-ignore-all lint/suspicious/useAwait: noise */
 import { DurableObject } from 'cloudflare:workers';
 import { createClerkClient } from '@clerk/backend';
+import { ClientAction, type ClientMessage, ClientMessageSchema, ServerMsg } from '@/lib/schema/ws-protocol';
 import { PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
-import { ClientAction, ServerMsg, ClientMessageSchema, type ClientMessage } from '@/lib/schema/ws-protocol';
-import type { TopicHandler, ActionResult } from './topic-handler';
+import { writeStreamMetric } from '@/workers/_common/vendor/analytics-engine';
 import { ChatTopicHandler } from './chat-topic-handler';
 import { IntakeTopicHandler } from './intake-topic-handler';
 import { StreamTopicHandler } from './stream-topic-handler';
+import type { TopicHandler } from './topic-handler';
 
 // ---------------------------------------------------------------------------
 // Socket attachment — stored per-WebSocket, survives hibernation
@@ -14,6 +16,7 @@ import { StreamTopicHandler } from './stream-topic-handler';
 type SocketAttachment = {
     userId: string;
     subscribedTopics: string[];
+    pendingSubscribeTopics?: string[];
     sessionExpiry: number | undefined;
 };
 
@@ -32,13 +35,13 @@ type SocketAttachment = {
  *
  * UG has ZERO domain-specific knowledge — all logic is delegated to handlers.
  */
-export class UserGateway extends DurableObject<Env> {
+export class UserGateway extends DurableObject<ObjectsEnv> {
     private handlers = new Map<string, TopicHandler>();
     /** Preview branch alias — propagated to topic handlers for DB resolution on dev */
     private previewAlias: string | null = null;
     private aliasLoaded = false;
 
-    constructor(ctx: DurableObjectState, env: Env) {
+    constructor(ctx: DurableObjectState, env: ObjectsEnv) {
         super(ctx, env);
         // Auto-respond to "ping" with "pong" without waking the DO
         this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
@@ -113,6 +116,7 @@ export class UserGateway extends DurableObject<Env> {
         const attachment: SocketAttachment = {
             userId,
             subscribedTopics: [],
+            pendingSubscribeTopics: [],
             sessionExpiry: expiry,
         };
         server.serializeAttachment(attachment);
@@ -143,6 +147,7 @@ export class UserGateway extends DurableObject<Env> {
     async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string) {
         try {
             if (typeof message !== 'string') {
+                // biome-ignore lint/style/noParameterAssign: meh
                 message = new TextDecoder().decode(message);
             }
             // Ignore "pong" (auto-response echo)
@@ -217,7 +222,11 @@ export class UserGateway extends DurableObject<Env> {
         const sockets = this.ctx.getWebSockets();
         for (const ws of sockets) {
             const att = ws.deserializeAttachment() as SocketAttachment | null;
-            if (!att?.subscribedTopics.includes(topic)) continue;
+            if (!att) continue;
+            if (!att.subscribedTopics.includes(topic)) {
+                this.trackSubscribeGapDrop(att, topic);
+                continue;
+            }
             if (this.closeIfExpired(ws, att)) continue;
             for (const msg of messages) {
                 try {
@@ -282,14 +291,20 @@ export class UserGateway extends DurableObject<Env> {
                     );
                     return;
                 }
-                const allowed = await handler.canSubscribe(userId, identifier, this.env);
-                if (!allowed) {
-                    ws.send(JSON.stringify({ type: ServerMsg.Error, error: 'Forbidden', action: msg.action }));
-                    return;
+                try {
+                    const allowed = await handler.canSubscribe(userId, identifier, this.env);
+                    if (!allowed) {
+                        ws.send(JSON.stringify({ type: ServerMsg.Error, error: 'Forbidden', action: msg.action }));
+                        return;
+                    }
+                    this.addPendingSubscribeTopic(ws, attachment, msg.topic);
+                    const response = await handler.subscribe(userId, identifier, this.env);
+                    this.addTopicToSocket(ws, attachment, msg.topic);
+                    ws.send(JSON.stringify({ topic: msg.topic, type: ServerMsg.SubscribeResponse, ...response }));
+                } catch (err) {
+                    this.removePendingSubscribeTopic(ws, attachment, msg.topic);
+                    throw err;
                 }
-                const response = await handler.subscribe(userId, identifier, this.env);
-                this.addTopicToSocket(ws, attachment, msg.topic);
-                ws.send(JSON.stringify({ topic: msg.topic, type: ServerMsg.SubscribeResponse, ...response }));
                 return;
             }
 
@@ -330,6 +345,8 @@ export class UserGateway extends DurableObject<Env> {
                 this.handleSessionUpdate(ws, attachment, msg.accessToken);
                 return;
             }
+            default:
+                break;
         }
     }
 
@@ -338,16 +355,26 @@ export class UserGateway extends DurableObject<Env> {
     // -----------------------------------------------------------------------
 
     private addTopicToSocket(ws: WebSocket, attachment: SocketAttachment, topic: string) {
+        const pendingIdx = attachment.pendingSubscribeTopics?.indexOf(topic) ?? -1;
+        if (pendingIdx !== -1) {
+            attachment.pendingSubscribeTopics!.splice(pendingIdx, 1);
+        }
         if (!attachment.subscribedTopics.includes(topic)) {
             attachment.subscribedTopics.push(topic);
-            ws.serializeAttachment(attachment);
         }
+        ws.serializeAttachment(attachment);
     }
 
     private removeTopicFromSocket(ws: WebSocket, attachment: SocketAttachment, topic: string) {
         const idx = attachment.subscribedTopics.indexOf(topic);
+        const pendingIdx = attachment.pendingSubscribeTopics?.indexOf(topic) ?? -1;
         if (idx !== -1) {
             attachment.subscribedTopics.splice(idx, 1);
+        }
+        if (pendingIdx !== -1) {
+            attachment.pendingSubscribeTopics!.splice(pendingIdx, 1);
+        }
+        if (idx !== -1 || pendingIdx !== -1) {
             ws.serializeAttachment(attachment);
         }
     }
@@ -356,12 +383,42 @@ export class UserGateway extends DurableObject<Env> {
         const serialized = typeof message === 'string' ? message : JSON.stringify(message);
         for (const ws of this.ctx.getWebSockets()) {
             const attachment = ws.deserializeAttachment() as SocketAttachment | null;
-            if (!attachment?.subscribedTopics.includes(topic)) continue;
+            if (!attachment) continue;
+            if (!attachment.subscribedTopics.includes(topic)) {
+                this.trackSubscribeGapDrop(attachment, topic);
+                continue;
+            }
             if (this.closeIfExpired(ws, attachment)) continue;
             try {
                 ws.send(serialized);
             } catch {}
         }
+    }
+
+    private addPendingSubscribeTopic(ws: WebSocket, attachment: SocketAttachment, topic: string) {
+        attachment.pendingSubscribeTopics ??= [];
+        if (!attachment.pendingSubscribeTopics.includes(topic) && !attachment.subscribedTopics.includes(topic)) {
+            attachment.pendingSubscribeTopics.push(topic);
+            ws.serializeAttachment(attachment);
+        }
+    }
+
+    private removePendingSubscribeTopic(ws: WebSocket, attachment: SocketAttachment, topic: string) {
+        const idx = attachment.pendingSubscribeTopics?.indexOf(topic) ?? -1;
+        if (idx !== -1) {
+            attachment.pendingSubscribeTopics!.splice(idx, 1);
+            ws.serializeAttachment(attachment);
+        }
+    }
+
+    private trackSubscribeGapDrop(attachment: SocketAttachment, topic: string) {
+        if (!attachment.pendingSubscribeTopics?.includes(topic)) return;
+        writeStreamMetric(this.env, {
+            metric: 'subscribe_gap_drop',
+            indexes: [attachment.userId],
+            blobs: [topic, this.previewAlias],
+            doubles: [1],
+        });
     }
 
     // -----------------------------------------------------------------------

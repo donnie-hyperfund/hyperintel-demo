@@ -61,6 +61,11 @@ const DESCRIPTORS: Record<PublicErrorCode, ErrorDescriptor> = {
         title: 'The response ended before it was complete.',
         retry: 'suggested',
     },
+    OUT_OF_FUNDS: {
+        code: 'OUT_OF_FUNDS',
+        title: 'The AI service is temporarily unavailable due to a billing issue.',
+        retry: 'unavailable',
+    },
     UNKNOWN: {
         code: 'UNKNOWN',
         title: 'The request could not be completed.',

@@ -30,7 +30,11 @@ import { ArtifactFileEntity } from '@/lib/orm/entities/artifacts/artifact-file.e
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ProjectEntity } from '@/lib/orm/entities/projects/project.entity';
 import { UserEntity } from '@/lib/orm/entities/users/user.entity';
+import type { EmbeddingQueueMessage } from '@/lib/api/client/queue/embedding-queue.adapter';
+import type { ExtractionQueueMessage } from '@/lib/api/client/queue/extraction-queue.adapter';
 import { associateArtifactsInternal, confirmUploadHandler, presignUploadHandler } from './artifact-uploader';
+
+const makeQueueSend = <T>() => vi.fn(async (_message: T) => {});
 
 function makeEntityManager() {
     return {
@@ -216,7 +220,7 @@ describe('confirmUploadHandler', () => {
     const PROJECT_ID = '88888888-8888-8888-8888-888888888888';
 
     function makeConfirmCtx({ project, chat }: { project?: { id: string }; chat?: { id: string } }) {
-        const queueSend = vi.fn(async () => {});
+        const queueSend = makeQueueSend<ExtractionQueueMessage>();
         const headCalls: string[] = [];
 
         const em = {
@@ -339,8 +343,8 @@ describe('associateArtifactsInternal', () => {
         const artifact = makeArtifact(version);
         const pendingFile = makePendingFile(artifact, version);
 
-        const queueSend = vi.fn(async () => {});
-        const emEmbedSend = vi.fn(async () => {});
+        const queueSend = makeQueueSend<ExtractionQueueMessage>();
+        const emEmbedSend = makeQueueSend<EmbeddingQueueMessage>();
 
         const em = {
             find: vi.fn(async (entity: unknown, filter: any) => {
@@ -387,8 +391,8 @@ describe('associateArtifactsInternal', () => {
         const version = makeVersion({ content: 'hello world' });
         const artifact = makeArtifact(version);
 
-        const queueSend = vi.fn(async () => {});
-        const emEmbedSend = vi.fn(async () => {});
+        const queueSend = makeQueueSend<ExtractionQueueMessage>();
+        const emEmbedSend = makeQueueSend<EmbeddingQueueMessage>();
 
         const em = {
             find: vi.fn(async (entity: unknown, filter: any) => {
@@ -430,8 +434,8 @@ describe('associateArtifactsInternal', () => {
         const artifact = makeArtifact(version);
         const pendingFile = makePendingFile(artifact, version);
 
-        const queueSend = vi.fn(async () => {});
-        const emEmbedSend = vi.fn(async () => {});
+        const queueSend = makeQueueSend<ExtractionQueueMessage>();
+        const emEmbedSend = makeQueueSend<EmbeddingQueueMessage>();
 
         const em = {
             find: vi.fn(async (entity: unknown, filter: any) => {

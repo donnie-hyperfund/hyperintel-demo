@@ -4,7 +4,6 @@ import { assertAuth } from '@/lib/api/auth-guard';
 import { getOrCreateRequestId, withRequestIdHeader } from '@/lib/api/request-id';
 import { initNextjsWorkerContext } from '@/lib/local/context';
 import { SendIntakeChatActionSchema } from '@/lib/schema/chat';
-import type { Ctx } from '@/workers/chat/src/context';
 import { intakeActionHandler } from '@/workers/chat/src/intake-handler';
 
 export async function POST(req: NextRequest) {
@@ -25,7 +24,7 @@ export async function POST(req: NextRequest) {
         );
     }
 
-    const ctx = (await initNextjsWorkerContext({ skipAI: false })) as Ctx;
+    const ctx = await initNextjsWorkerContext<ChatEnv>({ skipAI: false });
     ctx.requestId = requestId;
     // Pass no-op onEvent to get direct result (not SSE stream — no proxy DO locally)
     const result = await intakeActionHandler(parsed.data, ctx, { onEvent: () => {} });

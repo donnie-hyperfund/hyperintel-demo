@@ -11,6 +11,9 @@ const iconButtonVariants = cva(
             variant: {
                 ghost: 'text-neutral-400 hover:bg-neutral-300/5 hover:text-neutral-100 data-[active]:bg-accent data-[active]:text-neutral-100',
                 light: 'hover:bg-accent/50 text-neutral-400 hover:text-neutral-100',
+                outline:
+                    'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
+                unstyled: '',
             },
             size: {
                 lg: 'size-10 [&_svg]:size-5',
@@ -32,6 +35,7 @@ function IconButton({
     size,
     rounded = false,
     asChild = false,
+    type = 'button',
     ...props
 }: React.ComponentProps<'button'> &
     VariantProps<typeof iconButtonVariants> & {
@@ -42,7 +46,7 @@ function IconButton({
 
     return (
         <Comp
-            type="button"
+            type={asChild ? undefined : type}
             data-slot="icon-button"
             className={cn(iconButtonVariants({ variant, size, className }), rounded && 'rounded-full')}
             {...props}

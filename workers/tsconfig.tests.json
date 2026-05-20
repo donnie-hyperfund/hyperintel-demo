@@ -1,0 +1,27 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "types": ["@cloudflare/workers-types/2023-07-01", "vitest/globals"],
+        "noImplicitAny": false
+    },
+    "include": [
+        "runtime-config.ts",
+        "_common/**/*.ts",
+        "*/worker-configuration.d.ts",
+        "*/src/**/*.ts",
+        "*/__tests__/**/*.ts",
+        "**/*.test.ts",
+        "**/vitest.config.ts"
+    ],
+    "exclude": [
+        "../node_modules",
+        "../.claude/worktrees",
+        "../.claude/worktrees/**",
+        "../.codex/worktrees",
+        "../.codex/worktrees/**",
+        "../.codex/**/worktrees",
+        "../.codex/**/worktrees/**",
+        "extract-rust/.wrangler/**",
+        "extract-rust/tester/pkg/**"
+    ]
+}

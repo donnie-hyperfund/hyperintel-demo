@@ -40,7 +40,8 @@ export const RenamePhaseDialog = ({ chatId, initialName, onClose, onSaved }: Ren
                 <form
                     onSubmit={(e) => {
                         e.preventDefault();
-                        handleSave();
+                        // TODO: handle save rejection so failed rename does not become an unhandled promise.
+                        void handleSave();
                     }}
                 >
                     <Input

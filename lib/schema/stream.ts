@@ -9,6 +9,7 @@ export type { StreamBlock } from '@/common/ai/agent/types';
 
 import type { DocumentType } from './artifact';
 import type { TokenBreakdown, TokenUsage } from './chat';
+
 export type { TokenBreakdown, TokenUsage };
 
 // ============================================================================
@@ -104,7 +105,7 @@ export type StreamEvent =
     | { type: 'reasoning_done'; durationMs?: number; blockId?: string }
     // Tool calls
     | { type: 'tool_start'; id: string; tool: string }
-    | { type: 'tool_call_complete'; id: string; tool: string; input: Record<string, unknown> }
+    | { type: 'tool_call_complete'; id: string; tool: string; input: Record<string, unknown> | string }
     | { type: 'tool_result'; id: string; result: unknown; success: boolean }
     // Search & citations
     | { type: 'search_start'; query: string; blockId: string }
@@ -122,11 +123,15 @@ export type StreamEvent =
     // Documents/artifacts
     | {
           type: 'document_start';
+          /** Persisted ArtifactEntity id. */
+          artifactId: string;
           name: string;
           title?: string;
           pendingVersion: number;
-          mode?: 'create' | 'edit';
+          mode?: 'create' | 'edit' | 'replace';
           loadedVersion?: number;
+          /** Authoritative next version slot from backend (artifact.latestVersion + 1). FE prefers this over loadedVersion + 1 to avoid collisions when user is viewing an older version via version-history. */
+          nextVersion?: number;
           /** document_type from begin_document tool result */
           documentType?: DocumentType;
           /** Estimated content size in characters for progress tracking */
@@ -134,27 +139,36 @@ export type StreamEvent =
           loadedFrom?: 'proposed' | 'rejected' | 'approved';
           rejectionReason?: string;
           isInternal?: boolean;
+          /** Base content of the loaded version for non-internal edit-mode starts. DO uses this to seed activeDocuments[].content so reconnect snapshots can replay subsequent edits correctly. Omitted for internal docs and for create/replace modes. */
+          loadedContent?: string;
       }
     | {
           type: 'document_delta';
+          artifactId: string;
           name: string;
-          pendingVersion?: number;
+          pendingVersion: number;
           content: string;
       }
-    | { type: 'document_edit'; name: string; pendingVersion?: number; edits: DocumentEdit[] }
-    | { type: 'document_progress'; name: string; progress: number }
+    | { type: 'document_edit'; artifactId: string; name: string; pendingVersion: number; edits: DocumentEdit[] }
+    | { type: 'document_progress'; artifactId: string; name: string; pendingVersion: number; progress: number }
     | {
           type: 'document_complete';
+          artifactId: string;
           name: string;
-          version: number;
+          version?: number;
           lines?: number;
           action?: string;
+          status?: 'proposed' | 'superseded' | 'aborted';
+          supersededVersion?: number;
+          supersededByVersion?: number;
           /** Set when finalize_document persisted an internal-document version that will get an auto-generated summary. */
           summaryPending?: boolean;
       }
     // Internal-document PE-facing summaries (auto-generated, streamed alongside the parent doc).
     | {
           type: 'summary_start';
+          /** Parent ArtifactEntity id. */
+          artifactId: string;
           /** Parent document name (e.g. genesis-dna.md). */
           name: string;
           /** Parent artifact_versions row that this summary will be written to. */
@@ -165,6 +179,7 @@ export type StreamEvent =
       }
     | {
           type: 'summary_delta';
+          artifactId: string;
           name: string;
           versionId: string;
           version: number;
@@ -172,6 +187,7 @@ export type StreamEvent =
       }
     | {
           type: 'summary_complete';
+          artifactId: string;
           name: string;
           versionId: string;
           version: number;
@@ -214,12 +230,17 @@ export type StreamEvent =
 
 /** Partial document state tracked by Stream DO between document_start and document_complete */
 export type ActiveDocument = {
+    /** Persisted ArtifactEntity id. */
+    artifactId: string;
     name: string;
     title: string;
-    mode: 'create' | 'edit';
+    mode: 'create' | 'edit' | 'replace';
     pendingVersion: number;
     loadedVersion?: number;
+    /** Current draft content — mutates with deltas/edits as they arrive. */
     content: string;
+    /** Base content of the loaded version (non-internal edit mode only). Preserved unchanged through the stream so reconnect snapshots can populate currentVersion.content for the diff UI. */
+    loadedContent?: string;
     documentType?: DocumentType;
     isInternal?: boolean;
     progress?: number;

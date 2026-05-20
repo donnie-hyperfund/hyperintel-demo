@@ -3,7 +3,7 @@
 import useEmblaCarousel, { type UseEmblaCarouselType } from 'embla-carousel-react';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import * as React from 'react';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/icon-button';
 import { cn } from '@/lib/utils';
 
 type CarouselApi = UseEmblaCarouselType[1];
@@ -162,16 +162,17 @@ function CarouselItem({ className, ...props }: React.ComponentProps<'div'>) {
 function CarouselPrevious({
     className,
     variant = 'outline',
-    size = 'icon',
+    size = 'sm',
     ...props
-}: React.ComponentProps<typeof Button>) {
+}: React.ComponentProps<typeof IconButton>) {
     const { orientation, scrollPrev, canScrollPrev } = useCarousel();
 
     return (
-        <Button
+        <IconButton
             data-slot="carousel-previous"
             variant={variant}
             size={size}
+            rounded
             className={cn(
                 'absolute size-8 rounded-full',
                 orientation === 'horizontal'
@@ -185,23 +186,24 @@ function CarouselPrevious({
         >
             <ArrowLeft />
             <span className="sr-only">Previous slide</span>
-        </Button>
+        </IconButton>
     );
 }
 
 function CarouselNext({
     className,
     variant = 'outline',
-    size = 'icon',
+    size = 'sm',
     ...props
-}: React.ComponentProps<typeof Button>) {
+}: React.ComponentProps<typeof IconButton>) {
     const { orientation, scrollNext, canScrollNext } = useCarousel();
 
     return (
-        <Button
+        <IconButton
             data-slot="carousel-next"
             variant={variant}
             size={size}
+            rounded
             className={cn(
                 'absolute size-8 rounded-full',
                 orientation === 'horizontal'
@@ -215,7 +217,7 @@ function CarouselNext({
         >
             <ArrowRight />
             <span className="sr-only">Next slide</span>
-        </Button>
+        </IconButton>
     );
 }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { capturePostHogEvent } from '@/lib/analytics/posthog-browser';
 import { AsyncEventQueue } from '@/lib/async-event-queue';
 import type { ActiveDocument, PendingDecision, StreamBlock, StreamEvent, StreamStatus } from '@/lib/schema/stream';
 import { DECISION_DISMISSED_SENTINEL } from '@/lib/schema/stream';
@@ -18,7 +19,10 @@ import type {
 import { ServerMsg } from '@/lib/schema/ws-protocol';
 import { chunkText, TokenDrip } from '@/lib/token-drip';
 import { useWebsocket } from '@/lib/websocket/provider';
-import type { ArtifactContextValue, ArtifactUpdate } from '@/modules/artifacts/providers/artifact-provider';
+import type { ApprovalAction } from '@/modules/artifacts/processing/types';
+import type { ArtifactUpdate, VersionKey } from '@/modules/artifacts/providers/artifact-provider';
+import { useArtifactStreamMonitor } from '@/modules/artifacts/streaming/artifact-stream-monitor-provider';
+import { getPreviousArtifactVersion } from '@/modules/artifacts/streaming/versions';
 import { getLatestArtifactVersionContent, getLatestArtifactVersionTitle } from '@/modules/artifacts/utils';
 import type { Artifact } from '@/modules/chat/types';
 
@@ -27,15 +31,23 @@ import type { Artifact } from '@/modules/chat/types';
 // ============================================================================
 
 type StreamingDoc = {
+    artifactKey: string;
     artifactId: string;
     content: string;
     version: number;
+    title?: string;
+    mode?: ActiveDocument['mode'];
+    loadedVersion?: number;
+    documentType?: ActiveDocument['documentType'];
     isInternal?: boolean;
     sourceVersion?: number;
+    progress?: number;
 };
 
 type StreamingSummary = {
     /** Parent artifact key (== document name). */
+    artifactKey: string;
+    /** Persisted ArtifactEntity id. */
     artifactId: string;
     /** Parent version number — used to look up the right entry in the artifact store. */
     version: number;
@@ -51,15 +63,29 @@ type StreamingState = {
     streamingSummaries: Map<string, StreamingSummary>;
 };
 
+type ScopedArtifactActions = {
+    getArtifact: (id: string, version?: VersionKey) => Artifact | null;
+    getStore: () => Record<string, Record<string, Artifact>>;
+    addArtifact: (artifact: Artifact, version?: VersionKey) => void;
+    updateArtifact: (id: string, updates: ArtifactUpdate, version?: VersionKey, options?: { merge?: boolean }) => void;
+};
+
+type StreamSessionAnalytics = {
+    agentMessageId: string;
+    startedAt: number;
+    eventCount: number;
+    streamType: 'chat' | 'summary' | null;
+};
+
 export type ToolDocumentDecision = {
-    action: 'approve' | 'reject';
+    action: ApprovalAction;
     artifactKey: string;
     version: number;
 };
 
 export type UseStreamOptions = {
     /** Artifact context for document side-effects. If omitted, activeDocuments are tracked but no artifact provider calls are made. */
-    artifactContext?: Pick<ArtifactContextValue, 'getArtifact' | 'getStore' | 'addArtifact' | 'updateArtifact'>;
+    artifactContext?: ScopedArtifactActions;
     /** Called on WS reconnect — consumer provides refetch logic (e.g., reload messages) */
     onReconnect?: () => void;
     /** Called when stream reaches a terminal status (done, aborted, error), potentially carrying terminal data payload */
@@ -69,13 +95,23 @@ export type UseStreamOptions = {
         agentMessageId?: string,
     ) => void;
     /** Called when a document stream starts */
-    onDocumentStart?: () => void;
+    onDocumentStart?: (info: { artifactKey: string; artifactName: string; version: number }) => void;
+    /** Called when a document stream completes (success or abort) */
+    onDocumentComplete?: (artifactId: string) => void;
+    /** Location metadata stamped on background streams for the status bar */
+    streamLocation?: {
+        chatType?: 'phase' | 'company' | 'stakeholder';
+        projectId?: string;
+        projectName?: string | null;
+        phaseName?: string | null;
+        phaseIndex?: number | null;
+    };
     /** Called when an artifact should be opened for preview */
-    onArtifactOpen?: (artifactId: string, version: number) => void;
+    onArtifactOpen?: (target: { artifactId: string; artifactKey: string; version: number }) => void;
     /** Fetch artifact from API when not available in store (needed for edit mode) */
     fetchArtifact?: (artifactKey: string, version: number) => Promise<Artifact | null>;
     /** Revalidate artifact from API after changes */
-    revalidateArtifact?: (keyId: string, version: number) => void;
+    revalidateArtifact?: (target: { artifactId?: string; artifactKey: string; version: number }) => void;
     /** Called when stream_started fires with the new agentMessageId and userMessageId */
     onStreamStarted?: (
         agentMessageId: string,
@@ -156,16 +192,24 @@ function initFromSnapshot(snapshot: SubscribeResponseStreaming['snapshot']): Str
 
     // Populate streamingDocs / streamingSummaries from activeDocuments
     for (const doc of snapshot.activeDocuments) {
-        state.streamingDocs.set(doc.name, {
-            artifactId: doc.name,
+        const artifactKey = doc.name;
+        state.streamingDocs.set(doc.artifactId, {
+            artifactKey,
+            artifactId: doc.artifactId,
             content: doc.content,
             version: doc.pendingVersion,
+            title: doc.title,
+            mode: doc.mode,
+            loadedVersion: doc.loadedVersion,
+            documentType: doc.documentType,
             isInternal: doc.isInternal,
             sourceVersion: doc.loadedVersion,
+            progress: doc.progress,
         });
         if (doc.summaryVersionId && doc.summaryInternal !== undefined) {
             state.streamingSummaries.set(doc.summaryVersionId, {
-                artifactId: doc.name,
+                artifactKey,
+                artifactId: doc.artifactId,
                 version: doc.pendingVersion,
                 content: doc.summaryInternal,
             });
@@ -181,6 +225,7 @@ function initFromSnapshot(snapshot: SubscribeResponseStreaming['snapshot']): Str
 
 export function useStream(domain: string, id: string | null, opts: UseStreamOptions = {}): UseStreamReturn {
     const ws = useWebsocket();
+    const streamMonitor = useArtifactStreamMonitor();
 
     // Stable ref to latest opts (avoids stale closures in event handlers)
     const optsRef = useRef(opts);
@@ -204,6 +249,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const documentQueueRef = useRef<AsyncEventQueue<{ type: string; payload: any }> | null>(null);
     const pendingDocumentDecisionsRef = useRef<Map<string, ToolDocumentDecision>>(new Map());
     const streamTerminalRef = useRef(false);
+    const subscribeStartedAtRef = useRef<number | null>(null);
+    const streamSessionRef = useRef<StreamSessionAnalytics | null>(null);
 
     const flushDocumentDecisions = (callback: NonNullable<UseStreamOptions['onToolDocumentDecision']>) => {
         if (pendingDocumentDecisionsRef.current.size === 0) return;
@@ -240,13 +287,18 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     };
 
     // Document delta drip (same adaptive smoothing for artifact content)
-    type DocDripItem = { name: string; content: string };
+    type DocDripItem = { artifactId: string; content: string };
     const applyDocDrip = (item: DocDripItem) => {
-        const doc = stateRef.current.streamingDocs.get(item.name);
+        const doc = stateRef.current.streamingDocs.get(item.artifactId);
         if (!doc) return;
         doc.content += item.content;
         const ac = optsRef.current.artifactContext;
-        ac?.updateArtifact(doc.artifactId, { proposedVersion: { content: doc.content } }, doc.version);
+        // Drop the "waiting" state once deltas actually appear — content is now visibly streaming.
+        ac?.updateArtifact(
+            doc.artifactId,
+            { proposedVersion: { content: doc.content }, isUpdating: false },
+            doc.version,
+        );
     };
     const docDripRef = useRef(new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()));
 
@@ -286,13 +338,18 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             flushDocsRaf.current = requestAnimationFrame(() => {
                 flushDocsRaf.current = 0;
                 const docs: ActiveDocument[] = [];
-                for (const [name, doc] of stateRef.current.streamingDocs) {
+                for (const doc of stateRef.current.streamingDocs.values()) {
                     docs.push({
-                        name,
-                        title: name,
-                        mode: 'create',
+                        artifactId: doc.artifactId,
+                        name: doc.artifactKey,
+                        title: doc.title ?? doc.artifactKey,
+                        mode: doc.mode ?? 'create',
                         pendingVersion: doc.version,
+                        loadedVersion: doc.loadedVersion,
                         content: doc.content,
+                        documentType: doc.documentType,
+                        isInternal: doc.isInternal,
+                        progress: doc.progress,
                     });
                 }
                 setActiveDocuments(docs);
@@ -322,13 +379,18 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             flushDocsRaf.current = 0;
         }
         const docs: ActiveDocument[] = [];
-        for (const [name, doc] of stateRef.current.streamingDocs) {
+        for (const doc of stateRef.current.streamingDocs.values()) {
             docs.push({
-                name,
-                title: name,
-                mode: 'create',
+                artifactId: doc.artifactId,
+                name: doc.artifactKey,
+                title: doc.title ?? doc.artifactKey,
+                mode: doc.mode ?? 'create',
                 pendingVersion: doc.version,
+                loadedVersion: doc.loadedVersion,
                 content: doc.content,
+                documentType: doc.documentType,
+                isInternal: doc.isInternal,
+                progress: doc.progress,
             });
         }
         setActiveDocuments(docs);
@@ -347,6 +409,51 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         stateRef.current.streamingSummaries.clear();
     };
 
+    const startStreamSessionAnalytics = (nextAgentMessageId: string, nextStreamType: 'chat' | 'summary' | null) => {
+        const current = streamSessionRef.current;
+        if (current?.agentMessageId === nextAgentMessageId) return;
+        streamSessionRef.current = {
+            agentMessageId: nextAgentMessageId,
+            startedAt: performance.now(),
+            eventCount: 0,
+            streamType: nextStreamType,
+        };
+    };
+
+    const captureSubscribeCompleted = (
+        responseStatus: SubscribeResponse['status'],
+        responseAgentMessageId?: string,
+        responseStreamType?: 'chat' | 'summary' | null,
+    ) => {
+        const startedAt = subscribeStartedAtRef.current;
+        if (startedAt === null) return;
+        subscribeStartedAtRef.current = null;
+        capturePostHogEvent('subscribe_completed', {
+            domain,
+            topic_id: id,
+            status: responseStatus,
+            agent_message_id: responseAgentMessageId,
+            stream_type: responseStreamType,
+            subscribe_latency_ms: performance.now() - startedAt,
+        });
+    };
+
+    const captureStreamSessionEnded = (finalStatus: StreamStatus, finalAgentMessageId?: string) => {
+        const session = streamSessionRef.current;
+        if (!session) return;
+        streamSessionRef.current = null;
+        capturePostHogEvent('stream_session_ended', {
+            domain,
+            topic_id: id,
+            agent_message_id: finalAgentMessageId ?? session.agentMessageId,
+            stream_type: session.streamType,
+            status: finalStatus,
+            duration_ms: performance.now() - session.startedAt,
+            event_count: session.eventCount,
+            duplicates_dropped: 0,
+        });
+    };
+
     // ========================================================================
     // DOCUMENT EVENT HANDLER (async, sequential via queue)
     // ========================================================================
@@ -359,15 +466,40 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
         switch (type) {
             case 'document_start': {
-                const artifactId = payload.name;
+                const artifactKey = payload.name;
+                const artifactId = payload.artifactId;
+                if (!artifactId) break;
                 const now = new Date().toISOString();
-                o.onDocumentStart?.();
+                const startVersion =
+                    payload.pendingVersion ??
+                    (payload.mode === 'create' ? 1 : (payload.nextVersion ?? (payload.loadedVersion ?? 1) + 1));
+                const previousVersion = getPreviousArtifactVersion(startVersion);
+                o.onDocumentStart?.({ artifactKey, artifactName: payload.title, version: startVersion });
+                if (id && o.streamLocation) {
+                    streamMonitor.register({
+                        chatId: id,
+                        location: { domain: domain as 'chat' | 'intake', ...o.streamLocation },
+                        artifactId,
+                        artifactKey,
+                        artifactName: payload.title,
+                        version: startVersion,
+                        ...(payload.isInternal !== undefined ? { isInternal: payload.isInternal } : {}),
+                        ...(payload.mode ? { mode: payload.mode } : {}),
+                        ...(payload.loadedVersion !== undefined ? { loadedVersion: payload.loadedVersion } : {}),
+                        ...(previousVersion !== undefined ? { previousVersion } : {}),
+                        source: 'local',
+                    });
+                }
 
                 if (payload.mode === 'create') {
                     s.streamingDocs.set(artifactId, {
+                        artifactKey,
                         artifactId,
                         content: '',
-                        version: 1,
+                        version: startVersion,
+                        title: payload.title,
+                        mode: 'create',
+                        documentType: payload.documentType,
                         isInternal: payload.isInternal,
                     });
 
@@ -375,10 +507,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         {
                             id: artifactId,
                             key: payload.name,
-                            version: 1,
+                            version: startVersion,
                             proposedVersion: {
                                 id: '',
-                                version: 1,
+                                version: startVersion,
                                 title: payload.title,
                                 content: '',
                                 status: 'proposed',
@@ -393,39 +525,49 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             isUpdating: false,
                             isLoading: false,
                             progress: 0,
+                            sourceChatId: id ?? undefined,
                         },
-                        1,
+                        startVersion,
                     );
 
                     if (!payload.isInternal) {
-                        o.onArtifactOpen?.(artifactId, 1);
+                        o.onArtifactOpen?.({ artifactId, artifactKey, version: startVersion });
                     }
-                } else if (payload.mode === 'edit') {
+                } else if (payload.mode === 'edit' || payload.mode === 'replace') {
                     const isInternal = !!payload.isInternal;
                     const loadedVersion = payload.loadedVersion ?? 1;
                     let existingArtifact = ac?.getArtifact(artifactId, loadedVersion) ?? null;
 
                     if (!existingArtifact && o.fetchArtifact) {
-                        existingArtifact = await o.fetchArtifact(artifactId, loadedVersion);
+                        existingArtifact = await o.fetchArtifact(artifactKey, loadedVersion);
                     }
 
-                    const newVersion = payload.nextVersion ?? loadedVersion + 1;
+                    const newVersion = startVersion;
+                    const previousVersionForUpdate = getPreviousArtifactVersion(newVersion);
                     const loadedContent =
                         !isInternal && existingArtifact
                             ? (getLatestArtifactVersionContent(existingArtifact) ?? '')
                             : '';
                     const existingTitle = existingArtifact ? getLatestArtifactVersionTitle(existingArtifact) : '';
+                    const draftContent = payload.mode === 'replace' ? '' : loadedContent;
 
                     s.streamingDocs.set(artifactId, {
+                        artifactKey,
                         artifactId,
-                        content: loadedContent,
+                        content: draftContent,
                         version: newVersion,
+                        title: payload.title,
+                        mode: payload.mode,
+                        loadedVersion,
+                        documentType: payload.documentType,
                         isInternal,
-                        sourceVersion: loadedVersion,
                     });
 
-                    if (isInternal) {
-                        ac?.updateArtifact(artifactId, { isUpdating: true }, loadedVersion);
+                    if (isInternal && previousVersionForUpdate !== undefined) {
+                        if (!ac?.getArtifact(artifactId, previousVersionForUpdate) && o.fetchArtifact) {
+                            await o.fetchArtifact(artifactKey, previousVersionForUpdate);
+                        }
+                        ac?.updateArtifact(artifactId, { isUpdating: true }, previousVersionForUpdate);
                     }
 
                     ac?.addArtifact(
@@ -448,7 +590,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                 id: '',
                                 version: newVersion,
                                 title: payload.title,
-                                content: loadedContent,
+                                content: draftContent,
                                 status: 'proposed',
                                 documentType: payload.documentType,
                                 isInternal: payload.isInternal,
@@ -460,12 +602,13 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             isStreaming: true,
                             isUpdating: true,
                             progress: 0,
+                            sourceChatId: id ?? undefined,
                         },
                         newVersion,
                     );
 
                     if (!payload.isInternal) {
-                        o.onArtifactOpen?.(artifactId, newVersion);
+                        o.onArtifactOpen?.({ artifactId, artifactKey, version: newVersion });
                     }
                 }
 
@@ -474,12 +617,14 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             }
 
             case 'document_delta': {
-                if (s.streamingDocs.has(payload.name)) {
+                if (payload.artifactId && s.streamingDocs.has(payload.artifactId)) {
                     const chunks = chunkText(payload.content);
                     if (chunks.length === 1) {
-                        docDripRef.current.enqueue({ name: payload.name, content: chunks[0] });
+                        docDripRef.current.enqueue({ artifactId: payload.artifactId, content: chunks[0] });
                     } else {
-                        docDripRef.current.enqueue(chunks.map((c) => ({ name: payload.name, content: c })));
+                        docDripRef.current.enqueue(
+                            chunks.map((contentChunk) => ({ artifactId: payload.artifactId, content: contentChunk })),
+                        );
                     }
                 }
                 break;
@@ -488,9 +633,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
             case 'document_edit': {
                 // Flush pending drip deltas before applying edits
                 docDripRef.current.drain();
-                const doc = s.streamingDocs.get(payload.name);
+                const doc = payload.artifactId ? s.streamingDocs.get(payload.artifactId) : undefined;
                 if (doc && payload.edits) {
-                    // Forward iteration: AppliedEdit coords are post-prev-edits.
+                    // Applied edits are emitted in replay-safe order.
                     let lines = doc.content.split('\n');
                     for (const edit of payload.edits) {
                         const rangeStart = Math.max(0, edit.startLine - 1);
@@ -505,15 +650,20 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         { proposedVersion: { content: doc.content }, isUpdating: false, isStreaming: false },
                         doc.version,
                     );
-                    o.revalidateArtifact?.(doc.artifactId, doc.version);
+                    o.revalidateArtifact?.({
+                        artifactId: doc.artifactId,
+                        artifactKey: doc.artifactKey,
+                        version: doc.version,
+                    });
                     flushActiveDocuments();
                 }
                 break;
             }
 
             case 'document_progress': {
-                const doc = s.streamingDocs.get(payload.name);
+                const doc = payload.artifactId ? s.streamingDocs.get(payload.artifactId) : undefined;
                 if (doc) {
+                    doc.progress = payload.progress;
                     ac?.updateArtifact(doc.artifactId, { progress: payload.progress }, doc.version);
                 }
                 break;
@@ -521,8 +671,30 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
 
             case 'document_complete': {
                 docDripRef.current.drain();
-                const doc = s.streamingDocs.get(payload.name);
+                const doc = payload.artifactId ? s.streamingDocs.get(payload.artifactId) : undefined;
                 if (!doc) break;
+
+                if (payload.action === 'aborted' || payload.status === 'aborted') {
+                    ac?.updateArtifact(
+                        doc.artifactId,
+                        {
+                            isStreaming: false,
+                            isUpdating: false,
+                            progress: 0,
+                        },
+                        doc.version,
+                    );
+                    const previousVersion = getPreviousArtifactVersion(doc.version);
+                    if (previousVersion !== undefined) {
+                        ac?.updateArtifact(doc.artifactId, { isUpdating: false }, previousVersion);
+                    }
+
+                    s.streamingDocs.delete(doc.artifactId);
+                    if (id) streamMonitor.unregister(id, doc.artifactId);
+                    o.onDocumentComplete?.(doc.artifactId);
+                    flushActiveDocuments();
+                    break;
+                }
 
                 // For internal docs, the auto-generated summary is produced *inside*
                 // finalize_document BEFORE the tool returns — so the SSE order on the
@@ -538,31 +710,40 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     version: doc.version,
                     proposedVersion: {
                         version: doc.version,
-                        status: 'proposed',
+                        status: payload.status ?? 'proposed',
                     },
                 };
 
                 ac?.updateArtifact(doc.artifactId, completionUpdates, doc.version);
 
-                if (doc.sourceVersion !== undefined && doc.sourceVersion !== doc.version) {
-                    ac?.updateArtifact(doc.artifactId, { isUpdating: false }, doc.sourceVersion);
+                const previousVersion = getPreviousArtifactVersion(doc.version);
+                if (previousVersion !== undefined) {
+                    ac?.updateArtifact(doc.artifactId, { isUpdating: false }, previousVersion);
                 }
 
-                s.streamingDocs.delete(payload.name);
-                o.revalidateArtifact?.(doc.artifactId, doc.version);
+                s.streamingDocs.delete(doc.artifactId);
+                if (id) streamMonitor.unregister(id, doc.artifactId);
+                o.onDocumentComplete?.(doc.artifactId);
+                o.revalidateArtifact?.({
+                    artifactId: doc.artifactId,
+                    artifactKey: doc.artifactKey,
+                    version: doc.version,
+                });
                 flushActiveDocuments();
                 break;
             }
 
             case 'summary_start': {
-                if (!payload.versionId || !payload.name) break;
+                if (!payload.versionId || !payload.artifactId || !payload.name) break;
+                const artifactKey = payload.name;
                 s.streamingSummaries.set(payload.versionId, {
-                    artifactId: payload.name,
+                    artifactKey,
+                    artifactId: payload.artifactId,
                     version: payload.version,
                     content: '',
                 });
                 ac?.updateArtifact(
-                    payload.name,
+                    payload.artifactId,
                     {
                         summaryStreaming: '',
                         isSummaryStreaming: true,
@@ -571,7 +752,15 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     },
                     payload.version,
                 );
-                o.onArtifactOpen?.(payload.name, payload.version);
+                if (id) {
+                    streamMonitor.markSummaryStarted({
+                        chatId: id,
+                        artifactId: payload.artifactId,
+                        artifactKey,
+                        version: payload.version,
+                    });
+                }
+                o.onArtifactOpen?.({ artifactId: payload.artifactId, artifactKey, version: payload.version });
                 flushActiveDocuments();
                 break;
             }
@@ -604,7 +793,11 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     },
                     summary.version,
                 );
-                o.revalidateArtifact?.(summary.artifactId, summary.version);
+                o.revalidateArtifact?.({
+                    artifactId: summary.artifactId,
+                    artifactKey: summary.artifactKey,
+                    version: summary.version,
+                });
                 s.streamingSummaries.delete(payload.versionId);
                 flushActiveDocuments();
                 break;
@@ -646,9 +839,8 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         setIsRetracted(false);
         ownedAgentMessageIdRef.current = null;
         streamTerminalRef.current = false;
-
-        // Subscribe (ref-counted in WS client)
-        const unsub = ws.subscribe(topic);
+        subscribeStartedAtRef.current = performance.now();
+        streamSessionRef.current = null;
 
         // Track initial connection for reconnect detection
         let isFirstConnect = !ws.connected;
@@ -668,6 +860,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     const resp = msg as SubscribeResponse;
                     if (resp.status === 'streaming') {
                         const sr = resp as SubscribeResponseStreaming;
+                        captureSubscribeCompleted('streaming', sr.agentMessageId, sr.streamType ?? null);
                         const ownedAgentMessageId = ownedAgentMessageIdRef.current;
 
                         if (sr.snapshot.status !== 'streaming' && sr.snapshot.status !== 'pending_approval') {
@@ -694,6 +887,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         }
 
                         ownedAgentMessageIdRef.current = sr.agentMessageId;
+                        startStreamSessionAnalytics(sr.agentMessageId, sr.streamType ?? null);
                         stateRef.current = initFromSnapshot(sr.snapshot);
                         setBlocks([...sr.snapshot.blocks]);
                         setActiveDocuments(sr.snapshot.activeDocuments);
@@ -707,14 +901,51 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         if (o.artifactContext && sr.snapshot.activeDocuments.length > 0) {
                             const now = new Date().toISOString();
                             for (const doc of sr.snapshot.activeDocuments) {
-                                const snapshotContent = doc.isInternal ? '' : doc.content;
-                                if (doc.isInternal && doc.mode === 'edit' && doc.loadedVersion !== undefined) {
-                                    o.artifactContext.updateArtifact(doc.name, { isUpdating: true }, doc.loadedVersion);
+                                // Fail-closed: only show content when isInternal is explicitly false.
+                                const snapshotContent = doc.isInternal === false ? doc.content : '';
+                                const hasSummary =
+                                    doc.summaryInternal !== undefined || doc.summaryVersionId !== undefined;
+                                const previousVersion = getPreviousArtifactVersion(doc.pendingVersion);
+                                if (
+                                    doc.isInternal &&
+                                    (doc.mode === 'edit' || doc.mode === 'replace') &&
+                                    previousVersion !== undefined
+                                ) {
+                                    if (o.artifactContext.getArtifact(doc.artifactId, previousVersion)) {
+                                        o.artifactContext.updateArtifact(
+                                            doc.artifactId,
+                                            { isUpdating: true },
+                                            previousVersion,
+                                        );
+                                    } else if (o.fetchArtifact) {
+                                        void o.fetchArtifact(doc.name, previousVersion).then(() => {
+                                            o.artifactContext?.updateArtifact(
+                                                doc.artifactId,
+                                                { isUpdating: true },
+                                                previousVersion,
+                                            );
+                                        });
+                                    }
+                                }
+                                // Diff base for non-internal edit/replace reconnects.
+                                // Edit: DO carries loadedContent on the snapshot (also needed for replay correctness).
+                                // Replace: DO doesn't carry loadedContent (no replay correctness need); fall back to cached artifact (e.g., user was viewing it pre-disconnect) and async-fetch only if uncached.
+                                let baseContent = doc.loadedContent ?? '';
+                                if (
+                                    !baseContent &&
+                                    doc.mode === 'replace' &&
+                                    doc.loadedVersion &&
+                                    doc.isInternal === false
+                                ) {
+                                    const cached = o.artifactContext.getArtifact(doc.artifactId, doc.loadedVersion);
+                                    if (cached) {
+                                        baseContent = getLatestArtifactVersionContent(cached) ?? '';
+                                    }
                                 }
 
                                 o.artifactContext.addArtifact(
                                     {
-                                        id: doc.name,
+                                        id: doc.artifactId,
                                         key: doc.name,
                                         version: doc.pendingVersion,
                                         proposedVersion: {
@@ -725,16 +956,17 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                             status: 'proposed',
                                             documentType: doc.documentType,
                                             isInternal: doc.isInternal,
+                                            ...(hasSummary ? { summaryInternal: doc.summaryInternal ?? '' } : {}),
                                             createdAt: now,
                                             updatedAt: now,
                                         },
-                                        ...(doc.loadedVersion && doc.mode === 'edit'
+                                        ...(doc.loadedVersion && (doc.mode === 'edit' || doc.mode === 'replace')
                                             ? {
                                                   currentVersion: {
                                                       id: '',
                                                       version: doc.loadedVersion,
                                                       title: doc.title,
-                                                      content: '',
+                                                      content: baseContent,
                                                       status: 'approved',
                                                       createdAt: now,
                                                       updatedAt: now,
@@ -744,12 +976,77 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                         createdAt: now,
                                         updatedAt: now,
                                         isStreaming: true,
-                                        isUpdating: doc.mode === 'edit',
+                                        ...(hasSummary
+                                            ? { summaryStreaming: doc.summaryInternal ?? '', isSummaryStreaming: true }
+                                            : {}),
+                                        isUpdating: doc.mode === 'edit' || doc.mode === 'replace',
                                         isLoading: false,
                                         progress: doc.progress ?? 0,
+                                        sourceChatId: id ?? undefined,
                                     },
                                     doc.pendingVersion,
                                 );
+
+                                if (id && o.streamLocation) {
+                                    streamMonitor.register({
+                                        chatId: id,
+                                        location: { domain: domain as 'chat' | 'intake', ...o.streamLocation },
+                                        artifactId: doc.artifactId,
+                                        artifactKey: doc.name,
+                                        artifactName: doc.title,
+                                        version: doc.pendingVersion,
+                                        ...(doc.isInternal !== undefined ? { isInternal: doc.isInternal } : {}),
+                                        mode: doc.mode,
+                                        ...(doc.loadedVersion !== undefined
+                                            ? { loadedVersion: doc.loadedVersion }
+                                            : {}),
+                                        ...(previousVersion !== undefined ? { previousVersion } : {}),
+                                        hasSummary,
+                                        source: 'local',
+                                    });
+                                }
+
+                                // Replace cold-reconnect: no DO loadedContent and not in cache → fetch the version being replaced for diff UI. Skipped for internal (API redacts anyway, and we trust producer-side suppression).
+                                if (
+                                    !baseContent &&
+                                    doc.mode === 'replace' &&
+                                    doc.loadedVersion &&
+                                    doc.isInternal === false &&
+                                    o.fetchArtifact
+                                ) {
+                                    const loadedVersion = doc.loadedVersion;
+                                    const docName = doc.name;
+                                    const artifactId = doc.artifactId;
+                                    const pendingVersion = doc.pendingVersion;
+                                    void o.fetchArtifact(docName, loadedVersion).then((artifact) => {
+                                        if (!artifact) return;
+                                        const fetched = getLatestArtifactVersionContent(artifact);
+                                        if (typeof fetched !== 'string') return;
+                                        const updatedAt = new Date().toISOString();
+                                        o.artifactContext?.updateArtifact(
+                                            artifactId,
+                                            {
+                                                currentVersion: {
+                                                    id: '',
+                                                    version: loadedVersion,
+                                                    content: fetched,
+                                                    status: 'approved',
+                                                    createdAt: now,
+                                                    updatedAt,
+                                                },
+                                            },
+                                            pendingVersion,
+                                        );
+                                    });
+                                }
+
+                                if (!doc.isInternal || hasSummary) {
+                                    o.onArtifactOpen?.({
+                                        artifactId: doc.artifactId,
+                                        artifactKey: doc.name,
+                                        version: doc.pendingVersion,
+                                    });
+                                }
                             }
                         }
 
@@ -760,6 +1057,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             resp.completionBriefStatus ?? null,
                         );
                     } else {
+                        captureSubscribeCompleted(resp.status);
                         // idle or stale — no active stream
                         ownedAgentMessageIdRef.current = null;
                         setStatus('idle');
@@ -817,6 +1115,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     setAgentMessageId(started.agentMessageId);
                     setStreamType(started.streamType ?? null);
                     streamTerminalRef.current = false;
+                    startStreamSessionAnalytics(started.agentMessageId, started.streamType ?? null);
                     o.onStreamStarted?.(
                         started.agentMessageId,
                         started.userMessageId ?? '',
@@ -833,6 +1132,9 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     const { event, agentMessageId: eventAgentMessageId } = msg as StreamEventMessage;
                     if (eventAgentMessageId !== ownedAgentMessageIdRef.current) {
                         break;
+                    }
+                    if (streamSessionRef.current?.agentMessageId === eventAgentMessageId) {
+                        streamSessionRef.current.eventCount += 1;
                     }
 
                     switch (event.type) {
@@ -894,6 +1196,17 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             flush();
                             break;
                         }
+                        case 'tool_call_complete': {
+                            const idx = s.blocks.findIndex((b) => b.type === 'tool_call' && b.toolCallId === event.id);
+                            if (idx !== -1 && s.blocks[idx].type === 'tool_call') {
+                                s.blocks[idx] = {
+                                    ...s.blocks[idx],
+                                    toolInput: event.input,
+                                } as StreamBlock;
+                                flush();
+                            }
+                            break;
+                        }
                         case 'tool_result': {
                             const idx = s.blocks.findIndex((b) => b.type === 'tool_call' && b.toolCallId === event.id);
                             if (idx !== -1 && s.blocks[idx].type === 'tool_call') {
@@ -914,7 +1227,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                     const parsed =
                                         typeof event.result === 'string' ? JSON.parse(event.result) : event.result;
                                     if (parsed?.name && parsed?.version) {
-                                        o.revalidateArtifact?.(parsed.name, parsed.version);
+                                        o.revalidateArtifact?.({ artifactKey: parsed.name, version: parsed.version });
 
                                         // Queue document decision for flush on stream done
                                         const matchedBlock = idx !== -1 ? s.blocks[idx] : undefined;
@@ -1037,6 +1350,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                                 flushSync();
                                 clearStreamingFlags();
                                 setError(event.error);
+                                captureStreamSessionEnded('error', eventAgentMessageId);
                             }
                             break;
 
@@ -1053,6 +1367,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             setStatus((prev) => (prev === 'aborted' || prev === 'error' ? prev : 'done'));
                             if (o.onToolDocumentDecision) flushDocumentDecisions(o.onToolDocumentDecision);
                             o.onDone?.('done', event, eventAgentMessageId);
+                            captureStreamSessionEnded('done', eventAgentMessageId);
                             break;
 
                         case 'done_ext':
@@ -1073,6 +1388,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                             setPendingDecisions([]);
                             setSubmittingDecisions({});
                             setIsRetracted(true);
+                            captureStreamSessionEnded('aborted', eventAgentMessageId);
                             break;
 
                         case 'created':
@@ -1109,6 +1425,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                         setPendingDecisions([]);
                         setSubmittingDecisions({});
                         o.onDone?.(sm.status, undefined, sm.agentMessageId);
+                        captureStreamSessionEnded(sm.status, sm.agentMessageId);
                     }
                     break;
                 }
@@ -1130,9 +1447,25 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         ws.on('message', onMessage);
         ws.on('connected', onConnected);
 
+        const wasMonitoredInBackground = streamMonitor.isMonitoring(id);
+
+        // Subscribe (ref-counted in WS client). If a background monitor already
+        // owns the topic, this increments the local ref count without sending a
+        // new subscribe frame. After releasing the monitor, explicitly ask for a
+        // fresh snapshot so this hook can reconcile stale DB active-stream state.
+        const unsub = ws.subscribe(topic);
+        streamMonitor.release(id);
+        if (wasMonitoredInBackground) {
+            ws.refreshSubscription(topic);
+        }
+
         return () => {
             ws.off('message', onMessage);
             ws.off('connected', onConnected);
+            if (stateRef.current.streamingDocs.size > 0) {
+                docDripRef.current.drain();
+                streamMonitor.takeover(id);
+            }
             unsub();
             dripRef.current.dispose();
             docDripRef.current.dispose();

@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
         }).getNextResponse();
     }
 
-    const ctx = await initNextjsWorkerContext({ skipAI: false });
+    const ctx = await initNextjsWorkerContext<ChatEnv>({ skipAI: false });
     const result = await rejectArtifactHandler(parsed.data, ctx);
 
     return NextResponse.json(result);

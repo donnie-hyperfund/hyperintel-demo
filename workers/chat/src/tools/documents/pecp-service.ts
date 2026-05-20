@@ -9,6 +9,6 @@
 import { INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 
 /** Returns true when the given document type should get an auto-generated PECP summary on finalize. */
-export function shouldGeneratePECP(documentType: string): boolean {
+export function shouldGenerateInternalSummary(documentType: string): boolean {
     return (INTERNAL_DOCUMENTS as readonly string[]).includes(documentType);
 }

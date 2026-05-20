@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { vi } from 'vitest';
 import { PublicError } from '@/common/common/error.helpers';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity, type VersionStatus } from '@/lib/orm/entities/artifacts/artifact-version.entity';
@@ -48,6 +49,7 @@ async function createProjectArtifact(key: string, seeds: VersionSeed[]) {
         const version = em.create(ArtifactVersionEntity, {
             artifact,
             version: seed.version,
+            title: key,
             content: seed.content,
             status: seed.status,
             is_internal: seed.isInternal ?? false,
@@ -74,7 +76,16 @@ function makeCtx(em: Awaited<ReturnType<typeof getTestEm>>) {
     return {
         em,
         user: { userId: CLERK_ID },
-        env: {},
+        previewAlias: null,
+        env: {
+            USER_GATEWAY: {
+                idFromName: vi.fn((name: string) => name),
+                get: vi.fn(() => ({
+                    broadcastToAll: vi.fn().mockResolvedValue(undefined),
+                    systemAction: vi.fn().mockResolvedValue(undefined),
+                })),
+            },
+        },
     } as any;
 }
 
@@ -86,7 +97,7 @@ beforeAll(async () => {
         clerkId: CLERK_ID,
     });
     const project = em.create(ProjectEntity, { name: 'Artifact Restore E2E', user });
-    const chat = em.create(ChatEntity, { phase: 'chat', project });
+    const chat = em.create(ChatEntity, { phase: 'chat', phase_index: 0, project });
     await em.persistAndFlush([user, project, chat]);
 
     projectId = project.id;
@@ -226,10 +237,10 @@ describe('restoreArtifactHandler', () => {
                 },
                 makeCtx(em),
             ),
-        ).rejects.toMatchObject<Partial<PublicError>>({
+        ).rejects.toMatchObject({
             code: 'ALREADY_ACTIVE_VERSION',
             statusCode: 400,
-        });
+        } satisfies Partial<PublicError>);
     });
 
     it('blocks restore when latest version is proposed (approve/reject instead)', async () => {
@@ -248,10 +259,10 @@ describe('restoreArtifactHandler', () => {
                 },
                 makeCtx(em),
             ),
-        ).rejects.toMatchObject<Partial<PublicError>>({
+        ).rejects.toMatchObject({
             code: 'ALREADY_LATEST_VERSION',
             statusCode: 400,
-        });
+        } satisfies Partial<PublicError>);
     });
 
     it('allows restore when latest version is rejected (terminal state)', async () => {

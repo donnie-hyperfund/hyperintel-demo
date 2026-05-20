@@ -2,7 +2,7 @@ import { createClerkClient } from '@clerk/backend';
 import { Hono } from 'hono';
 import { branchDoName, getPreviewAlias, PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: ServicesEnv }>();
 
 app.get('/', (c) => {
     return c.json({ status: 'ok', worker: 'services' });

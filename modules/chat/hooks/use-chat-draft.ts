@@ -1,19 +1,15 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { safeGetItem, safeRemoveItem, safeSetItem } from '@/lib/storage/local-storage';
-import { getDraftBaseKey } from '@/lib/storage/storage-keys';
+import { draftKey } from '@/lib/storage/storage-keys';
 import type { ChatType } from '../types';
 
 export function useChatDraft(chatType: ChatType, chatId: string | null, projectId?: string) {
-    const key = getDraftBaseKey(chatType, chatId, projectId);
+    const key = draftKey({ kind: 'chat-input', chatType, chatId: chatId ?? undefined, projectId });
     const keyRef = useRef(key);
     keyRef.current = key;
 
-    // NOTE: Intake /new pages (no chatId, no projectId) discard stale drafts on mount
-    // so that a page refresh starts clean — matching the fact that file uploads also
-    // don't persist for these pages (no storage key without a chatId).
-    // Within-session draft survives ensureChatId because migrateDraft (chat-provider)
-    // copies the draft to the new chatId-scoped key before the remount reads it.
-    // TODO: if file upload persistence is added for intake /new, revisit this clearing.
+    // Intake /new pages (no chatId, no projectId) discard stale drafts on mount; within-session
+    // drafts still survive ensureChatId because migrateDraft copies them to the new chatId key.
     const isNewIntakeChat = !chatId && !projectId;
 
     const initialDraft = useMemo(() => {
@@ -36,5 +32,5 @@ export function useChatDraft(chatType: ChatType, chatId: string | null, projectI
         safeRemoveItem(keyRef.current);
     }, []);
 
-    return { initialDraft, saveDraft, clearDraft } as const;
+    return { draftKey: key, initialDraft, saveDraft, clearDraft } as const;
 }

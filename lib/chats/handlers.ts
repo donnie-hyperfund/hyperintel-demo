@@ -333,7 +333,7 @@ export async function handleListChats(req: NextRequest, user: UserEntity, projec
     const perPage = queryData.limit ?? 20;
 
     // Shared filter builder — applies ownership + query filters to any chat query builder
-    // biome-ignore lint/suspicious/noExplicitAny: MikroORM QB generics vary by select/join shape
+    // _biome-ignore lint/suspicious/noExplicitAny: MikroORM QB generics vary by select/join shape
     function applyFilters(qb: any) {
         if (projectId) {
             qb.where({ 'p.id': projectId, 'p.user': user.id, 'p.archived_at': null });
@@ -456,6 +456,10 @@ export async function handleCreateMessage(
     const body = await req.json();
     const bodyData = validatePayload(CreateMessageBodySchema, body);
     if (bodyData instanceof NextResponse) return bodyData;
+    const requestProjectId =
+        typeof body === 'object' && body !== null && 'projectId' in body && typeof body.projectId === 'string'
+            ? body.projectId
+            : undefined;
 
     const { content, role, metadata } = bodyData;
 
@@ -464,7 +468,7 @@ export async function handleCreateMessage(
 
         if (!chat) {
             // Auto-create chat if projectId is available
-            const resolvedProjectId = projectId ?? (body.projectId as string | undefined);
+            const resolvedProjectId = projectId ?? requestProjectId;
             if (!resolvedProjectId) return null;
 
             const project = await em.findOne(ProjectEntity, {
