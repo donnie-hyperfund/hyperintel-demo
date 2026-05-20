@@ -605,21 +605,20 @@ Past write_document calls may show __collapsedContent="${COLLAPSED_FIELD_SENTINE
                 const { draftManager } = ctx;
 
                 // Strip stray sentinels so an echoed marker never lands in the saved document.
-                const cleanedContent = typeof content === 'string'
-                    ? content.replaceAll(COLLAPSED_FIELD_SENTINEL, '')
-                    : '';
+                const cleanedContent =
+                    typeof content === 'string' ? content.replaceAll(COLLAPSED_FIELD_SENTINEL, '') : '';
                 const strippedMarker = typeof content === 'string' && content !== cleanedContent;
 
                 // `__collapsedContent` is not a real parameter, and content that is nothing but
                 // the sentinel both mean the model echoed a collapsed historical marker as a live call.
                 const reusedCollapsedMarker =
-                    '__collapsedContent' in raw
-                    || (strippedMarker && cleanedContent.trim().length === 0);
+                    '__collapsedContent' in raw || (strippedMarker && cleanedContent.trim().length === 0);
 
                 if (reusedCollapsedMarker) {
                     return {
-                        error: `"${COLLAPSED_FIELD_SENTINEL}" is a system marker for omitted historical content, not document text, and __collapsedContent is not a real argument.`
-                             + 'Write the actual document content in the "content" field. Use recall_tool_call if you need prior content, or read_document should that fail.',
+                        error:
+                            `"${COLLAPSED_FIELD_SENTINEL}" is a system marker for omitted historical content, not document text, and __collapsedContent is not a real argument.` +
+                            'Write the actual document content in the "content" field. Use recall_tool_call if you need prior content, or read_document should that fail.',
                     };
                 }
 
@@ -685,9 +684,10 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                 });
                 if (hasCollapsedEdit) {
                     return {
-                        error: 'patch_document edits must contain real "oldContent" and "newContent" strings. '
-                             + `A collapsed historical edit (oldContentChars/newContentChars stats, or "${COLLAPSED_FIELD_SENTINEL}") is a system marker, `
-                             + 'not a reusable argument — use recall_tool_call to retrieve the original edits.',
+                        error:
+                            'patch_document edits must contain real "oldContent" and "newContent" strings. ' +
+                            `A collapsed historical edit (oldContentChars/newContentChars stats, or "${COLLAPSED_FIELD_SENTINEL}") is a system marker, ` +
+                            'not a reusable argument — use recall_tool_call to retrieve the original edits.',
                     };
                 }
 
@@ -695,8 +695,9 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                 // document); newContent is written verbatim, so it must never carry the marker.
                 if (edits.some((edit) => edit.newContent.includes(COLLAPSED_FIELD_SENTINEL))) {
                     return {
-                        error: `"${COLLAPSED_FIELD_SENTINEL}" is a system marker for omitted historical content, not document text — it must not appear in an edit's newContent. `
-                             + 'Provide the real replacement text. Use recall_tool_call if you need prior content.',
+                        error:
+                            `"${COLLAPSED_FIELD_SENTINEL}" is a system marker for omitted historical content, not document text — it must not appear in an edit's newContent. ` +
+                            'Provide the real replacement text. Use recall_tool_call if you need prior content.',
                     };
                 }
 

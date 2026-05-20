@@ -13,12 +13,7 @@ export const DOCUMENT_DIRECTIVE_REGEX = /::document\[[^\]]+\]\{[^}]+\}/g;
  *
  * @param isActiveTurn true when `messages` is the current in-progress turn.
  */
-export function preprocessContext(
-    messages: any[],
-    _ctx?: unknown,
-    _eCtx?: unknown,
-    isActiveTurn = false,
-): any[] {
+export function preprocessContext(messages: any[], _ctx?: unknown, _eCtx?: unknown, isActiveTurn = false): any[] {
     void isActiveTurn; // reserved hook — see doc comment; no behavioural use yet
     return messages.map((msg) => {
         // Only process assistant messages with blocks
