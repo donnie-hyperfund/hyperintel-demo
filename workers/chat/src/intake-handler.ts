@@ -488,6 +488,12 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                 context: allMessages,
                 countReasoningAsContent: true,
                 contentThreshold: 5,
+                promptCache: {
+                    anthropic: {
+                        systemPrompt: { enabled: true, ttl: '1h' },
+                        recentTurn: { ttl: '1h' },
+                    },
+                },
             },
             allTools,
             {
