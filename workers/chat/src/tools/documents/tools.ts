@@ -22,6 +22,7 @@ import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
@@ -45,7 +46,7 @@ import {
 } from './document-service';
 import { DraftManager } from './draft-manager';
 import { generateInternalSummary } from './pecp-generator';
-import { shouldGeneratePECP } from './pecp-service';
+import { shouldGenerateInternalSummary, shouldReuseInternalSummaryForRevision } from './pecp-service';
 
 // ============================================================================
 // TYPES
@@ -73,7 +74,7 @@ export interface DocumentToolsContext {
     /**
      * Push stream events to the active SSE / DO stream (frontend listens via useStream).
      * Set by chat-handler / summarizer when wiring tool execution into a streaming session.
-     * The PECP summary generator pushes `summary_start` / `summary_delta` / `summary_complete` here.
+     * The Internal Summary generator pushes `summary_start` / `summary_delta` / `summary_complete` here.
      */
     pushStreamEvents?: (events: StreamEvent[]) => void;
     /** Optional callback fired when a new artifact version is created (for user-scoped broadcasts) */
@@ -180,14 +181,14 @@ When the user asks about a specific file or document (e.g., "what's in the UX do
 3. Then use \`read_document\` with the exact document name to view its full content.
 Never skip straight to \`read_document\` with a guessed name — always discover the correct name first via search or listing.
 
-## PE Communication Summaries (Auto-Generated)
-When you finalize an internal working document (Genesis DNA, Legacy DNA, Team Specification, MID, PSEB, Action Plan, Completion Brief, Company Profile, Human Persona), the backend automatically generates the PE-facing summary for it. You do NOT call any tools to produce it — it is written to the parent version's \`summary_internal\` field by a separate summary agent during finalize_document. After finalize_document returns, STOP and wait for the user.
+## Internal Summaries (Auto-Generated Drawer Briefs)
+When you finalize an internal working document (Genesis DNA, Legacy DNA, Team Specification, MID, PSEB, Action Plan, Completion Brief), the backend automatically generates the PE-facing drawer brief for it. You do NOT call any tools to produce it — it is written to the parent version's \`summary_internal\` field by a separate summary agent during finalize_document. After finalize_document returns, STOP and wait for the user.
 
-**CRITICAL: Do NOT write any PECP-style content in your chat reply.** After finalizing an internal document, your text response must be a single brief confirmation — no structure, no headers, no bullet points. Do NOT:
+**CRITICAL: Do NOT write Internal Summary content in your chat reply.** After finalizing an internal document, your text response must be a single brief confirmation — no structure, no headers, no bullet points. Do NOT:
 - Summarize the document contents in your message
 - Write client-facing narrative, executive summaries, or "what we built / why this matters" style text
 - Echo or paraphrase the document in any form
-The PECP summary is written automatically by a separate agent and displayed in the UI — your chat response is only a confirmation that the document was saved.
+The Internal Summary is written automatically by a separate agent and displayed in the UI — your chat response is only a confirmation that the document was saved.
 
 ## Proactive Actions (FORBIDDEN)
 **NEVER create documents the user did not explicitly request.** After an approval, rejection, or restore, STOP and wait for the user's next message — UNLESS the same chat message also contained an explicit follow-up request (compound case above), in which case do exactly that one follow-up and then stop. \`<system>\` approval/rejection/restore events are NEVER compound — always stop. Do NOT:
@@ -607,8 +608,9 @@ Past write_document calls may show collapsedContent="[__tool_collapsed__]" — t
 
                 if (content.replace(COLLAPSED_SENTINEL_RE, '').trim().length === 0) {
                     return {
-                        error: '"[__tool_collapsed__]" is a system marker for omitted historical content, not document text. '
-                             + 'Write the actual document content. Use recall_tool_call if you need prior content, or read_document should that fail.',
+                        error:
+                            '"[__tool_collapsed__]" is a system marker for omitted historical content, not document text. ' +
+                            'Write the actual document content. Use recall_tool_call if you need prior content, or read_document should that fail.',
                     };
                 }
 
@@ -828,37 +830,54 @@ Use action="abort" to discard the active draft without saving.`,
                         response.message = `Saved as superseded v${result.version} because newer proposed v${result.supersededByVersion} already exists. STOP HERE — do not create any more documents until the user asks.`;
                     }
 
-                    // ── Internal-document summary (auto-generated PECP) ──────────
+                    // ── Internal Summary (auto-generated drawer brief) ──────────
                     // Run a separate inference call against the just-finalized parent
                     // version. The generator streams summary_* events to the SSE
                     // pipeline and writes the final text into version.summary_internal.
                     // Awaited synchronously: the agent's own response is held until
                     // the summary completes, which keeps the SSE stream alive and
-                    // the frontend's PECP UX in lockstep with the parent doc.
+                    // the frontend drawer in lockstep with the parent doc.
                     if (
                         result.status === 'proposed' &&
                         rCtx &&
-                        shouldGeneratePECP(draft.document_type) &&
+                        shouldGenerateInternalSummary(draft.document_type) &&
                         draft.is_internal
                     ) {
-                        toolResult.summaryPending = true;
-                        try {
-                            await generateInternalSummary({
-                                rCtx,
-                                em,
-                                versionId: result.versionId,
-                                artifactId: result.artifactId,
-                                version: result.version,
-                                documentName: draft.name,
-                                documentType: draft.document_type,
-                                content: draft.content,
-                                pushStreamEvents: ctx.pushStreamEvents,
-                            });
-                        } catch (err) {
-                            console.error('[finalize_document] summary generator failed:', err);
-                            // Soft-fail: parent doc is already saved. Surface to agent
-                            // but don't block the response.
-                            toolResult.summaryError = err instanceof Error ? err.message : String(err);
+                        const shouldReuseSummary = shouldReuseInternalSummaryForRevision({
+                            previousContent: result.supersededContent,
+                            nextContent: draft.content,
+                            previousSummary: result.supersededSummaryInternal,
+                        });
+
+                        if (shouldReuseSummary && result.supersededSummaryInternal) {
+                            const version = await em.findOne(ArtifactVersionEntity, { id: result.versionId });
+                            if (version) {
+                                version.summary_internal = result.supersededSummaryInternal;
+                                await em.flush();
+                            }
+                            toolResult.summaryReused = true;
+                            response.summaryInternal = result.supersededSummaryInternal;
+                        } else {
+                            toolResult.summaryPending = true;
+                            try {
+                                await generateInternalSummary({
+                                    rCtx,
+                                    em,
+                                    versionId: result.versionId,
+                                    artifactId: result.artifactId,
+                                    version: result.version,
+                                    documentName: draft.name,
+                                    documentType: draft.document_type,
+                                    content: draft.content,
+                                    pushStreamEvents: ctx.pushStreamEvents,
+                                    hadPriorSummary: Boolean(result.supersededSummaryInternal),
+                                });
+                            } catch (err) {
+                                console.error('[finalize_document] summary generator failed:', err);
+                                // Soft-fail: parent doc is already saved. Surface to agent
+                                // but don't block the response.
+                                toolResult.summaryError = err instanceof Error ? err.message : String(err);
+                            }
                         }
                     }
 

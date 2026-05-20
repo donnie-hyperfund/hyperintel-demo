@@ -531,7 +531,6 @@ function buildDocumentInfo(artifact: ArtifactEntity): DocumentInfo {
     const rejected = latestVersionWithStatus(versions, 'rejected');
     const lastApproved = latestVersionWithStatus(versions, 'approved');
 
-    const currentContent = artifact.current_version?.content ?? null;
     const proposedContent = proposed?.content ?? null;
     const approvedContent = lastApproved?.content ?? null;
 
@@ -815,6 +814,8 @@ export interface UpsertDocumentResult {
     lines: number;
     supersededVersion?: number;
     supersededByVersion?: number;
+    supersededContent?: string | null;
+    supersededSummaryInternal?: string | null;
 }
 
 /**
@@ -841,7 +842,6 @@ export async function upsertDocument(opts: UpsertDocumentOptions): Promise<Upser
         document_type = 'Other',
         reservedVersion,
     } = opts;
-
     const normalizedName = normalizeArtifactKey(name);
     const lineCount = countLines(content);
 
@@ -870,6 +870,10 @@ export async function upsertDocument(opts: UpsertDocumentOptions): Promise<Upser
                 const shouldSupersedeExisting =
                     existingProposed !== undefined && existingProposed.version < reservedVersion;
                 const supersededVersion = shouldSupersedeExisting ? existingProposed.version : undefined;
+                const supersededContent = shouldSupersedeExisting ? (existingProposed?.content ?? null) : null;
+                const supersededSummaryInternal = shouldSupersedeExisting
+                    ? (existingProposed?.summary_internal ?? null)
+                    : null;
                 const supersededByVersion =
                     existingProposed !== undefined && existingProposed.version > reservedVersion
                         ? existingProposed.version
@@ -916,6 +920,8 @@ export async function upsertDocument(opts: UpsertDocumentOptions): Promise<Upser
                     lines: lineCount,
                     ...(supersededVersion !== undefined && { supersededVersion }),
                     ...(supersededByVersion !== undefined && { supersededByVersion }),
+                    supersededContent,
+                    supersededSummaryInternal,
                 };
             }),
     });
