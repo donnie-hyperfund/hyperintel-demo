@@ -531,6 +531,7 @@ function buildDocumentInfo(artifact: ArtifactEntity): DocumentInfo {
     const rejected = latestVersionWithStatus(versions, 'rejected');
     const lastApproved = latestVersionWithStatus(versions, 'approved');
 
+    const currentContent = artifact.current_version?.content ?? null;
     const proposedContent = proposed?.content ?? null;
     const approvedContent = lastApproved?.content ?? null;
 
