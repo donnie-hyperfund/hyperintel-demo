@@ -108,7 +108,7 @@ export async function generateInternalSummary(params: GenerateInternalSummaryPar
     const startedAt = Date.now();
 
     const resp = await rCtx.anthropic.messages.create({
-        model: ANTHROPIC_MODELS.SONNET,
+        model: ANTHROPIC_MODELS.HAIKU,
         max_tokens: INTERNAL_SUMMARY_MAX_TOKENS,
         system: systemPrompt,
         // The prompt itself carries the document content via Handlebars placeholders;
@@ -174,7 +174,7 @@ export async function generateInternalSummary(params: GenerateInternalSummaryPar
             document_name: documentName,
             version_id: versionId,
             version,
-            model: ANTHROPIC_MODELS.SONNET,
+            model: ANTHROPIC_MODELS.HAIKU,
             prompt_slug: INTERNAL_SUMMARY_PROMPT_SLUG,
             max_tokens: INTERNAL_SUMMARY_MAX_TOKENS,
             input_tokens: inputTokens,

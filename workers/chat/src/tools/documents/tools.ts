@@ -46,7 +46,7 @@ import {
 } from './document-service';
 import { DraftManager } from './draft-manager';
 import { generateInternalSummary } from './pecp-generator';
-import { shouldGenerateInternalSummary, shouldReuseInternalSummaryForRevision } from './pecp-service';
+import { shouldGenerateInternalSummary } from './pecp-service';
 
 // ============================================================================
 // TYPES
@@ -843,41 +843,25 @@ Use action="abort" to discard the active draft without saving.`,
                         shouldGenerateInternalSummary(draft.document_type) &&
                         draft.is_internal
                     ) {
-                        const shouldReuseSummary = shouldReuseInternalSummaryForRevision({
-                            previousContent: result.supersededContent,
-                            nextContent: draft.content,
-                            previousSummary: result.supersededSummaryInternal,
-                        });
-
-                        if (shouldReuseSummary && result.supersededSummaryInternal) {
-                            const version = await em.findOne(ArtifactVersionEntity, { id: result.versionId });
-                            if (version) {
-                                version.summary_internal = result.supersededSummaryInternal;
-                                await em.flush();
-                            }
-                            toolResult.summaryReused = true;
-                            response.summaryInternal = result.supersededSummaryInternal;
-                        } else {
-                            toolResult.summaryPending = true;
-                            try {
-                                await generateInternalSummary({
-                                    rCtx,
-                                    em,
-                                    versionId: result.versionId,
-                                    artifactId: result.artifactId,
-                                    version: result.version,
-                                    documentName: draft.name,
-                                    documentType: draft.document_type,
-                                    content: draft.content,
-                                    pushStreamEvents: ctx.pushStreamEvents,
-                                    hadPriorSummary: Boolean(result.supersededSummaryInternal),
-                                });
-                            } catch (err) {
-                                console.error('[finalize_document] summary generator failed:', err);
-                                // Soft-fail: parent doc is already saved. Surface to agent
-                                // but don't block the response.
-                                toolResult.summaryError = err instanceof Error ? err.message : String(err);
-                            }
+                        toolResult.summaryPending = true;
+                        try {
+                            await generateInternalSummary({
+                                rCtx,
+                                em,
+                                versionId: result.versionId,
+                                artifactId: result.artifactId,
+                                version: result.version,
+                                documentName: draft.name,
+                                documentType: draft.document_type,
+                                content: draft.content,
+                                pushStreamEvents: ctx.pushStreamEvents,
+                                hadPriorSummary: Boolean(result.supersededSummaryInternal),
+                            });
+                        } catch (err) {
+                            console.error('[finalize_document] summary generator failed:', err);
+                            // Soft-fail: parent doc is already saved. Surface to agent
+                            // but don't block the response.
+                            toolResult.summaryError = err instanceof Error ? err.message : String(err);
                         }
                     }
 
