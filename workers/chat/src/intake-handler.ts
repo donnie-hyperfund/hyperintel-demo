@@ -41,6 +41,7 @@ import {
 } from './utils/context-budget';
 import { maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
+import { buildDateContextBlock } from './utils/date-context';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -106,7 +107,8 @@ async function buildIntakeSystemPrompt(
         throw new Error(`Failed to load intake system prompt: ${slug}`);
     }
 
-    let systemPrompt = promptContent;
+    const dateContext = buildDateContextBlock(ctx.userTimezone ?? 'UTC');
+    let systemPrompt = `${dateContext}\n\n---\n\n${promptContent}`;
 
     // Append category context for HPF
     if (framework === 'hpf' && category) {
@@ -245,6 +247,7 @@ export async function intakeActionHandler(
     const { chatId, message, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
+    ctx.userTimezone = data.timezone;
 
     // Pre-generate IDs
     const userMessageId = crypto.randomUUID();

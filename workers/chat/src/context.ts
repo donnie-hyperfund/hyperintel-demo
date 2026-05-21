@@ -6,4 +6,6 @@ export type Ctx = AuthedInferredContext<ChatEnv> & {
     previewAlias?: string | null;
     /** Stable request identifier propagated from the HTTP boundary for support/debug correlation. */
     requestId?: string | null;
+    /** IANA timezone forwarded from the client (browser). Used to build the per-request date context block. */
+    userTimezone?: string;
 };

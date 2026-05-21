@@ -34,6 +34,7 @@ export async function summarizeActionHandler(
 ): Promise<SummarizeActionResult | ReadableStream | PublicError> {
     const { chatId } = data;
     const { em } = ctx;
+    ctx.userTimezone = data.timezone;
 
     const agentMessageId = crypto.randomUUID();
 

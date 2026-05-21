@@ -39,6 +39,7 @@ import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
 import { type ContextOverflowState, evaluateContextGate, maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
+import { buildDateContextBlock } from './utils/date-context';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -208,7 +209,9 @@ async function buildSystemPrompt(
     if (!systemPromptRaw) {
         throw new Error(`Failed to load system prompt: ${systemSlug}`);
     }
-    let systemPrompt = await compileTemplate(systemPromptRaw, {});
+
+    const dateContext = buildDateContextBlock(ctx.userTimezone ?? 'UTC');
+    let systemPrompt = `${dateContext}\n\n---\n\n${await compileTemplate(systemPromptRaw, {})}`;
     let allPrompts = ['pma/identity-framework', 'pma/core-methodology', ...loadedPrompts];
 
     if (USE_SHORT_PROMPTS) {
@@ -346,6 +349,7 @@ export async function chatActionHandler(
     const { chatId, message, tempId, imageFileIds } = data;
     const { em } = ctx;
     const requestStartedAt = new Date();
+    ctx.userTimezone = data.timezone;
 
     // Pre-generate IDs (Decision #36)
     const userMessageId = crypto.randomUUID();
