@@ -187,14 +187,33 @@ describe('ChatStreamStateDO', () => {
             await state.applyEvents([
                 streamEvent(0, {
                     type: 'document_start',
+                    artifactId: 'artifact-1',
                     name: 'doc-1',
                     title: 'Test Doc',
                     pendingVersion: 1,
                     mode: 'create',
                 }),
-                streamEvent(1, { type: 'document_delta', name: 'doc-1', content: 'line 1\n' }),
-                streamEvent(2, { type: 'document_delta', name: 'doc-1', content: 'line 2' }),
-                streamEvent(3, { type: 'document_progress', name: 'doc-1', progress: 0.5 }),
+                streamEvent(1, {
+                    type: 'document_delta',
+                    artifactId: 'artifact-1',
+                    name: 'doc-1',
+                    pendingVersion: 1,
+                    content: 'line 1\n',
+                }),
+                streamEvent(2, {
+                    type: 'document_delta',
+                    artifactId: 'artifact-1',
+                    name: 'doc-1',
+                    pendingVersion: 1,
+                    content: 'line 2',
+                }),
+                streamEvent(3, {
+                    type: 'document_progress',
+                    artifactId: 'artifact-1',
+                    name: 'doc-1',
+                    pendingVersion: 1,
+                    progress: 0.5,
+                }),
             ]);
 
             let { snapshot } = await state.getSnapshot();
@@ -203,7 +222,13 @@ describe('ChatStreamStateDO', () => {
             expect(snapshot.activeDocuments[0].progress).toBe(0.5);
 
             await state.applyEvents([
-                streamEvent(4, { type: 'document_complete', name: 'doc-1', lines: 2, action: 'created' }),
+                streamEvent(4, {
+                    type: 'document_complete',
+                    artifactId: 'artifact-1',
+                    name: 'doc-1',
+                    lines: 2,
+                    action: 'created',
+                }),
             ]);
 
             ({ snapshot } = await state.getSnapshot());
@@ -216,6 +241,7 @@ describe('ChatStreamStateDO', () => {
             await state.applyEvents([
                 streamEvent(0, {
                     type: 'document_start',
+                    artifactId: 'artifact-1',
                     name: 'doc-1',
                     pendingVersion: 2,
                     mode: 'edit',
@@ -223,7 +249,9 @@ describe('ChatStreamStateDO', () => {
                 }),
                 streamEvent(1, {
                     type: 'document_edit',
+                    artifactId: 'artifact-1',
                     name: 'doc-1',
+                    pendingVersion: 2,
                     edits: [{ startLine: 2, endLine: 2, oldContent: 'line B', newContent: 'line B modified' }],
                 }),
             ]);
@@ -264,14 +292,36 @@ describe('ChatStreamStateDO', () => {
             expect(snapshot.displayStatus).toBe('Analyzing data...');
         });
 
-        it('handles summary events as no-ops', async () => {
+        it('applies summary events to the active document', async () => {
             const { state } = createStateDO();
 
             await state.applyEvents([
-                streamEvent(0, { type: 'summary_start', name: 'doc-1', versionId: 'v-1', version: 1 }),
-                streamEvent(1, { type: 'summary_delta', name: 'doc-1', versionId: 'v-1', version: 1, content: 'sum' }),
+                streamEvent(0, {
+                    type: 'document_start',
+                    artifactId: 'artifact-1',
+                    name: 'doc-1',
+                    title: 'Doc',
+                    pendingVersion: 1,
+                    mode: 'create',
+                }),
+                streamEvent(1, {
+                    type: 'summary_start',
+                    artifactId: 'artifact-1',
+                    name: 'doc-1',
+                    versionId: 'v-1',
+                    version: 1,
+                }),
                 streamEvent(2, {
+                    type: 'summary_delta',
+                    artifactId: 'artifact-1',
+                    name: 'doc-1',
+                    versionId: 'v-1',
+                    version: 1,
+                    content: 'sum',
+                }),
+                streamEvent(3, {
                     type: 'summary_complete',
+                    artifactId: 'artifact-1',
                     name: 'doc-1',
                     versionId: 'v-1',
                     version: 1,
@@ -280,8 +330,9 @@ describe('ChatStreamStateDO', () => {
             ]);
 
             const { snapshot, seqHigh } = await state.getSnapshot();
-            expect(seqHigh).toBe(2);
-            expect(snapshot.blocks).toEqual([]);
+            expect(seqHigh).toBe(3);
+            expect(snapshot.activeDocuments[0].summaryInternal).toBe('summary');
+            expect(snapshot.activeDocuments[0].summaryVersionId).toBeUndefined();
         });
 
         it('handles no-op event types (done, done_ext, error, created, safety_retract)', async () => {
@@ -494,6 +545,7 @@ describe('ChatStreamStateDO', () => {
                 streamEvent(0, { type: 'delta', text: 'hello', blockId: 'b1' }),
                 streamEvent(1, {
                     type: 'document_start',
+                    artifactId: 'artifact-1',
                     name: 'doc-1',
                     title: 'Doc',
                     pendingVersion: 1,

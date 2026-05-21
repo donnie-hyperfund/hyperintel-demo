@@ -297,7 +297,8 @@ export class ChatStreamStateDO extends DurableObject<StreamStateEnv> {
             case 'document_start': {
                 const allowLoadedContent = event.mode === 'edit' && event.isInternal !== true;
                 const baseContent = allowLoadedContent ? (event.loadedContent ?? '') : '';
-                this.activeDocuments.set(event.name, {
+                this.activeDocuments.set(event.artifactId, {
+                    artifactId: event.artifactId,
                     name: event.name,
                     title: event.title ?? event.name,
                     mode: event.mode ?? 'create',
@@ -312,13 +313,13 @@ export class ChatStreamStateDO extends DurableObject<StreamStateEnv> {
             }
 
             case 'document_delta': {
-                const doc = this.activeDocuments.get(event.name);
+                const doc = this.activeDocuments.get(event.artifactId);
                 if (doc) doc.content += event.content;
                 break;
             }
 
             case 'document_edit': {
-                const doc = this.activeDocuments.get(event.name);
+                const doc = this.activeDocuments.get(event.artifactId);
                 if (doc) {
                     let lines = doc.content.split('\n');
                     for (const edit of event.edits) {
@@ -333,23 +334,42 @@ export class ChatStreamStateDO extends DurableObject<StreamStateEnv> {
             }
 
             case 'document_progress': {
-                const doc = this.activeDocuments.get(event.name);
+                const doc = this.activeDocuments.get(event.artifactId);
                 if (doc) doc.progress = event.progress;
                 break;
             }
 
-            case 'document_complete': {
-                this.activeDocuments.delete(event.name);
+            // --- Summaries (internal-doc auto-generated summaries) ---
+            case 'summary_start': {
+                const doc = this.activeDocuments.get(event.artifactId);
+                if (doc) {
+                    doc.summaryInternal = '';
+                    doc.summaryVersionId = event.versionId;
+                }
                 break;
             }
 
-            // --- Summaries (internal-doc auto-generated summaries) ---
-            case 'summary_start':
-            case 'summary_delta':
-            case 'summary_complete':
-                // Summary events update FE artifact state but do not affect the
-                // stream snapshot (blocks/activeDocuments/pendingDecisions).
+            case 'summary_delta': {
+                const doc = this.activeDocuments.get(event.artifactId);
+                if (doc?.summaryVersionId === event.versionId) {
+                    doc.summaryInternal = (doc.summaryInternal ?? '') + event.content;
+                }
                 break;
+            }
+
+            case 'summary_complete': {
+                const doc = this.activeDocuments.get(event.artifactId);
+                if (doc?.summaryVersionId === event.versionId) {
+                    doc.summaryInternal = event.content;
+                    delete doc.summaryVersionId;
+                }
+                break;
+            }
+
+            case 'document_complete': {
+                this.activeDocuments.delete(event.artifactId);
+                break;
+            }
 
             // --- User decision prompts ---
             case 'decision_prompt': {
