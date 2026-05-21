@@ -1,19 +1,18 @@
 'use client';
 
 import { useCallback, useEffect } from 'react';
+import type { CssVar } from '@/lib/css-vars';
 
-const CSS_VAR = '--processing-bar-height';
-
-export function useSyncBarHeight(ref: React.RefObject<HTMLDivElement | null>) {
+export function useSyncHeightToCssVar(ref: React.RefObject<HTMLElement | null>, cssVar: CssVar) {
     const update = useCallback(() => {
         const h = ref.current?.offsetHeight ?? 0;
-        document.documentElement.style.setProperty(CSS_VAR, `${h}px`);
-    }, [ref]);
+        document.documentElement.style.setProperty(cssVar, `${h}px`);
+    }, [ref, cssVar]);
 
     useEffect(() => {
         const el = ref.current;
         if (!el) {
-            document.documentElement.style.setProperty(CSS_VAR, '0px');
+            document.documentElement.style.setProperty(cssVar, '0px');
             return;
         }
 
@@ -23,7 +22,7 @@ export function useSyncBarHeight(ref: React.RefObject<HTMLDivElement | null>) {
 
         return () => {
             observer.disconnect();
-            document.documentElement.style.setProperty(CSS_VAR, '0px');
+            document.documentElement.style.setProperty(cssVar, '0px');
         };
-    }, [ref, update]);
+    }, [ref, update, cssVar]);
 }
