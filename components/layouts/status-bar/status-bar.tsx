@@ -3,8 +3,9 @@
 import { ChevronDown } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { useSyncHeightToCssVar } from '@/hooks/use-sync-height-to-css-var';
+import { CSS_VARS } from '@/lib/css-vars';
 import { cn } from '@/lib/utils';
-import { useSyncBarHeight } from './use-sync-bar-height';
 
 export type StatusBarEntry = {
     id: string;
@@ -25,7 +26,7 @@ const WHEEL_COOLDOWN_MS = 200;
 export function StatusBar({ entries, mode = 'split', autoRotateMs = 4000 }: StatusBarProps) {
     const barRef = useRef<HTMLDivElement>(null);
 
-    useSyncBarHeight(barRef);
+    useSyncHeightToCssVar(barRef, CSS_VARS.PROCESSING_BAR_HEIGHT);
 
     return (
         <div ref={barRef}>
