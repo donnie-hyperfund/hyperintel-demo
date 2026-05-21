@@ -14,6 +14,7 @@ import { MockRustWorkerFetcher } from '@/workers/extract-rust/tester/local-mock'
 // eslint-disable-next-line -- require() to avoid pulling worker files into root tsc
 const { UserGateway } = require('@/workers/objects/src/objects/user-gateway');
 const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do');
+const { ChatStreamStateDO } = require('@/workers/stream-state/src/objects/chat-stream-state-do');
 const { GenerationProxyDO } = require('@/workers/objects/src/objects/generation-proxy-do');
 const { LocksService } = require('@/workers/objects/src/objects/locks-service');
 const { ChatServices } = require('@/workers/services/src/index');
@@ -113,21 +114,30 @@ workerEnv.EXTRACTION_QUEUE = new MockQueue<ExtractionQueueMessage>(
 const DO_KEY = Symbol.for('__hyperintel_dev_do_mocks');
 export function ensureDOMocks() {
     let cached = (globalThis as any)[DO_KEY] as
-        | { USER_GATEWAY: any; CHAT_STREAM_DO: any; GENERATION_PROXY: any; LOCKS_SERVICE: any }
+        | {
+              USER_GATEWAY: any;
+              CHAT_STREAM_DO: any;
+              CHAT_STREAM_STATE_DO: any;
+              GENERATION_PROXY: any;
+              LOCKS_SERVICE: any;
+          }
         | undefined;
     if (!cached) {
         cached = {
             USER_GATEWAY: new MockDurableObjectNamespace(UserGateway, workerEnv),
             CHAT_STREAM_DO: new MockDurableObjectNamespace(ChatStreamDO, workerEnv),
+            CHAT_STREAM_STATE_DO: new MockDurableObjectNamespace(ChatStreamStateDO, workerEnv),
             GENERATION_PROXY: new MockDurableObjectNamespace(GenerationProxyDO, workerEnv),
             LOCKS_SERVICE: new MockDurableObjectNamespace(LocksService, workerEnv),
         };
         (globalThis as any)[DO_KEY] = cached;
     }
     cached.LOCKS_SERVICE ??= new MockDurableObjectNamespace(LocksService, workerEnv);
+    cached.CHAT_STREAM_STATE_DO ??= new MockDurableObjectNamespace(ChatStreamStateDO, workerEnv);
     // Always re-assign — workerEnv is a fresh object after hot reload
     workerEnv.USER_GATEWAY = cached.USER_GATEWAY;
     workerEnv.CHAT_STREAM_DO = cached.CHAT_STREAM_DO;
+    workerEnv.CHAT_STREAM_STATE_DO = cached.CHAT_STREAM_STATE_DO;
     workerEnv.GENERATION_PROXY = cached.GENERATION_PROXY;
     workerEnv.LOCKS_SERVICE = cached.LOCKS_SERVICE;
 }

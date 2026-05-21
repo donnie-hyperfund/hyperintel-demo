@@ -20,10 +20,12 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import {
     findDocumentByName,
     listDocuments,
+    reserveDraftVersion,
     upsertDocument,
     approveVersion,
     rejectVersion,
 } from '@/workers/chat/src/tools/documents/document-service';
+import type { ILockService } from '@/workers/_common/util/locks';
 
 mockClerkNextjs();
 
@@ -58,9 +60,41 @@ function req(url: string) {
 
 const scope = () => ({ projectId });
 
+const testLockService: ILockService = {
+    acquire: (lockId, ttl) => {
+        const now = Date.now();
+        return { lockId, lease: 1, deadline: now + ttl * 1000, lastUsed: now };
+    },
+    release: () => true,
+};
+
+/** Reserve a draft version then upsert — mirrors the production reserve→write flow. */
+async function upsertDoc(em: Awaited<ReturnType<typeof getTestEm>>, name: string, title: string, content: string) {
+    const reservation = await reserveDraftVersion({
+        em,
+        lockService: testLockService,
+        scope: scope(),
+        name,
+        mode: 'create',
+    });
+    if (reservation.kind !== 'reserved') {
+        throw new Error(`upsertDoc: unexpected reservation result "${reservation.kind}" for "${name}"`);
+    }
+    return upsertDocument({
+        em,
+        lockService: testLockService,
+        scope: scope(),
+        chatId,
+        name,
+        title,
+        content,
+        reservedVersion: reservation.reservedVersion,
+    });
+}
+
 async function createApprovedArtifact(name: string, content: string, title?: string) {
     const em = await getTestEm();
-    const result = await upsertDocument(em, scope(), chatId, name, title ?? name, content);
+    const result = await upsertDoc(em, name, title ?? name, content);
     const approveResult = await approveVersion(em, result.versionId);
     if (!approveResult.success) throw new Error('Failed to approve: ' + (approveResult as any).error);
     return result;
@@ -111,7 +145,7 @@ describe('listDocuments', () => {
 
     it('excludes artifact with null current_version (never approved)', async () => {
         const em = await getTestEm();
-        await upsertDocument(em, scope(), chatId, 'svc-null-cv.md', 'Null CV', '# Proposed only');
+        await upsertDoc(em, 'svc-null-cv.md', 'Null CV', '# Proposed only');
         const docs = await listDocuments(em, scope());
         expect(docs.some((d) => d.name === 'svc-null-cv.md')).toBe(false);
     });
@@ -147,7 +181,7 @@ describe('upsertDocument on deleted artifact', () => {
 
     it('creates proposed v2 on top of deleted artifact', async () => {
         const em = await getTestEm();
-        const result = await upsertDocument(em, scope(), chatId, DOC, DOC, '# New content');
+        const result = await upsertDoc(em, DOC, DOC, '# New content');
         expect(result.action).toBe('proposed');
         expect(result.version).toBe(2);
     });
@@ -227,7 +261,7 @@ describe('delete → restore → delete cycle', () => {
         expect(docs.some((d) => d.name === DOC)).toBe(false);
 
         // 3. Restore via upsert + approve
-        const restore = await upsertDocument(em, scope(), chatId, DOC, DOC, '# v2 restored');
+        const restore = await upsertDoc(em, DOC, DOC, '# v2 restored');
         const artifact = await em.findOneOrFail(
             ArtifactEntity,
             { project: projectId, key: DOC },
@@ -322,7 +356,7 @@ describe('API: restored artifact appears normally', () => {
         await markCurrentVersionDeleted(DOC);
         // Restore
         const em = await getTestEm();
-        const result = await upsertDocument(em, scope(), chatId, DOC, DOC, '# Restored');
+        const result = await upsertDoc(em, DOC, DOC, '# Restored');
         const artifact = await em.findOneOrFail(
             ArtifactEntity,
             { project: projectId, key: DOC },
