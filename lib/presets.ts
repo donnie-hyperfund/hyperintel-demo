@@ -71,6 +71,24 @@ const BASE_PRESETS: ModelPreset[] = [
             paramsType: AIParamsType.Anthropic,
             params: {
                 model: ANTHROPIC_MODELS.SONNET_4_6,
+                reasoning: { effort: 'low' },
+            },
+        },
+        reasoningPromptMode: 'native',
+        pricing: {
+            inputPer1M: 3,
+            outputPer1M: 15,
+            ...ANTHROPIC_CACHE,
+        },
+    },
+    {
+        id: 'sonnet_medium',
+        label: 'Sonnet 4.6 Medium',
+        description: 'Balanced',
+        inference: {
+            paramsType: AIParamsType.Anthropic,
+            params: {
+                model: ANTHROPIC_MODELS.SONNET_4_6,
                 reasoning: { effort: 'medium' },
             },
         },
