@@ -31,9 +31,18 @@ function emitWsMessage(message: unknown) {
     }
 }
 
+function emitIdleSubscribeResponse(topic = 'chat:chat-initial') {
+    emitWsMessage({
+        type: 'subscribe_response',
+        topic,
+        status: 'idle',
+    });
+}
+
 const cacheMock = new Map();
 const artifactContextMock = {
     addArtifact: vi.fn(),
+    clearStaleStreamingForChat: vi.fn(),
     removeArtifact: vi.fn(),
     updateArtifact: vi.fn(),
     getArtifact: vi.fn(),
@@ -69,6 +78,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('swr', () => ({
+    default: () => ({ data: null, error: null, isLoading: false, mutate: mutateMock }),
     useSWRConfig: () => ({
         mutate: mutateMock,
         cache: cacheMock,
@@ -95,11 +105,24 @@ vi.mock('@/lib/api/requests/worker/chat', () => ({
 
 vi.mock('@/modules/artifacts/providers/artifact-provider', () => ({
     useArtifactActions: () => artifactContextMock,
+    useArtifactStoreController: () => artifactContextMock,
+    getArtifactScopeForProject: (projectId?: string | null) =>
+        projectId ? { type: 'project', projectId } : { type: 'user' },
 }));
 
 vi.mock('@/modules/artifacts/streaming/artifact-stream-monitor-provider', () => ({
     useArtifactStreamMonitor: () => ({
+        register: vi.fn(),
+        markSummaryStarted: vi.fn(),
+        unregister: vi.fn(),
+        takeover: vi.fn(),
+        release: vi.fn(),
+        isMonitoring: vi.fn(() => false),
         setViewedArtifact: setViewedArtifactMock,
+        setActivationHandler: vi.fn(),
+        tryActivate: vi.fn(() => false),
+        subscribe: vi.fn(() => vi.fn()),
+        getActiveStreams: vi.fn(() => []),
     }),
 }));
 
@@ -224,6 +247,7 @@ describe('ChatProvider', () => {
 
         cacheMock.clear();
         artifactContextMock.addArtifact.mockReset();
+        artifactContextMock.clearStaleStreamingForChat.mockReset().mockReturnValue([]);
         artifactContextMock.removeArtifact.mockReset();
         artifactContextMock.updateArtifact.mockReset();
         artifactContextMock.getArtifact.mockReset();
@@ -619,6 +643,7 @@ describe('ChatProvider', () => {
         });
 
         act(() => {
+            emitIdleSubscribeResponse();
             emitWsMessage({
                 type: 'stream_started',
                 topic: 'chat:chat-initial',
@@ -674,11 +699,16 @@ describe('ChatProvider', () => {
             wrapper: phaseWithInitialChatWrapper,
         });
 
+        await act(async () => {
+            await result.current.openChat('chat-initial');
+        });
+
         await waitFor(() => {
             expect(result.current.state.contextOverflow).toBe('hard');
         });
 
         act(() => {
+            emitIdleSubscribeResponse();
             emitWsMessage({
                 type: 'stream_started',
                 topic: 'chat:chat-initial',

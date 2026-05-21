@@ -82,6 +82,22 @@ vi.mock('@/lib/config', () => ({
     IS_PROD: false,
 }));
 
+vi.mock('@/modules/artifacts/streaming/artifact-stream-monitor-provider', () => ({
+    useArtifactStreamMonitor: () => ({
+        register: vi.fn(),
+        markSummaryStarted: vi.fn(),
+        unregister: vi.fn(),
+        takeover: vi.fn(),
+        release: vi.fn(),
+        isMonitoring: vi.fn(() => false),
+        setViewedArtifact: vi.fn(),
+        setActivationHandler: vi.fn(),
+        tryActivate: vi.fn(() => false),
+        subscribe: vi.fn(() => vi.fn()),
+        getActiveStreams: vi.fn(() => []),
+    }),
+}));
+
 // Silence the diagnostic console.debug noise during tests but keep failures visible.
 const consoleDebugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
 
