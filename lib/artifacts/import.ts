@@ -149,6 +149,7 @@ export async function importArtifactsToProject(
             version.content = bestVersion.content;
             version.document_type = bestVersion.document_type;
             version.is_internal = bestVersion.is_internal;
+            version.summary_internal = bestVersion.summary_internal;
             version.status = 'approved';
             version.status_changed_at = new Date();
             version.status_changed_by = userId;
