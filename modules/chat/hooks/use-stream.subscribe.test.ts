@@ -318,6 +318,45 @@ describe('useStream subscribe buffer (Stage 1)', () => {
         });
     });
 
+    it('logs a passive PostHog event when a live _seq gap is observed', async () => {
+        const { result } = renderHook(() => useStream('chat', 'chat-1'));
+
+        emit(subscribeResponse({ status: 'streaming', agentMessageId: 'agent-1', seqHigh: 0 }));
+        await waitFor(() => expect(result.current.agentMessageId).toBe('agent-1'));
+
+        emit(streamEvent('agent-1', 2, { type: 'status_update', status: 'gap-observed' }));
+        await waitFor(() => expect(result.current.displayStatus).toBe('gap-observed'));
+
+        const gapCalls = posthogCalls.filter((c) => c.event === 'stream_seq_gap_detected');
+        expect(gapCalls).toHaveLength(1);
+        expect(gapCalls[0].properties).toMatchObject({
+            agent_message_id: 'agent-1',
+            last_seq: 0,
+            expected_seq: 1,
+            seq: 2,
+            source: 'live',
+        });
+    });
+
+    it('logs subscribe-buffer source when a gap is observed during buffered replay', async () => {
+        const { result } = renderHook(() => useStream('chat', 'chat-1'));
+
+        emit(streamEvent('agent-1', 2, { type: 'status_update', status: 'buffer-gap' }));
+        emit(subscribeResponse({ status: 'streaming', agentMessageId: 'agent-1', seqHigh: 0 }));
+
+        await waitFor(() => expect(result.current.displayStatus).toBe('buffer-gap'));
+
+        const gapCalls = posthogCalls.filter((c) => c.event === 'stream_seq_gap_detected');
+        expect(gapCalls).toHaveLength(1);
+        expect(gapCalls[0].properties).toMatchObject({
+            agent_message_id: 'agent-1',
+            last_seq: 0,
+            expected_seq: 1,
+            seq: 2,
+            source: 'subscribe_buffer',
+        });
+    });
+
     it('treats a large _seq regression as a server-side reset and applies the event', async () => {
         // Mid-stream DO crash reloads `broadcastSeq` from a stale persist
         // window — new events get assigned recycled _seq values. The FE must

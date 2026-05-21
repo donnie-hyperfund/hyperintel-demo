@@ -299,6 +299,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     // Subscribe buffer state — buffers live events while SubscribeResponse is pending
     const subscribePendingRef = useRef(false);
     const preSnapshotBufferRef = useRef<(ServerMessage & { rid?: string })[]>([]);
+    const isFlushingSubscribeBufferRef = useRef(false);
     const lastAppliedSeqRef = useRef(new Map<string, number>());
     const subscribeGapDiagnosticsRef = useRef(createSubscribeGapDiagnostics());
 
@@ -351,6 +352,16 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     });
                 }
                 return false;
+            } else if (seq > lastSeq + 1) {
+                capturePostHogEvent('stream_seq_gap_detected', {
+                    domain,
+                    topic_id: id,
+                    agent_message_id: agentMessageId,
+                    last_seq: lastSeq,
+                    expected_seq: lastSeq + 1,
+                    seq,
+                    source: isFlushingSubscribeBufferRef.current ? 'subscribe_buffer' : 'live',
+                });
             }
         }
         lastAppliedSeqRef.current.set(agentMessageId, seq);
@@ -951,6 +962,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         streamSessionRef.current = null;
         subscribePendingRef.current = true;
         preSnapshotBufferRef.current = [];
+        isFlushingSubscribeBufferRef.current = false;
         lastAppliedSeqRef.current.clear();
         subscribeGapDiagnosticsRef.current = createSubscribeGapDiagnostics();
 
@@ -989,23 +1001,28 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                     if (sb === undefined) return 1;
                     return sa - sb;
                 });
-                for (const b of buf) {
-                    if (seqHigh !== undefined) {
-                        const seq = extractMsgSeq(b as { type?: string; _seq?: unknown });
-                        if (seq !== undefined && seq <= seqHigh) {
-                            diagnostics.droppedSnapshotDuplicates += 1;
+                isFlushingSubscribeBufferRef.current = true;
+                try {
+                    for (const b of buf) {
+                        if (seqHigh !== undefined) {
+                            const seq = extractMsgSeq(b as { type?: string; _seq?: unknown });
+                            if (seq !== undefined && seq <= seqHigh) {
+                                diagnostics.droppedSnapshotDuplicates += 1;
+                                continue;
+                            }
+                        }
+                        if (
+                            b.type === ServerMsg.StreamStarted &&
+                            snapshotStreamId !== null &&
+                            (b as StreamStartedMessage).agentMessageId === snapshotStreamId
+                        ) {
+                            diagnostics.skippedSnapshotStreamStarted += 1;
                             continue;
                         }
+                        onMessage(b);
                     }
-                    if (
-                        b.type === ServerMsg.StreamStarted &&
-                        snapshotStreamId !== null &&
-                        (b as StreamStartedMessage).agentMessageId === snapshotStreamId
-                    ) {
-                        diagnostics.skippedSnapshotStreamStarted += 1;
-                        continue;
-                    }
-                    onMessage(b);
+                } finally {
+                    isFlushingSubscribeBufferRef.current = false;
                 }
                 if (ENABLE_SUBSCRIBE_GAP_DIAGNOSTICS) {
                     const replayed =

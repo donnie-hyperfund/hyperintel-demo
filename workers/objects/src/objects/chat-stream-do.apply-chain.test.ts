@@ -723,6 +723,50 @@ describe('ChatStreamDO 4.6a telemetry', () => {
         expect(rpcs[0].doubles[0]).toBeGreaterThanOrEqual(0); // duration_ms
         expect(rpcs[0].doubles[1]).toBe(1); // batch_size
     });
+
+    it('emits terminal_snapshot_parity_check after terminal catch-up', async () => {
+        const captured: CapturedPush[] = [];
+        const blockId = 'text-terminal';
+        const stateDO = createMockStateDO([], {
+            getSnapshotResult: {
+                snapshot: {
+                    ...EMPTY_SNAPSHOT,
+                    blocks: [{ id: blockId, type: 'text' as const, content: 'done' }],
+                    status: 'done',
+                },
+                seqHigh: 1,
+            },
+        });
+        const { stream, env } = createStreamDO(captured, stateDO);
+        await stream.init('chat-1', 'agent-1', 'user-msg-1');
+        await stream.push([{ type: 'delta', text: 'done', blockId }], 0);
+
+        await stream.done();
+
+        const parity = findMetric(env, 'terminal_snapshot_parity_check');
+        expect(parity).toHaveLength(1);
+        expect(parity[0].doubles).toEqual([1, 1, 1]);
+        expect(parity[0].blobs).toContain('match');
+        expect(parity[0].blobs).toContain('done');
+    });
+
+    it('emits terminal_state_catchup_failed instead of parity when state is behind terminal seq', async () => {
+        const captured: CapturedPush[] = [];
+        const stateDO = createMockStateDO([], {
+            getSnapshotResult: { snapshot: EMPTY_SNAPSHOT, seqHigh: 0 },
+        });
+        const { stream, env } = createStreamDO(captured, stateDO);
+        await stream.init('chat-1', 'agent-1', 'user-msg-1');
+        await stream.push([{ type: 'delta', text: 'done' }], 0);
+
+        await stream.done();
+
+        const catchup = findMetric(env, 'terminal_state_catchup_failed');
+        expect(catchup).toHaveLength(1);
+        expect(catchup[0].doubles).toEqual([1, 0, 1]);
+        expect(catchup[0].blobs).toContain('done');
+        expect(findMetric(env, 'terminal_snapshot_parity_check')).toHaveLength(0);
+    });
 });
 
 // ============================================================================

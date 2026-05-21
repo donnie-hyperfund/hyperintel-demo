@@ -65,6 +65,8 @@ const STATE_APPLY_BACKOFF_INIT_MS = 1_000;
 const STATE_APPLY_BACKOFF_MAX_MS = 30_000;
 /** Kill switch — flip to `true` when ready for state DO snapshot path in subscribe. */
 export const STREAM_STATE_SNAPSHOT = { enabled: false };
+/** Temporary rollout probe: compare local/state reducers after terminal catch-up. */
+const STREAM_STATE_TERMINAL_PARITY_PROBE_ENABLED = true;
 const OUTBOX_TABLE = 'outbox';
 const OUTBOX_META_TABLE = 'outbox_meta';
 const OUTBOX_DDL = [
@@ -706,6 +708,11 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             }
 
             this.trackStreamMetric('reconciler_run', [performance.now() - t0, attempted, 1], [trigger]);
+            void this.shadowCompareToStateDO(
+                structuredClone(this.buildLocalSnapshot()),
+                this.broadcastSeq - 1,
+                trigger,
+            );
         } catch (err) {
             this.trackStreamMetric('reconciler_run', [performance.now() - t0, attempted, 0], [trigger]);
             throw err;
@@ -752,6 +759,43 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             await this.reconcileOutbox(trigger);
         } catch (err) {
             console.error('[ChatStreamDO] final reconcile failed', err);
+        }
+    }
+
+    /**
+     * Temporary rollout probe. Runs only after terminal delivery, when no new stream events
+     * should arrive. This is the only production parity point where reducer snapshots are
+     * meaningful without adding invasive checkpoint machinery.
+     */
+    private async probeTerminalStateParity(reason: 'done' | 'abort' | 'error'): Promise<void> {
+        if (!STREAM_STATE_TERMINAL_PARITY_PROBE_ENABLED) return;
+
+        const terminalSeqHigh = this.broadcastSeq - 1;
+        try {
+            await this.flushApplyChain(`terminal_parity_${reason}`);
+            const { snapshot: state, seqHigh: stateSeqHigh } = await this.getStateDOStub().getSnapshot();
+
+            if (stateSeqHigh !== terminalSeqHigh) {
+                this.trackStreamMetric(
+                    'terminal_state_catchup_failed',
+                    [terminalSeqHigh, stateSeqHigh, terminalSeqHigh - stateSeqHigh],
+                    [reason],
+                );
+                return;
+            }
+
+            const divergence = diffSnapshots(structuredClone(this.buildLocalSnapshot()), state);
+            this.trackStreamMetric(
+                'terminal_snapshot_parity_check',
+                [divergence ? 0 : 1, terminalSeqHigh, stateSeqHigh],
+                [divergence ?? 'match', reason],
+            );
+        } catch (err) {
+            this.trackStreamMetric(
+                'terminal_snapshot_parity_failed',
+                [terminalSeqHigh],
+                [err instanceof Error ? err.name : 'unknown', reason],
+            );
         }
     }
 
@@ -1007,6 +1051,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         await this.broadcastStatus('done');
         await this.drainBroadcastQueue();
         await this.flushApplyChain();
+        await this.probeTerminalStateParity('done');
     }
 
     /**
@@ -1089,6 +1134,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         await this.broadcastStatus('aborted');
         await this.drainBroadcastQueue();
         await this.flushApplyChain();
+        await this.probeTerminalStateParity('abort');
     }
 
     /**
@@ -1224,23 +1270,37 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     private subscribeFromLocal(t0: number): StreamSubscribeResult {
         this.chainApply('subscribe');
 
-        const snapshot: StreamSnapshot = {
-            blocks: this.blocks,
-            activeDocuments: [...this.activeDocuments.values()],
-            pendingDecisions: [...this.pendingDecisions.values()],
-            status: this.status === 'idle' ? 'streaming' : this.status,
-            displayStatus: this.displayStatus,
-        };
-
+        const snapshot = this.buildLocalSnapshot();
         const seqHigh = this.broadcastSeq - 1;
         this.trackStreamMetric('subscribe', [performance.now() - t0, this.subscribers.size, seqHigh]);
+        this.trackStreamMetric('subscribe_snapshot_shape', [
+            seqHigh,
+            snapshot.blocks.length,
+            snapshot.activeDocuments.length,
+            snapshot.pendingDecisions.length,
+            this.broadcastSeq,
+            this.outboxDepth,
+        ]);
+        if (
+            seqHigh < 0 &&
+            (snapshot.blocks.length > 0 || snapshot.activeDocuments.length > 0 || snapshot.pendingDecisions.length > 0)
+        ) {
+            this.trackStreamMetric('subscribe_seq_inconsistent', [
+                seqHigh,
+                snapshot.blocks.length,
+                snapshot.activeDocuments.length,
+                snapshot.pendingDecisions.length,
+                this.broadcastSeq,
+                this.outboxDepth,
+            ]);
+        }
 
         // Background parity check — proves state DO reducer matches local reducer before flag flip.
         // Out-of-band: never affects the subscribe response.
         // Clone snapshot — `blocks` and the ActiveDocument objects inside `activeDocuments` are still
         // live references into the reducer; structuredClone snapshots them at this point in time so a
         // concurrent push() during the getSnapshot() await can't mutate the comparison.
-        void this.shadowCompareToStateDO(structuredClone(snapshot), seqHigh);
+        void this.shadowCompareToStateDO(structuredClone(snapshot), seqHigh, 'subscribe');
 
         return {
             snapshot,
@@ -1249,19 +1309,33 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         };
     }
 
+    private buildLocalSnapshot(): StreamSnapshot {
+        return {
+            blocks: this.blocks,
+            activeDocuments: [...this.activeDocuments.values()],
+            pendingDecisions: [...this.pendingDecisions.values()],
+            status: this.status === 'idle' ? 'streaming' : this.status,
+            displayStatus: this.displayStatus,
+        };
+    }
+
     /**
      * Compare the local reducer's snapshot against the state DO's snapshot and emit a parity metric.
      * Skips emission if state DO is unreachable or lagging (lag is operationally expected pre-flag).
      * Runs out-of-band; never throws into the subscribe path.
      */
-    private async shadowCompareToStateDO(local: StreamSnapshot, localSeqHigh: number): Promise<void> {
+    private async shadowCompareToStateDO(
+        local: StreamSnapshot,
+        localSeqHigh: number,
+        trigger = 'subscribe',
+    ): Promise<void> {
         try {
             const { snapshot: state, seqHigh: stateSeqHigh } = await this.getStateDOStub().getSnapshot();
             if (stateSeqHigh !== localSeqHigh) {
                 this.trackStreamMetric(
                     'snapshot_parity_skip',
                     [localSeqHigh, stateSeqHigh],
-                    [stateSeqHigh < localSeqHigh ? 'state_behind' : 'state_ahead'],
+                    [stateSeqHigh < localSeqHigh ? 'state_behind' : 'state_ahead', trigger],
                 );
                 return;
             }
@@ -1269,10 +1343,14 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             this.trackStreamMetric(
                 'snapshot_parity_check',
                 [divergence ? 0 : 1, localSeqHigh, stateSeqHigh],
-                [divergence ?? 'match'],
+                [divergence ?? 'match', trigger],
             );
-        } catch {
-            // State DO unreachable — state_impaired_entered / subscribe metrics already cover this.
+        } catch (err) {
+            this.trackStreamMetric(
+                'snapshot_parity_failed',
+                [localSeqHigh],
+                [err instanceof Error ? err.name : 'unknown', trigger],
+            );
         }
     }
 
@@ -1380,6 +1458,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         this.status = 'aborted';
         await this.broadcastStatus('aborted');
         await this.drainBroadcastQueue();
+        await this.flushApplyChain();
+        await this.probeTerminalStateParity('abort');
     }
 
     /**
@@ -1524,6 +1604,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             await this.broadcastStatus('error');
             await this.drainBroadcastQueue();
             await this.flushApplyChain();
+            await this.probeTerminalStateParity('error');
             // DB cleanup: save errored placeholder message + clear activeAgentMessageId
             await this.dbCleanup();
             // Self-destruct after broadcasting error and DB cleanup
