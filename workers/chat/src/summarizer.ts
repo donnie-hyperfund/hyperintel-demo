@@ -11,10 +11,11 @@ import type { ChatActionResult, chatActionHandler } from './chat-handler';
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { createDocumentTools } from './tools/documents';
+import { listDocuments } from './tools/documents/document-service';
 import { createKnowledgeTools } from './tools/knowledge-search';
 import { createWebScrapeTools } from './tools/web-scrape';
-import { listDocuments } from './tools/documents/document-service';
-import { estimateInferenceInputTokens, SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS } from './utils/context-budget';
+import { estimateInferenceInputTokens } from './utils/context-budget';
+import { buildDateContextBlock } from './utils/date-context';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -108,7 +109,7 @@ export async function runSummarizer(ctx: SummarizerContext, deps: SummarizerDeps
         }
 
         const phaseNumber = chat.phase_index + 1;
-        const today = new Date().toISOString().split('T')[0];
+        const dateContext = buildDateContextBlock(workerCtx.userTimezone ?? 'UTC');
 
         const documents = extractDocuments(messages);
         const basePrompt = await getSummarizerPrompt(workerCtx);
@@ -125,7 +126,7 @@ Your response for this turn MUST consist of exactly TWO parts, in this order:
 
 This contract is non-negotiable. The downstream pipeline reads the \`generate_blurb\` tool input as the literal seed message for the next phase. If you skip the tool call, the next phase starts blank and the project stalls. Calling \`generate_blurb\` is a TERMINAL action — it ends this run.`;
 
-        let instructions = `${OUTPUT_CONTRACT}\n\n---\n\n${basePrompt}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}\n- **Date:** ${today}`;
+        let instructions = `${dateContext}\n\n---\n\n${OUTPUT_CONTRACT}\n\n---\n\n${basePrompt}\n\n---\n\n## Phase Context\n\n- **Phase Number:** ${phaseNumber}`;
 
         if (documents.length > 0) {
             instructions += `\n\n## Documents Created During This Conversation\n\n`;

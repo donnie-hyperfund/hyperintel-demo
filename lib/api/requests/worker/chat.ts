@@ -24,11 +24,13 @@ import {
     SummarizeActionDto,
     type SummarizeActionResponseDto,
 } from '@/lib/schema/chat';
+import { withClientTimezone } from '@/lib/timezone';
 
 export const sendIntakeAction = (
-    data: SendChatActionDto,
+    data: Omit<SendChatActionDto, 'timezone'>,
     accessToken: string,
 ): Promise<TypedResponse<SendChatActionResponseDto>> => {
+    const body = JSON.stringify(withClientTimezone(data));
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.IntakeAction);
         return typedFetch(workerUrl, {
@@ -37,7 +39,7 @@ export const sendIntakeAction = (
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${accessToken}`,
             },
-            body: JSON.stringify(data),
+            body,
         });
     }
     return typedFetch(WORKERS_LOCAL_ENDPOINTS.IntakeAction, {
@@ -45,14 +47,15 @@ export const sendIntakeAction = (
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data),
+        body,
     });
 };
 
 export const sendAction = (
-    data: SendChatActionDto,
+    data: Omit<SendChatActionDto, 'timezone'>,
     accessToken: string,
 ): Promise<TypedResponse<SendChatActionResponseDto>> => {
+    const body = JSON.stringify(withClientTimezone(data));
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.ChatAction);
         return typedFetch(workerUrl, {
@@ -61,7 +64,7 @@ export const sendAction = (
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${accessToken}`,
             },
-            body: JSON.stringify(data),
+            body,
         });
     }
     return typedFetch(WORKERS_LOCAL_ENDPOINTS.ChatAction, {
@@ -69,7 +72,7 @@ export const sendAction = (
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data),
+        body,
     });
 };
 
@@ -95,9 +98,10 @@ export const abort = (data: AbortActionDto, accessToken: string): Promise<TypedR
 };
 
 export const summarize = (
-    data: SummarizeActionDto,
+    data: Omit<SummarizeActionDto, 'timezone'>,
     accessToken: string,
 ): Promise<TypedResponse<SummarizeActionResponseDto>> => {
+    const body = JSON.stringify(withClientTimezone(data));
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
         const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.SummarizeAction);
         return typedFetch(workerUrl, {
@@ -106,7 +110,7 @@ export const summarize = (
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${accessToken}`,
             },
-            body: JSON.stringify(data),
+            body,
         });
     }
     return typedFetch(WORKERS_LOCAL_ENDPOINTS.SummarizeAction, {
@@ -114,7 +118,7 @@ export const summarize = (
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data),
+        body,
     });
 };
 
