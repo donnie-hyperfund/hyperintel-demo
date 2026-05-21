@@ -48,7 +48,7 @@ export function ResourceListItem({ artifact, onRemove, isHighlighted = false, it
     const docType = getArtifactDocumentType(artifact);
     const alwaysAttached = isPublicImport(artifact);
     const href = getResourceRoute(artifact);
-    const isShared = !artifact.isOwn && !!docType && docType in routePrefixByType;
+    const isShared = artifact.isOwn === false && !!docType && docType in routePrefixByType;
     const isUploaded = version?.isUploaded === true;
     const file = (version as any)?.file as { id?: string; originalName?: string; mimeType?: string } | undefined;
     const fileName = file?.originalName ?? artifact.key;
