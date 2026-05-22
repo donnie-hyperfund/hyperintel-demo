@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import createNeonSql from '@/workers/_common/vendor/neon';
-import { clearActiveStream, deadManCleanup } from './stream-cleanup';
+import { clearActiveStream, deadManCleanup, recordStreamParityDebug } from './stream-cleanup';
 import { ChatServices } from '../index';
 
 vi.mock('@/workers/_common/vendor/neon', () => ({
@@ -186,5 +186,67 @@ describe('deadManCleanup', () => {
 
         expect(createNeonSql).toHaveBeenCalledWith(entryEnv, 'branch-a');
         expect(sql).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('recordStreamParityDebug', () => {
+    it('stores stream parity debug payload on chat message metadata', async () => {
+        const sql = makeSql();
+
+        await recordStreamParityDebug(
+            env,
+            {
+                agentMessageId: 'agent-1',
+                previewAlias: 'branch-a',
+                debug: {
+                    seqHigh: 42,
+                    divergence: 'deep',
+                    trigger: 'done',
+                    localSnapshot: { blocks: [{ id: 'local' }] },
+                    stateSnapshot: { blocks: [{ id: 'state' }] },
+                    createdAt: '2026-05-22T00:00:00.000Z',
+                },
+            },
+            async () => sql,
+        );
+
+        expect(sql).toHaveBeenCalledTimes(1);
+        expect(sqlText(sql.mock.calls[0])).toContain('UPDATE chat_messages');
+        expect(sqlText(sql.mock.calls[0])).toContain('streamParityDebug');
+        const call = sql.mock.calls[0] as unknown[];
+        expect(call[1]).toBe(
+            JSON.stringify({
+                seqHigh: 42,
+                divergence: 'deep',
+                trigger: 'done',
+                localSnapshot: { blocks: [{ id: 'local' }] },
+                stateSnapshot: { blocks: [{ id: 'state' }] },
+                createdAt: '2026-05-22T00:00:00.000Z',
+            }),
+        );
+        expect(call[2]).toBe('agent-1');
+    });
+
+    it('exposes stream parity debug through the ChatServices entrypoint', async () => {
+        const entryEnv = { WORKER_NAME_FULL: 'hi-services-test' } as ServicesEnv;
+        const sql = makeSql();
+        vi.mocked(createNeonSql).mockResolvedValueOnce(sql as unknown as Awaited<ReturnType<typeof createNeonSql>>);
+
+        const entrypoint = new ChatServices({} as ExecutionContext, entryEnv);
+        await entrypoint.recordStreamParityDebug({
+            agentMessageId: 'agent-1',
+            previewAlias: 'branch-a',
+            debug: {
+                seqHigh: 1,
+                divergence: 'deep',
+                trigger: 'done',
+                localSnapshot: {},
+                stateSnapshot: {},
+                createdAt: '2026-05-22T00:00:00.000Z',
+            },
+        });
+
+        expect(createNeonSql).toHaveBeenCalledWith(entryEnv, 'branch-a');
+        expect(sql).toHaveBeenCalledTimes(1);
     });
 });

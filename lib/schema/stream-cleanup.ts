@@ -18,3 +18,18 @@ export type ClearActiveStreamRequest = z.infer<typeof ClearActiveStreamRequestSc
 
 export const DeadManCleanupRequestSchema = ClearActiveStreamRequestSchema;
 export type DeadManCleanupRequest = z.infer<typeof DeadManCleanupRequestSchema>;
+
+export const StreamParityDebugRequestSchema = z.object({
+    agentMessageId: z.string().min(1),
+    previewAlias: z.string().min(1).nullish(),
+    debug: z.object({
+        seqHigh: z.number(),
+        divergence: z.string().min(1),
+        trigger: z.string().min(1),
+        localSnapshot: z.unknown(),
+        stateSnapshot: z.unknown(),
+        createdAt: z.string().min(1),
+    }),
+});
+
+export type StreamParityDebugRequest = z.infer<typeof StreamParityDebugRequestSchema>;

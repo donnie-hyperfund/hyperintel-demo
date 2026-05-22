@@ -3,6 +3,8 @@ import {
     ClearActiveStreamRequestSchema,
     type DeadManCleanupRequest,
     DeadManCleanupRequestSchema,
+    type StreamParityDebugRequest,
+    StreamParityDebugRequestSchema,
 } from '@/lib/schema/stream-cleanup';
 import createNeonSql from '@/workers/_common/vendor/neon';
 
@@ -25,6 +27,14 @@ function parseDeadManCleanupRequest(rawRequest: unknown): DeadManCleanupRequest 
     const parsed = DeadManCleanupRequestSchema.safeParse(rawRequest);
     if (!parsed.success || !isWellFormedTopic(parsed.data)) {
         throw new Error('[services] invalid dead-man-cleanup request');
+    }
+    return parsed.data;
+}
+
+function parseStreamParityDebugRequest(rawRequest: unknown): StreamParityDebugRequest {
+    const parsed = StreamParityDebugRequestSchema.safeParse(rawRequest);
+    if (!parsed.success) {
+        throw new Error('[services] invalid stream-parity-debug request');
     }
     return parsed.data;
 }
@@ -63,4 +73,18 @@ export async function deadManCleanup(
     const sql = await createSql(env, request.previewAlias ?? undefined);
     await insertErroredPlaceholderMessage(sql, request);
     await clearActiveAgentMessageId(sql, request);
+}
+
+export async function recordStreamParityDebug(
+    env: ServicesEnv,
+    rawRequest: unknown,
+    createSql: CreateSql = createNeonSql as CreateSql,
+): Promise<void> {
+    const request = parseStreamParityDebugRequest(rawRequest);
+    const sql = await createSql(env, request.previewAlias ?? undefined);
+    await sql`
+		UPDATE chat_messages
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('streamParityDebug', ${JSON.stringify(request.debug)}::jsonb)
+		WHERE id = ${request.agentMessageId}
+	`;
 }

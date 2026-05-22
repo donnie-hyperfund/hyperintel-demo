@@ -64,7 +64,7 @@ const STATE_APPLY_BACKOFF_INIT_MS = 1_000;
 /** Max backoff cap for state-impaired retries. */
 const STATE_APPLY_BACKOFF_MAX_MS = 30_000;
 /** Kill switch — flip to `true` when ready for state DO snapshot path in subscribe. */
-export const STREAM_STATE_SNAPSHOT = { enabled: false };
+export const STREAM_STATE_SNAPSHOT = { enabled: true };
 /** Temporary rollout probe: compare local/state reducers after terminal catch-up. */
 const STREAM_STATE_TERMINAL_PARITY_PROBE_ENABLED = true;
 const OUTBOX_TABLE = 'outbox';
@@ -303,7 +303,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             // --- Text ---
             case 'delta': {
                 if (!this.currentTextBlockId) {
-                    const blockId = event.blockId || `text-${Date.now()}`;
+                    const blockId = event.blockId || `text-${this.blocks.length}`;
                     this.currentTextBlockId = blockId;
                     this.blocks.push({ id: blockId, type: 'text', content: '' });
                 }
@@ -318,7 +318,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
 
             // --- Reasoning ---
             case 'reasoning_start': {
-                const blockId = event.blockId || `reasoning-${Date.now()}`;
+                const blockId = event.blockId || `reasoning-${this.blocks.length}`;
                 this.currentReasoningBlockId = blockId;
                 this.blocks.push({ id: blockId, type: 'reasoning', content: '' });
                 break;
@@ -785,6 +785,22 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             }
 
             const divergence = diffSnapshots(structuredClone(this.buildLocalSnapshot()), state);
+            if (divergence && this.agentMessageId) {
+                void this.env.CHAT_SERVICES.recordStreamParityDebug({
+                    agentMessageId: this.agentMessageId,
+                    previewAlias: this.previewAlias,
+                    debug: {
+                        seqHigh: terminalSeqHigh,
+                        divergence,
+                        trigger: reason,
+                        localSnapshot: structuredClone(this.buildLocalSnapshot()),
+                        stateSnapshot: state,
+                        createdAt: new Date().toISOString(),
+                    },
+                }).catch((err: unknown) => {
+                    console.error('[ChatStreamDO] stream parity debug persist failed', err);
+                });
+            }
             this.trackStreamMetric(
                 'terminal_snapshot_parity_check',
                 [divergence ? 0 : 1, terminalSeqHigh, stateSeqHigh],

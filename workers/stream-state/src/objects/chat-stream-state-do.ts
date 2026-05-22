@@ -186,7 +186,7 @@ export class ChatStreamStateDO extends DurableObject<StreamStateEnv> {
             // --- Text ---
             case 'delta': {
                 if (!this.currentTextBlockId) {
-                    const blockId = event.blockId || `text-${Date.now()}`;
+                    const blockId = event.blockId || `text-${this.blocks.length}`;
                     this.currentTextBlockId = blockId;
                     this.blocks.push({ id: blockId, type: 'text', content: '' });
                 }
@@ -200,7 +200,7 @@ export class ChatStreamStateDO extends DurableObject<StreamStateEnv> {
 
             // --- Reasoning ---
             case 'reasoning_start': {
-                const blockId = event.blockId || `reasoning-${Date.now()}`;
+                const blockId = event.blockId || `reasoning-${this.blocks.length}`;
                 this.currentReasoningBlockId = blockId;
                 this.blocks.push({ id: blockId, type: 'reasoning', content: '' });
                 break;

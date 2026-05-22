@@ -1,7 +1,11 @@
 import { createClerkClient } from '@clerk/backend';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Hono } from 'hono';
-import type { ClearActiveStreamRequest, DeadManCleanupRequest } from '@/lib/schema/stream-cleanup';
+import type {
+    ClearActiveStreamRequest,
+    DeadManCleanupRequest,
+    StreamParityDebugRequest,
+} from '@/lib/schema/stream-cleanup';
 import type { SubscribeInfoRequest, SubscribeInfoResponse } from '@/lib/schema/subscribe-info';
 import type { SystemActionRequest } from '@/lib/schema/system-actions';
 import { branchDoName, getPreviewAlias, PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
@@ -11,7 +15,7 @@ import {
     type ExportArtifactVersionDocxResult,
 } from './docx-exporter';
 import { getTopicSubscribeInfo } from './chat/chat-policy';
-import { clearActiveStream, deadManCleanup } from './chat/stream-cleanup';
+import { clearActiveStream, deadManCleanup, recordStreamParityDebug } from './chat/stream-cleanup';
 import { handleSystemAction } from './chat/system-actions';
 import {
     getLangfusePromptRawRpc,
@@ -102,6 +106,10 @@ export class ChatServices extends WorkerEntrypoint<ServicesEnv> {
 
     async deadManCleanup(req: DeadManCleanupRequest): Promise<void> {
         return deadManCleanup(this.env, req);
+    }
+
+    async recordStreamParityDebug(req: StreamParityDebugRequest): Promise<void> {
+        return recordStreamParityDebug(this.env, req);
     }
 
     /**
