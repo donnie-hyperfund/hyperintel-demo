@@ -16,9 +16,8 @@ import { AsyncHandlebars } from 'handlebars-jle';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { SUMMARY_INTERNAL_CHAR_ESTIMATE } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
-import { captureWorkerPostHogEvent } from '@/workers/_common/vendor/posthog';
 import type { Ctx } from '../../context';
-import { buildDateContextBlock } from '../../utils/date-context';
+import { captureWorkerPostHogEvent } from '@/workers/_common/vendor/posthog';
 import { getPromptContent, resolveLocalPromptPath } from '../../utils/prompt-loader';
 
 const INTERNAL_SUMMARY_PROMPT_SLUG = 'pma/pecp-generator';
@@ -83,14 +82,11 @@ export async function generateInternalSummary(params: GenerateInternalSummaryPar
 
     const hbs = new AsyncHandlebars({ interpreted: true });
     const compiled = await hbs.compile(rawPrompt);
-    const compiledPrompt = await compiled({
+    const systemPrompt = await compiled({
         document_type: documentType,
         document_name: documentName,
         document_content: content,
     });
-
-    const dateContext = buildDateContextBlock(rCtx.userTimezone ?? 'UTC');
-    const systemPrompt = `${dateContext}\n\n---\n\n${compiledPrompt}`;
 
     pushStreamEvents?.([
         {

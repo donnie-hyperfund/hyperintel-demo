@@ -13,8 +13,6 @@ export const SendChatActionSchema = z
         bypass_context_warning: z.boolean().optional(),
         /** Trigger a forced completion brief instead of a normal reply (requires message === null). */
         force_brief: z.boolean().optional(),
-        /** Browser-resolved IANA timezone (e.g. "Europe/Warsaw"). Defaulted because old clients may omit it. */
-        timezone: z.string().default('UTC'),
     })
     .refine((data) => !(data.force_brief === true && data.message !== null), {
         message: 'force_brief may only be true when message is null',
@@ -50,8 +48,6 @@ export type AbortActionDto = z.infer<typeof AbortActionSchema>;
 
 export const SummarizeActionSchema = z.object({
     chatId: z.string().uuid(),
-    /** Browser-resolved IANA timezone. Defaulted because old clients may omit it. */
-    timezone: z.string().default('UTC'),
 });
 
 export type SummarizeActionDto = z.infer<typeof SummarizeActionSchema>;
