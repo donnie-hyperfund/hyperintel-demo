@@ -960,27 +960,6 @@ export async function approveVersion(
 }
 
 /**
- * Returns true when there is at least one artifact version with status "proposed"
- * in the given scope, optionally excluding one artifact by name.
- * Used by begin_document to gate creation of new documents until pending ones are resolved.
- */
-export async function hasPendingDocument(
-    em: EntityManager,
-    scope: DocumentScope,
-    excludeName?: string,
-): Promise<boolean> {
-    const artifactFilter: Record<string, unknown> = { ...scopeFilter(scope) };
-    if (excludeName) {
-        artifactFilter.key = { $ne: excludeName };
-    }
-    const count = await em.count(ArtifactVersionEntity, {
-        status: 'proposed',
-        artifact: artifactFilter,
-    });
-    return count > 0;
-}
-
-/**
  * Reject a proposed version.
  */
 export async function rejectVersion(
