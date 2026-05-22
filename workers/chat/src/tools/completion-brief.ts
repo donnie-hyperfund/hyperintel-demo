@@ -62,6 +62,7 @@ export function createCompletionBriefTools() {
                 const chat = await ctx.em.findOneOrFail(ChatEntity, ctx.chatId);
                 const phaseNumber = chat.phase_index + 1;
                 const briefName = getCompletionBriefKey(phaseNumber);
+                const today = new Date().toISOString().split('T')[0];
 
                 // Extract documents from conversation history
                 const messages = await ctx.em.find(
@@ -71,10 +72,12 @@ export function createCompletionBriefTools() {
                 );
                 const documents = extractDocuments(messages);
 
+                // Build result parts
                 const parts: string[] = [
                     `## Phase Context`,
                     `- **Phase Number:** ${phaseNumber}`,
                     `- **Brief Name:** \`${briefName}\``,
+                    `- **Date:** ${today}`,
                     ``,
                     `The \`completion_brief\` template has been loaded into your context. Follow it exactly.`,
                     `Create the brief as an internal document with \`document_type: 'Completion Brief'\`.`,
