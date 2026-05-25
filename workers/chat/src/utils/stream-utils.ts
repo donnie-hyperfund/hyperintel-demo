@@ -232,9 +232,7 @@ export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher 
         while (pendingEvents.length > 0) {
             const events = pendingEvents;
             pendingEvents = [];
-            await streamDO
-                .push(events, pushSeq++)
-                .catch((err) => console.error(`[${label}] push failed:`, err));
+            await streamDO.push(events, pushSeq++).catch((err) => console.error(`[${label}] push failed:`, err));
         }
     };
 
