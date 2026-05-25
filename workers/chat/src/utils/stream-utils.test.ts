@@ -16,7 +16,7 @@ vi.mock('../uploads/image-uploader', () => ({
     generateSignedImageUrls: vi.fn(() => Promise.resolve(new Map())),
 }));
 
-import { loadChatHistory, persistErrorMessage } from './stream-utils';
+import { createPusher, loadChatHistory, persistErrorMessage } from './stream-utils';
 
 describe('loadChatHistory', () => {
     it('reconstructs toolContentParts from persisted toolImageRefs in chat history', async () => {
@@ -228,5 +228,70 @@ describe('persistErrorMessage', () => {
         expect(existing.debug_data).toBeNull();
         expect(chat.active_agent_message_id).toBeNull();
         expect(em.flush).toHaveBeenCalledOnce();
+    });
+});
+
+describe('createPusher', () => {
+    it('waits only for pushes still in flight', async () => {
+        let releaseFirst!: () => void;
+        let releaseSecond!: () => void;
+        const first = new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+        });
+        const second = new Promise<void>((resolve) => {
+            releaseSecond = resolve;
+        });
+        const push = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+        const pusher = createPusher({ push } as any, 'test');
+
+        pusher.push([{ type: 'status_update', status: 'first' }]);
+        expect(push).toHaveBeenLastCalledWith([{ type: 'status_update', status: 'first' }], 0);
+
+        releaseFirst();
+        await pusher.waitAll();
+
+        pusher.push([{ type: 'status_update', status: 'second' }]);
+        expect(push).toHaveBeenLastCalledWith([{ type: 'status_update', status: 'second' }], 1);
+
+        let settled = false;
+        const wait = pusher.waitAll().then(() => {
+            settled = true;
+        });
+
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        releaseSecond();
+        await wait;
+        expect(settled).toBe(true);
+    });
+
+    it('coalesces pushes while a DO push is in flight', async () => {
+        let releaseFirst!: () => void;
+        const first = new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+        });
+        const push = vi.fn().mockReturnValueOnce(first).mockResolvedValue(undefined);
+        const pusher = createPusher({ push } as any, 'test');
+
+        pusher.push([{ type: 'status_update', status: 'first' }]);
+        pusher.push([{ type: 'status_update', status: 'second' }]);
+        pusher.push([{ type: 'status_update', status: 'third' }]);
+
+        expect(push).toHaveBeenCalledTimes(1);
+        expect(push).toHaveBeenNthCalledWith(1, [{ type: 'status_update', status: 'first' }], 0);
+
+        releaseFirst();
+        await pusher.waitAll();
+
+        expect(push).toHaveBeenCalledTimes(2);
+        expect(push).toHaveBeenNthCalledWith(
+            2,
+            [
+                { type: 'status_update', status: 'second' },
+                { type: 'status_update', status: 'third' },
+            ],
+            1,
+        );
     });
 });
