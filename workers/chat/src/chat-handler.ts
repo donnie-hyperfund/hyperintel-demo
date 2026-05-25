@@ -47,6 +47,7 @@ import {
     extractRawErrorMessage,
     logWorkerError,
 } from './utils/error-metadata';
+import { approxTextChars, isCompletionBriefRequest, logCbMemoryCheckpoint } from './utils/memory-checkpoint';
 import { pickInferenceParams } from './utils/pick-inference-params';
 import { preprocessContext } from './utils/preprocess-context';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
@@ -259,10 +260,23 @@ export async function prepareChatGenerationInput({
     options: ChatHandlerOptions;
 }): Promise<PreparedChatGenerationInput | PublicError> {
     const { em } = ctx;
+    const isCbRequest = isCompletionBriefRequest(data.message);
     const historyMessages = await loadChatHistory(em!, data.chatId, ctx.env);
     const estimationContextMessages: ContextMessage[] = data.message
         ? [...historyMessages, { role: 'user', content: data.message }]
         : historyMessages;
+
+    if (isCbRequest || data.force_brief) {
+        logCbMemoryCheckpoint('prepare.history_loaded', {
+            requestId: ctx.requestId,
+            chatId: data.chatId,
+            forceBrief: data.force_brief,
+            historyMessages: historyMessages.length,
+            historyApproxChars: approxTextChars(historyMessages),
+            estimationMessages: estimationContextMessages.length,
+            estimationApproxChars: approxTextChars(estimationContextMessages),
+        });
+    }
 
     const savedPrompts = (chat.metadata?.loadedPrompts as string[] | undefined) ?? [];
     const localPromptsSetting = options.useLocalPrompts ?? parseLocalPromptEnv();
@@ -304,6 +318,21 @@ export async function prepareChatGenerationInput({
         tools: allTools,
         toolGroups,
     });
+
+    if (isCbRequest || data.force_brief) {
+        logCbMemoryCheckpoint('prepare.estimated', {
+            requestId: ctx.requestId,
+            chatId: data.chatId,
+            promptCount: promptsForEstimate.size,
+            systemPromptChars: initialSystemPrompt.length,
+            shapedMessages: shapedForEstimate.length,
+            shapedApproxChars: approxTextChars(shapedForEstimate),
+            toolCount: allTools.length,
+            toolGroupCount: toolGroups.length,
+            estimatedTokens,
+            reasoningPromptMode,
+        });
+    }
 
     const isPlainNudge = data.message === null && !data.force_brief;
     const gate = evaluateContextGate({
@@ -466,39 +495,43 @@ export async function chatActionHandler(
     }
 
     // --- Production mode: return SSE stream (kept alive by GenerationProxyDO) ---
-    return createSSEStream(async (controller) => {
-        const enqueue = createEnqueue(controller);
+    return createSSEStream(
+        async (controller) => {
+            const enqueue = createEnqueue(controller);
 
-        // First event: IDs (read by GenerationProxyDO, returned to frontend)
-        enqueue({ type: 'ids', userMessageId, agentMessageId });
+            // First event: IDs (read by GenerationProxyDO, returned to frontend)
+            enqueue({ type: 'ids', userMessageId, agentMessageId });
 
-        // SSE keepalive — prevents Cloudflare from killing the idle connection
-        // while runGeneration pushes content to ChatStreamDO (not to this SSE stream).
-        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+            // SSE keepalive — prevents Cloudflare from killing the idle connection
+            // while runGeneration pushes content to ChatStreamDO (not to this SSE stream).
+            const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
 
-        // Run generation inline — Worker stays alive because the DO reads this stream
-        try {
-            await runGeneration({
-                data,
-                ctx,
-                options,
-                chat,
-                agentMessageId,
-                requestStartedAt,
-                ugStub,
-                preparedInput,
-                safetyPromise,
-            });
-        } finally {
-            clearInterval(heartbeat);
-        }
+            // Run generation inline — Worker stays alive because the DO reads this stream
+            try {
+                await runGeneration({
+                    data,
+                    ctx,
+                    options,
+                    chat,
+                    agentMessageId,
+                    requestStartedAt,
+                    ugStub,
+                    preparedInput,
+                    safetyPromise,
+                });
+            } finally {
+                clearInterval(heartbeat);
+            }
 
-        try {
-            controller.close();
-        } catch {
-            /* already closed */
-        }
-    }, ctx);
+            try {
+                controller.close();
+            } catch {
+                /* already closed */
+            }
+        },
+        ctx,
+        { debugMemory: isCompletionBriefRequest(message) || data.force_brief === true },
+    );
 }
 
 // ============================================================================
@@ -522,7 +555,10 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
     const { chatId, message } = data;
     const { anthropic, langfuse, em } = ctx;
 
-    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'chat-handler');
+    const isCbGeneration = isCompletionBriefRequest(data.message);
+    const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'chat-handler', {
+        debugMemory: isCbGeneration || data.force_brief === true,
+    });
     const draftManager = new DraftManager();
     const projectId = chat.project!.id;
     const lockService = getLocksService(ctx.env.LOCKS_SERVICE as unknown as DurableObjectNamespace);
@@ -644,6 +680,20 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                   );
 
         // Run the agent with streaming
+        if (isCbGeneration) {
+            logCbMemoryCheckpoint('run.before_stream', {
+                requestId: ctx.requestId,
+                chatId,
+                agentMessageId,
+                historyMessages: allMessages.length,
+                historyApproxChars: approxTextChars(allMessages),
+                systemPromptChars: systemPromptForRun.length,
+                toolCount: allTools.length,
+                toolGroupCount: toolGroups.length,
+                estimatedTokens: preparedInput.estimatedTokens,
+            });
+        }
+
         const { stream, historyPromise } = runAgentStream(
             agentCtx,
             ctx,
@@ -747,6 +797,19 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                 if (event.type === 'delta') {
                     safetyMonitor.appendContent(event.content);
                 }
+                if (isCbGeneration && event.type === 'tool_call_complete') {
+                    const draft = agentCtx.draftManager.getCurrent();
+                    logCbMemoryCheckpoint('run.tool_complete', {
+                        requestId: ctx.requestId,
+                        chatId,
+                        agentMessageId,
+                        tool: event.tool,
+                        draftName: draft?.name,
+                        draftChars: draft?.content.length,
+                        draftLines: draft?.content ? draft.content.split('\n').length : undefined,
+                        createdVersionIds: createdVersionIds.length,
+                    });
+                }
                 if (event.type === 'tool_call_complete' && options.onEvent) {
                     options.onEvent({ type: 'tool_call_complete', tool: event.tool, id: event.id, input: event.input });
                 }
@@ -766,6 +829,23 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         const isAborted = !!event.aborted;
                         const streamLog = event.streamLog;
                         const assistantContent = streamLog.fullContent ?? '';
+                        if (isCbGeneration) {
+                            const draft = agentCtx.draftManager.getCurrent();
+                            logCbMemoryCheckpoint('run.done_ext_start', {
+                                requestId: ctx.requestId,
+                                chatId,
+                                agentMessageId,
+                                isError,
+                                isAborted,
+                                assistantContentChars: assistantContent.length,
+                                reasoningChars: streamLog.fullReasoning?.length ?? 0,
+                                blockCount: streamLog.blocks.length,
+                                blocksApproxChars: approxTextChars(streamLog.blocks),
+                                draftName: draft?.name,
+                                draftChars: draft?.content.length,
+                                createdVersionIds: createdVersionIds.length,
+                            });
+                        }
                         await cleanupActiveDraft(isError ? 'error' : isAborted ? 'abort' : 'done');
 
                         // --- Cost calculation from apiUsage ---
@@ -907,6 +987,19 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
 
                         // Flush assistant message before linking versions (FK requires row to exist)
                         await em!.flush();
+
+                        if (isCbGeneration) {
+                            logCbMemoryCheckpoint('run.after_flush', {
+                                requestId: ctx.requestId,
+                                chatId,
+                                agentMessageId,
+                                isError,
+                                isAborted,
+                                assistantContentChars: assistantContent.length,
+                                blockCount: streamLog.blocks.length,
+                                createdVersionIds: createdVersionIds.length,
+                            });
+                        }
 
                         ctx.eCtx?.waitUntil(
                             captureWorkerPostHogEvent(ctx.env, 'worker_chat_turn_persisted', ctx.user.userId, {

@@ -24,6 +24,7 @@ import {
     logWorkerError,
     type StoredErrorMetadata,
 } from './error-metadata';
+import { logCbMemoryCheckpoint } from './memory-checkpoint';
 
 // ============================================================================
 // DO LIFECYCLE HELPERS
@@ -219,14 +220,19 @@ export interface Pusher {
     get seq(): number;
 }
 
+export interface PusherOptions {
+    debugMemory?: boolean;
+}
+
 /**
  * Factory for the fire-and-forget push pattern used by all handlers.
  * Encapsulates pushSeq counter + inflightPushes tracking.
  */
-export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher {
+export function createPusher(streamDO: ChatStreamDOStub, label: string, options: PusherOptions = {}): Pusher {
     let pushSeq = 0;
     let pendingEvents: StreamEvent[] = [];
     let drainPromise: Promise<void> | null = null;
+    let maxPendingEvents = 0;
 
     const drain = async () => {
         while (pendingEvents.length > 0) {
@@ -247,6 +253,16 @@ export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher 
         push: (events: StreamEvent[]) => {
             if (events.length === 0) return;
             pendingEvents.push(...events);
+            if (pendingEvents.length > maxPendingEvents) {
+                maxPendingEvents = pendingEvents.length;
+                if (options.debugMemory && maxPendingEvents >= 10) {
+                    logCbMemoryCheckpoint('pusher.pending_high_water', {
+                        label,
+                        pendingEvents: maxPendingEvents,
+                        nextSeq: pushSeq,
+                    });
+                }
+            }
             void ensureDrain();
         },
         waitAll: async () => {
@@ -607,12 +623,14 @@ export async function handleStreamError(
 export function createSSEStream(
     handler: (controller: ReadableStreamDefaultController<Uint8Array>) => Promise<void>,
     ctx?: Ctx,
+    options: { debugMemory?: boolean } = {},
 ): ReadableStream<Uint8Array> {
     // Internal buffer decouples handler from stream consumer.
     const buffer: Uint8Array[] = [];
     let handlerDone = false;
     let handlerError: unknown = null;
     let wakeup: (() => void) | null = null;
+    let maxBufferedChunks = 0;
 
     const signal = () => {
         wakeup?.();
@@ -624,6 +642,15 @@ export function createSSEStream(
     const proxy = {
         enqueue(chunk: Uint8Array) {
             buffer.push(chunk);
+            if (buffer.length > maxBufferedChunks) {
+                maxBufferedChunks = buffer.length;
+                if (options.debugMemory && (maxBufferedChunks === 50 || maxBufferedChunks % 250 === 0)) {
+                    logCbMemoryCheckpoint('sse.buffer_high_water', {
+                        requestId: ctx?.requestId,
+                        bufferedChunks: maxBufferedChunks,
+                    });
+                }
+            }
             signal();
         },
         close() {
@@ -685,6 +712,13 @@ export function createSSEStream(
         cancel() {
             // Client disconnected — handler keeps running independently.
             // Buffered data will be GC'd when the handler finishes.
+            if (options.debugMemory) {
+                logCbMemoryCheckpoint('sse.cancelled', {
+                    requestId: ctx?.requestId,
+                    bufferedChunks: buffer.length,
+                    handlerDone,
+                });
+            }
         },
     });
 }
