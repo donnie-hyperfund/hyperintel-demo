@@ -255,6 +255,22 @@ export async function pushStreamEventsWithRetry({
     return false;
 }
 
+export async function runBestEffortStreamCall({
+    label,
+    operation,
+    action,
+}: {
+    label: string;
+    operation: string;
+    action: () => Promise<unknown>;
+}): Promise<void> {
+    try {
+        await action();
+    } catch (error) {
+        console.error(`[${label}] stream ${operation} failed:`, error);
+    }
+}
+
 /**
  * Factory for the fire-and-forget push pattern used by all handlers.
  * Encapsulates pushSeq counter + inflightPushes tracking.
@@ -414,10 +430,16 @@ export async function cleanupStreamDO({
             seq: pusher.seq,
             label: 'stream-cleanup',
         });
-        await streamDO.done().catch((doneError) => console.error('[stream-cleanup] stream done failed:', doneError));
-        await streamDO
-            .finalize()
-            .catch((finalizeError) => console.error('[stream-cleanup] stream finalize failed:', finalizeError));
+        await runBestEffortStreamCall({
+            label: 'stream-cleanup',
+            operation: 'done',
+            action: () => streamDO.done(),
+        });
+        await runBestEffortStreamCall({
+            label: 'stream-cleanup',
+            operation: 'finalize',
+            action: () => streamDO.finalize(),
+        });
     } catch {
         /* DO might already be gone */
     } finally {

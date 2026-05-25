@@ -19,6 +19,7 @@ import {
     createPusher,
     handleCommonStreamEvent,
     type Pusher,
+    runBestEffortStreamCall,
     wireAbort,
 } from './stream-utils';
 
@@ -44,22 +45,6 @@ export function setupStreamInfra(agentMessageId: string, ctx: Ctx, tag: string):
     const abortController = wireAbort(streamDO);
     const pusher = createPusher(streamDO, tag);
     return { streamDO, abortController, pusher };
-}
-
-async function runStreamLifecycleRpc({
-    label,
-    operation,
-    action,
-}: {
-    label: string;
-    operation: string;
-    action: () => Promise<unknown>;
-}): Promise<void> {
-    try {
-        await action();
-    } catch (error) {
-        console.error(`[${label}] stream ${operation} failed:`, error);
-    }
 }
 
 // ============================================================================
@@ -142,8 +127,8 @@ export async function finalizeStream(
     topic: string,
 ): Promise<void> {
     try {
-        await runStreamLifecycleRpc({ label: 'stream-runner', operation: 'done', action: () => streamDO.done() });
-        await runStreamLifecycleRpc({
+        await runBestEffortStreamCall({ label: 'stream-runner', operation: 'done', action: () => streamDO.done() });
+        await runBestEffortStreamCall({
             label: 'stream-runner',
             operation: 'finalize',
             action: () => streamDO.finalize(),
