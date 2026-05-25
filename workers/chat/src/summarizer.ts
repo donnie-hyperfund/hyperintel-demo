@@ -1,7 +1,9 @@
 import { runAgentStream, shapeContextForInference } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import type { EntityManager } from '@mikro-orm/postgresql';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import { SummarizeActionDto } from '@/lib/schema/chat';
@@ -15,6 +17,7 @@ import { listDocuments } from './tools/documents/document-service';
 import { createKnowledgeTools } from './tools/knowledge-search';
 import { createWebScrapeTools } from './tools/web-scrape';
 import { estimateInferenceInputTokens } from './utils/context-budget';
+import { createDbBackedRecallTool } from './utils/db-recall-tool';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -22,11 +25,10 @@ import {
     classifyWorkerError,
     logWorkerError,
 } from './utils/error-metadata';
-import { extractDocuments } from './utils/extract-documents';
 import { preprocessContext } from './utils/preprocess-context';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { finalizeStream, finalizeStreamWithoutDone, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
-import { cleanupStreamDO, pushStreamEventsWithRetry } from './utils/stream-utils';
+import { cleanupStreamDO, loadCollapsedChatHistory, pushStreamEventsWithRetry } from './utils/stream-utils';
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
@@ -60,7 +62,66 @@ export interface SummarizerDeps {
 
 const SUMMARY_PREFIX = `📋 **Summary of the previous conversation**\n\n---\n\n`;
 
-function getSummarizerInferenceParams(_contextTokens: number): ParamsWithType {
+type SummarizerDocumentRow = {
+    artifact_key: string | null;
+    title: string;
+    version: number;
+    status: string;
+    content_preview: string | null;
+};
+
+type SummarizerDocument = {
+    name: string;
+    title: string;
+    version: number;
+    status: string;
+    contentPreview?: string;
+};
+
+async function loadSummarizerDocuments(em: EntityManager, chatId: string): Promise<SummarizerDocument[]> {
+    const rows = (await em
+        .createQueryBuilder(ArtifactVersionEntity, 'v')
+        .select([
+            'a.key as artifact_key',
+            'v.title as title',
+            'v.version as version',
+            'v.status as status',
+            'left(v.content, 500) as content_preview',
+        ])
+        .leftJoin('v.artifact', 'a')
+        .where({ 'v.chat': chatId })
+        .orderBy({ 'v.created_at': 'ASC' })
+        .execute('all')) as SummarizerDocumentRow[];
+
+    return rows.map((row) => ({
+        name: row.artifact_key ?? row.title,
+        title: row.title,
+        version: row.version,
+        status: row.status,
+        contentPreview: row.content_preview ?? undefined,
+    }));
+}
+
+function getSummarizerInferenceParams(contextTokens: number): ParamsWithType {
+    // if (contextTokens > SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS) {
+    //     return {
+    //         paramsType: AIParamsType.Anthropic,
+    //         params: {
+    //             model: ANTHROPIC_MODELS.SONNET_4_6,
+    //             reasoning: { exclude: true, effort: 'medium' },
+    //         },
+    //     };
+    // }
+    //
+    // return {
+    //     paramsType: AIParamsType.Anthropic,
+    //     params: {
+    //         model: ANTHROPIC_MODELS.SONNET,
+    //         reasoning: true,
+    //         reasoningBudget: 8000,
+    //     },
+    // };
+    void contextTokens;
     return {
         paramsType: AIParamsType.Anthropic,
         params: {
@@ -102,15 +163,24 @@ export async function runSummarizer(ctx: SummarizerContext, deps: SummarizerDeps
             throw new Error('Anthropic client required');
         }
 
-        const messages = await em!.find(ChatMessageEntity, { chat: chatId }, { orderBy: { created_at: 'ASC' } });
-        if (!messages.length) {
-            throw new Error('Cannot summarize empty chat');
-        }
-
         const phaseNumber = chat.phase_index + 1;
         const today = new Date().toISOString().split('T')[0];
 
-        const documents = extractDocuments(messages);
+        // TODO: unify with getChatToolsAndGroups() so collapse config stays in sync
+        const collapseToolRegistry = [...createDocumentTools(), ...createKnowledgeTools(), ...createWebScrapeTools()];
+        const [documents, collapsedHistory] = await Promise.all([
+            loadSummarizerDocuments(em!, chatId),
+            loadCollapsedChatHistory(em!, chatId, {
+                env: workerCtx.env,
+                collapseToolRegistry,
+                preprocessContext,
+            }),
+        ]);
+        const historyMessages = collapsedHistory.messages;
+        if (!historyMessages.length) {
+            throw new Error('Cannot summarize empty chat');
+        }
+
         const basePrompt = await getSummarizerPrompt(workerCtx);
 
         // OUTPUT CONTRACT — placed at the TOP of instructions (strongest attention region).
@@ -137,17 +207,10 @@ This contract is non-negotiable. The downstream pipeline reads the \`generate_bl
             }
         }
 
-        // Fetch live document statuses for documents touched in this phase
-        const phaseDocNames = new Set(documents.map((d) => d.name));
-        if (phaseDocNames.size > 0) {
-            const allDocuments = await listDocuments(em!, { projectId: chat.project!.id });
-            const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
-            if (phaseDocuments.length > 0) {
-                instructions += `\n\n## Current Document Statuses (this phase)\n\nThese statuses are queried from the database at the time of summarization. Users may approve or reject documents via the UI — this does NOT appear in the conversation history. Use these statuses as the source of truth.\n\n`;
-                for (const doc of phaseDocuments) {
-                    const status = doc.hasProposed ? 'proposed' : (doc.currentStatus ?? doc.latestStatus);
-                    instructions += `- \`${doc.name}\` (${doc.title}): v${doc.latestVersion}, **${status}**\n`;
-                }
+        if (documents.length > 0) {
+            instructions += `\n\n## Current Document Statuses (this phase)\n\nThese statuses are queried from the database at the time of summarization. Users may approve or reject documents via the UI — this does NOT appear in the conversation history. Use these statuses as the source of truth.\n\n`;
+            for (const doc of documents) {
+                instructions += `- \`${doc.name}\` (${doc.title}): v${doc.version}, **${doc.status}**\n`;
             }
         }
 
@@ -166,12 +229,6 @@ This contract is non-negotiable. The downstream pipeline reads the \`generate_bl
             }
         }
 
-        const historyMessages = messages.map((m) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-            ...(m.blocks && { blocks: m.blocks }),
-        }));
-
         // Anthropic requires conversation to end with user message for model to respond.
         historyMessages.push({
             role: 'user' as const,
@@ -185,8 +242,6 @@ Do not end your turn without calling \`generate_blurb\`. The tool call is requir
         });
 
         const blurbTools = createBlurbTools();
-        // TODO: unify with getChatToolsAndGroups() so collapse config stays in sync
-        const collapseToolRegistry = [...createDocumentTools(), ...createKnowledgeTools(), ...createWebScrapeTools()];
         const shapedForEstimate = shapeContextForInference({
             history: historyMessages,
             tools: [...blurbTools],
@@ -221,6 +276,11 @@ Do not end your turn without calling \`generate_blurb\`. The tool call is requir
                     preprocessContext,
                     autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
                     collapseToolRegistry,
+                    recallTool: createDbBackedRecallTool({
+                        em: em!,
+                        chatId,
+                        recallLookup: collapsedHistory.recallLookup,
+                    }),
                     abortSignal: abortController.signal,
                 },
             },
