@@ -32,17 +32,26 @@ export interface StreamInfra {
     pusher: Pusher;
 }
 
+export interface StreamInfraOptions {
+    debugMemory?: boolean;
+}
+
 /**
  * Set up the ChatStream DO stub, abort wiring, and fire-and-forget pusher.
  * Identical across all three handlers.
  */
-export function setupStreamInfra(agentMessageId: string, ctx: Ctx, tag: string): StreamInfra {
+export function setupStreamInfra(
+    agentMessageId: string,
+    ctx: Ctx,
+    tag: string,
+    options: StreamInfraOptions = {},
+): StreamInfra {
     const alias = ctx.previewAlias;
     const streamDO = ctx.env.CHAT_STREAM_DO.get(
         ctx.env.CHAT_STREAM_DO.idFromName(branchDoName(agentMessageId, alias)),
     ) as unknown as ChatStreamDOStub;
     const abortController = wireAbort(streamDO);
-    const pusher = createPusher(streamDO, tag);
+    const pusher = createPusher(streamDO, tag, { debugMemory: options.debugMemory });
     return { streamDO, abortController, pusher };
 }
 
