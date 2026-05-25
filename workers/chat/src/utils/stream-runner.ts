@@ -138,6 +138,33 @@ export async function finalizeStream(
     }
 }
 
+/**
+ * Clear stream state after a terminal event could not be confirmed delivered.
+ * Deliberately skips done(), because stream_status:done without the terminal
+ * payload can make the frontend complete with missing metadata.
+ */
+export async function finalizeStreamWithoutDone({
+    streamDO,
+    ugStub,
+    topic,
+    label,
+}: {
+    streamDO: ChatStreamDOStub;
+    ugStub: UserGatewayStub;
+    topic: string;
+    label: string;
+}): Promise<void> {
+    try {
+        await runBestEffortStreamCall({
+            label,
+            operation: 'finalize',
+            action: () => streamDO.finalize(),
+        });
+    } finally {
+        await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
+    }
+}
+
 // ============================================================================
 // ON-TURN-COMPLETE FACTORY
 // ============================================================================

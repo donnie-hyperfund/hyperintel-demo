@@ -55,7 +55,13 @@ import {
     getPresetReasoningPromptMode,
     inferReasoningPromptMode,
 } from './utils/reasoning-visibility-guidance';
-import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
+import {
+    createOnTurnComplete,
+    finalizeStream,
+    finalizeStreamWithoutDone,
+    runStreamLoop,
+    setupStreamInfra,
+} from './utils/stream-runner';
 import {
     cleanupStreamDO,
     createEnqueue,
@@ -686,6 +692,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         );
 
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
+        let terminalDoneDelivered = false;
 
         const outputSafetyEnabled = isOutputSafetyEnabled(ctx.env);
 
@@ -998,12 +1005,16 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         };
                         // Drain all in-flight pushes before terminal event
                         await pusher.waitAll();
-                        await pushStreamEventsWithRetry({
+                        terminalDoneDelivered = await pushStreamEventsWithRetry({
                             streamDO,
                             events: [doneEvent],
                             seq: pusher.seq,
                             label: 'chat-handler',
                         });
+                        if (!terminalDoneDelivered) {
+                            console.error('[chat-handler] terminal done delivery failed; skipping stream_status:done');
+                            break;
+                        }
                         options.onEvent?.(doneEvent);
                         break;
                     }
@@ -1018,7 +1029,16 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
 
         await finalizeSafetyMonitor(safetyMonitor, em!, agentMessageId);
 
-        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
+        if (terminalDoneDelivered) {
+            await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
+        } else {
+            await finalizeStreamWithoutDone({
+                streamDO,
+                ugStub,
+                topic: `chat:${chatId}`,
+                label: 'chat-handler',
+            });
+        }
     } catch (error: any) {
         await cleanupActiveDraft('catch');
         const classification = classifyWorkerError(error);

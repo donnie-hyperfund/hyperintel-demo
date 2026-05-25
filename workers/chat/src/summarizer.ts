@@ -25,7 +25,7 @@ import {
 import { extractDocuments } from './utils/extract-documents';
 import { preprocessContext } from './utils/preprocess-context';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
-import { finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
+import { finalizeStream, finalizeStreamWithoutDone, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
 import { cleanupStreamDO, pushStreamEventsWithRetry } from './utils/stream-utils';
 
 export interface SummarizerOptions {
@@ -363,12 +363,22 @@ Do not end your turn without calling \`generate_blurb\`. The tool call is requir
         // flow via the keepalive in summarizeActionHandler) so the Worker stays alive while the
         // next-phase generation runs below.
         await pusher.waitAll();
-        await pushStreamEventsWithRetry({
+        const terminalDoneDelivered = await pushStreamEventsWithRetry({
             streamDO,
             events: [{ type: 'done', newChatId: newChat.id }],
             seq: pusher.seq,
             label: 'summarizer',
         });
+        if (!terminalDoneDelivered) {
+            console.error('[summarizer] terminal done delivery failed; skipping stream_status:done');
+            await finalizeStreamWithoutDone({
+                streamDO,
+                ugStub,
+                topic: `chat:${chatId}`,
+                label: 'summarizer',
+            });
+            return false;
+        }
 
         // Finalize chat:${chatId} now — pushing a 'done' event broadcasts to live subscribers but
         // does NOT change streamDO.status, so a fresh subscribe (e.g. user navigating back to this

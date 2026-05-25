@@ -284,8 +284,7 @@ export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher 
         while (pendingEvents.length > 0) {
             const events = pendingEvents;
             pendingEvents = [];
-            const seq = pushSeq++;
-            await pushStreamEventsWithRetry({ streamDO, events, seq, label });
+            await streamDO.push(events, pushSeq++).catch((err) => console.error(`[${label}] push failed:`, err));
         }
     };
 
@@ -417,7 +416,7 @@ export async function cleanupStreamDO({
         await pusher.waitAll();
         const safeMetadata = errorMetadata ?? buildStoredErrorMetadata({ classification: classifyWorkerError(error) });
         const errorSignal = safeMetadata.code;
-        await pushStreamEventsWithRetry({
+        const terminalDelivered = await pushStreamEventsWithRetry({
             streamDO,
             events: [
                 { type: 'error', error: errorSignal },
@@ -430,11 +429,15 @@ export async function cleanupStreamDO({
             seq: pusher.seq,
             label: 'stream-cleanup',
         });
-        await runBestEffortStreamCall({
-            label: 'stream-cleanup',
-            operation: 'done',
-            action: () => streamDO.done(),
-        });
+        if (terminalDelivered) {
+            await runBestEffortStreamCall({
+                label: 'stream-cleanup',
+                operation: 'done',
+                action: () => streamDO.done(),
+            });
+        } else {
+            console.error('[stream-cleanup] terminal error delivery failed; skipping stream_status:done');
+        }
         await runBestEffortStreamCall({
             label: 'stream-cleanup',
             operation: 'finalize',
