@@ -122,11 +122,111 @@ describe('tool collapse annotations', () => {
         });
         expect(JSON.stringify(collapsed.toolInput)).not.toContain('old line');
         expect(JSON.stringify(collapsed.toolInput)).not.toContain('replacement');
-        expect(JSON.parse(collapsed.toolOutput ?? '')).toMatchObject({
+        const output = JSON.parse(collapsed.toolOutput ?? '');
+        expect(output).toMatchObject({
             status: 'edited',
             editsApplied: 2,
-            recallHint: 'Use recall_tool_call to retrieve the original edits.',
+            recallHint: 'Use recall_tool_call to retrieve the original edits or touched-region content.',
         });
+        expect(output.touched).toBeUndefined();
+    });
+
+    it('strips patch_document touched regions on collapse but keeps summary stats', () => {
+        const tool = getTool(createDocumentTools(), 'patch_document');
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'patch_document',
+                toolInput: {
+                    edits: [{ startLine: 10, oldContent: 'old', newContent: 'new' }],
+                },
+                toolOutput: JSON.stringify({
+                    status: 'edited',
+                    editsApplied: 1,
+                    linesNow: 50,
+                    touched: [{ startLine: 8, endLine: 12, content: '8: context\n9: old\n10: new' }],
+                }),
+            }),
+        );
+
+        const output = JSON.parse(collapsed.toolOutput ?? '');
+        expect(output.touched).toBeUndefined();
+        expect(output.linesNow).toBe(50);
+        expect(output.recallHint).toBe('Use recall_tool_call to retrieve the original edits or touched-region content.');
+        expect(collapsed.toolOutput).not.toContain('8: context');
+    });
+
+    it('preserves patch_document truncated flag when touched is stripped on collapse', () => {
+        const tool = getTool(createDocumentTools(), 'patch_document');
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'patch_document',
+                toolInput: { edits: [{ startLine: 1, oldContent: 'a', newContent: 'b' }] },
+                toolOutput: JSON.stringify({
+                    status: 'edited',
+                    editsApplied: 1,
+                    linesNow: 100,
+                    truncated: true,
+                    touched: [{ startLine: 1, endLine: 5, content: '1: a\n2: b' }],
+                }),
+            }),
+        );
+
+        const output = JSON.parse(collapsed.toolOutput ?? '');
+        expect(output.truncated).toBe(true);
+        expect(output.touched).toBeUndefined();
+        expect(output.recallHint).toContain('touched-region');
+    });
+
+    it('includes begin_document full draft content in live result and strips it on collapse', () => {
+        const tool = getTool(createDocumentTools(), 'begin_document');
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'begin_document',
+                toolInput: { mode: 'edit', name: 'report.md', document_type: 'Other' },
+                toolOutput: JSON.stringify({
+                    status: 'editing',
+                    mode: 'edit',
+                    name: 'report.md',
+                    lines: 2,
+                    content: '1: first\n2: second',
+                    message: 'Full draft included',
+                }),
+            }),
+        );
+
+        const output = JSON.parse(collapsed.toolOutput ?? '');
+        expect(output.content).toBeUndefined();
+        expect(output).toMatchObject({
+            contentCollapsed: true,
+            contentLines: 2,
+            contentChars: 18,
+            recallHint: 'Use recall_tool_call to retrieve the loaded draft content.',
+        });
+        expect(collapsed.toolOutput).not.toContain('first');
+    });
+
+    it('leaves over-cap begin_document output unchanged on collapse', () => {
+        const tool = getTool(createDocumentTools(), 'begin_document');
+        const payload = {
+            status: 'editing',
+            mode: 'edit',
+            name: 'big.md',
+            lines: 900,
+            message: 'Editing from approved v1. Make changes, then finalize_document.',
+        };
+        const collapsed = collapseWithTool(
+            tool,
+            toolBlock({
+                toolName: 'begin_document',
+                toolInput: { mode: 'edit', name: 'big.md', document_type: 'Other' },
+                toolOutput: JSON.stringify(payload),
+            }),
+        );
+
+        expect(JSON.parse(collapsed.toolOutput ?? '')).toEqual(payload);
     });
 
     it('collapses read_document output content but keeps document metadata', () => {
