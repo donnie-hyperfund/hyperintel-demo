@@ -148,6 +148,11 @@ export function countLines(content: string): number {
     return content.split('\n').length;
 }
 
+/** Line count after applyEdits splices `newRangeContent.split('\n')` — differs from countLines for `''` (1 vs 0). */
+export function countReplacementLines(newRangeContent: string): number {
+    return newRangeContent.split('\n').length;
+}
+
 /**
  * Format content with line numbers for viewport display.
  */
@@ -415,6 +420,128 @@ export function applyEdits(content: string, edits: EditOperation[]): EditResult 
         linesNow: countLines(currentContent),
         appliedEdits,
     };
+}
+
+// ============================================================================
+// TOOL RESULT ENRICHMENT (runner-side; no model-facing schema changes)
+// ============================================================================
+
+export interface TouchedRegion {
+    startLine: number;
+    endLine: number;
+    content: string;
+}
+
+/** Context lines above/below each patched span in patch_document touched output. */
+export const PATCH_TOUCHED_CONTEXT_LINES = 4;
+
+/** ~10K tokens — generous cap; one fewer read_document still wins on cost. */
+export const PATCH_TOUCHED_MAX_CHARS = 40_000;
+
+/** begin_document(edit): all-or-nothing full draft when under cap. */
+export const BEGIN_EDIT_MAX_LINES = 800;
+
+/** ~15K tokens (chars/4 heuristic), paired with line cap — whichever binds first. */
+export const BEGIN_EDIT_MAX_CHARS = 60_000;
+
+export const BEGIN_EDIT_MAX_ESTIMATED_TOKENS = 15_000;
+
+export function estimateTokensFromChars(chars: number): number {
+    return Math.ceil(chars / 4);
+}
+
+/** True when the full loaded document can be returned in begin_document(edit/replace) without partial windows. */
+export function draftFitsBeginContentCap(content: string): boolean {
+    if (countLines(content) > BEGIN_EDIT_MAX_LINES) return false;
+    const formatted = formatFullDraftContent(content);
+    if (formatted.length > BEGIN_EDIT_MAX_CHARS) return false;
+    if (estimateTokensFromChars(formatted.length) > BEGIN_EDIT_MAX_ESTIMATED_TOKENS) return false;
+    return true;
+}
+
+export function formatFullDraftContent(content: string): string {
+    return formatWithLineNumbers(content, 1);
+}
+
+function postEditSpansFromApplied(appliedEdits: AppliedEdit[]): { startLine: number; endLine: number }[] {
+    const sorted = [...appliedEdits].sort((left, right) => left.startLine - right.startLine);
+    let lineDelta = 0;
+
+    return sorted.map((edit) => {
+        const startLine = edit.startLine + lineDelta;
+        const oldLineCount = edit.endLine - edit.startLine + 1;
+        const newLineCount = countReplacementLines(edit.newContent);
+        const endLine = startLine + newLineCount - 1;
+        lineDelta += newLineCount - oldLineCount;
+        return { startLine, endLine };
+    });
+}
+
+function mergeLineRanges(ranges: { startLine: number; endLine: number }[]): { startLine: number; endLine: number }[] {
+    if (!ranges.length) return [];
+
+    const sorted = [...ranges].sort((left, right) => left.startLine - right.startLine);
+    const merged: { startLine: number; endLine: number }[] = [{ ...sorted[0] }];
+
+    for (let i = 1; i < sorted.length; i++) {
+        const current = sorted[i];
+        const last = merged[merged.length - 1];
+        if (current.startLine <= last.endLine + 1) {
+            last.endLine = Math.max(last.endLine, current.endLine);
+        } else {
+            merged.push({ ...current });
+        }
+    }
+
+    return merged;
+}
+
+/**
+ * Build post-edit touched regions for patch_document tool results.
+ * Line numbers and content use the same `N: ` prefix format as read_document.
+ */
+export function buildPatchTouchedRegions(
+    finalContent: string,
+    appliedEdits: AppliedEdit[],
+    options?: { contextLines?: number; maxChars?: number },
+): { touched: TouchedRegion[]; truncated: boolean } {
+    if (!appliedEdits.length) return { touched: [], truncated: false };
+
+    const contextLines = options?.contextLines ?? PATCH_TOUCHED_CONTEXT_LINES;
+    const maxChars = options?.maxChars ?? PATCH_TOUCHED_MAX_CHARS;
+    const totalLines = countLines(finalContent);
+    if (totalLines === 0) return { touched: [], truncated: false };
+
+    const expanded = postEditSpansFromApplied(appliedEdits)
+        .map((span) => ({
+            startLine: Math.max(1, span.startLine - contextLines),
+            endLine: Math.min(totalLines, Math.max(span.endLine, span.startLine) + contextLines),
+        }))
+        .filter((span) => span.endLine >= span.startLine);
+
+    const merged = mergeLineRanges(expanded);
+    const touched: TouchedRegion[] = [];
+    let charsUsed = 0;
+    let truncated = false;
+
+    for (const range of merged) {
+        const viewport = extractViewport(finalContent, range.startLine, range.endLine);
+        const entry: TouchedRegion = {
+            startLine: viewport.startLine,
+            endLine: viewport.endLine,
+            content: viewport.content,
+        };
+
+        if (charsUsed + entry.content.length > maxChars) {
+            truncated = true;
+            break;
+        }
+
+        charsUsed += entry.content.length;
+        touched.push(entry);
+    }
+
+    return { touched, truncated };
 }
 
 // ============================================================================
