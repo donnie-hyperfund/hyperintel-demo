@@ -46,6 +46,22 @@ export function setupStreamInfra(agentMessageId: string, ctx: Ctx, tag: string):
     return { streamDO, abortController, pusher };
 }
 
+async function runStreamLifecycleRpc({
+    label,
+    operation,
+    action,
+}: {
+    label: string;
+    operation: string;
+    action: () => Promise<unknown>;
+}): Promise<void> {
+    try {
+        await action();
+    } catch (error) {
+        console.error(`[${label}] stream ${operation} failed:`, error);
+    }
+}
+
 // ============================================================================
 // STREAM LOOP
 // ============================================================================
@@ -126,8 +142,12 @@ export async function finalizeStream(
     topic: string,
 ): Promise<void> {
     try {
-        await streamDO.done();
-        await streamDO.finalize();
+        await runStreamLifecycleRpc({ label: 'stream-runner', operation: 'done', action: () => streamDO.done() });
+        await runStreamLifecycleRpc({
+            label: 'stream-runner',
+            operation: 'finalize',
+            action: () => streamDO.finalize(),
+        });
     } finally {
         await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
     }

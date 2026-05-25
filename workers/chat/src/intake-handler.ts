@@ -63,6 +63,7 @@ import {
     createSSEStream,
     loadChatHistory,
     persistErrorMessage,
+    pushStreamEventsWithRetry,
 } from './utils/stream-utils';
 
 // ============================================================================
@@ -690,7 +691,12 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                         };
                         // Drain all in-flight pushes before terminal event
                         await pusher.waitAll();
-                        await streamDO.push([doneEvent], pusher.seq);
+                        await pushStreamEventsWithRetry({
+                            streamDO,
+                            events: [doneEvent],
+                            seq: pusher.seq,
+                            label: 'intake-handler',
+                        });
                         options.onEvent?.(doneEvent);
                         break;
                     }

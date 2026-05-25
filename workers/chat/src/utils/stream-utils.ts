@@ -219,6 +219,42 @@ export interface Pusher {
     get seq(): number;
 }
 
+const STREAM_PUSH_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
+
+function wait(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+export async function pushStreamEventsWithRetry({
+    streamDO,
+    events,
+    seq,
+    label,
+}: {
+    streamDO: ChatStreamDOStub;
+    events: StreamEvent[];
+    seq: number;
+    label: string;
+}): Promise<boolean> {
+    let lastError: unknown;
+    const maxAttempts = STREAM_PUSH_RETRY_DELAYS_MS.length + 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            await streamDO.push(events, seq);
+            return true;
+        } catch (error) {
+            lastError = error;
+            if (attempt < maxAttempts) {
+                await wait(STREAM_PUSH_RETRY_DELAYS_MS[attempt - 1] ?? 1_500);
+            }
+        }
+    }
+
+    console.error(`[${label}] stream push failed after ${maxAttempts} attempts:`, lastError);
+    return false;
+}
+
 /**
  * Factory for the fire-and-forget push pattern used by all handlers.
  * Encapsulates pushSeq counter + inflightPushes tracking.
@@ -232,7 +268,8 @@ export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher 
         while (pendingEvents.length > 0) {
             const events = pendingEvents;
             pendingEvents = [];
-            await streamDO.push(events, pushSeq++).catch((err) => console.error(`[${label}] push failed:`, err));
+            const seq = pushSeq++;
+            await pushStreamEventsWithRetry({ streamDO, events, seq, label });
         }
     };
 
@@ -364,8 +401,9 @@ export async function cleanupStreamDO({
         await pusher.waitAll();
         const safeMetadata = errorMetadata ?? buildStoredErrorMetadata({ classification: classifyWorkerError(error) });
         const errorSignal = safeMetadata.code;
-        await streamDO.push(
-            [
+        await pushStreamEventsWithRetry({
+            streamDO,
+            events: [
                 { type: 'error', error: errorSignal },
                 {
                     type: 'done',
@@ -373,10 +411,13 @@ export async function cleanupStreamDO({
                     messageMetadata: { error: safeMetadata },
                 },
             ],
-            pusher.seq,
-        );
-        await streamDO.done();
-        await streamDO.finalize();
+            seq: pusher.seq,
+            label: 'stream-cleanup',
+        });
+        await streamDO.done().catch((doneError) => console.error('[stream-cleanup] stream done failed:', doneError));
+        await streamDO
+            .finalize()
+            .catch((finalizeError) => console.error('[stream-cleanup] stream finalize failed:', finalizeError));
     } catch {
         /* DO might already be gone */
     } finally {

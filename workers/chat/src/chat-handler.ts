@@ -62,6 +62,7 @@ import {
     createSSEStream,
     loadChatHistory,
     persistErrorMessage,
+    pushStreamEventsWithRetry,
 } from './utils/stream-utils';
 
 export interface ChatHandlerOptions {
@@ -997,7 +998,12 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         };
                         // Drain all in-flight pushes before terminal event
                         await pusher.waitAll();
-                        await streamDO.push([doneEvent], pusher.seq);
+                        await pushStreamEventsWithRetry({
+                            streamDO,
+                            events: [doneEvent],
+                            seq: pusher.seq,
+                            label: 'chat-handler',
+                        });
                         options.onEvent?.(doneEvent);
                         break;
                     }

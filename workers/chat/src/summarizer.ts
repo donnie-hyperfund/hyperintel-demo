@@ -11,10 +11,10 @@ import type { ChatActionResult, chatActionHandler } from './chat-handler';
 import { Ctx } from './context';
 import { BlurbToolGroup, createBlurbTools } from './tools/blurb';
 import { createDocumentTools } from './tools/documents';
+import { listDocuments } from './tools/documents/document-service';
 import { createKnowledgeTools } from './tools/knowledge-search';
 import { createWebScrapeTools } from './tools/web-scrape';
-import { listDocuments } from './tools/documents/document-service';
-import { estimateInferenceInputTokens, SUMMARIZER_SONNET_4_6_CONTEXT_THRESHOLD_TOKENS } from './utils/context-budget';
+import { estimateInferenceInputTokens } from './utils/context-budget';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -26,7 +26,7 @@ import { extractDocuments } from './utils/extract-documents';
 import { preprocessContext } from './utils/preprocess-context';
 import { getPromptContent, resolveLocalPromptPath } from './utils/prompt-loader';
 import { finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
-import { cleanupStreamDO } from './utils/stream-utils';
+import { cleanupStreamDO, pushStreamEventsWithRetry } from './utils/stream-utils';
 
 export interface SummarizerOptions {
     overrideInference?: ParamsWithType;
@@ -363,7 +363,12 @@ Do not end your turn without calling \`generate_blurb\`. The tool call is requir
         // flow via the keepalive in summarizeActionHandler) so the Worker stays alive while the
         // next-phase generation runs below.
         await pusher.waitAll();
-        await streamDO.push([{ type: 'done', newChatId: newChat.id }], pusher.seq);
+        await pushStreamEventsWithRetry({
+            streamDO,
+            events: [{ type: 'done', newChatId: newChat.id }],
+            seq: pusher.seq,
+            label: 'summarizer',
+        });
 
         // Finalize chat:${chatId} now — pushing a 'done' event broadcasts to live subscribers but
         // does NOT change streamDO.status, so a fresh subscribe (e.g. user navigating back to this
