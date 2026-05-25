@@ -364,7 +364,7 @@ export function ChatProvider({
                 setChatId(nextChatId);
                 setState((prev) => ({ ...prev, phaseIndex: newChat.phaseIndex, phaseName: newChat.name ?? null }));
 
-                insertChatToCache(cache, globalMutate, projectId, newChat);
+                insertChatToCache({ cache, mutate: globalMutate, projectId, newChat });
                 onChatCreated?.(nextChatId);
 
                 return nextChatId;
