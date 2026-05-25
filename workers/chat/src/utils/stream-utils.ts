@@ -225,13 +225,37 @@ export interface Pusher {
  */
 export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher {
     let pushSeq = 0;
-    const inflightPushes: Promise<void>[] = [];
+    let pendingEvents: StreamEvent[] = [];
+    let drainPromise: Promise<void> | null = null;
+
+    const drain = async () => {
+        while (pendingEvents.length > 0) {
+            const events = pendingEvents;
+            pendingEvents = [];
+            await streamDO
+                .push(events, pushSeq++)
+                .catch((err) => console.error(`[${label}] push failed:`, err));
+        }
+    };
+
+    const ensureDrain = () => {
+        drainPromise ??= drain().finally(() => {
+            drainPromise = null;
+        });
+        return drainPromise;
+    };
+
     return {
         push: (events: StreamEvent[]) => {
-            const p = streamDO.push(events, pushSeq++).catch((err) => console.error(`[${label}] push failed:`, err));
-            inflightPushes.push(p);
+            if (events.length === 0) return;
+            pendingEvents.push(...events);
+            void ensureDrain();
         },
-        waitAll: () => Promise.allSettled(inflightPushes).then(() => {}),
+        waitAll: async () => {
+            while (drainPromise || pendingEvents.length > 0) {
+                await ensureDrain();
+            }
+        },
         get seq() {
             return pushSeq++;
         },
