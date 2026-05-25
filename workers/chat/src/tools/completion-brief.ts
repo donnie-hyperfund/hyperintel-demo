@@ -7,13 +7,11 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
-import type { EntityManager } from '@mikro-orm/core';
+import type { EntityManager } from '@mikro-orm/postgresql';
 import { z } from 'zod';
 import { getCompletionBriefKey } from '@/lib/artifacts/utils';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import { extractDocuments } from '../utils/extract-documents';
-import { listDocuments } from './documents/document-service';
 
 // ============================================================================
 // TYPES
@@ -45,6 +43,14 @@ const CB_SLUG = 'pma/completion-brief';
 
 const CompletionBriefParams = z.object({});
 
+type PhaseDocumentRow = {
+    artifact_key: string | null;
+    title: string;
+    version: number;
+    status: string;
+    content_preview: string | null;
+};
+
 export function createCompletionBriefTools() {
     return [
         {
@@ -64,13 +70,27 @@ export function createCompletionBriefTools() {
                 const briefName = getCompletionBriefKey(phaseNumber);
                 const today = new Date().toISOString().split('T')[0];
 
-                // Extract documents from conversation history
-                const messages = await ctx.em.find(
-                    ChatMessageEntity,
-                    { chat: ctx.chatId },
-                    { orderBy: { created_at: 'ASC' } },
-                );
-                const documents = extractDocuments(messages);
+                const documents = (
+                    (await ctx.em
+                        .createQueryBuilder(ArtifactVersionEntity, 'v')
+                        .select([
+                            'a.key as artifact_key',
+                            'v.title as title',
+                            'v.version as version',
+                            'v.status as status',
+                            'left(v.content, 500) as content_preview',
+                        ])
+                        .leftJoin('v.artifact', 'a')
+                        .where({ 'v.chat': ctx.chatId })
+                        .orderBy({ 'v.created_at': 'ASC' })
+                        .execute('all')) as PhaseDocumentRow[]
+                ).map((version) => ({
+                    name: version.artifact_key ?? version.title,
+                    title: version.title,
+                    version: version.version,
+                    status: version.status,
+                    contentPreview: version.content_preview ?? undefined,
+                }));
 
                 // Build result parts
                 const parts: string[] = [
@@ -93,23 +113,14 @@ export function createCompletionBriefTools() {
                             parts.push(`**Preview:**\n\`\`\`\n${doc.contentPreview}\n\`\`\``);
                         }
                     }
-                }
 
-                // Live document statuses from DB
-                const phaseDocNames = new Set(documents.map((d) => d.name));
-                if (phaseDocNames.size > 0) {
-                    const allDocuments = await listDocuments(ctx.em, { projectId: ctx.projectId });
-                    const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
-                    if (phaseDocuments.length > 0) {
-                        parts.push(
-                            ``,
-                            `## Current Document Statuses`,
-                            `These are live statuses from the database. Users may approve or reject via the UI — use these as source of truth.`,
-                        );
-                        for (const doc of phaseDocuments) {
-                            const status = doc.hasProposed ? 'proposed' : (doc.currentStatus ?? doc.latestStatus);
-                            parts.push(`- \`${doc.name}\` (${doc.title}): v${doc.latestVersion}, **${status}**`);
-                        }
+                    parts.push(
+                        ``,
+                        `## Current Document Statuses`,
+                        `These are live statuses from the database. Users may approve or reject via the UI — use these as source of truth.`,
+                    );
+                    for (const doc of documents) {
+                        parts.push(`- \`${doc.name}\` (${doc.title}): v${doc.version}, **${doc.status}**`);
                     }
                 }
 
