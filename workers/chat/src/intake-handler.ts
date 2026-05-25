@@ -41,6 +41,7 @@ import {
 } from './utils/context-budget';
 import { maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
+import { createDbBackedRecallTool } from './utils/db-recall-tool';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -50,6 +51,7 @@ import {
     logWorkerError,
 } from './utils/error-metadata';
 import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
+import { preprocessContext } from './utils/preprocess-context';
 import {
     buildReasoningVisibilityGuidance,
     getEffectiveReasoningPromptMode,
@@ -61,8 +63,9 @@ import {
     cleanupStreamDO,
     createEnqueue,
     createSSEStream,
-    loadChatHistory,
+    loadCollapsedChatHistory,
     persistErrorMessage,
+    type RecallLocator,
 } from './utils/stream-utils';
 
 // ============================================================================
@@ -145,6 +148,7 @@ type IntakeToolsAndGroups = ReturnType<typeof getIntakeToolsAndGroups>;
 
 type PreparedIntakeGenerationInput = IntakeToolsAndGroups & {
     contextMessages?: ContextMessage[];
+    recallLookup?: Map<string, RecallLocator>;
     systemPrompt: string;
     estimatedTokens: number;
     reasoningPromptMode: ReasoningPromptMode;
@@ -166,7 +170,13 @@ async function prepareIntakeGenerationInput({
     const category = chat.metadata?.category as string | undefined;
     if (!framework) throw new Error('Chat metadata missing framework type');
 
-    const historyMessages = await loadChatHistory(em!, data.chatId, ctx.env);
+    const { allTools, toolGroups } = getIntakeToolsAndGroups();
+    const collapsedHistory = await loadCollapsedChatHistory(em!, data.chatId, {
+        env: ctx.env,
+        collapseToolRegistry: allTools,
+        preprocessContext,
+    });
+    const historyMessages = collapsedHistory.messages;
     const estimationContextMessages: ContextMessage[] = data.message
         ? [...historyMessages, { role: 'user', content: data.message }]
         : historyMessages;
@@ -189,7 +199,6 @@ async function prepareIntakeGenerationInput({
           : 'internal-only';
 
     const systemPrompt = await buildIntakeSystemPrompt(ctx, framework, category, localPath, reasoningPromptMode);
-    const { allTools, toolGroups } = getIntakeToolsAndGroups();
     const shapedForEstimate = shapeContextForInference({
         history: estimationContextMessages,
         tools: allTools,
@@ -217,7 +226,9 @@ async function prepareIntakeGenerationInput({
         systemPrompt,
         estimatedTokens,
         reasoningPromptMode,
-        ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
+        ...(data.imageFileIds?.length
+            ? {}
+            : { contextMessages: estimationContextMessages, recallLookup: collapsedHistory.recallLookup }),
     };
 }
 
@@ -437,7 +448,17 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
             );
         }
 
-        const historyMessages = preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
+        const loadedHistory = preparedInput.contextMessages
+            ? null
+            : await loadCollapsedChatHistory(em!, chatId, {
+                  env: ctx.env,
+                  collapseToolRegistry: preparedInput.allTools,
+                  preprocessContext,
+              });
+        const historyMessages = preparedInput.contextMessages ?? loadedHistory!.messages;
+        const recallLookup = preparedInput.contextMessages
+            ? (preparedInput.recallLookup ?? new Map<string, RecallLocator>())
+            : loadedHistory!.recallLookup;
         // TODO: maybe early reject with error here if safetyVerdict.blocked
         const safetyVerdict = await safetyPromise;
 
@@ -504,6 +525,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                     statusUpdates: { enabled: true },
                     autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
                     abortSignal: abortController.signal,
+                    recallTool: createDbBackedRecallTool({ em: em!, chatId, recallLookup }),
                     onTurnComplete: createOnTurnComplete(agentCtx),
                 },
             },

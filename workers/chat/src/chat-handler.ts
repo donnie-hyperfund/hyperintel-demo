@@ -39,6 +39,7 @@ import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
 import { type ContextOverflowState, evaluateContextGate, maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
+import { createDbBackedRecallTool } from './utils/db-recall-tool';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -60,8 +61,9 @@ import {
     cleanupStreamDO,
     createEnqueue,
     createSSEStream,
-    loadChatHistory,
+    loadCollapsedChatHistory,
     persistErrorMessage,
+    type RecallLocator,
 } from './utils/stream-utils';
 
 export interface ChatHandlerOptions {
@@ -241,6 +243,7 @@ type ChatToolsAndGroups = ReturnType<typeof getChatToolsAndGroups>;
 
 export type PreparedChatGenerationInput = ChatToolsAndGroups & {
     contextMessages?: ContextMessage[];
+    recallLookup?: Map<string, RecallLocator>;
     initialSystemPrompt: string;
     localPath: string | null;
     estimatedTokens: number;
@@ -259,7 +262,13 @@ export async function prepareChatGenerationInput({
     options: ChatHandlerOptions;
 }): Promise<PreparedChatGenerationInput | PublicError> {
     const { em } = ctx;
-    const historyMessages = await loadChatHistory(em!, data.chatId, ctx.env);
+    const { allTools, toolGroups } = getChatToolsAndGroups();
+    const collapsedHistory = await loadCollapsedChatHistory(em!, data.chatId, {
+        env: ctx.env,
+        collapseToolRegistry: allTools,
+        preprocessContext,
+    });
+    const historyMessages = collapsedHistory.messages;
     const estimationContextMessages: ContextMessage[] = data.message
         ? [...historyMessages, { role: 'user', content: data.message }]
         : historyMessages;
@@ -291,7 +300,6 @@ export async function prepareChatGenerationInput({
         localPath,
         buildServerToolsGuidance(reasoningPromptMode),
     );
-    const { allTools, toolGroups } = getChatToolsAndGroups();
     const shapedForEstimate = shapeContextForInference({
         history: estimationContextMessages,
         tools: allTools,
@@ -324,8 +332,10 @@ export async function prepareChatGenerationInput({
         estimatedTokens,
         reasoningPromptMode,
         // Image sends need a reload after image files are linked to the persisted user message
-        // so loadChatHistory can attach signed image URLs.
-        ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
+        // so the collapsed history loader can attach signed image URLs.
+        ...(data.imageFileIds?.length
+            ? {}
+            : { contextMessages: estimationContextMessages, recallLookup: collapsedHistory.recallLookup }),
     };
 }
 
@@ -549,7 +559,17 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             );
         }
 
-        const historyMessages = preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
+        const loadedHistory = preparedInput.contextMessages
+            ? null
+            : await loadCollapsedChatHistory(em!, chatId, {
+                  env: ctx.env,
+                  collapseToolRegistry: preparedInput.allTools,
+                  preprocessContext,
+              });
+        const historyMessages = preparedInput.contextMessages ?? loadedHistory!.messages;
+        const recallLookup = preparedInput.contextMessages
+            ? (preparedInput.recallLookup ?? new Map<string, RecallLocator>())
+            : loadedHistory!.recallLookup;
         // TODO: maybe early reject with error here if safetyVerdict.blocked
         const safetyVerdict = await safetyPromise;
 
@@ -678,6 +698,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                     statusUpdates: { enabled: true },
                     autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
                     preprocessContext,
+                    recallTool: createDbBackedRecallTool({ em: em!, chatId, recallLookup }),
                     abortSignal: abortController.signal,
                     onTurnComplete: createOnTurnComplete(agentCtx),
                 },
