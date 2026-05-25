@@ -152,7 +152,9 @@ describe('tool collapse annotations', () => {
         const output = JSON.parse(collapsed.toolOutput ?? '');
         expect(output.touched).toBeUndefined();
         expect(output.linesNow).toBe(50);
-        expect(output.recallHint).toBe('Use recall_tool_call to retrieve the original edits or touched-region content.');
+        expect(output.recallHint).toBe(
+            'Use recall_tool_call to retrieve the original edits or touched-region content.',
+        );
         expect(collapsed.toolOutput).not.toContain('8: context');
     });
 

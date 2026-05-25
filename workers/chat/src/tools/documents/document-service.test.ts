@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
-	applyEdits,
-	BEGIN_EDIT_MAX_CHARS,
-	buildPatchTouchedRegions,
-	countLines,
-	countReplacementLines,
-	draftFitsBeginContentCap,
-	formatFullDraftContent,
-	type EditOperation,
+    applyEdits,
+    BEGIN_EDIT_MAX_CHARS,
+    buildPatchTouchedRegions,
+    countLines,
+    countReplacementLines,
+    draftFitsBeginContentCap,
+    formatFullDraftContent,
+    type EditOperation,
 } from './document-service';
 
 const DOC = [
@@ -599,172 +599,170 @@ describe('applyEdits', () => {
 });
 
 describe('buildPatchTouchedRegions', () => {
-	it('returns empty touched when appliedEdits is empty', () => {
-		expect(buildPatchTouchedRegions('line1\nline2', [])).toEqual({
-			touched: [],
-			truncated: false,
-		});
-	});
+    it('returns empty touched when appliedEdits is empty', () => {
+        expect(buildPatchTouchedRegions('line1\nline2', [])).toEqual({
+            touched: [],
+            truncated: false,
+        });
+    });
 
-	it('omits touched and sets truncated when a single region exceeds the char budget', () => {
-		const doc = 'x'.repeat(10_000);
-		const applied = [
-			{
-				startLine: 1,
-				endLine: 1,
-				oldContent: doc,
-				newContent: doc,
-			},
-		];
+    it('omits touched and sets truncated when a single region exceeds the char budget', () => {
+        const doc = 'x'.repeat(10_000);
+        const applied = [
+            {
+                startLine: 1,
+                endLine: 1,
+                oldContent: doc,
+                newContent: doc,
+            },
+        ];
 
-		const result = buildPatchTouchedRegions(doc, applied, { maxChars: 100, contextLines: 0 });
-		expect(result).toEqual({ touched: [], truncated: true });
-	});
+        const result = buildPatchTouchedRegions(doc, applied, { maxChars: 100, contextLines: 0 });
+        expect(result).toEqual({ touched: [], truncated: true });
+    });
 
-	it('reports post-edit line numbers after a line-inserting edit shifts later anchors', () => {
-		const doc = ['line1', 'line2', 'line3', 'line4', 'line5'].join('\n');
-		const result = applyEdits(doc, [
-			edit({
-				startLine: 2,
-				endLine: 2,
-				oldContent: 'line2',
-				newContent: 'line2a\nline2b\nline2c',
-			}),
-			edit({
-				startLine: 5,
-				endLine: 5,
-				oldContent: 'line5',
-				newContent: 'line5edited',
-			}),
-		]);
+    it('reports post-edit line numbers after a line-inserting edit shifts later anchors', () => {
+        const doc = ['line1', 'line2', 'line3', 'line4', 'line5'].join('\n');
+        const result = applyEdits(doc, [
+            edit({
+                startLine: 2,
+                endLine: 2,
+                oldContent: 'line2',
+                newContent: 'line2a\nline2b\nline2c',
+            }),
+            edit({
+                startLine: 5,
+                endLine: 5,
+                oldContent: 'line5',
+                newContent: 'line5edited',
+            }),
+        ]);
 
-		expect(result.success).toBe(true);
-		const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!);
-		expect(touched.length).toBeGreaterThanOrEqual(1);
+        expect(result.success).toBe(true);
+        const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!);
+        expect(touched.length).toBeGreaterThanOrEqual(1);
 
-		const secondRegion = touched.find((region) => region.content.includes('line5edited'));
-		expect(secondRegion).toBeDefined();
-		expect(secondRegion!.content).toMatch(/^7: line5edited$/m);
-	});
+        const secondRegion = touched.find((region) => region.content.includes('line5edited'));
+        expect(secondRegion).toBeDefined();
+        expect(secondRegion!.content).toMatch(/^7: line5edited$/m);
+    });
 
-	it('merges adjacent touched ranges after context expansion', () => {
-		const doc = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].join('\n');
-		const result = applyEdits(doc, [
-			edit({ startLine: 2, endLine: 2, oldContent: 'b', newContent: 'B' }),
-			edit({ startLine: 4, endLine: 4, oldContent: 'd', newContent: 'D' }),
-		]);
+    it('merges adjacent touched ranges after context expansion', () => {
+        const doc = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].join('\n');
+        const result = applyEdits(doc, [
+            edit({ startLine: 2, endLine: 2, oldContent: 'b', newContent: 'B' }),
+            edit({ startLine: 4, endLine: 4, oldContent: 'd', newContent: 'D' }),
+        ]);
 
-		expect(result.success).toBe(true);
-		const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!, {
-			contextLines: 2,
-		});
-		expect(touched).toHaveLength(1);
-	});
+        expect(result.success).toBe(true);
+        const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!, {
+            contextLines: 2,
+        });
+        expect(touched).toHaveLength(1);
+    });
 
-	it('keeps post-edit touched anchors aligned when empty newContent still splices one line', () => {
-		const doc = ['line1', 'line2', 'line3', 'line4', 'line5'].join('\n');
-		const result = applyEdits(doc, [
-			edit({ startLine: 2, endLine: 2, oldContent: 'line2', newContent: '' }),
-			edit({ startLine: 5, endLine: 5, oldContent: 'line5', newContent: 'line5edited' }),
-		]);
+    it('keeps post-edit touched anchors aligned when empty newContent still splices one line', () => {
+        const doc = ['line1', 'line2', 'line3', 'line4', 'line5'].join('\n');
+        const result = applyEdits(doc, [
+            edit({ startLine: 2, endLine: 2, oldContent: 'line2', newContent: '' }),
+            edit({ startLine: 5, endLine: 5, oldContent: 'line5', newContent: 'line5edited' }),
+        ]);
 
-		expect(result.success).toBe(true);
-		const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!);
-		const secondRegion = touched.find((region) => region.content.includes('line5edited'));
-		expect(secondRegion).toBeDefined();
-		expect(secondRegion!.content).toMatch(/^5: line5edited$/m);
-	});
+        expect(result.success).toBe(true);
+        const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!);
+        const secondRegion = touched.find((region) => region.content.includes('line5edited'));
+        expect(secondRegion).toBeDefined();
+        expect(secondRegion!.content).toMatch(/^5: line5edited$/m);
+    });
 
-	it('returns valid touched context for a deletion (empty newContent)', () => {
-		const doc = ['before', 'remove-me', 'after'].join('\n');
-		const result = applyEdits(doc, [
-			edit({
-				startLine: 2,
-				endLine: 2,
-				oldContent: 'remove-me',
-				newContent: '',
-			}),
-		]);
+    it('returns valid touched context for a deletion (empty newContent)', () => {
+        const doc = ['before', 'remove-me', 'after'].join('\n');
+        const result = applyEdits(doc, [
+            edit({
+                startLine: 2,
+                endLine: 2,
+                oldContent: 'remove-me',
+                newContent: '',
+            }),
+        ]);
 
-		expect(result.success).toBe(true);
-		const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!);
-		expect(touched.length).toBe(1);
-		expect(touched[0]!.endLine).toBeGreaterThanOrEqual(touched[0]!.startLine);
-		expect(touched[0]!.content).toContain('before');
-		expect(touched[0]!.content).toContain('after');
-	});
+        expect(result.success).toBe(true);
+        const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!);
+        expect(touched.length).toBe(1);
+        expect(touched[0]!.endLine).toBeGreaterThanOrEqual(touched[0]!.startLine);
+        expect(touched[0]!.content).toContain('before');
+        expect(touched[0]!.content).toContain('after');
+    });
 
-	it('omits touched when the patch leaves an empty document', () => {
-		const doc = 'only line';
-		const result = applyEdits(doc, [
-			edit({
-				startLine: 1,
-				endLine: 1,
-				oldContent: 'only line',
-				newContent: '',
-			}),
-		]);
+    it('omits touched when the patch leaves an empty document', () => {
+        const doc = 'only line';
+        const result = applyEdits(doc, [
+            edit({
+                startLine: 1,
+                endLine: 1,
+                oldContent: 'only line',
+                newContent: '',
+            }),
+        ]);
 
-		expect(result.success).toBe(true);
-		expect(result.newContent).toBe('');
-		const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!);
-		expect(touched).toEqual([]);
-	});
+        expect(result.success).toBe(true);
+        expect(result.newContent).toBe('');
+        const { touched } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!);
+        expect(touched).toEqual([]);
+    });
 
-	it('sets truncated when touched content exceeds the char budget', () => {
-		const lines = Array.from({ length: 200 }, (_, index) => `line ${index + 1}: ${'x'.repeat(200)}`);
-		const doc = lines.join('\n');
-		const result = applyEdits(doc, [
-			edit({
-				startLine: 1,
-				endLine: 100,
-				oldContent: lines.slice(0, 100).join('\n'),
-				newContent: lines.slice(0, 100).join('\n'),
-			}),
-			edit({
-				startLine: 101,
-				endLine: 200,
-				oldContent: lines.slice(100).join('\n'),
-				newContent: lines.slice(100).join('\n'),
-			}),
-		]);
+    it('sets truncated when touched content exceeds the char budget', () => {
+        const lines = Array.from({ length: 200 }, (_, index) => `line ${index + 1}: ${'x'.repeat(200)}`);
+        const doc = lines.join('\n');
+        const result = applyEdits(doc, [
+            edit({
+                startLine: 1,
+                endLine: 100,
+                oldContent: lines.slice(0, 100).join('\n'),
+                newContent: lines.slice(0, 100).join('\n'),
+            }),
+            edit({
+                startLine: 101,
+                endLine: 200,
+                oldContent: lines.slice(100).join('\n'),
+                newContent: lines.slice(100).join('\n'),
+            }),
+        ]);
 
-		expect(result.success).toBe(true);
-		const { touched, truncated } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!, {
-			maxChars: 500,
-		});
-		expect(truncated).toBe(true);
-		expect(touched.length).toBeLessThan(2);
-	});
+        expect(result.success).toBe(true);
+        const { touched, truncated } = buildPatchTouchedRegions(result.newContent!, result.appliedEdits!, {
+            maxChars: 500,
+        });
+        expect(truncated).toBe(true);
+        expect(touched.length).toBeLessThan(2);
+    });
 });
 
 describe('draftFitsBeginContentCap', () => {
-	it('allows drafts within line and token limits', () => {
-		expect(draftFitsBeginContentCap('short\ncontent')).toBe(true);
-	});
+    it('allows drafts within line and token limits', () => {
+        expect(draftFitsBeginContentCap('short\ncontent')).toBe(true);
+    });
 
-	it('rejects drafts over the line cap', () => {
-		expect(draftFitsBeginContentCap(Array.from({ length: 801 }, (_, i) => `line ${i}`).join('\n'))).toBe(
-			false,
-		);
-	});
+    it('rejects drafts over the line cap', () => {
+        expect(draftFitsBeginContentCap(Array.from({ length: 801 }, (_, i) => `line ${i}`).join('\n'))).toBe(false);
+    });
 
-	it('rejects drafts over the estimated token cap even when line count is low', () => {
-		const hugeLine = 'x'.repeat(BEGIN_EDIT_MAX_CHARS + 1);
-		expect(draftFitsBeginContentCap(hugeLine)).toBe(false);
-	});
+    it('rejects drafts over the estimated token cap even when line count is low', () => {
+        const hugeLine = 'x'.repeat(BEGIN_EDIT_MAX_CHARS + 1);
+        expect(draftFitsBeginContentCap(hugeLine)).toBe(false);
+    });
 
-	it('rejects when formatted line-numbered payload exceeds the char cap', () => {
-		const doc = Array.from({ length: 750 }, (_, index) => 'x'.repeat(78)).join('\n');
-		expect(doc.length).toBeLessThan(BEGIN_EDIT_MAX_CHARS);
-		expect(formatFullDraftContent(doc).length).toBeGreaterThan(BEGIN_EDIT_MAX_CHARS);
-		expect(draftFitsBeginContentCap(doc)).toBe(false);
-	});
+    it('rejects when formatted line-numbered payload exceeds the char cap', () => {
+        const doc = Array.from({ length: 750 }, (_, index) => 'x'.repeat(78)).join('\n');
+        expect(doc.length).toBeLessThan(BEGIN_EDIT_MAX_CHARS);
+        expect(formatFullDraftContent(doc).length).toBeGreaterThan(BEGIN_EDIT_MAX_CHARS);
+        expect(draftFitsBeginContentCap(doc)).toBe(false);
+    });
 });
 
 describe('countReplacementLines', () => {
-	it('matches applyEdits splice semantics for empty newContent', () => {
-		expect(countReplacementLines('')).toBe(1);
-		expect(countLines('')).toBe(0);
-	});
+    it('matches applyEdits splice semantics for empty newContent', () => {
+        expect(countReplacementLines('')).toBe(1);
+        expect(countLines('')).toBe(0);
+    });
 });
