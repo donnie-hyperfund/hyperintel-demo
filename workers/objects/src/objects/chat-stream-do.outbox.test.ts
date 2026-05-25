@@ -1,6 +1,6 @@
 import { MockDurableObjectId, MockDurableObjectState, MockDurableObjectStorage } from '@common/common/local.do-mock';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChatStreamDO } from './chat-stream-do';
+import { ChatStreamDO, STREAM_STATE_SNAPSHOT } from './chat-stream-do';
 
 type CapturedPush = { topic: string; messages: unknown[] };
 
@@ -41,6 +41,7 @@ async function waitForCapturedMessages(captured: CapturedPush[], count: number) 
 describe('ChatStreamDO outbox', () => {
     beforeEach(() => {
         vi.useRealTimers();
+        STREAM_STATE_SNAPSHOT.enabled = false;
     });
 
     it('persists outbox entries before broadcast — readOutbox returns them', async () => {

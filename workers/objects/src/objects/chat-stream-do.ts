@@ -91,7 +91,6 @@ const SK_PREVIEW_ALIAS = 'previewAlias';
 const SK_DISPLAY_STATUS = 'displayStatus';
 /** Sub-type of the stream (e.g. 'summary'). */
 const SK_STREAM_TYPE = 'streamType';
-const SK_FIRST_BROADCAST_RECORDED = 'firstBroadcastRecorded';
 
 /**
  * Stable shape diff for shadow parity. Returns `null` if local matches state, otherwise a short
@@ -142,7 +141,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     private topicPrefix: StreamTopicPrefix = 'chat';
     /** Sub-type of this stream — set when known at init time. */
     private streamType: 'chat' | 'summary' | null = null;
-    private firstBroadcastRecorded = false;
     /** Preview branch alias — used to resolve the correct DB on dev preview deploys */
     private previewAlias: string | null = null;
     private currentTextBlockId: string | null = null;
@@ -180,10 +178,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     /** Best-effort: lost on reload, but agentMessageId uniqueness makes stale state unlikely. */
     private resetPending = false;
 
-    // --- Telemetry (4.6a) ---
-    private applyChainDepth = 0;
-    private pushCount = 0;
-
     /** Lazy-load state from storage on first RPC call */
     private async ensureLoaded() {
         if (this.initialized) return;
@@ -204,7 +198,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             previewAlias,
             displayStatus,
             streamType,
-            firstBroadcastRecorded,
         ] = await Promise.all([
             this.ctx.storage.get<StreamBlock[]>(SK_BLOCKS),
             this.ctx.storage.get<[string, ActiveDocument][]>(SK_ACTIVE_DOCS),
@@ -220,7 +213,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             this.ctx.storage.get<string | null>(SK_PREVIEW_ALIAS),
             this.ctx.storage.get<string | null>(SK_DISPLAY_STATUS),
             this.ctx.storage.get<'chat' | 'summary' | null>(SK_STREAM_TYPE),
-            this.ctx.storage.get<boolean>(SK_FIRST_BROADCAST_RECORDED),
         ]);
 
         if (blocks) this.blocks = blocks;
@@ -240,7 +232,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         if (previewAlias) this.previewAlias = previewAlias;
         if (displayStatus) this.displayStatus = displayStatus;
         if (streamType === 'chat' || streamType === 'summary') this.streamType = streamType;
-        if (typeof firstBroadcastRecorded === 'boolean') this.firstBroadcastRecorded = firstBroadcastRecorded;
         // Initialize SQL tables
         for (const ddl of OUTBOX_DDL.split('; ')) this.ctx.storage.sql.exec(ddl);
         // Derive lastAckedSeq from SQL metadata
@@ -269,7 +260,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
 
     /** Persist all mutable state to storage */
     private async persistState() {
-        const t0 = performance.now();
         await this.ctx.storage.put({
             [SK_BLOCKS]: this.blocks,
             [SK_ACTIVE_DOCS]: [...this.activeDocuments.entries()],
@@ -285,9 +275,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             [SK_PREVIEW_ALIAS]: this.previewAlias,
             [SK_DISPLAY_STATUS]: this.displayStatus,
             [SK_STREAM_TYPE]: this.streamType,
-            [SK_FIRST_BROADCAST_RECORDED]: this.firstBroadcastRecorded,
         });
-        this.trackStreamMetric('persist_state', [performance.now() - t0]);
     }
 
     // ========================================================================
@@ -592,10 +580,8 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             throw new Error(`Outbox cap exceeded: ${newDepth} > ${OUTBOX_CAP}`);
         }
 
-        const t0 = performance.now();
         const now = Date.now();
         const payloads = messages.map((msg) => JSON.stringify(msg));
-        const entryBytes = payloads.reduce((sum, p) => sum + p.length, 0);
         this.ctx.storage.transactionSync(() => {
             for (let i = 0; i < messages.length; i++) {
                 this.ctx.storage.sql.exec(
@@ -607,7 +593,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             }
         });
         this.outboxDepth = newDepth;
-        this.trackStreamMetric('outbox_write', [performance.now() - t0, entryBytes]);
     }
 
     /**
@@ -676,47 +661,32 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
      * On success, prune the outbox and clear impaired mode.
      */
     private async reconcileOutbox(trigger = 'push'): Promise<void> {
-        const t0 = performance.now();
-        let attempted = 0;
-        try {
-            const stub = this.getStateDOStub();
+        const stub = this.getStateDOStub();
 
-            // Retry pending reset before applying — ensures state DO is clean for this lifecycle
-            if (this.resetPending) {
-                await stub.reset();
-                this.resetPending = false;
-            }
-
-            const startSeq = this.lastAckedSeq + 1;
-            const endSeq = this.broadcastSeq - 1;
-            if (startSeq > endSeq) return;
-
-            const entries = await this.readOutbox(startSeq, endSeq);
-            if (entries.length === 0) return;
-            attempted = entries.length;
-
-            const rpcT0 = performance.now();
-            const { ackSeqHigh } = await stub.applyEvents(entries as any[]);
-            this.trackStreamMetric('state_do_apply_rpc', [performance.now() - rpcT0, attempted, this.applyChainDepth]);
-            await this.ackSeq(ackSeqHigh);
-
-            if (this.stateImpaired) {
-                const impairedDuration = Date.now() - this.stateImpairedAt;
-                this.stateImpaired = false;
-                this.stateImpairedBackoffMs = STATE_APPLY_BACKOFF_INIT_MS;
-                this.trackStreamMetric('state_impaired_exited', [impairedDuration]);
-            }
-
-            this.trackStreamMetric('reconciler_run', [performance.now() - t0, attempted, 1], [trigger]);
-            void this.shadowCompareToStateDO(
-                structuredClone(this.buildLocalSnapshot()),
-                this.broadcastSeq - 1,
-                trigger,
-            );
-        } catch (err) {
-            this.trackStreamMetric('reconciler_run', [performance.now() - t0, attempted, 0], [trigger]);
-            throw err;
+        // Retry pending reset before applying — ensures state DO is clean for this lifecycle
+        if (this.resetPending) {
+            await stub.reset();
+            this.resetPending = false;
         }
+
+        const startSeq = this.lastAckedSeq + 1;
+        const endSeq = this.broadcastSeq - 1;
+        if (startSeq > endSeq) return;
+
+        const entries = await this.readOutbox(startSeq, endSeq);
+        if (entries.length === 0) return;
+
+        const { ackSeqHigh } = await stub.applyEvents(entries as any[]);
+        await this.ackSeq(ackSeqHigh);
+
+        if (this.stateImpaired) {
+            const impairedDuration = Date.now() - this.stateImpairedAt;
+            this.stateImpaired = false;
+            this.stateImpairedBackoffMs = STATE_APPLY_BACKOFF_INIT_MS;
+            this.trackStreamMetric('state_impaired_exited', [impairedDuration], [trigger]);
+        }
+
+        void this.shadowCompareToStateDO(structuredClone(this.buildLocalSnapshot()), this.broadcastSeq - 1, trigger);
     }
 
     /**
@@ -728,7 +698,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             if (Date.now() - this.stateImpairedAt < this.stateImpairedBackoffMs) return;
         }
 
-        this.applyChainDepth++;
         this.pendingApply = this.pendingApply
             .then(() => this.reconcileOutbox(trigger))
             .catch((err) => {
@@ -743,9 +712,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
                     this.stateImpairedAt = now;
                     this.stateImpairedBackoffMs = Math.min(this.stateImpairedBackoffMs * 2, STATE_APPLY_BACKOFF_MAX_MS);
                 }
-            })
-            .finally(() => {
-                this.applyChainDepth--;
             });
     }
 
@@ -859,30 +825,11 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
      */
     private async sendBatchToSubscribers(messages: unknown[]) {
         if (this.subscribers.size === 0) return;
-        this.trackFirstBroadcastAfterRegister(messages.length);
         const sends: Promise<void>[] = [];
         for (const [userId] of this.subscribers) {
             sends.push(this.sendToUG(userId, messages));
         }
         await Promise.allSettled(sends);
-    }
-
-    /**
-     * Emit the once-per-stream `first_broadcast_after_register` metric. Must not await
-     * before iterating subscribers in `sendBatchToSubscribers` — opening the input gate
-     * here lets a concurrent `finalize()` clear `this.subscribers` before the broadcast
-     * loop runs, dropping the terminal events on error cleanup. The persistence is
-     * fire-and-forget; worst case is one duplicate metric emission per DO restart.
-     */
-    private trackFirstBroadcastAfterRegister(messageCount: number) {
-        if (this.firstBroadcastRecorded || !this.agentMessageId) return;
-        this.firstBroadcastRecorded = true;
-        void this.ctx.storage.put(SK_FIRST_BROADCAST_RECORDED, true);
-        this.trackStreamMetric(
-            'first_broadcast_after_register',
-            [Date.now(), this.subscribers.size, messageCount],
-            [this.topicPrefix],
-        );
     }
 
     /** Send messages to a single subscriber's UserGateway (awaited, best-effort). */
@@ -931,7 +878,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
      * interleaving when concurrent push() calls enter via the open input gate.
      */
     async push(events: StreamEvent[], seq: number) {
-        const t0 = performance.now();
         await this.ensureLoaded();
 
         if (this.status === 'done' || this.status === 'aborted' || this.status === 'error') return;
@@ -942,12 +888,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
 
         // Duplicate / already-processed — ignore
         if (seq < this.nextExpectedSeq) {
-            this.trackStreamMetric('push_duplicate', [
-                performance.now() - t0,
-                this.broadcastQueue.length,
-                this.broadcastSeq,
-                events.length,
-            ]);
+            this.trackStreamMetric('push_duplicate', [seq, this.nextExpectedSeq, events.length]);
             return;
         }
 
@@ -1026,26 +967,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             await this.ctx.storage.setAlarm(now + DEAD_MAN_TIMEOUT_MS);
             this.lastPersistTime = now;
         }
-
-        this.trackStreamMetric('push', [
-            performance.now() - t0,
-            this.broadcastQueue.length,
-            this.broadcastSeq,
-            events.length,
-        ]);
-
-        this.pushCount++;
-        if (this.pushCount % 100 === 0) {
-            let oldestAge = 0;
-            if (this.outboxDepth > 0) {
-                const oldest = [...this.ctx.storage.sql.exec(`SELECT MIN(created_at) as t FROM ${OUTBOX_TABLE}`)][0] as
-                    | { t: number | null }
-                    | undefined;
-                if (oldest?.t && oldest.t > 0) oldestAge = Date.now() - oldest.t;
-            }
-            this.trackStreamMetric('outbox_depth', [this.outboxDepth, oldestAge]);
-            this.trackStreamMetric('pending_apply_chain_depth', [this.applyChainDepth]);
-        }
     }
 
     /**
@@ -1116,8 +1037,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         this.stateImpairedAt = 0;
         this.stateImpairedBackoffMs = STATE_APPLY_BACKOFF_INIT_MS;
         this.resetPending = false;
-        this.applyChainDepth = 0;
-        this.pushCount = 0;
         await this.persistState();
 
         // Reset state DO for the new lifecycle
@@ -1186,7 +1105,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
      * catches the client up.
      */
     async subscribe(userId: string, ugDoName: string): Promise<StreamSubscribeResult> {
-        const t0 = performance.now();
         await this.ensureLoaded();
 
         if (this.chatId === '') {
@@ -1198,9 +1116,9 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         await this.ctx.storage.put(SK_SUBSCRIBERS, [...this.subscribers.entries()]);
 
         if (STREAM_STATE_SNAPSHOT.enabled) {
-            return this.subscribeFromStateDO(userId, t0);
+            return this.subscribeFromStateDO(userId);
         }
-        return this.subscribeFromLocal(t0);
+        return this.subscribeFromLocal();
     }
 
     /**
@@ -1216,7 +1134,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
      * Correctness does not depend on the reconcile succeeding — if the state DO
      * is fully caught up the tail is empty; if it's behind the outbox fills the gap.
      */
-    private async subscribeFromStateDO(userId: string, t0: number): Promise<StreamSubscribeResult> {
+    private async subscribeFromStateDO(userId: string): Promise<StreamSubscribeResult> {
         // Capture before any awaits — broadcastSeq may advance during RPCs.
         const targetSeqHigh = this.broadcastSeq - 1;
 
@@ -1230,14 +1148,9 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         let snapshot: StreamSnapshot;
         let stateSeqHigh: number;
         try {
-            const rpcT0 = performance.now();
             const result = await this.getStateDOStub().getSnapshot();
             snapshot = result.snapshot;
             stateSeqHigh = result.seqHigh;
-            this.trackStreamMetric('state_do_get_snapshot_rpc', [
-                performance.now() - rpcT0,
-                JSON.stringify(snapshot).length,
-            ]);
         } catch (err) {
             console.error('[ChatStreamDO] state DO getSnapshot failed', err);
             this.trackStreamMetric('subscribe_get_snapshot_failed');
@@ -1268,11 +1181,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         }
 
         const tailSize = Math.max(0, targetSeqHigh - stateSeqHigh);
-        this.trackStreamMetric(
-            'subscribe',
-            [performance.now() - t0, this.subscribers.size, stateSeqHigh],
-            ['state_do', String(tailSize)],
-        );
+        this.trackStreamMetric('subscribe', [0, this.subscribers.size, stateSeqHigh], ['state_do', String(tailSize)]);
 
         return {
             snapshot,
@@ -1283,12 +1192,12 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     }
 
     /** Flag-off: local snapshot path (current production behavior). */
-    private subscribeFromLocal(t0: number): StreamSubscribeResult {
+    private subscribeFromLocal(): StreamSubscribeResult {
         this.chainApply('subscribe');
 
         const snapshot = this.buildLocalSnapshot();
         const seqHigh = this.broadcastSeq - 1;
-        this.trackStreamMetric('subscribe', [performance.now() - t0, this.subscribers.size, seqHigh]);
+        this.trackStreamMetric('subscribe', [0, this.subscribers.size, seqHigh]);
         this.trackStreamMetric('subscribe_snapshot_shape', [
             seqHigh,
             snapshot.blocks.length,
@@ -1416,7 +1325,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         this.currentTextBlockId = null;
         this.currentReasoningBlockId = null;
         this.streamType = null;
-        this.firstBroadcastRecorded = false;
         this.lastAckedSeq = -1;
         this.outboxDepth = 0;
         this.pendingApply = Promise.resolve();
@@ -1424,8 +1332,6 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         this.stateImpairedAt = 0;
         this.stateImpairedBackoffMs = STATE_APPLY_BACKOFF_INIT_MS;
         this.resetPending = false;
-        this.applyChainDepth = 0;
-        this.pushCount = 0;
 
         // Clear storage (deleteAll covers KV; DROP TABLE covers SQL outbox + meta)
         await this.ctx.storage.deleteAll();
@@ -1665,13 +1571,12 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         metric: string,
         blobs: Array<string | null | undefined> = [],
     ): Promise<T> {
-        const t0 = performance.now();
         try {
             const result = await fn();
-            this.trackStreamMetric(metric, [performance.now() - t0, 1], blobs);
+            this.trackStreamMetric(metric, [0, 1], blobs);
             return result;
         } catch (err) {
-            this.trackStreamMetric(metric, [performance.now() - t0, 0], blobs);
+            this.trackStreamMetric(metric, [0, 0], blobs);
             throw err;
         }
     }

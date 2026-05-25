@@ -1,7 +1,7 @@
 import { MockDurableObjectId, MockDurableObjectState, MockDurableObjectStorage } from '@common/common/local.do-mock';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StreamEventMessage, StreamStatusMessage } from '@/lib/schema/ws-protocol';
-import { ChatStreamDO, type StreamSubscribeResult } from './chat-stream-do';
+import { ChatStreamDO, STREAM_STATE_SNAPSHOT, type StreamSubscribeResult } from './chat-stream-do';
 
 type CapturedPush = {
     topic: string;
@@ -68,6 +68,7 @@ function expectStreaming(result: StreamSubscribeResult) {
 describe('ChatStreamDO sequence contract', () => {
     beforeEach(() => {
         vi.useRealTimers();
+        STREAM_STATE_SNAPSHOT.enabled = false;
     });
 
     it('tags pushed event batches with contiguous per-stream _seq values', async () => {
@@ -183,24 +184,6 @@ describe('ChatStreamDO sequence contract', () => {
         const result = expectStreaming(await stream.subscribe('user-1', 'ug-1'));
         expect(result.seqHigh).toBe(-1);
         expect(result.snapshot.status).toBe('streaming');
-    });
-
-    it('emits first-broadcast marker after registration', async () => {
-        const captured: CapturedPush[] = [];
-        const { stream, writeDataPoint } = await createStreamDO(captured);
-
-        await stream.init('chat-1', 'agent-1', 'user-msg-1', 'chat');
-        await stream.subscribe('user-1', 'ug-1');
-        await stream.push([{ type: 'delta', text: 'hello' }], 0);
-        await waitForCapturedMessages(captured, 1);
-
-        expect(writeDataPoint).toHaveBeenCalledWith(
-            expect.objectContaining({
-                indexes: ['agent-1'],
-                blobs: expect.arrayContaining(['first_broadcast_after_register', 'chat-1', 'chat']),
-                doubles: expect.arrayContaining([1, 1]),
-            }),
-        );
     });
 
     it('calls services dead-man cleanup on alarm and finalizes', async () => {

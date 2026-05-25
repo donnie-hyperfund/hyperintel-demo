@@ -620,7 +620,7 @@ describe('ChatStreamDO subscribe from state DO (flag-on)', () => {
 });
 
 // ============================================================================
-// TELEMETRY (4.6a) — asserts that metrics are actually emitted
+// CORRECTNESS PROBES — asserts that state snapshot rollout probes emit
 // ============================================================================
 
 function metricsFromEnv(env: ObjectsEnv): Array<{ blobs: string[]; doubles: number[] }> {
@@ -633,95 +633,9 @@ function findMetric(env: ObjectsEnv, name: string) {
     return metricsFromEnv(env).filter((dp) => dp.blobs[0] === name);
 }
 
-describe('ChatStreamDO 4.6a telemetry', () => {
+describe('ChatStreamDO state correctness probes', () => {
     beforeEach(() => {
         vi.useRealTimers();
-    });
-
-    it('emits outbox_write on every push', async () => {
-        const captured: CapturedPush[] = [];
-        const stateDO = createMockStateDO([]);
-        const { stream, env } = createStreamDO(captured, stateDO);
-        await stream.init('chat-1', 'agent-1', 'user-msg-1');
-        await stream.subscribe('user-1', 'ug-1');
-        await stream.push([{ type: 'delta', text: 'hello' }], 0);
-
-        const writes = findMetric(env, 'outbox_write');
-        expect(writes.length).toBeGreaterThanOrEqual(1);
-        expect(writes[0].doubles[0]).toBeGreaterThanOrEqual(0); // duration_ms
-        expect(writes[0].doubles[1]).toBeGreaterThan(0); // entry_bytes
-    });
-
-    it('emits reconciler_run on successful reconcile', async () => {
-        const captured: CapturedPush[] = [];
-        const applyCalls: ApplyCall[] = [];
-        const stateDO = createMockStateDO(applyCalls);
-        const { stream, env } = createStreamDO(captured, stateDO);
-        await stream.init('chat-1', 'agent-1', 'user-msg-1');
-        await stream.push([{ type: 'delta', text: 'hello' }], 0);
-
-        await vi.waitFor(() => expect(findMetric(env, 'reconciler_run').length).toBeGreaterThanOrEqual(1));
-
-        const runs = findMetric(env, 'reconciler_run');
-        const success = runs.find((dp) => dp.doubles[2] === 1);
-        expect(success).toBeDefined();
-        expect(success!.doubles[1]).toBe(1); // events_replayed
-    });
-
-    it('emits reconciler_run with success=0 on failure', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => {});
-        const captured: CapturedPush[] = [];
-        const stateDO = createMockStateDO([], { failUntil: 999 });
-        const { stream, env } = createStreamDO(captured, stateDO);
-        await stream.init('chat-1', 'agent-1', 'user-msg-1');
-        await stream.push([{ type: 'delta', text: 'hello' }], 0);
-
-        await vi.waitFor(() => {
-            const runs = findMetric(env, 'reconciler_run');
-            expect(runs.some((dp) => dp.doubles[2] === 0)).toBe(true);
-        });
-
-        const failure = findMetric(env, 'reconciler_run').find((dp) => dp.doubles[2] === 0);
-        expect(failure).toBeDefined();
-        expect(failure!.doubles[0]).toBeGreaterThanOrEqual(0); // duration_ms
-    });
-
-    it('emits state_do_get_snapshot_rpc on subscribe', async () => {
-        const captured: CapturedPush[] = [];
-        const stateDO = createMockStateDO([], {
-            failUntil: 999,
-            getSnapshotResult: { snapshot: EMPTY_SNAPSHOT, seqHigh: -1 },
-        });
-        const { stream, env } = createStreamDO(captured, stateDO);
-        STREAM_STATE_SNAPSHOT.enabled = true;
-        try {
-            await stream.init('chat-1', 'agent-1', 'user-msg-1');
-            await stream.push([{ type: 'delta', text: 'hello' }], 0);
-            await stream.subscribe('user-1', 'ug-1');
-
-            const snapshots = findMetric(env, 'state_do_get_snapshot_rpc');
-            expect(snapshots).toHaveLength(1);
-            expect(snapshots[0].doubles[0]).toBeGreaterThanOrEqual(0); // duration_ms
-            expect(snapshots[0].doubles[1]).toBeGreaterThan(0); // snapshot_bytes
-        } finally {
-            STREAM_STATE_SNAPSHOT.enabled = false;
-        }
-    });
-
-    it('emits state_do_apply_rpc around the cross-DO call', async () => {
-        const captured: CapturedPush[] = [];
-        const applyCalls: ApplyCall[] = [];
-        const stateDO = createMockStateDO(applyCalls);
-        const { stream, env } = createStreamDO(captured, stateDO);
-        await stream.init('chat-1', 'agent-1', 'user-msg-1');
-        await stream.push([{ type: 'delta', text: 'hello' }], 0);
-
-        await vi.waitFor(() => expect(applyCalls.length).toBeGreaterThanOrEqual(1));
-
-        const rpcs = findMetric(env, 'state_do_apply_rpc');
-        expect(rpcs.length).toBeGreaterThanOrEqual(1);
-        expect(rpcs[0].doubles[0]).toBeGreaterThanOrEqual(0); // duration_ms
-        expect(rpcs[0].doubles[1]).toBe(1); // batch_size
     });
 
     it('emits terminal_snapshot_parity_check after terminal catch-up', async () => {

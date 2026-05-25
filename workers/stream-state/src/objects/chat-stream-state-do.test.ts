@@ -573,32 +573,12 @@ describe('ChatStreamStateDO', () => {
         });
     });
 
-    describe('4.6a telemetry', () => {
+    describe('state correctness probes', () => {
         function findMetric(env: StreamStateEnv, name: string) {
             return (env.STREAM_AE.writeDataPoint as ReturnType<typeof vi.fn>).mock.calls
                 .map((args: any[]) => args[0] as { blobs: string[]; doubles: number[] })
                 .filter((dp) => dp.blobs[0] === name);
         }
-
-        it('emits state_do_apply and state_do_persist on successful apply', async () => {
-            const { state, env } = createStateDO();
-
-            await state.applyEvents([
-                streamEvent(0, { type: 'delta', text: 'hello' }),
-                streamEvent(1, { type: 'delta', text: ' world' }),
-            ]);
-
-            const applies = findMetric(env, 'state_do_apply');
-            expect(applies).toHaveLength(1);
-            expect(applies[0].doubles[0]).toBeGreaterThanOrEqual(0); // duration_ms
-            expect(applies[0].doubles[1]).toBe(2); // events_count
-            expect(applies[0].doubles[2]).toBe(1); // seq_high
-
-            const persists = findMetric(env, 'state_do_persist');
-            expect(persists).toHaveLength(1);
-            expect(persists[0].doubles[0]).toBeGreaterThanOrEqual(0); // duration_ms
-            expect(persists[0].doubles[1]).toBeGreaterThan(0); // blob_size_bytes
-        });
 
         it('emits state_do_duplicate_drop on replay of already-applied events', async () => {
             const { state, env } = createStateDO();

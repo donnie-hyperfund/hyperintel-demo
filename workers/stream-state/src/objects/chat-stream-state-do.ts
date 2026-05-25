@@ -109,7 +109,6 @@ export class ChatStreamStateDO extends DurableObject<StreamStateEnv> {
     }
 
     async applyEvents(events: OutboxEntry[]): Promise<{ ackSeqHigh: number }> {
-        const t0 = performance.now();
         await this.ensureLoaded();
 
         // Pre-validate sequence and outbox envelope before mutating state.
@@ -154,7 +153,6 @@ export class ChatStreamStateDO extends DurableObject<StreamStateEnv> {
             throw err;
         }
 
-        this.trackMetric('state_do_apply', [performance.now() - t0, events.length, this.seqHigh]);
         return { ackSeqHigh: this.seqHigh };
     }
 
@@ -416,7 +414,6 @@ export class ChatStreamStateDO extends DurableObject<StreamStateEnv> {
     // ========================================================================
 
     private async persistSnapshot(): Promise<void> {
-        const t0 = performance.now();
         const blob: SnapshotBlob = {
             blocks: this.blocks,
             activeDocuments: [...this.activeDocuments.entries()],
@@ -426,13 +423,11 @@ export class ChatStreamStateDO extends DurableObject<StreamStateEnv> {
             displayStatus: this.displayStatus,
             status: this.status,
         };
-        const blobSize = JSON.stringify(blob).length;
         await this.ctx.storage.put({
             [SK_SEQ_HIGH]: this.seqHigh,
             [SK_SNAPSHOT_VERSION]: SNAPSHOT_VERSION,
             [SK_SNAPSHOT_BLOB]: blob,
         });
-        this.trackMetric('state_do_persist', [performance.now() - t0, blobSize]);
     }
 
     private captureReducerState(): SnapshotBlobV1 & { seqHigh: number } {
