@@ -29,7 +29,6 @@ import { runSummarizer } from './summarizer';
 import { broadcastUserEvent } from './utils/broadcast';
 import { buildContextGateError } from './utils/context-gate-error';
 import type { UserGatewayStub } from './utils/do-stubs';
-import { logCbMemoryCheckpoint } from './utils/memory-checkpoint';
 import { findNextPhaseChat } from './utils/next-phase';
 import { createEnqueue, createSSEStream } from './utils/stream-utils';
 
@@ -84,12 +83,6 @@ async function updateForcedBriefStatus(
     const marker: ForcedBriefMarker = { status, ...(extras ?? {}) };
     chat.metadata = { ...(chat.metadata ?? {}), contextLimitTransition: marker };
     await ctx.em!.flush();
-    logCbMemoryCheckpoint('force_brief.status', {
-        requestId: ctx.requestId,
-        chatId: chat.id,
-        status,
-        errorCode: extras?.errorCode,
-    });
     await broadcastUserEvent(ctx, 'context_limit_transition_update', {
         chatId: chat.id,
         ...marker,
@@ -296,13 +289,6 @@ async function runForcedBriefGeneration(opts: {
         message: STATE_D_SYNTHETIC_USER_MESSAGE,
         force_brief: true,
     };
-    logCbMemoryCheckpoint('force_brief.state_d_start', {
-        requestId: ctx.requestId,
-        chatId,
-        userMessageId,
-        agentMessageId,
-        summarizerAgentMessageId,
-    });
 
     await updateForcedBriefStatus(ctx, chat, 'generating_brief');
 
@@ -314,11 +300,6 @@ async function runForcedBriefGeneration(opts: {
         });
         return preparedInput;
     }
-    logCbMemoryCheckpoint('force_brief.prepared', {
-        requestId: ctx.requestId,
-        chatId,
-        estimatedTokens: preparedInput.estimatedTokens,
-    });
 
     // Synthetic user message — metadata.synthetic lets FE render it differently if desired.
     const syntheticMsg = em!.create(ChatMessageEntity, {
@@ -362,11 +343,6 @@ async function runForcedBriefGeneration(opts: {
     const runFlow = async () => {
         // Phase 1: forced chat generation. runGeneration handles its own errors internally
         // (persists assistant error message, records context-overflow metadata, cleans up DO).
-        logCbMemoryCheckpoint('force_brief.run_generation_start', {
-            requestId: ctx.requestId,
-            chatId,
-            agentMessageId,
-        });
         await deps.runGeneration({
             data: syntheticData,
             ctx,
@@ -377,11 +353,6 @@ async function runForcedBriefGeneration(opts: {
             ugStub,
             preparedInput,
             safetyPromise,
-        });
-        logCbMemoryCheckpoint('force_brief.run_generation_done', {
-            requestId: ctx.requestId,
-            chatId,
-            agentMessageId,
         });
 
         // Phase 2 (gap): locate produced CB + approve.
@@ -410,12 +381,6 @@ async function runForcedBriefGeneration(opts: {
             });
             return;
         }
-        logCbMemoryCheckpoint('force_brief.cb_found', {
-            requestId: ctx.requestId,
-            chatId,
-            versionId: cbVersion.id,
-            version: cbVersion.version,
-        });
 
         await updateForcedBriefStatus(ctx, chat, 'approving_brief');
         try {
@@ -430,11 +395,6 @@ async function runForcedBriefGeneration(opts: {
         }
 
         // Phase 3: summary stream. runSummarizationPhase handles its own marker transitions.
-        logCbMemoryCheckpoint('force_brief.summary_start', {
-            requestId: ctx.requestId,
-            chatId,
-            summarizerAgentMessageId,
-        });
         await runSummarizationPhase({
             ctx,
             options,
@@ -451,25 +411,21 @@ async function runForcedBriefGeneration(opts: {
         return { userMessageId, agentMessageId, generation };
     }
 
-    return createSSEStream(
-        async (controller) => {
-            const enqueue = createEnqueue(controller);
-            enqueue({ type: 'ids', userMessageId, agentMessageId });
-            const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
-            try {
-                await runFlow();
-            } finally {
-                clearInterval(heartbeat);
-            }
-            try {
-                controller.close();
-            } catch {
-                /* already closed */
-            }
-        },
-        ctx,
-        { debugMemory: true },
-    );
+    return createSSEStream(async (controller) => {
+        const enqueue = createEnqueue(controller);
+        enqueue({ type: 'ids', userMessageId, agentMessageId });
+        const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
+        try {
+            await runFlow();
+        } finally {
+            clearInterval(heartbeat);
+        }
+        try {
+            controller.close();
+        } catch {
+            /* already closed */
+        }
+    }, ctx);
 }
 
 // ============================================================================

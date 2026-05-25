@@ -23,13 +23,13 @@ import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
+import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { ILockService } from '@/workers/_common/util/locks';
 import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-approver';
 import type { Ctx } from '../../context';
-import { isCompletionBriefName, logCbMemoryCheckpoint } from '../../utils/memory-checkpoint';
 import {
     applyEdits,
     cleanupOrphanArtifact,
@@ -425,17 +425,6 @@ You MUST call finalize_document when done or content will be lost.`,
                 const is_internal = (INTERNAL_DOCUMENTS as readonly string[]).includes(document_type);
 
                 const normalizedName = normalizeArtifactKey(name);
-                const isCbDocument = isCompletionBriefName(normalizedName) || document_type === 'Completion Brief';
-                if (isCbDocument) {
-                    logCbMemoryCheckpoint('document.begin_start', {
-                        chatId: ctx.chatId,
-                        projectId: ctx.projectId,
-                        name: normalizedName,
-                        mode,
-                        documentType: document_type,
-                        hasActiveDraft: draftManager.hasActive(),
-                    });
-                }
 
                 // Reserve the version slot under a per-key worker lock. Parallel
                 // begin_document calls on the same artifactKey serialize here and end up
@@ -443,16 +432,6 @@ You MUST call finalize_document when done or content will be lost.`,
                 // on the same name both stream into (scope, key, version=1) and fight
                 // for that entry in the frontend artifact store.
                 const reservation = await reserveDraftVersion({ em, lockService, scope, name: normalizedName, mode });
-                if (isCbDocument) {
-                    logCbMemoryCheckpoint('document.reserved', {
-                        chatId: ctx.chatId,
-                        projectId: ctx.projectId,
-                        name: normalizedName,
-                        mode,
-                        reservedVersion: reservation.kind === 'reserved' ? reservation.reservedVersion : undefined,
-                        reservationKind: reservation.kind,
-                    });
-                }
 
                 if (reservation.kind === 'read-only') {
                     return {
@@ -639,17 +618,6 @@ Past write_document calls may show __collapsedContent="${COLLAPSED_FIELD_SENTINE
                     const draft = draftManager.append(cleanedContent);
                     const addedLines = countLines(cleanedContent);
                     const totalLines = countLines(draft.content);
-                    if (isCompletionBriefName(draft.name) || draft.document_type === 'Completion Brief') {
-                        logCbMemoryCheckpoint('document.write', {
-                            chatId: ctx.chatId,
-                            projectId: ctx.projectId,
-                            name: draft.name,
-                            charsAdded: cleanedContent.length,
-                            linesAdded: addedLines,
-                            totalChars: draft.content.length,
-                            totalLines,
-                        });
-                    }
 
                     return {
                         result: {
@@ -743,16 +711,6 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
 
                     // Update draft with new content
                     const updatedDraft = draftManager.setContent(result.newContent!);
-                    if (isCompletionBriefName(updatedDraft.name) || updatedDraft.document_type === 'Completion Brief') {
-                        logCbMemoryCheckpoint('document.patch', {
-                            chatId: ctx.chatId,
-                            projectId: ctx.projectId,
-                            name: updatedDraft.name,
-                            editsApplied: edits.length,
-                            totalChars: updatedDraft.content.length,
-                            totalLines: result.linesNow,
-                        });
-                    }
 
                     // Stash canonical edits for document-events (side channel — keeps full-range content out of the model-facing tool result).
                     if (toolCallId && result.appliedEdits) {
@@ -793,19 +751,6 @@ Use action="abort" to discard the active draft without saving.`,
                 try {
                     const draft = draftManager.requireCurrent();
                     const action = input?.action ?? 'save';
-                    const isCbDocument =
-                        isCompletionBriefName(draft.name) || draft.document_type === 'Completion Brief';
-                    if (isCbDocument) {
-                        logCbMemoryCheckpoint('document.finalize_start', {
-                            chatId: ctx.chatId,
-                            projectId: ctx.projectId,
-                            name: draft.name,
-                            action,
-                            contentChars: draft.content.length,
-                            contentLines: countLines(draft.content),
-                            reservedVersion: draft.reservedVersion,
-                        });
-                    }
 
                     if (action === 'abort') {
                         const discardedLines = countLines(draft.content);
@@ -843,20 +788,6 @@ Use action="abort" to discard the active draft without saving.`,
 
                     // Track version for linking to assistant message later
                     createdVersionIds.push(result.versionId);
-                    if (isCbDocument) {
-                        logCbMemoryCheckpoint('document.upserted', {
-                            chatId: ctx.chatId,
-                            projectId: ctx.projectId,
-                            name: draft.name,
-                            artifactId: result.artifactId,
-                            versionId: result.versionId,
-                            version: result.version,
-                            status: result.status,
-                            action: result.action,
-                            lines: result.lines,
-                            contentChars: draft.content.length,
-                        });
-                    }
 
                     // Notify listener (user-scoped broadcast)
                     ctx.onVersionCreated?.({
