@@ -1,6 +1,7 @@
 import { runAgentStream, shapeContextForInference } from '@common/ai/agent';
 import { AIParamsType, type ParamsWithType, runInferenceNoStream } from '@common/ai/inference';
 import { ANTHROPIC_MODELS, COMMON_MODELS } from '@common/ai/types';
+import { raw } from '@mikro-orm/core';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
@@ -85,7 +86,7 @@ async function loadSummarizerDocuments(em: EntityManager, chatId: string): Promi
             'v.title as title',
             'v.version as version',
             'v.status as status',
-            'left(v.content, 500) as content_preview',
+            raw('left(v.content, 500)').as('content_preview'),
         ])
         .leftJoin('v.artifact', 'a')
         .where({ 'v.chat': chatId })
