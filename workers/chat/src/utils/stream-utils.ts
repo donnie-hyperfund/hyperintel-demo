@@ -219,6 +219,58 @@ export interface Pusher {
     get seq(): number;
 }
 
+const STREAM_PUSH_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
+
+function wait(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+export async function pushStreamEventsWithRetry({
+    streamDO,
+    events,
+    seq,
+    label,
+}: {
+    streamDO: ChatStreamDOStub;
+    events: StreamEvent[];
+    seq: number;
+    label: string;
+}): Promise<boolean> {
+    let lastError: unknown;
+    const maxAttempts = STREAM_PUSH_RETRY_DELAYS_MS.length + 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            await streamDO.push(events, seq);
+            return true;
+        } catch (error) {
+            lastError = error;
+            if (attempt < maxAttempts) {
+                await wait(STREAM_PUSH_RETRY_DELAYS_MS[attempt - 1] ?? 1_500);
+            }
+        }
+    }
+
+    console.error(`[${label}] stream push failed after ${maxAttempts} attempts:`, lastError);
+    return false;
+}
+
+export async function runBestEffortStreamCall({
+    label,
+    operation,
+    action,
+}: {
+    label: string;
+    operation: string;
+    action: () => Promise<unknown>;
+}): Promise<void> {
+    try {
+        await action();
+    } catch (error) {
+        console.error(`[${label}] stream ${operation} failed:`, error);
+    }
+}
+
 /**
  * Factory for the fire-and-forget push pattern used by all handlers.
  * Encapsulates pushSeq counter + inflightPushes tracking.
@@ -364,8 +416,9 @@ export async function cleanupStreamDO({
         await pusher.waitAll();
         const safeMetadata = errorMetadata ?? buildStoredErrorMetadata({ classification: classifyWorkerError(error) });
         const errorSignal = safeMetadata.code;
-        await streamDO.push(
-            [
+        const terminalDelivered = await pushStreamEventsWithRetry({
+            streamDO,
+            events: [
                 { type: 'error', error: errorSignal },
                 {
                     type: 'done',
@@ -373,10 +426,23 @@ export async function cleanupStreamDO({
                     messageMetadata: { error: safeMetadata },
                 },
             ],
-            pusher.seq,
-        );
-        await streamDO.done();
-        await streamDO.finalize();
+            seq: pusher.seq,
+            label: 'stream-cleanup',
+        });
+        if (terminalDelivered) {
+            await runBestEffortStreamCall({
+                label: 'stream-cleanup',
+                operation: 'done',
+                action: () => streamDO.done(),
+            });
+        } else {
+            console.error('[stream-cleanup] terminal error delivery failed; skipping stream_status:done');
+        }
+        await runBestEffortStreamCall({
+            label: 'stream-cleanup',
+            operation: 'finalize',
+            action: () => streamDO.finalize(),
+        });
     } catch {
         /* DO might already be gone */
     } finally {
