@@ -110,9 +110,11 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
         const rawProgress = Math.min(Math.floor((accumulatedChars / estimatedChars) * 100), 99);
         if (rawProgress !== lastEmittedProgress) {
             lastEmittedProgress = rawProgress;
-            console.log(
+            if (rawProgress % 10 === 0) {
+              console.log(
                 `[doc-progress] ${activeDoc.name}: ${rawProgress}% (${accumulatedChars}/${estimatedChars} chars)`,
-            );
+              );
+            }
             emit({
                 type: 'document_progress',
                 artifactId: activeDoc.artifactId,

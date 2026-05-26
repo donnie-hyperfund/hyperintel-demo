@@ -66,11 +66,6 @@
 			"secret_name": "OPENAI_KEY"
 		},
 		{
-			"binding": "LANGFUSE_SECRET_KEY",
-			"store_id": "b0b79b79a9e4400384c1e86239b96635",
-			"secret_name": "HI_LANGFUSE_SECRET_KEY"
-		},
-		{
 			"binding": "POSTHOG_KEY",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "POSTHOG_KEY"
@@ -99,6 +94,18 @@
 			"binding": "CF_ACCOUNT_ID",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "CF_ACCOUNT_ID"
+		}
+	],
+	"services": [
+		{
+			"binding": "DOCX_EXPORT_SERVICE",
+			"service": "hi-services",
+			"entrypoint": "DocxExportService"
+		},
+		{
+			"binding": "LANGFUSE_PROMPT_SERVICE",
+			"service": "hi-services",
+			"entrypoint": "LangfusePromptService"
 		}
 	],
 	"durable_objects": {
@@ -193,11 +200,6 @@
 					"secret_name": "OPENAI_KEY"
 				},
 				{
-					"binding": "LANGFUSE_SECRET_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "HI_LANGFUSE_SECRET_KEY"
-				},
-				{
 					"binding": "POSTHOG_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "POSTHOG_KEY"
@@ -226,6 +228,18 @@
 					"binding": "CF_ACCOUNT_ID",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "CF_ACCOUNT_ID"
+				}
+			],
+			"services": [
+				{
+					"binding": "DOCX_EXPORT_SERVICE",
+					"service": "hi-services-dev",
+					"entrypoint": "DocxExportService"
+				},
+				{
+					"binding": "LANGFUSE_PROMPT_SERVICE",
+					"service": "hi-services-dev",
+					"entrypoint": "LangfusePromptService"
 				}
 			],
 			"durable_objects": {
@@ -321,11 +335,6 @@
 					"secret_name": "OPENAI_KEY"
 				},
 				{
-					"binding": "LANGFUSE_SECRET_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "HI_LANGFUSE_SECRET_KEY"
-				},
-				{
 					"binding": "POSTHOG_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "POSTHOG_KEY"
@@ -354,6 +363,18 @@
 					"binding": "CF_ACCOUNT_ID",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "CF_ACCOUNT_ID"
+				}
+			],
+			"services": [
+				{
+					"binding": "DOCX_EXPORT_SERVICE",
+					"service": "hi-services-exp",
+					"entrypoint": "DocxExportService"
+				},
+				{
+					"binding": "LANGFUSE_PROMPT_SERVICE",
+					"service": "hi-services-exp",
+					"entrypoint": "LangfusePromptService"
 				}
 			],
 			"durable_objects": {
@@ -449,11 +470,6 @@
 					"secret_name": "OPENAI_KEY"
 				},
 				{
-					"binding": "LANGFUSE_SECRET_KEY",
-					"store_id": "b0b79b79a9e4400384c1e86239b96635",
-					"secret_name": "HI_LANGFUSE_SECRET_KEY"
-				},
-				{
 					"binding": "POSTHOG_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "POSTHOG_KEY"
@@ -482,6 +498,18 @@
 					"binding": "CF_ACCOUNT_ID",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "CF_ACCOUNT_ID"
+				}
+			],
+			"services": [
+				{
+					"binding": "DOCX_EXPORT_SERVICE",
+					"service": "hi-services-dexp",
+					"entrypoint": "DocxExportService"
+				},
+				{
+					"binding": "LANGFUSE_PROMPT_SERVICE",
+					"service": "hi-services-dexp",
+					"entrypoint": "LangfusePromptService"
 				}
 			],
 			"durable_objects": {
@@ -543,6 +571,8 @@
 		"stripe": "../_common/vendor/stubs/stripe.ts",
 		"@sendgrid/mail": "../_common/vendor/stubs/sendgrid-mail.ts",
 		"@cerebras/cerebras_cloud_sdk": "../_common/vendor/stubs/cerebras.ts",
+		"langfuse": "../_common/vendor/stubs/langfuse.ts",
+		"@/lib/local/cf-env-secret-mock": "../_common/vendor/stubs/empty.ts",
 		"mariadb/callback": "../_common/vendor/stubs/empty.ts",
 		"better-sqlite3": "../_common/vendor/stubs/empty.ts",
 		"libsql": "../_common/vendor/stubs/empty.ts",

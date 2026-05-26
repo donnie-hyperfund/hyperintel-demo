@@ -63,6 +63,18 @@ export const workerEnv: Record<string, unknown> = {
     USER_IMAGES_BUCKET: new MockR2Bucket('hi-user-images-dev'),
     // Service bindings — in-process WASM
     EXTRACT_RUST: new MockRustWorkerFetcher(),
+    DOCX_EXPORT_SERVICE: {
+        async exportArtifactVersionDocx(input: { artifactVersionId: string; userId: string; previewAlias?: string | null }) {
+            const { exportArtifactVersionDocx } = await import('@/workers/services/src/docx-exporter');
+            return exportArtifactVersionDocx(input, workerEnv as ServicesEnv);
+        },
+    },
+    LANGFUSE_PROMPT_SERVICE: {
+        async getPromptRaw(input: { promptName: string }) {
+            const { getLangfusePromptRawRpc } = await import('@/workers/services/src/langfuse-service');
+            return getLangfusePromptRawRpc(input, workerEnv as ServicesEnv);
+        },
+    },
     // DO bindings assigned in ensureDOMocks()
 };
 

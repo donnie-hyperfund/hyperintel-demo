@@ -139,6 +139,8 @@ aliases:
   "stripe": "../_common/vendor/stubs/stripe.ts"
   "@sendgrid/mail": "../_common/vendor/stubs/sendgrid-mail.ts"
   "@cerebras/cerebras_cloud_sdk": "../_common/vendor/stubs/cerebras.ts"
+  "langfuse": "../_common/vendor/stubs/langfuse.ts"
+  "@/lib/local/cf-env-secret-mock": "../_common/vendor/stubs/empty.ts"
   "mariadb/callback": "../_common/vendor/stubs/empty.ts"
   "better-sqlite3": "../_common/vendor/stubs/empty.ts"
   "libsql": "../_common/vendor/stubs/empty.ts"
