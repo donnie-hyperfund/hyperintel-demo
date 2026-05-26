@@ -251,7 +251,7 @@ type ChatToolsAndGroups = ReturnType<typeof getChatToolsAndGroups>;
 export type PreparedChatGenerationInput = ChatToolsAndGroups & {
     contextMessages?: ContextMessage[];
     recallLookup?: Map<string, RecallLocator>;
-    initialSystemPrompt: string;
+    promptSlugsForRun: string[];
     localPath: string | null;
     estimatedTokens: number;
     reasoningPromptMode?: ReasoningPromptMode;
@@ -301,7 +301,7 @@ export async function prepareChatGenerationInput({
         promptsForEstimate.add('pma/completion-brief');
     }
 
-    const initialSystemPrompt = await buildSystemPrompt(
+    const systemPromptForEstimate = await buildSystemPrompt(
         ctx,
         promptsForEstimate,
         localPath,
@@ -314,7 +314,7 @@ export async function prepareChatGenerationInput({
         ctx: null,
     });
     const estimatedTokens = estimateInferenceInputTokens({
-        instructions: initialSystemPrompt,
+        instructions: systemPromptForEstimate,
         context: shapedForEstimate,
         tools: allTools,
         toolGroups,
@@ -334,7 +334,7 @@ export async function prepareChatGenerationInput({
     return {
         allTools,
         toolGroups,
-        initialSystemPrompt,
+        promptSlugsForRun: Array.from(promptsForEstimate),
         localPath,
         estimatedTokens,
         reasoningPromptMode,
@@ -627,7 +627,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
 
         const {
             allTools,
-            initialSystemPrompt,
+            promptSlugsForRun,
             localPath,
             toolGroups,
             reasoningPromptMode: preparedReasoningPromptMode,
@@ -660,15 +660,14 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             effectivePresetOverride === 'sonnet-4.6'
                 ? 'native'
                 : (preparedReasoningPromptMode ?? selectedReasoningPromptMode);
-        const systemPromptForRun =
-            effectiveReasoningPromptMode === preparedReasoningPromptMode
-                ? initialSystemPrompt
-                : await buildSystemPrompt(
-                      ctx,
-                      new Set<string>(savedPrompts),
-                      localPath,
-                      buildServerToolsGuidance(effectiveReasoningPromptMode),
-                  );
+        const basePromptSlugsForRun = new Set<string>(promptSlugsForRun);
+        const buildRunSystemPrompt = () =>
+            buildSystemPrompt(
+                ctx,
+                new Set<string>([...basePromptSlugsForRun, ...agentCtx.loadedPrompts]),
+                localPath,
+                buildServerToolsGuidance(effectiveReasoningPromptMode),
+            );
 
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
@@ -677,7 +676,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             {
                 ...inferenceParams,
                 cacheId: chat.id,
-                instructions: systemPromptForRun,
+                instructions: '',
                 context: allMessages,
                 countReasoningAsContent: true,
                 contentThreshold: 5,
@@ -694,13 +693,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                 terminalToolNames: ['generate_summary'],
                 config: {
                     maxToolCalls: 100,
-                    getSystemPrompt: async () =>
-                        buildSystemPrompt(
-                            ctx,
-                            agentCtx.loadedPrompts,
-                            localPath,
-                            buildServerToolsGuidance(effectiveReasoningPromptMode),
-                        ),
+                    getSystemPrompt: buildRunSystemPrompt,
                     behavioralGuidance: [...CORE_BEHAVIORAL_GUIDANCE],
                     statusUpdates: { enabled: true },
                     autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
@@ -897,7 +890,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                             }
                         }
 
-                        const usedPromptTokens = estimateTextTokens(systemPromptForRun);
+                        const usedPromptTokens = estimateTextTokens(await buildRunSystemPrompt());
                         const toolTokens = estimateToolTokens(allTools, toolGroups);
                         const usedTokens = usedContextTokens + usedPromptTokens + toolTokens.toolDefTokens;
                         const tokenBreakdown: TokenBreakdown = {

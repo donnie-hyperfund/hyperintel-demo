@@ -45,7 +45,7 @@ jobs:
           failed=0
           for dir in workers/*/; do
             name=$(basename "$dir")
-            [[ "$name" == _common || "$name" == node_modules || "$name" == objects ]] && continue
+            [[ "$name" == _common || "$name" == node_modules || "$name" == objects || "$name" == local-gateway ]] && continue
             [[ ! -f "$dir/wrangler.jsonc" ]] && continue
             echo "::group::Deploying $name"
             if ! npx wrangler deploy --config "$dir/wrangler.jsonc"; then

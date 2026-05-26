@@ -10,6 +10,9 @@ function getWsUrl(): string {
     if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS) {
         return 'ws://localhost:8788/ws';
     }
+    if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKER_WS_URL) {
+        return frontendEnv.NEXT_PUBLIC_LOCAL_WORKER_WS_URL;
+    }
     const alias = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_ALIAS;
     const workerEnv = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV;
     const base = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE;
