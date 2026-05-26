@@ -131,10 +131,10 @@ export function turnCompletedOk(turn: TurnResult): boolean {
 	return !!done && !done.error;
 }
 
-/** Check if a phase transition was triggered (generate_summary). */
+/** Check if a phase transition was triggered (start_phase_transition). */
 export function phaseTransitionTriggered(turn: TurnResult): boolean {
 	const done = getDoneEvent(turn);
-	return !!done && done.outputType === 'tool' && done.outputTool === 'generate_summary';
+	return !!done && done.outputType === 'tool' && done.outputTool === 'start_phase_transition';
 }
 
 /** Get all error events. */

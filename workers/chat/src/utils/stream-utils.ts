@@ -1,7 +1,7 @@
 /**
  * Shared streaming utilities for agent chat handlers.
  *
- * Small helpers reused by chat-handler, intake-handler, and summarizer.
+ * Small helpers reused by chat-handler, intake-handler, and phase transition.
  * NOT a mega-abstraction — each handler keeps its own stream loop
  * and done_ext handling.
  */
@@ -324,7 +324,7 @@ export function createPusher(streamDO: ChatStreamDOStub, label: string): Pusher 
 /**
  * Persist an error agent message row if one doesn't already exist.
  * Used by chat-handler and intake-handler catch blocks.
- * Summarizer skips this (no agent message to persist on error).
+ * Phase transition skips this (no agent message to persist on error).
  */
 export async function persistErrorMessage({
     em,

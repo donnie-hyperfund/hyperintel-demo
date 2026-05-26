@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { SummarizerOverlay } from '@/components/layouts/dashboard-layout/summarizer/summarizer-overlay';
+import { PhaseTransitionOverlay } from '@/components/layouts/dashboard-layout/phase-transition/phase-transition-overlay';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -21,7 +21,8 @@ import { useChatContext } from '@/modules/chat/providers/chat-provider';
 type CbGateDialog = 'none' | 'generate' | 'pending';
 
 export function PhaseTransitionController() {
-    const { projectId, summarizeChat, cancelSummary, clearPendingPhaseTransition, state } = useChatContext<'phase'>();
+    const { projectId, startPhaseTransition, cancelPhaseTransition, clearPendingPhaseTransition, state } =
+        useChatContext<'phase'>();
     const router = useRouter();
 
     const { mutate: revalidateChats } = useFetchChatsInfinite(projectId);
@@ -36,7 +37,7 @@ export function PhaseTransitionController() {
 
         if (cbStatus === 'approved') {
             setDialogOpen(true);
-            summarizeChat();
+            startPhaseTransition();
             return true;
         }
 
@@ -47,7 +48,7 @@ export function PhaseTransitionController() {
 
         setCbGateDialog('generate');
         return false;
-    }, [state.completionBriefStatus, summarizeChat]);
+    }, [state.completionBriefStatus, startPhaseTransition]);
 
     const handleRetry = useCallback(() => {
         attemptTransition();
@@ -64,27 +65,27 @@ export function PhaseTransitionController() {
     }, []);
 
     const handleCancel = useCallback(() => {
-        cancelSummary();
+        cancelPhaseTransition();
         setDialogOpen(false);
-    }, [cancelSummary]);
+    }, [cancelPhaseTransition]);
 
     useEffect(() => {
-        if (!pendingNavigation || dialogOpen || !state.summaryNewChatId) return;
+        if (!pendingNavigation || dialogOpen || !state.transitionNewChatId) return;
         setPendingNavigation(false);
         revalidateChats();
-        router.push(`/${projectId}/${state.summaryNewChatId}`, { scroll: false });
-    }, [pendingNavigation, dialogOpen, projectId, revalidateChats, router, state.summaryNewChatId]);
+        router.push(`/${projectId}/${state.transitionNewChatId}`, { scroll: false });
+    }, [pendingNavigation, dialogOpen, projectId, revalidateChats, router, state.transitionNewChatId]);
 
-    // Cross-tab sync: open/close overlay based on summarizing state
+    // Cross-tab sync: open/close overlay based on transition state
     useEffect(() => {
-        if (state.isSummarizing && !dialogOpen) {
+        if (state.isTransitioning && !dialogOpen) {
             setDialogOpen(true);
-        } else if (!state.isSummarizing && dialogOpen && !state.summaryNewChatId) {
+        } else if (!state.isTransitioning && dialogOpen && !state.transitionNewChatId) {
             setDialogOpen(false);
         }
-    }, [state.isSummarizing, state.summaryNewChatId, dialogOpen]);
+    }, [state.isTransitioning, state.transitionNewChatId, dialogOpen]);
 
-    // React to chat-triggered phase transition (AI called generate_summary)
+    // React to chat-triggered phase transition (AI called start_phase_transition)
     useEffect(() => {
         if (!state.pendingPhaseTransition) return;
         clearPendingPhaseTransition();
@@ -115,11 +116,11 @@ export function PhaseTransitionController() {
 
     return (
         <>
-            <SummarizerOverlay
+            <PhaseTransitionOverlay
                 open={dialogOpen}
-                isSummarizing={state.isSummarizing}
-                summaryNewChatId={state.summaryNewChatId}
-                summaryStatus={state.summaryStatus}
+                isTransitioning={state.isTransitioning}
+                transitionNewChatId={state.transitionNewChatId}
+                transitionStatus={state.transitionStatus}
                 error={state.error}
                 onRetry={handleRetry}
                 onGoToNextPhase={handleGoToNextPhase}

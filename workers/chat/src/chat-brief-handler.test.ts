@@ -4,15 +4,15 @@ import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-ver
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { approveArtifactProgrammatic } from './artifact-approver';
 import { type ForceBriefDeps, handleForceBrief } from './chat-brief-handler';
-import { runSummarizer } from './summarizer';
+import { runPhaseTransition } from './phase-transition';
 import { broadcastUserEvent } from './utils/broadcast';
 
 vi.mock('./artifact-approver', () => ({
     approveArtifactProgrammatic: vi.fn(),
 }));
 
-vi.mock('./summarizer', () => ({
-    runSummarizer: vi.fn(),
+vi.mock('./phase-transition', () => ({
+    runPhaseTransition: vi.fn(),
 }));
 
 vi.mock('./utils/broadcast', () => ({
@@ -74,7 +74,6 @@ function buildHarness({
     } as any;
 
     const deps: ForceBriefDeps = {
-        dispatchBlurb: vi.fn() as any,
         prepareChatGenerationInput: vi.fn(async () => ({
             allTools: [],
             toolGroups: [],
@@ -116,7 +115,7 @@ describe('handleForceBrief', () => {
             chatId: 'chat-1',
             chatType: 'phase',
         });
-        vi.mocked(runSummarizer).mockResolvedValue(true);
+        vi.mocked(runPhaseTransition).mockResolvedValue(true);
     });
 
     it('refuses already-transitioned chats without mutating forced-flow state', async () => {
@@ -134,11 +133,11 @@ describe('handleForceBrief', () => {
         });
         expect(harness.deps.runGeneration).not.toHaveBeenCalled();
         expect(approveArtifactProgrammatic).not.toHaveBeenCalled();
-        expect(runSummarizer).not.toHaveBeenCalled();
+        expect(runPhaseTransition).not.toHaveBeenCalled();
         expect(broadcastUserEvent).not.toHaveBeenCalled();
     });
 
-    it('approves an existing proposed CB and starts the summary phase without generation', async () => {
+    it('approves an existing proposed CB and starts the phase transition without generation', async () => {
         const harness = buildHarness({
             chatStatus: 'proposed',
             proposedVersion: { id: 'cb-version-1', version: 3 },
@@ -151,16 +150,16 @@ describe('handleForceBrief', () => {
         expect(approveArtifactProgrammatic).toHaveBeenCalledWith(harness.ctx, 'cb-version-1', {
             reason: 'context_hard_gate',
         });
-        expect(runSummarizer).toHaveBeenCalledOnce();
+        expect(runPhaseTransition).toHaveBeenCalledOnce();
         expect(transitionEvents().map((event) => event.status)).toEqual([
             'approving_brief',
-            'starting_summary',
-            'summarizing',
+            'starting_transition',
+            'transitioning',
         ]);
         expect(harness.chat.metadata.contextLimitTransition).toBeUndefined();
     });
 
-    it('starts the summary phase for an approved CB without re-approving', async () => {
+    it('starts the phase transition for an approved CB without re-approving', async () => {
         const harness = buildHarness({ chatStatus: 'approved' });
 
         const result = await forceBrief(harness);
@@ -168,11 +167,11 @@ describe('handleForceBrief', () => {
 
         expect(harness.deps.runGeneration).not.toHaveBeenCalled();
         expect(approveArtifactProgrammatic).not.toHaveBeenCalled();
-        expect(runSummarizer).toHaveBeenCalledOnce();
-        expect(transitionEvents().map((event) => event.status)).toEqual(['starting_summary', 'summarizing']);
+        expect(runPhaseTransition).toHaveBeenCalledOnce();
+        expect(transitionEvents().map((event) => event.status)).toEqual(['starting_transition', 'transitioning']);
     });
 
-    it('State D persists a synthetic message, approves the produced CB, then summarizes', async () => {
+    it('State D persists a synthetic message, approves the produced CB, then transitions', async () => {
         const proposedVersion = { id: 'cb-version-1', version: 1 };
         const harness = buildHarness({ proposedVersion });
         harness.chat.completion_brief = null;
@@ -202,24 +201,24 @@ describe('handleForceBrief', () => {
         expect(approveArtifactProgrammatic).toHaveBeenCalledWith(harness.ctx, 'cb-version-1', {
             reason: 'context_hard_gate',
         });
-        expect(runSummarizer).toHaveBeenCalledOnce();
+        expect(runPhaseTransition).toHaveBeenCalledOnce();
         expect(transitionEvents().map((event) => event.status)).toEqual([
             'generating_brief',
             'approving_brief',
-            'starting_summary',
-            'summarizing',
+            'starting_transition',
+            'transitioning',
         ]);
         expect(harness.chat.metadata.contextLimitTransition).toBeUndefined();
     });
 
-    it('State D marks NO_CB_PRODUCED and does not summarize when generation creates no CB', async () => {
+    it('State D marks NO_CB_PRODUCED and does not transition when generation creates no CB', async () => {
         const harness = buildHarness();
 
         const result = await forceBrief(harness);
         await (result as { generation: Promise<void> }).generation;
 
         expect(approveArtifactProgrammatic).not.toHaveBeenCalled();
-        expect(runSummarizer).not.toHaveBeenCalled();
+        expect(runPhaseTransition).not.toHaveBeenCalled();
         expect(harness.chat.metadata.contextLimitTransition).toMatchObject({
             status: 'failed',
             errorCode: 'NO_CB_PRODUCED',
@@ -240,7 +239,7 @@ describe('handleForceBrief', () => {
         await (result as { generation: Promise<void> }).generation;
 
         expect(approveArtifactProgrammatic).not.toHaveBeenCalled();
-        expect(runSummarizer).not.toHaveBeenCalled();
+        expect(runPhaseTransition).not.toHaveBeenCalled();
         expect(harness.chat.metadata.contextLimitTransition).toMatchObject({
             status: 'failed',
             errorCode: 'CONTEXT_OVERFLOW',
@@ -261,7 +260,7 @@ describe('handleForceBrief', () => {
         expect(result).toBeInstanceOf(PublicError);
         expect(harness.deps.runGeneration).not.toHaveBeenCalled();
         expect(approveArtifactProgrammatic).not.toHaveBeenCalled();
-        expect(runSummarizer).not.toHaveBeenCalled();
+        expect(runPhaseTransition).not.toHaveBeenCalled();
         expect(harness.chat.metadata.contextLimitTransition).toMatchObject({
             status: 'failed',
             errorCode: 'PREFLIGHT_REJECTED',
@@ -279,7 +278,7 @@ describe('handleForceBrief', () => {
         await (result as { generation: Promise<void> }).generation;
 
         expect(approveArtifactProgrammatic).not.toHaveBeenCalled();
-        expect(runSummarizer).not.toHaveBeenCalled();
+        expect(runPhaseTransition).not.toHaveBeenCalled();
         expect(harness.chat.metadata.contextLimitTransition).toMatchObject({
             status: 'failed',
             errorCode: 'CB_LOOKUP_FAILED',
@@ -299,7 +298,7 @@ describe('handleForceBrief', () => {
         const result = await forceBrief(harness);
         await (result as { generation: Promise<void> }).generation;
 
-        expect(runSummarizer).not.toHaveBeenCalled();
+        expect(runPhaseTransition).not.toHaveBeenCalled();
         expect(harness.chat.metadata.contextLimitTransition).toMatchObject({
             status: 'failed',
             errorCode: 'CB_APPROVAL_FAILED',
@@ -315,7 +314,7 @@ describe('handleForceBrief', () => {
         expect(result).toBeInstanceOf(PublicError);
         expect((result as PublicError).code).toBe('INCONSISTENT_STATE');
         expect(approveArtifactProgrammatic).not.toHaveBeenCalled();
-        expect(runSummarizer).not.toHaveBeenCalled();
+        expect(runPhaseTransition).not.toHaveBeenCalled();
     });
 
     it('State A returns CB_APPROVAL_FAILED and persists a failed marker when auto-approval throws', async () => {
@@ -329,7 +328,7 @@ describe('handleForceBrief', () => {
 
         expect(result).toBeInstanceOf(PublicError);
         expect((result as PublicError).code).toBe('CB_APPROVAL_FAILED');
-        expect(runSummarizer).not.toHaveBeenCalled();
+        expect(runPhaseTransition).not.toHaveBeenCalled();
         expect(harness.chat.metadata.contextLimitTransition).toMatchObject({
             status: 'failed',
             errorCode: 'CB_APPROVAL_FAILED',
@@ -337,9 +336,9 @@ describe('handleForceBrief', () => {
         });
     });
 
-    it('persists SUMMARY_FAILED when the summarizer returns false', async () => {
+    it('persists SUMMARY_FAILED when the phase transition returns false', async () => {
         const harness = buildHarness({ chatStatus: 'approved' });
-        vi.mocked(runSummarizer).mockResolvedValue(false);
+        vi.mocked(runPhaseTransition).mockResolvedValue(false);
 
         const result = await forceBrief(harness);
         await (result as { generation: Promise<void> }).generation;

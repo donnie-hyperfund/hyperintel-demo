@@ -4,34 +4,33 @@ import { ArrowRight, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import type { SummaryStatus } from '@/modules/chat/types';
+import type { PhaseTransitionStatus } from '@/modules/chat/types';
 import { AnimatedHeadline } from './animated-headline';
 import { AnimatedStatusText } from './animated-status-text';
-import { CancelSummaryButton } from './cancel-summary-button';
+import { CancelPhaseTransitionButton } from './cancel-phase-transition-button';
 
-type SummarizerOverlayProps = {
+type PhaseTransitionOverlayProps = {
     open: boolean;
-    isSummarizing: boolean;
-    summaryNewChatId: string | null;
-    summaryStatus: SummaryStatus | null;
+    isTransitioning: boolean;
+    transitionNewChatId: string | null;
+    transitionStatus: PhaseTransitionStatus | null;
     error: Error | null;
     onRetry: () => void;
     onGoToNextPhase: () => void;
     onCancel: () => void;
 };
 
-const STATUS_HEADLINES: Record<SummaryStatus, string> = {
-    'generating-summary': 'Distilling your conversation',
+const STATUS_HEADLINES: Record<PhaseTransitionStatus, string> = {
+    'preparing-next-phase': 'Preparing next phase',
     finalizing: 'Wrapping things up',
 };
 
-const STATUS_SUBTITLES: Record<SummaryStatus, string[]> = {
-    'generating-summary': [
-        'Reading through everything that was discussed...',
-        'Identifying key themes and decisions...',
-        'Extracting the most important takeaways...',
-        'Piecing together the full picture...',
-        'Almost done reading through the conversation...',
+const STATUS_SUBTITLES: Record<PhaseTransitionStatus, string[]> = {
+    'preparing-next-phase': [
+        'Reading the approved Completion Brief...',
+        'Finding the initialization prompt...',
+        'Preparing the first message for the next phase...',
+        'Checking the transition details...',
     ],
     finalizing: ['Setting up your next phase...'],
 };
@@ -56,38 +55,38 @@ function useRotatingText(texts: string[], intervalMs: number, key: string | null
     return texts[index % texts.length];
 }
 
-function getStatusTitle(status: SummaryStatus | null, isDone: boolean): string {
+function getStatusTitle(status: PhaseTransitionStatus | null, isDone: boolean): string {
     if (isDone) return 'Ready for the next phase';
     if (status) return STATUS_HEADLINES[status];
     return 'Preparing next phase';
 }
 
-export function SummarizerOverlay({
+export function PhaseTransitionOverlay({
     open,
-    isSummarizing,
-    summaryNewChatId,
-    summaryStatus,
+    isTransitioning,
+    transitionNewChatId,
+    transitionStatus,
     error,
     onRetry,
     onGoToNextPhase,
     onCancel,
-}: SummarizerOverlayProps) {
-    const [displayStatus, setDisplayStatus] = useState<SummaryStatus | null>(summaryStatus);
+}: PhaseTransitionOverlayProps) {
+    const [displayStatus, setDisplayStatus] = useState<PhaseTransitionStatus | null>(transitionStatus);
     const displayStatusRef = useRef(displayStatus);
     displayStatusRef.current = displayStatus;
 
-    const isDone = !!summaryNewChatId;
-    const showError = !!error && !isSummarizing;
+    const isDone = !!transitionNewChatId;
+    const showError = !!error && !isTransitioning;
 
     // Debounce status so each headline stays visible long enough
     useEffect(() => {
-        if (!summaryStatus && !summaryNewChatId) {
+        if (!transitionStatus && !transitionNewChatId) {
             setDisplayStatus(null);
-        } else if (summaryStatus && summaryStatus !== displayStatusRef.current) {
-            const timer = setTimeout(() => setDisplayStatus(summaryStatus), 600);
+        } else if (transitionStatus && transitionStatus !== displayStatusRef.current) {
+            const timer = setTimeout(() => setDisplayStatus(transitionStatus), 600);
             return () => clearTimeout(timer);
         }
-    }, [summaryStatus, summaryNewChatId]);
+    }, [transitionStatus, transitionNewChatId]);
 
     const title = getStatusTitle(displayStatus, isDone);
     const subtitleTexts = displayStatus ? STATUS_SUBTITLES[displayStatus] : ['Starting up...'];
@@ -105,7 +104,7 @@ export function SummarizerOverlay({
                     className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/70 backdrop-blur-sm"
                 >
                     {/* Cancel button — top right */}
-                    {isSummarizing && !isDone && <CancelSummaryButton onConfirm={onCancel} />}
+                    {isTransitioning && !isDone && <CancelPhaseTransitionButton onConfirm={onCancel} />}
 
                     <div className="flex flex-col items-center gap-4 px-6">
                         <AnimatedHeadline text={title} />
@@ -149,7 +148,7 @@ export function SummarizerOverlay({
 type FooterContentProps = {
     showError: boolean;
     isDone: boolean;
-    displayStatus: SummaryStatus | null;
+    displayStatus: PhaseTransitionStatus | null;
     onRetry: () => void;
 };
 

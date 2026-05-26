@@ -9,14 +9,14 @@ type NextPhasePillProps = {
 };
 
 export function NextPhasePill({ className }: NextPhasePillProps) {
-    const { summarizeChat } = useChatContext();
+    const { startPhaseTransition } = useChatContext();
 
     return (
         <Pill
             label="Switch to next phase"
             icon={<ArrowRight className="size-4 shrink-0" />}
             baseColor="rgb(21,128,61)"
-            onClick={summarizeChat}
+            onClick={startPhaseTransition}
             className={className}
         />
     );

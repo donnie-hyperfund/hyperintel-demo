@@ -1,16 +1,16 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { BadRequestError } from '@/common/common/error.helpers';
+import { BadRequestError, PublicError } from '@/common/common/error.helpers';
 import { assertAuth } from '@/lib/api/auth-guard';
 import { getOrCreateRequestId, withRequestIdHeader } from '@/lib/api/request-id';
 import { initNextjsWorkerContext } from '@/lib/local/context';
-import { SummarizeActionSchema } from '@/lib/schema/chat';
-import { summarizeActionHandler } from '@/workers/chat/src/summarizer-handler';
+import { PhaseTransitionActionSchema } from '@/lib/schema/chat';
+import { phaseTransitionActionHandler } from '@/workers/chat/src/phase-transition-handler';
 
 export async function POST(req: NextRequest) {
     const requestId = getOrCreateRequestId(req.headers);
     await assertAuth();
     const json = await req.json();
-    const parsed = SummarizeActionSchema.safeParse(json);
+    const parsed = PhaseTransitionActionSchema.safeParse(json);
     if (!parsed.success) {
         return withRequestIdHeader(
             new BadRequestError({
@@ -27,7 +27,10 @@ export async function POST(req: NextRequest) {
     const ctx = await initNextjsWorkerContext<ChatEnv>({ skipAI: false });
     ctx.requestId = requestId;
     // Pass no-op onEvent to get direct result (not SSE stream — no proxy DO locally)
-    const result = await summarizeActionHandler(parsed.data, ctx, { onEvent: () => {} });
+    const result = await phaseTransitionActionHandler(parsed.data, ctx, { onEvent: () => {} });
+    if (result instanceof PublicError) {
+        return withRequestIdHeader(result.getNextResponse(), requestId);
+    }
 
     return withRequestIdHeader(NextResponse.json(result), requestId);
 }

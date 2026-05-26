@@ -28,7 +28,7 @@ export function useChatStatusPillStage(): ChatStatusPillStage | null {
             tokenUsage,
             completionBriefStatus,
             isGenerating,
-            isSummarizing,
+            isTransitioning,
             isLoading,
             contextOverflow,
             phaseIndex,
@@ -39,7 +39,7 @@ export function useChatStatusPillStage(): ChatStatusPillStage | null {
 
     return useMemo(() => {
         const isPhaseChatReady = chatType === 'phase' && canTransition;
-        const isBusy = isGenerating || isSummarizing || isLoading;
+        const isBusy = isGenerating || isTransitioning || isLoading;
         if (!isPhaseChatReady || isBusy) return null;
 
         if (completionBriefStatus === 'approved') return 'ready';
@@ -54,7 +54,7 @@ export function useChatStatusPillStage(): ChatStatusPillStage | null {
         tokenUsage,
         contextOverflow,
         isGenerating,
-        isSummarizing,
+        isTransitioning,
         isLoading,
     ]);
 }
