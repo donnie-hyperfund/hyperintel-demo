@@ -2,6 +2,10 @@ import { ensureTrailingSlash, stripTrailingSlash } from '@common/common/string.h
 import { frontendEnv } from '@/lib/env';
 
 export const getWorkerUrl = (name: string, path = '', protocol = 'https') => {
+    if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKER_HTTP_ORIGIN) {
+        return ensureTrailingSlash(stripTrailingSlash(frontendEnv.NEXT_PUBLIC_LOCAL_WORKER_HTTP_ORIGIN) + path);
+    }
+
     const alias = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_ALIAS;
     const workerEnv = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV;
     const base = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE;

@@ -7,6 +7,7 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
+import { raw } from '@mikro-orm/core';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { z } from 'zod';
 import { getCompletionBriefKey } from '@/lib/artifacts/utils';
@@ -78,7 +79,7 @@ export function createCompletionBriefTools() {
                             'v.title as title',
                             'v.version as version',
                             'v.status as status',
-                            'left(v.content, 500) as content_preview',
+                            raw('left(v.content, 500)').as('content_preview'),
                         ])
                         .leftJoin('v.artifact', 'a')
                         .where({ 'v.chat': ctx.chatId })

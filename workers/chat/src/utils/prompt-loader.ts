@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import type { Ctx } from '../context';
 
 export const DEFAULT_LOCAL_PROMPTS_PATH = 'zlocal/prompts';
@@ -47,7 +46,8 @@ export async function getPromptContent(ctx: Ctx, slug: string, localPath: string
     }
     // Fallback to Langfuse
     try {
-        return await getLangfusePromptRaw(ctx.langfuse!, slug, ctx.env);
+        const result = await ctx.env.LANGFUSE_PROMPT_SERVICE.getPromptRaw({ promptName: slug });
+        return result.ok ? result.prompt : null;
     } catch {
         return null;
     }

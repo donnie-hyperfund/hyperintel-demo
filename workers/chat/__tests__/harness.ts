@@ -19,7 +19,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { MockDurableObjectNamespace } from '@common/common/local.do-mock';
 import { makeSecretMock } from '@common/common/local.helpers';
 import type { EntityManager } from '@mikro-orm/postgresql';
-import { Langfuse } from 'langfuse';
 import OpenAI from 'openai';
 import { OpenRouter } from '@openrouter/sdk';
 
@@ -92,6 +91,15 @@ async function buildMockEnv(): Promise<Record<string, unknown>> {
 		EMBEDDING_QUEUE: { send: () => Promise.resolve() },
 		EXTRACTION_QUEUE: { send: () => Promise.resolve() },
 	};
+
+	if (hasLangfuseVars()) {
+		env.LANGFUSE_PROMPT_SERVICE = {
+			async getPromptRaw(input: { promptName: string }) {
+				const { getLangfusePromptRawRpc } = await import('@/workers/services/src/langfuse-service');
+				return getLangfusePromptRawRpc(input, env as ServicesEnv);
+			},
+		};
+	}
 
 	// DO namespace mocks
 	const { UserGateway, ChatStreamDO } = await getDOClasses();
@@ -355,13 +363,6 @@ export async function createTestSession(options: CreateSessionOptions = {}): Pro
 		env: mockEnv,
 		em,
 		anthropic: new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }),
-		langfuse: hasLangfuseVars()
-			? new Langfuse({
-					secretKey: process.env.LANGFUSE_SECRET_KEY!,
-					publicKey: process.env.LANGFUSE_PUBLIC_KEY!,
-					baseUrl: process.env.LANGFUSE_HOST,
-				})
-			: undefined,
 		openai: process.env.OPENAI_API_KEY
 			? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 			: undefined,

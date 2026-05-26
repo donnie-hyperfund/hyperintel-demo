@@ -9,6 +9,9 @@
 import { frontendEnv } from '@/lib/env';
 
 function getWorkerInternalUrl(): string {
+	if (frontendEnv.NEXT_PUBLIC_LOCAL_WORKER_HTTP_ORIGIN) {
+		return `${frontendEnv.NEXT_PUBLIC_LOCAL_WORKER_HTTP_ORIGIN.replace(/\/$/, '')}/internal/system-action`;
+	}
 	const alias = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_ALIAS;
 	const workerEnv = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV;
 	const base = frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE;

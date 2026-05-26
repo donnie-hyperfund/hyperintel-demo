@@ -6,7 +6,6 @@ secrets:
   - ANTHROPIC_API_KEY
   - OPENROUTER_API_KEY
   - OPENAI_KEY
-  - LANGFUSE_SECRET_KEY
   - POSTHOG_KEY
   - AUTH_SECRET
   - FIRECRAWL_API_KEY
@@ -47,6 +46,13 @@ vars:
 # services:
 #   - binding: SOME_SERVICE
 #     entrypoint: SomeEntrypoint
+services:
+  - binding: DOCX_EXPORT_SERVICE
+    service: hi-services
+    entrypoint: DocxExportService
+  - binding: LANGFUSE_PROMPT_SERVICE
+    service: hi-services
+    entrypoint: LangfusePromptService
 
 durable_objects:
   - name: USER_GATEWAY
