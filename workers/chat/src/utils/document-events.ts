@@ -95,7 +95,7 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
     // Parser for write_document content streaming
     let writeParser: ReturnType<typeof createStreamFieldParser> | null = null;
 
-    // Progress tracking state
+    // Progress tracking state (shared by write_document streaming and patch_document deltas)
     let accumulatedChars = 0;
     let estimatedChars = 0;
     let lastEmittedProgress = 0;
@@ -156,9 +156,19 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                     accumulatedChars = 0;
                     lastEmittedProgress = 0;
                     const docType = result.document_type as DocumentType | undefined;
-                    estimatedChars = docType
+                    const baseEstimate = docType
                         ? (DOCUMENT_CHAR_ESTIMATES[docType] ?? DOCUMENT_CHAR_ESTIMATES.Other)
                         : DOCUMENT_CHAR_ESTIMATES.Other;
+
+                    if (result.mode === 'edit') {
+                        // For patches, estimate based on actual content length.
+                        // Patch tool args (JSON with find/replace blocks) are roughly
+                        // 20-30% of the document size across all patch calls.
+                        const contentLength = ctx.draftManager?.getCurrent()?.content?.length;
+                        estimatedChars = Math.max((contentLength ?? baseEstimate) * 0.25, 500);
+                    } else {
+                        estimatedChars = baseEstimate;
+                    }
 
                     const startEvent: DocumentEvent = {
                         type: 'document_start',
@@ -300,6 +310,13 @@ export function createDocumentEventHandler(ctx: DocumentContext, emit: DocumentE
                         });
                     }
                     writeParser.feed(event);
+                }
+
+                // patch_document: accumulate streamed arg chars for progress,
+                // same linear formula as write_document (accumulatedChars / estimatedChars).
+                if (event.tool === 'patch_document' && activeDoc) {
+                    accumulatedChars += event.delta.length;
+                    maybeEmitProgress();
                 }
                 break;
             }
