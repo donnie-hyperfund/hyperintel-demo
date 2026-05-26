@@ -3,15 +3,13 @@ import { AIParamsType, type ParamsWithType } from '@common/ai/inference';
 import { ANTHROPIC_MODELS } from '@common/ai/types';
 import { ArtifactEntity } from '@/lib/orm/entities/artifacts/artifact.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { Ctx } from '../context';
 import { BlurbToolGroup, createBlurbTools } from '../tools/blurb';
 import { createDocumentTools } from '../tools/documents';
-import { listDocuments } from '../tools/documents/document-service';
 import { createKnowledgeTools } from '../tools/knowledge-search';
 import { createWebScrapeTools } from '../tools/web-scrape';
 import { estimateInferenceInputTokens } from '../utils/context-budget';
-import { extractDocuments } from '../utils/extract-documents';
+import { loadPhaseDocuments } from '../utils/phase-documents';
 import { preprocessContext } from '../utils/preprocess-context';
 import { OUTPUT_CONTRACT, TRANSITION_REQUEST_MESSAGE } from './contract';
 import type { PhaseTransitionDocument } from './types';
@@ -65,39 +63,27 @@ function buildDocumentPreviewSection(documents: PhaseTransitionDocument[]): stri
     return section;
 }
 
-async function buildDocumentStatusSection(opts: {
-    ctx: Ctx;
-    chat: ChatEntity;
-    documents: PhaseTransitionDocument[];
-}): Promise<string> {
-    const { ctx, chat, documents } = opts;
-    const phaseDocNames = new Set(documents.map((document) => document.name));
-    if (phaseDocNames.size === 0) return '';
-
-    const allDocuments = await listDocuments(ctx.em!, { projectId: chat.project!.id });
-    const phaseDocuments = allDocuments.filter((document) => phaseDocNames.has(document.name));
-    if (phaseDocuments.length === 0) return '';
+function buildDocumentStatusSection(documents: PhaseTransitionDocument[]): string {
+    if (documents.length === 0) return '';
 
     let section =
         '\n\n## Current Document Statuses (this phase)\n\n' +
         'These statuses are queried from the database at the time of phase transition. Users may approve or reject documents via the UI — this does NOT appear in the conversation history. Use these statuses as the source of truth.\n\n';
-    for (const document of phaseDocuments) {
-        const status = document.hasProposed ? 'proposed' : (document.currentStatus ?? document.latestStatus);
-        section += `- \`${document.name}\` (${document.title}): v${document.latestVersion}, **${status}**\n`;
+    for (const document of documents) {
+        section += `- \`${document.name}\` (${document.title}): v${document.version}, **${document.status}**\n`;
     }
     return section;
 }
 
-async function buildPhaseTransitionInstructions(opts: {
-    ctx: Ctx;
+function buildPhaseTransitionInstructions(opts: {
     chat: ChatEntity;
     documents: PhaseTransitionDocument[];
     completionBriefContent: string;
-}): Promise<string> {
-    const { ctx, chat, documents, completionBriefContent } = opts;
+}): string {
+    const { chat, documents, completionBriefContent } = opts;
     const phaseNumber = chat.phase_index + 1;
     const today = new Date().toISOString().split('T')[0];
-    const documentStatuses = await buildDocumentStatusSection({ ctx, chat, documents });
+    const documentStatuses = buildDocumentStatusSection(documents);
 
     return [
         OUTPUT_CONTRACT,
@@ -120,10 +106,9 @@ export async function preparePhaseTransitionPromptInput(opts: {
     chatId: string;
 }): Promise<PhaseTransitionPromptInput> {
     const { ctx, chat, chatId } = opts;
-    const messages = await ctx.em!.find(ChatMessageEntity, { chat: chatId }, { orderBy: { created_at: 'ASC' } });
-    const documents = extractDocuments(messages);
+    const documents = await loadPhaseDocuments(ctx.em!, chatId);
     const completionBriefContent = await loadApprovedCompletionBriefContent(ctx, chat);
-    const instructions = await buildPhaseTransitionInstructions({ ctx, chat, documents, completionBriefContent });
+    const instructions = buildPhaseTransitionInstructions({ chat, documents, completionBriefContent });
     const transitionMessages = [{ role: 'user' as const, content: TRANSITION_REQUEST_MESSAGE }];
     const blurbTools = createBlurbTools();
     const collapseToolRegistry = [...createDocumentTools(), ...createKnowledgeTools(), ...createWebScrapeTools()];

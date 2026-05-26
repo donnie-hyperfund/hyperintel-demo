@@ -77,7 +77,7 @@ function buildHarness({
         prepareChatGenerationInput: vi.fn(async () => ({
             allTools: [],
             toolGroups: [],
-            initialSystemPrompt: 'prompt',
+            promptSlugsForRun: [],
             localPath: null,
             estimatedTokens: 301_000,
             contextMessages: [],

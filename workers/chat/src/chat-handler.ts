@@ -39,6 +39,7 @@ import { estimateInferenceInputTokens } from './utils/context-budget';
 import { buildContextGateError } from './utils/context-gate-error';
 import { type ContextOverflowState, evaluateContextGate, maybeRecordContextOverflow } from './utils/context-overflow';
 import { resolvePricing } from './utils/cost';
+import { createDbBackedRecallTool } from './utils/db-recall-tool';
 import type { UserGatewayStub } from './utils/do-stubs';
 import {
     buildStoredErrorMetadata,
@@ -66,9 +67,10 @@ import {
     cleanupStreamDO,
     createEnqueue,
     createSSEStream,
-    loadChatHistory,
+    loadCollapsedChatHistory,
     persistErrorMessage,
     pushStreamEventsWithRetry,
+    type RecallLocator,
 } from './utils/stream-utils';
 
 export interface ChatHandlerOptions {
@@ -248,7 +250,8 @@ type ChatToolsAndGroups = ReturnType<typeof getChatToolsAndGroups>;
 
 export type PreparedChatGenerationInput = ChatToolsAndGroups & {
     contextMessages?: ContextMessage[];
-    initialSystemPrompt: string;
+    recallLookup?: Map<string, RecallLocator>;
+    promptSlugsForRun: string[];
     localPath: string | null;
     estimatedTokens: number;
     reasoningPromptMode?: ReasoningPromptMode;
@@ -266,7 +269,13 @@ export async function prepareChatGenerationInput({
     options: ChatHandlerOptions;
 }): Promise<PreparedChatGenerationInput | PublicError> {
     const { em } = ctx;
-    const historyMessages = await loadChatHistory(em!, data.chatId, ctx.env);
+    const { allTools, toolGroups } = getChatToolsAndGroups();
+    const collapsedHistory = await loadCollapsedChatHistory(em!, data.chatId, {
+        env: ctx.env,
+        collapseToolRegistry: allTools,
+        preprocessContext,
+    });
+    const historyMessages = collapsedHistory.messages;
     const estimationContextMessages: ContextMessage[] = data.message
         ? [...historyMessages, { role: 'user', content: data.message }]
         : historyMessages;
@@ -292,13 +301,12 @@ export async function prepareChatGenerationInput({
         promptsForEstimate.add('pma/completion-brief');
     }
 
-    const initialSystemPrompt = await buildSystemPrompt(
+    const systemPromptForEstimate = await buildSystemPrompt(
         ctx,
         promptsForEstimate,
         localPath,
         buildServerToolsGuidance(reasoningPromptMode),
     );
-    const { allTools, toolGroups } = getChatToolsAndGroups();
     const shapedForEstimate = shapeContextForInference({
         history: estimationContextMessages,
         tools: allTools,
@@ -306,7 +314,7 @@ export async function prepareChatGenerationInput({
         ctx: null,
     });
     const estimatedTokens = estimateInferenceInputTokens({
-        instructions: initialSystemPrompt,
+        instructions: systemPromptForEstimate,
         context: shapedForEstimate,
         tools: allTools,
         toolGroups,
@@ -326,13 +334,15 @@ export async function prepareChatGenerationInput({
     return {
         allTools,
         toolGroups,
-        initialSystemPrompt,
+        promptSlugsForRun: Array.from(promptsForEstimate),
         localPath,
         estimatedTokens,
         reasoningPromptMode,
         // Image sends need a reload after image files are linked to the persisted user message
-        // so loadChatHistory can attach signed image URLs.
-        ...(data.imageFileIds?.length ? {} : { contextMessages: estimationContextMessages }),
+        // so the collapsed history loader can attach signed image URLs.
+        ...(data.imageFileIds?.length
+            ? {}
+            : { contextMessages: estimationContextMessages, recallLookup: collapsedHistory.recallLookup }),
     };
 }
 
@@ -527,7 +537,7 @@ export interface GenerationParams {
 export async function runGeneration(params: GenerationParams): Promise<void> {
     const { data, ctx, options, chat, agentMessageId, ugStub, preparedInput, safetyPromise } = params;
     const { chatId, message } = data;
-    const { anthropic, langfuse, em } = ctx;
+    const { anthropic, em } = ctx;
 
     const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'chat-handler');
     const draftManager = new DraftManager();
@@ -550,13 +560,23 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         });
 
     try {
-        if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
+        if (!anthropic || (!ctx.env.LANGFUSE_PROMPT_SERVICE && !options.useLocalPrompts)) {
             throw new Error(
-                'Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)',
+                'Anthropic and Langfuse prompt service are required (Langfuse can be skipped with useLocalPrompts)',
             );
         }
 
-        const historyMessages = preparedInput.contextMessages ?? (await loadChatHistory(em!, chatId, ctx.env));
+        const loadedHistory = preparedInput.contextMessages
+            ? null
+            : await loadCollapsedChatHistory(em!, chatId, {
+                  env: ctx.env,
+                  collapseToolRegistry: preparedInput.allTools,
+                  preprocessContext,
+              });
+        const historyMessages = preparedInput.contextMessages ?? loadedHistory!.messages;
+        const recallLookup = preparedInput.contextMessages
+            ? (preparedInput.recallLookup ?? new Map<string, RecallLocator>())
+            : loadedHistory!.recallLookup;
         // TODO: maybe early reject with error here if safetyVerdict.blocked
         const safetyVerdict = await safetyPromise;
 
@@ -607,7 +627,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
 
         const {
             allTools,
-            initialSystemPrompt,
+            promptSlugsForRun,
             localPath,
             toolGroups,
             reasoningPromptMode: preparedReasoningPromptMode,
@@ -640,15 +660,14 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             effectivePresetOverride === 'sonnet-4.6'
                 ? 'native'
                 : (preparedReasoningPromptMode ?? selectedReasoningPromptMode);
-        const systemPromptForRun =
-            effectiveReasoningPromptMode === preparedReasoningPromptMode
-                ? initialSystemPrompt
-                : await buildSystemPrompt(
-                      ctx,
-                      new Set<string>(savedPrompts),
-                      localPath,
-                      buildServerToolsGuidance(effectiveReasoningPromptMode),
-                  );
+        const basePromptSlugsForRun = new Set<string>(promptSlugsForRun);
+        const buildRunSystemPrompt = () =>
+            buildSystemPrompt(
+                ctx,
+                new Set<string>([...basePromptSlugsForRun, ...agentCtx.loadedPrompts]),
+                localPath,
+                buildServerToolsGuidance(effectiveReasoningPromptMode),
+            );
 
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
@@ -657,7 +676,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             {
                 ...inferenceParams,
                 cacheId: chat.id,
-                instructions: systemPromptForRun,
+                instructions: '',
                 context: allMessages,
                 countReasoningAsContent: true,
                 contentThreshold: 5,
@@ -674,17 +693,12 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                 terminalToolNames: ['start_phase_transition'],
                 config: {
                     maxToolCalls: 100,
-                    getSystemPrompt: async () =>
-                        buildSystemPrompt(
-                            ctx,
-                            agentCtx.loadedPrompts,
-                            localPath,
-                            buildServerToolsGuidance(effectiveReasoningPromptMode),
-                        ),
+                    getSystemPrompt: buildRunSystemPrompt,
                     behavioralGuidance: [...CORE_BEHAVIORAL_GUIDANCE],
                     statusUpdates: { enabled: true },
                     autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
                     preprocessContext,
+                    recallTool: createDbBackedRecallTool({ em: em!, chatId, recallLookup }),
                     abortSignal: abortController.signal,
                     onTurnComplete: createOnTurnComplete(agentCtx),
                 },
@@ -876,7 +890,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                             }
                         }
 
-                        const usedPromptTokens = estimateTextTokens(systemPromptForRun);
+                        const usedPromptTokens = estimateTextTokens(await buildRunSystemPrompt());
                         const toolTokens = estimateToolTokens(allTools, toolGroups);
                         const usedTokens = usedContextTokens + usedPromptTokens + toolTokens.toolDefTokens;
                         const tokenBreakdown: TokenBreakdown = {

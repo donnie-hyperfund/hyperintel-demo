@@ -22,6 +22,8 @@ declare namespace Cloudflare {
 		CHAT_STREAM_DO: DurableObjectNamespace<import('../objects/src/index').ChatStreamDO>;
 		GENERATION_PROXY: DurableObjectNamespace<import('../objects/src/index').GenerationProxyDO>;
 		LOCKS_SERVICE: DurableObjectNamespace<import('../objects/src/index').LocksService>;
+		DOCX_EXPORT_SERVICE: Service<import('../services/src/index').DocxExportService>;
+		LANGFUSE_PROMPT_SERVICE: Service<import('../services/src/index').LangfusePromptService>;
 		ARTIFACTS_BUCKET: R2Bucket;
 		USER_IMAGES_BUCKET: R2Bucket;
 		DATABASE_URL: SecretsStoreSecret;
@@ -29,7 +31,6 @@ declare namespace Cloudflare {
 		ANTHROPIC_API_KEY: SecretsStoreSecret;
 		OPENROUTER_API_KEY: SecretsStoreSecret;
 		OPENAI_KEY: SecretsStoreSecret;
-		LANGFUSE_SECRET_KEY: SecretsStoreSecret;
 		POSTHOG_KEY: SecretsStoreSecret;
 		AUTH_SECRET: SecretsStoreSecret;
 		FIRECRAWL_API_KEY: SecretsStoreSecret;

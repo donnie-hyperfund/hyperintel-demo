@@ -11,6 +11,8 @@ const envFrontendSchema = z.object({
     NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV: z.string().optional(),
     NEXT_PUBLIC_CLOUDFLARE_ALIAS: z.string().optional(),
     NEXT_PUBLIC_LOCAL_WORKERS: z.coerce.boolean().optional().default(false),
+    NEXT_PUBLIC_LOCAL_WORKER_HTTP_ORIGIN: z.string().url().optional(),
+    NEXT_PUBLIC_LOCAL_WORKER_WS_URL: z.string().url().optional(),
 });
 
 const parsedFrontendEnv = envFrontendSchema.safeParse({
@@ -24,6 +26,8 @@ const parsedFrontendEnv = envFrontendSchema.safeParse({
     NEXT_PUBLIC_LOCAL_WORKERS: process.env.NEXT_PUBLIC_LOCAL_WORKERS === 'true',
     NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV: process.env.NEXT_PUBLIC_CLOUDFLARE_WORKER_ENV,
     NEXT_PUBLIC_CLOUDFLARE_ALIAS: process.env.NEXT_PUBLIC_CLOUDFLARE_ALIAS,
+    NEXT_PUBLIC_LOCAL_WORKER_HTTP_ORIGIN: process.env.NEXT_PUBLIC_LOCAL_WORKER_HTTP_ORIGIN,
+    NEXT_PUBLIC_LOCAL_WORKER_WS_URL: process.env.NEXT_PUBLIC_LOCAL_WORKER_WS_URL,
 });
 
 if (!parsedFrontendEnv.success) {

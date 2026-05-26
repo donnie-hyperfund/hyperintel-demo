@@ -6,8 +6,13 @@
  * and done_ext handling.
  */
 
-import type { AgentStreamEvent } from '@common/ai/agent';
-import type { ContentPart, ImageContentPart } from '@common/ai/inference/types';
+import {
+    collapseHistoricalToolCalls,
+    type AgentStreamEvent,
+    type CollapseToolDef,
+} from '@common/ai/agent';
+import type { ContentPart, ContextMessage, ImageContentPart } from '@common/ai/inference/types';
+import type { EntityManager } from '@mikro-orm/postgresql';
 import { serializeException, stringifyError } from '@/common/ai/utils';
 import { signArtifactImageKeys } from '@/lib/artifacts/artifact-images';
 import { buildArtifactImageContentParts } from '@/lib/markdown/artifact-images';
@@ -479,6 +484,186 @@ export function createEventCollector(): { enqueue: (data: object | string) => bo
 // HISTORY LOADING
 // ============================================================================
 
+export interface RecallLocator {
+    messageId: string;
+    blockIndex: number;
+}
+
+export interface CollapsedChatHistory {
+    messages: ContextMessage[];
+    recallLookup: Map<string, RecallLocator>;
+}
+
+export interface LoadCollapsedChatHistoryOpts {
+    env?: ChatEnv;
+    collapseToolRegistry: CollapseToolDef[];
+    preprocessContext?: (
+        messages: ContextMessage[],
+        ctx: unknown,
+        eCtx?: unknown,
+        isActiveTurn?: boolean,
+    ) => ContextMessage[];
+    pageSize?: number;
+}
+
+function groupFilesByMessage(imageFiles: ChatMessageFileEntity[]): Map<string, ChatMessageFileEntity[]> {
+    const filesByMessage = new Map<string, ChatMessageFileEntity[]>();
+    for (const file of imageFiles) {
+        const linkedMessage = file.chat_message as ChatMessageEntity | string | undefined;
+        const msgId = typeof linkedMessage === 'object' ? linkedMessage.id : linkedMessage;
+        if (!msgId) continue;
+        const existing = filesByMessage.get(msgId);
+        if (existing) existing.push(file);
+        else filesByMessage.set(msgId, [file]);
+    }
+    return filesByMessage;
+}
+
+function mapChatMessageForHistory(
+    m: ChatMessageEntity,
+    filesByMessage: Map<string, ChatMessageFileEntity[]>,
+    signedUrls: Map<string, string>,
+): ContextMessage {
+    if (m.is_error || m.is_aborted) {
+        let safeContent = m.content || '';
+        if (m.reasoning) {
+            safeContent = `<thinking>${m.reasoning}</thinking>\n\n${safeContent}`;
+        }
+        const marker = m.is_error
+            ? '[This response was interrupted by an error]'
+            : '[This response was aborted by user]';
+        if (safeContent) {
+            safeContent += `\n\n${marker}`;
+        }
+        return { role: m.role as 'user' | 'assistant', content: safeContent };
+    }
+
+    const msgFiles = filesByMessage.get(m.id);
+    if (m.role === 'user' && msgFiles?.length) {
+        const parts: ContentPart[] = [];
+        if (m.content) {
+            parts.push({ type: 'text', text: m.content });
+        }
+        for (const file of msgFiles) {
+            const url = signedUrls.get(file.id);
+            if (url) {
+                parts.push({
+                    type: 'image',
+                    source: 'url',
+                    url,
+                    mediaType: file.mime_type as ImageContentPart['mediaType'],
+                });
+            }
+        }
+        return {
+            role: 'user' as const,
+            content: parts.length > 0 ? parts : m.content,
+        };
+    }
+
+    return {
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        ...(m.blocks && { blocks: m.blocks }),
+    };
+}
+
+function recordRecallLocators(
+    message: ChatMessageEntity,
+    recallLookup: Map<string, RecallLocator>,
+) {
+    if (!Array.isArray(message.blocks)) return;
+    for (let blockIndex = 0; blockIndex < message.blocks.length; blockIndex++) {
+        const block = message.blocks[blockIndex];
+        if (block.type !== 'tool_call' || typeof block.toolCallId !== 'string') continue;
+        recallLookup.set(block.toolCallId, { messageId: message.id, blockIndex });
+    }
+}
+
+async function rebuildToolImageContentPartsForPage(env: ChatEnv | undefined, messages: ChatMessageEntity[]) {
+    if (!env) return;
+
+    const artifactImageKeys = new Set<string>();
+    const SCHEME = 'artifact-image://';
+    for (const message of messages) {
+        if (!message.blocks) continue;
+        for (const block of message.blocks) {
+            if (block.type === 'tool_call' && block.toolImageRefs?.length) {
+                for (const ref of block.toolImageRefs as string[]) {
+                    if (ref.startsWith(SCHEME)) {
+                        artifactImageKeys.add(ref.slice(SCHEME.length));
+                    }
+                }
+            }
+        }
+    }
+
+    if (artifactImageKeys.size === 0) return;
+
+    const artifactSignedUrls = await signArtifactImageKeys(env, [...artifactImageKeys]);
+    for (const message of messages) {
+        if (!message.blocks) continue;
+        for (const block of message.blocks) {
+            if (block.type !== 'tool_call' || !block.toolImageRefs?.length) continue;
+            block.toolContentParts = buildArtifactImageContentParts(block.toolOutput ?? '', artifactSignedUrls);
+        }
+    }
+}
+
+export async function loadCollapsedChatHistory(
+    em: EntityManager,
+    chatId: string,
+    opts: LoadCollapsedChatHistoryOpts,
+): Promise<CollapsedChatHistory> {
+    const pageSize = opts.pageSize ?? 25;
+    const historyEm = em.fork();
+    const messages: ContextMessage[] = [];
+    const recallLookup = new Map<string, RecallLocator>();
+
+    const imageFiles = opts.env
+        ? await em.find(ChatMessageFileEntity, {
+              chat_id: chatId,
+              chat_message: { $ne: null },
+              status: 'uploaded',
+          })
+        : [];
+    const filesByMessage = groupFilesByMessage(imageFiles as ChatMessageFileEntity[]);
+    const signedUrls =
+        opts.env && imageFiles.length > 0
+            ? await generateSignedImageUrls(opts.env, imageFiles as ChatMessageFileEntity[])
+            : new Map<string, string>();
+
+    let offset = 0;
+    try {
+        while (true) {
+            const page = await historyEm.find(
+                ChatMessageEntity,
+                { chat: chatId },
+                { orderBy: { created_at: 'ASC' }, limit: pageSize, offset },
+            );
+            if (page.length === 0) break;
+
+            await rebuildToolImageContentPartsForPage(opts.env, page);
+
+            const mappedPage = page.map((message: ChatMessageEntity) => {
+                recordRecallLocators(message, recallLookup);
+                return mapChatMessageForHistory(message, filesByMessage, signedUrls);
+            });
+            const preprocessedPage = opts.preprocessContext
+                ? opts.preprocessContext(mappedPage, null, undefined, false)
+                : mappedPage;
+            messages.push(...collapseHistoricalToolCalls(preprocessedPage, opts.collapseToolRegistry));
+
+            offset += page.length;
+            historyEm.clear();
+        }
+    } finally {
+        historyEm.clear();
+    }
+
+    return { messages, recallLookup };
+}
+
 /**
  * Load chat messages from DB and map to inference-ready format.
  * For user messages with attached images, generates signed URLs and
@@ -505,7 +690,8 @@ export async function loadChatHistory(em: any, chatId: string, env?: ChatEnv) {
     // Group image files by message ID
     const filesByMessage = new Map<string, ChatMessageFileEntity[]>();
     for (const file of imageFiles as ChatMessageFileEntity[]) {
-        const msgId = typeof file.chat_message === 'object' ? (file.chat_message as any)?.id : file.chat_message;
+        const linkedMessage = file.chat_message as ChatMessageEntity | string | undefined;
+        const msgId = typeof linkedMessage === 'object' ? linkedMessage.id : linkedMessage;
         if (!msgId) continue;
         const existing = filesByMessage.get(msgId);
         if (existing) existing.push(file);
@@ -527,7 +713,7 @@ export async function loadChatHistory(em: any, chatId: string, env?: ChatEnv) {
         const SCHEME = 'artifact-image://';
         for (const m of dbMessages as ChatMessageEntity[]) {
             if (!m.blocks) continue;
-            for (const b of m.blocks as any[]) {
+            for (const b of m.blocks) {
                 if (b.type === 'tool_call' && b.toolImageRefs?.length) {
                     for (const ref of b.toolImageRefs as string[]) {
                         if (ref.startsWith(SCHEME)) {
@@ -543,7 +729,7 @@ export async function loadChatHistory(em: any, chatId: string, env?: ChatEnv) {
 
             for (const m of dbMessages as ChatMessageEntity[]) {
                 if (!m.blocks) continue;
-                for (const b of m.blocks as any[]) {
+                for (const b of m.blocks) {
                     if (b.type !== 'tool_call' || !b.toolImageRefs?.length) continue;
 
                     b.toolContentParts = buildArtifactImageContentParts(b.toolOutput ?? '', artifactSignedUrls);

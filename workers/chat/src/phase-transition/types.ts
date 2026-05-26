@@ -4,7 +4,7 @@ import type { PhaseTransitionActionDto } from '@/lib/schema/chat';
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
 import type { UserGatewayStub } from '../utils/do-stubs';
-import type { extractDocuments } from '../utils/extract-documents';
+import type { PhaseDocument } from '../utils/phase-documents';
 import type { setupStreamInfra } from '../utils/stream-runner';
 
 export const PHASE_TRANSITION_STREAM_TYPE = 'phase_transition' as const;
@@ -27,5 +27,5 @@ export interface PhaseTransitionContext {
 
 export type PhaseTransitionResult = boolean;
 
-export type PhaseTransitionDocument = ReturnType<typeof extractDocuments>[number];
+export type PhaseTransitionDocument = PhaseDocument;
 export type PhaseTransitionInfra = ReturnType<typeof setupStreamInfra>;

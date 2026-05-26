@@ -2,6 +2,7 @@
  * Shared safety helpers used by both chat-handler and intake-handler.
  */
 
+import type { ContextMessage } from '@common/ai/inference/types';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { SafetyMonitor } from './analyzer';
 import type { SafetyVerdict } from './guard';
@@ -17,9 +18,9 @@ type HistoryMessage = { role: 'user' | 'assistant'; content: string; blocks?: an
  * BEFORE the last user message (to avoid ending on assistant role).
  */
 export function injectSafetyContext(
-    historyMessages: HistoryMessage[],
+    historyMessages: ContextMessage[],
     safetyVerdict: SafetyVerdict | null,
-): HistoryMessage[] {
+): ContextMessage[] {
     let safetyContext = '';
 
     if (safetyVerdict?.blocked) {

@@ -1,0 +1,62 @@
+// Local-only gateway for Wrangler/Miniflare multi-worker dev.
+// Do not deploy this worker; it exists so localhost:8787 can expose the app's
+// multiple public worker surfaces through one entrypoint.
+{
+	"$schema": "../node_modules/wrangler/config-schema.json",
+	"name": "hi-local-gateway",
+	"main": "src/index.ts",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"compatibility_date": "2025-04-29",
+	"workers_dev": false,
+	"services": [
+		{
+			"binding": "HI_CHAT",
+			"service": "hi-chat"
+		},
+		{
+			"binding": "HI_SERVICES",
+			"service": "hi-services"
+		},
+		{
+			"binding": "HI_OBJECTS",
+			"service": "hi-objects"
+		},
+		{
+			"binding": "HI_EXTRACTION",
+			"service": "hi-extraction"
+		},
+		{
+			"binding": "HI_EMBEDDING",
+			"service": "hi-embedding"
+		}
+	],
+	"env": {
+		"dev": {
+			"name": "hi-local-gateway-dev",
+			"services": [
+				{
+					"binding": "HI_CHAT",
+					"service": "hi-chat-dev"
+				},
+				{
+					"binding": "HI_SERVICES",
+					"service": "hi-services-dev"
+				},
+				{
+					"binding": "HI_OBJECTS",
+					"service": "hi-objects-dev"
+				},
+				{
+					"binding": "HI_EXTRACTION",
+					"service": "hi-extraction-dev"
+				},
+				{
+					"binding": "HI_EMBEDDING",
+					"service": "hi-embedding-dev"
+				}
+			]
+		}
+	}
+}

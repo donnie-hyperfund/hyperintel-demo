@@ -16,3 +16,5 @@ name = "hi-extract-rust-dexp"
 
 [build]
 command = "cargo install -q \"worker-build@^0.7\" && worker-build --release"
+cwd = "workers/extract-rust"
+watch_dir = "workers/extract-rust"

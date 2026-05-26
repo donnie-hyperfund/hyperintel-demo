@@ -7,13 +7,11 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
-import type { EntityManager } from '@mikro-orm/core';
+import type { EntityManager } from '@mikro-orm/postgresql';
 import { z } from 'zod';
 import { getCompletionBriefKey } from '@/lib/artifacts/utils';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
-import { extractDocuments } from '../utils/extract-documents';
-import { listDocuments } from './documents/document-service';
+import { loadPhaseDocuments } from '../utils/phase-documents';
 
 // ============================================================================
 // TYPES
@@ -64,13 +62,7 @@ export function createCompletionBriefTools() {
                 const briefName = getCompletionBriefKey(phaseNumber);
                 const today = new Date().toISOString().split('T')[0];
 
-                // Extract documents from conversation history
-                const messages = await ctx.em.find(
-                    ChatMessageEntity,
-                    { chat: ctx.chatId },
-                    { orderBy: { created_at: 'ASC' } },
-                );
-                const documents = extractDocuments(messages);
+                const documents = await loadPhaseDocuments(ctx.em, ctx.chatId);
 
                 // Build result parts
                 const parts: string[] = [
@@ -93,23 +85,14 @@ export function createCompletionBriefTools() {
                             parts.push(`**Preview:**\n\`\`\`\n${doc.contentPreview}\n\`\`\``);
                         }
                     }
-                }
 
-                // Live document statuses from DB
-                const phaseDocNames = new Set(documents.map((d) => d.name));
-                if (phaseDocNames.size > 0) {
-                    const allDocuments = await listDocuments(ctx.em, { projectId: ctx.projectId });
-                    const phaseDocuments = allDocuments.filter((d) => phaseDocNames.has(d.name));
-                    if (phaseDocuments.length > 0) {
-                        parts.push(
-                            ``,
-                            `## Current Document Statuses`,
-                            `These are live statuses from the database. Users may approve or reject via the UI — use these as source of truth.`,
-                        );
-                        for (const doc of phaseDocuments) {
-                            const status = doc.hasProposed ? 'proposed' : (doc.currentStatus ?? doc.latestStatus);
-                            parts.push(`- \`${doc.name}\` (${doc.title}): v${doc.latestVersion}, **${status}**`);
-                        }
+                    parts.push(
+                        ``,
+                        `## Current Document Statuses`,
+                        `These are live statuses from the database. Users may approve or reject via the UI — use these as source of truth.`,
+                    );
+                    for (const doc of documents) {
+                        parts.push(`- \`${doc.name}\` (${doc.title}): v${doc.version}, **${doc.status}**`);
                     }
                 }
 
