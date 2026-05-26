@@ -17,6 +17,7 @@ declare namespace Cloudflare {
 		CHAT_STREAM_DO: DurableObjectNamespace<import('../objects/src/index').ChatStreamDO>;
 		DATABASE_URL: SecretsStoreSecret;
 		CLERK_SECRET_KEY: SecretsStoreSecret;
+		LANGFUSE_SECRET_KEY: SecretsStoreSecret;
 	}
 }
 interface ServicesEnv extends Cloudflare.ServicesEnv {}

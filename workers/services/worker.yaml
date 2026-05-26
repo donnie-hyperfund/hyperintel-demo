@@ -3,6 +3,7 @@ name: hi-services
 secrets:
   - DATABASE_URL
   - CLERK_SECRET_KEY
+  - LANGFUSE_SECRET_KEY
 
 durable_objects:
   - name: USER_GATEWAY
@@ -11,6 +12,9 @@ durable_objects:
   - name: CHAT_STREAM_DO
     class_name: ChatStreamDO
     script_name: hi-objects
+
+unstub:
+  - langfuse
 
 # triggers:
 #   crons: ["0 * * * *"]

@@ -44,6 +44,11 @@
 			"binding": "CLERK_SECRET_KEY",
 			"store_id": "b0b79b79a9e4400384c1e86239b96635",
 			"secret_name": "CLERK_SECRET_KEY"
+		},
+		{
+			"binding": "LANGFUSE_SECRET_KEY",
+			"store_id": "b0b79b79a9e4400384c1e86239b96635",
+			"secret_name": "HI_LANGFUSE_SECRET_KEY"
 		}
 	],
 	"durable_objects": {
@@ -82,6 +87,11 @@
 					"binding": "CLERK_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "DEV_CLERK_SECRET_KEY"
+				},
+				{
+					"binding": "LANGFUSE_SECRET_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "HI_LANGFUSE_SECRET_KEY"
 				}
 			],
 			"durable_objects": {
@@ -126,6 +136,11 @@
 					"binding": "CLERK_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "DEV_CLERK_SECRET_KEY"
+				},
+				{
+					"binding": "LANGFUSE_SECRET_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "HI_LANGFUSE_SECRET_KEY"
 				}
 			],
 			"durable_objects": {
@@ -170,6 +185,11 @@
 					"binding": "CLERK_SECRET_KEY",
 					"store_id": "b0b79b79a9e4400384c1e86239b96635",
 					"secret_name": "DEV_CLERK_SECRET_KEY"
+				},
+				{
+					"binding": "LANGFUSE_SECRET_KEY",
+					"store_id": "b0b79b79a9e4400384c1e86239b96635",
+					"secret_name": "HI_LANGFUSE_SECRET_KEY"
 				}
 			],
 			"durable_objects": {
@@ -199,6 +219,7 @@
 		"stripe": "../_common/vendor/stubs/stripe.ts",
 		"@sendgrid/mail": "../_common/vendor/stubs/sendgrid-mail.ts",
 		"@cerebras/cerebras_cloud_sdk": "../_common/vendor/stubs/cerebras.ts",
+		"@/lib/local/cf-env-secret-mock": "../_common/vendor/stubs/empty.ts",
 		"mariadb/callback": "../_common/vendor/stubs/empty.ts",
 		"better-sqlite3": "../_common/vendor/stubs/empty.ts",
 		"libsql": "../_common/vendor/stubs/empty.ts",
