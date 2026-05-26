@@ -14,7 +14,7 @@ export type SubscribeResponse =
           agentMessageId: string;
           snapshot: unknown;
           seqHigh?: number;
-          streamType?: 'chat' | 'summary';
+          streamType?: 'chat' | 'phase_transition';
           selectedModel?: string | null;
           completionBriefStatus?: string | null;
       }

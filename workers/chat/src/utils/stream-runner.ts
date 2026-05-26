@@ -2,7 +2,7 @@
  * Stream Runner — shared stream loop and infrastructure for all agent handlers.
  *
  * Extracts the duplicated patterns from chat-handler, intake-handler, and
- * summarizer into reusable utilities. Each handler retains its own
+ * phase transition into reusable utilities. Each handler retains its own
  * done_ext handling and agent setup logic.
  */
 

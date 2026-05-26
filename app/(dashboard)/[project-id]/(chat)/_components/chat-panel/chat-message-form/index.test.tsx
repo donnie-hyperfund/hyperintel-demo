@@ -71,7 +71,7 @@ vi.mock('@/modules/chat/providers/chat-provider', () => ({
         requestPhaseTransition: requestPhaseTransitionMock,
         state: {
             isGenerating: false,
-            isSummarizing: false,
+            isTransitioning: false,
             isLoading: false,
             isProcessingArtifactAction: false,
             tokenUsage: null,

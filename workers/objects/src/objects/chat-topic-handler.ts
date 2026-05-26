@@ -24,8 +24,8 @@ const RegisterStreamActionSchema = z.object({
     agentMessageId: z.string(),
     userId: z.string().optional(),
     userMessageId: z.string().optional(),
-    /** Distinguishes a summary stream from a normal chat response */
-    streamType: z.enum(['chat', 'summary']).optional(),
+    /** Distinguishes a phase-transition stream from a normal chat response */
+    streamType: z.enum(['chat', 'phase_transition']).optional(),
 });
 const ClearStreamActionSchema = z.object({ identifier: z.string() });
 const CbStatusChangedActionSchema = z.object({ identifier: z.string(), status: z.string() });
@@ -111,7 +111,7 @@ export class ChatTopicHandler extends StreamTopicHandler {
         }
 
         // Read the streamType that was stored by registerStream (may be absent for normal chat)
-        const streamType = await this.storage.get<'chat' | 'summary'>(
+        const streamType = await this.storage.get<'chat' | 'phase_transition'>(
             `${SK_PREFIX}${identifier}${SK_STREAM_TYPE_SUFFIX}`,
         );
         if (!streamType || streamType === 'chat') return { ...base, selectedModel, completionBriefStatus };

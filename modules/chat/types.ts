@@ -13,7 +13,7 @@ import type { TokenUsage } from '@/lib/schema/stream';
 
 export type ChatType = 'phase' | 'company' | 'stakeholder';
 
-export type SummaryStatus = 'generating-summary' | 'finalizing';
+export type PhaseTransitionStatus = 'preparing-next-phase' | 'finalizing';
 
 export type MessageArtifactRef = {
     id: string;
@@ -111,7 +111,7 @@ export type Conversation = {
 export type ChatState = {
     messages: Message[];
     isGenerating: boolean;
-    isSummarizing: boolean;
+    isTransitioning: boolean;
     isLoading: boolean;
     error: Error | null;
     streamingMessageId: string | null;
@@ -120,14 +120,14 @@ export type ChatState = {
     hasPendingChanges: boolean;
     phaseIndex: number | null;
     phaseName: string | null;
-    /** Chat ID of the new phase after summarization completes */
-    summaryNewChatId: string | null;
-    /** True when AI triggered generate_summary from chat — tells UI to show the phase transition dialog */
+    /** Chat ID of the new phase after phase transition completes */
+    transitionNewChatId: string | null;
+    /** True when AI triggered start_phase_transition from chat — tells UI to show the phase transition dialog */
     pendingPhaseTransition: boolean;
     /** Active agent message ID for WS-based abort */
     activeResponseId: string | null;
-    /** Current summarizer status (e.g. "generating-summary", "finalizing") */
-    summaryStatus: SummaryStatus | null;
+    /** Current phase-transition status (e.g. "preparing-next-phase", "finalizing") */
+    transitionStatus: PhaseTransitionStatus | null;
     /** True while an artifact approval/rejection API call is in flight */
     isProcessingArtifactAction: boolean;
     /** True when the user tried to send with an unavailable model — shows an alert dialog */

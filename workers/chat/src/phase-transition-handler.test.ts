@@ -1,18 +1,18 @@
 import { PublicError } from '@common/common/error.helpers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { runSummarizer } from './summarizer';
-import { summarizeActionHandler } from './summarizer-handler';
+import { runPhaseTransition } from './phase-transition';
+import { phaseTransitionActionHandler } from './phase-transition-handler';
 
 vi.mock('./chat-handler', () => ({
     chatActionHandler: vi.fn(),
 }));
 
-vi.mock('./summarizer', () => ({
-    runSummarizer: vi.fn(),
+vi.mock('./phase-transition', () => ({
+    runPhaseTransition: vi.fn(),
 }));
 
-describe('summarizeActionHandler', () => {
+describe('phaseTransitionActionHandler', () => {
     const ugStub = {
         systemAction: vi.fn(async () => undefined),
         broadcastToAll: vi.fn(async () => undefined),
@@ -55,13 +55,13 @@ describe('summarizeActionHandler', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(runSummarizer).mockResolvedValue(true);
+        vi.mocked(runPhaseTransition).mockResolvedValue(true);
     });
 
-    it('refuses to summarize when a next-phase chat already exists', async () => {
+    it('refuses to transition when a next-phase chat already exists', async () => {
         const { ctx, em, chat } = buildCtx({ nextChat: { id: 'next-chat-1' } });
 
-        const result = await summarizeActionHandler({ chatId: 'chat-1' }, ctx, { onEvent: vi.fn() });
+        const result = await phaseTransitionActionHandler({ chatId: 'chat-1' }, ctx, { onEvent: vi.fn() });
 
         expect(result).toBeInstanceOf(PublicError);
         expect((result as PublicError).code).toBe('CONTEXT_TOO_LONG');
@@ -73,13 +73,13 @@ describe('summarizeActionHandler', () => {
         expect(chat.active_agent_message_id).toBeNull();
         expect(em.flush).not.toHaveBeenCalled();
         expect(ugStub.systemAction).not.toHaveBeenCalled();
-        expect(runSummarizer).not.toHaveBeenCalled();
+        expect(runPhaseTransition).not.toHaveBeenCalled();
     });
 
-    it('registers a summary stream and calls runSummarizer for an approved CB', async () => {
+    it('registers a transition stream and calls runPhaseTransition for an approved CB', async () => {
         const { ctx, em, chat } = buildCtx();
 
-        const result = await summarizeActionHandler({ chatId: 'chat-1' }, ctx, { onEvent: vi.fn() });
+        const result = await phaseTransitionActionHandler({ chatId: 'chat-1' }, ctx, { onEvent: vi.fn() });
         await (result as { generation: Promise<boolean> }).generation;
 
         expect(result).not.toBeInstanceOf(PublicError);
@@ -91,10 +91,10 @@ describe('summarizeActionHandler', () => {
             expect.objectContaining({
                 agentMessageId: (result as { agentMessageId: string }).agentMessageId,
                 userId: 'user-1',
-                streamType: 'summary',
+                streamType: 'phase_transition',
             }),
             undefined,
         );
-        expect(runSummarizer).toHaveBeenCalledOnce();
+        expect(runPhaseTransition).toHaveBeenCalledOnce();
     });
 });

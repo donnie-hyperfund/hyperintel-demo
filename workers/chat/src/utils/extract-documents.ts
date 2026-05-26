@@ -7,7 +7,7 @@ export interface DocumentInfo {
 
 /**
  * Extract documents created via `begin_document` + `write_document` tool calls
- * from chat messages. Reused by the summarizer and the completion_brief tool.
+ * from chat messages. Reused by phase transition and the completion_brief tool.
  *
  * Content preview is taken from the first `write_document` call following each
  * `begin_document` (since `begin_document` itself has no content param).

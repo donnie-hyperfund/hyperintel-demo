@@ -23,7 +23,6 @@ import type { EntityManager } from '@mikro-orm/core';
 import { z } from 'zod';
 import { hydrateArtifactImages } from '@/lib/artifacts/artifact-images';
 import { normalizeArtifactKey } from '@/lib/artifacts/utils';
-import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
 import { DocumentTypeSchema, INTERNAL_DOCUMENTS } from '@/lib/schema/artifact';
 import type { StreamEvent } from '@/lib/schema/stream';
@@ -76,7 +75,7 @@ export interface DocumentToolsContext {
     createdVersionIds: string[];
     /**
      * Push stream events to the active SSE / DO stream (frontend listens via useStream).
-     * Set by chat-handler / summarizer when wiring tool execution into a streaming session.
+     * Set by chat-handler / phase transition when wiring tool execution into a streaming session.
      * The Internal Summary generator pushes `summary_start` / `summary_delta` / `summary_complete` here.
      */
     pushStreamEvents?: (events: StreamEvent[]) => void;
@@ -188,7 +187,7 @@ Never skip straight to \`read_document\` with a guessed name — always discover
 When you finalize an internal working document (Genesis DNA, Legacy DNA, Team Specification, MID, PSEB, Action Plan, Completion Brief, Company Profile, Human Persona), the backend automatically generates the PE-facing summary for it. You do NOT call any tools to produce it — it is written to the parent version's \`summary_internal\` field by a separate summary agent during finalize_document. After finalize_document returns, STOP and wait for the user.
 
 **CRITICAL: Do NOT write any PECP-style content in your chat reply.** After finalizing an internal document, your text response must be a single brief confirmation — no structure, no headers, no bullet points. Do NOT:
-- Summarize the document contents in your message
+- Recap the document contents in your message
 - Write client-facing narrative, executive summaries, or "what we built / why this matters" style text
 - Echo or paraphrase the document in any form
 The PECP summary is written automatically by a separate agent and displayed in the UI — your chat response is only a confirmation that the document was saved.

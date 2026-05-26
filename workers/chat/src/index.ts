@@ -24,9 +24,10 @@ import {
 } from '@/lib/schema/artifact';
 import {
     AbortActionSchema,
+    PhaseTransitionActionSchema,
     SendChatActionSchema,
     SendIntakeChatActionSchema,
-    SummarizeActionSchema,
+    StartPendingPhaseActionSchema,
 } from '@/lib/schema/chat';
 import { ImportArtifactsActionSchema } from '@/lib/schema/project';
 import { branchDoName, getPreviewAlias } from '@/workers/_common/util/preview-alias';
@@ -39,7 +40,8 @@ import { chatActionHandler } from './chat-handler';
 import type { Ctx } from './context';
 import { intakeActionHandler } from './intake-handler';
 import { runScheduledCleanup } from './maintenance/scheduled-cleanup';
-import { summarizeActionHandler } from './summarizer-handler';
+import { phaseTransitionActionHandler } from './phase-transition-handler';
+import { startPendingPhaseActionHandler } from './start-pending-phase-handler';
 import { confirmUploadHandler, presignUploadHandler, uploadArtifactHandler } from './uploads/artifact-uploader';
 import { associateUploadsHandler } from './uploads/associate-handler';
 import { clearDraftsHandler } from './uploads/draft-clear-handler';
@@ -152,9 +154,15 @@ app.post('/stream/intake', zValidator('json', SendIntakeChatActionSchema), async
     });
 });
 
-app.post('/stream/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
+app.post('/stream/phase-transition', zValidator('json', PhaseTransitionActionSchema), async (c) => {
     return wrapWorker(async () => {
-        return await summarizeActionHandler(c.req.valid('json'), ctxWithAlias(c));
+        return await phaseTransitionActionHandler(c.req.valid('json'), ctxWithAlias(c));
+    });
+});
+
+app.post('/stream/phase-transition/start', zValidator('json', StartPendingPhaseActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        return await startPendingPhaseActionHandler(c.req.valid('json'), ctxWithAlias(c));
     });
 });
 
@@ -199,13 +207,28 @@ app.post('/intake', zValidator('json', SendIntakeChatActionSchema), async (c) =>
     });
 });
 
-app.post('/summarize', zValidator('json', SummarizeActionSchema), async (c) => {
+app.post('/phase-transition', zValidator('json', PhaseTransitionActionSchema), async (c) => {
     return wrapWorker(async () => {
         const proxyDO = c.env.GENERATION_PROXY.get(
             c.env.GENERATION_PROXY.newUniqueId(),
         ) as unknown as GenerationProxyDOStub;
 
-        const streamUrl = buildStreamUrl(c.req.raw, '/summarize');
+        const streamUrl = buildStreamUrl(c.req.raw, '/phase-transition');
+        const body = JSON.stringify(c.req.valid('json'));
+        const authHeader = c.req.header('Authorization') ?? '';
+
+        const result = await proxyDO.run(streamUrl, body, authHeader);
+        return isGenerationProxyError(result) ? proxyErrorResponse(result) : result;
+    });
+});
+
+app.post('/phase-transition/start', zValidator('json', StartPendingPhaseActionSchema), async (c) => {
+    return wrapWorker(async () => {
+        const proxyDO = c.env.GENERATION_PROXY.get(
+            c.env.GENERATION_PROXY.newUniqueId(),
+        ) as unknown as GenerationProxyDOStub;
+
+        const streamUrl = buildStreamUrl(c.req.raw, '/phase-transition/start');
         const body = JSON.stringify(c.req.valid('json'));
         const authHeader = c.req.header('Authorization') ?? '';
 

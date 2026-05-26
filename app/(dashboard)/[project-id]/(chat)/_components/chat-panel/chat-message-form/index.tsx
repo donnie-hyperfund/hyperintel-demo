@@ -57,7 +57,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
         requestPhaseTransition,
         state: {
             isGenerating,
-            isSummarizing,
+            isTransitioning,
             isLoading,
             isProcessingArtifactAction,
             activeResponseId,
@@ -128,7 +128,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             !(fileEntry.status === 'processing' && !chatId && fileEntry.requiresAssociation),
     );
     const isBusy =
-        isGenerating || isSummarizing || isLoading || isSubmitting || hasBlockingFiles || isProcessingArtifactAction;
+        isGenerating || isTransitioning || isLoading || isSubmitting || hasBlockingFiles || isProcessingArtifactAction;
     const isAwaitingStream = isGenerating && !activeResponseId;
     const isSubmitDisabled = !hasContent || isBusy;
     const isSending = isGenerating || isSubmitting;

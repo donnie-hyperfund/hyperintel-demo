@@ -217,7 +217,7 @@ export type StreamEvent =
           outputTool?: string;
           hasPendingChanges?: boolean;
           phaseIndex?: number | null;
-          /** Set by summarizer when summary completes — ID of the new continuation chat */
+          /** Set by phase-transition flow when the next phase chat is ready */
           newChatId?: string;
       }
     | { type: 'done_ext' }

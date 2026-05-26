@@ -13,7 +13,8 @@ const insertChatToCacheMock = vi.fn();
 const sendActionMock = vi.fn();
 const sendIntakeActionMock = vi.fn();
 const associateUploadsMock = vi.fn();
-const summarizeMock = vi.fn();
+const phaseTransitionMock = vi.fn();
+const startPendingPhaseMock = vi.fn();
 const pushPanelMock = vi.fn();
 const createApiClientMock = vi.fn();
 const hasPendingNudgeMock = vi.fn();
@@ -88,7 +89,8 @@ vi.mock('@/lib/api/requests/worker/chat', () => ({
     sendAction: (...args: Parameters<typeof sendActionMock>) => sendActionMock(...args),
     sendIntakeAction: (...args: Parameters<typeof sendIntakeActionMock>) => sendIntakeActionMock(...args),
     associateUploads: (...args: Parameters<typeof associateUploadsMock>) => associateUploadsMock(...args),
-    summarize: (...args: Parameters<typeof summarizeMock>) => summarizeMock(...args),
+    requestPhaseTransition: (...args: Parameters<typeof phaseTransitionMock>) => phaseTransitionMock(...args),
+    startPendingPhase: (...args: Parameters<typeof startPendingPhaseMock>) => startPendingPhaseMock(...args),
 }));
 
 vi.mock('@/modules/artifacts/providers/artifact-provider', () => ({
@@ -200,7 +202,8 @@ describe('ChatProvider', () => {
         sendIntakeActionMock.mockReset();
         onChatCreatedMock.mockReset();
         associateUploadsMock.mockReset();
-        summarizeMock.mockReset();
+        phaseTransitionMock.mockReset();
+        startPendingPhaseMock.mockReset();
         pushPanelMock.mockReset();
         closePanelMock.mockReset();
         setSelectedModelMock.mockReset();
@@ -778,8 +781,8 @@ describe('ChatProvider', () => {
         expect(onChatCreatedMock).toHaveBeenCalledWith('company-chat-2');
     });
 
-    it('summarizes and navigates to the new phase chat', async () => {
-        summarizeMock.mockResolvedValue(mockResponse());
+    it('starts the phase transition request', async () => {
+        phaseTransitionMock.mockResolvedValue(mockResponse());
 
         const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWrapper });
 
@@ -788,16 +791,16 @@ describe('ChatProvider', () => {
         });
 
         await act(async () => {
-            await result.current.summarizeChat();
+            await result.current.startPhaseTransition();
         });
 
-        expect(summarizeMock).toHaveBeenCalledWith({ chatId: 'chat-1' }, 'token-abc');
-        expect(result.current.state.summaryNewChatId).toBeNull();
+        expect(phaseTransitionMock).toHaveBeenCalledWith({ chatId: 'chat-1' }, 'token-abc');
+        expect(result.current.state.transitionNewChatId).toBeNull();
         expect(result.current.state.error).toBeNull();
     });
 
-    it('handles summarize HTTP error', async () => {
-        summarizeMock.mockResolvedValue(mockResponse('summary failed', { ok: false, status: 500 }));
+    it('handles requestPhaseTransition HTTP error', async () => {
+        phaseTransitionMock.mockResolvedValue(mockResponse('transition failed', { ok: false, status: 500 }));
 
         const { result } = renderHook(() => useChatContext<'phase'>(), { wrapper: phaseWrapper });
 
@@ -806,11 +809,11 @@ describe('ChatProvider', () => {
         });
 
         await act(async () => {
-            await result.current.summarizeChat();
+            await result.current.startPhaseTransition();
         });
 
-        expect(result.current.state.isSummarizing).toBe(false);
-        expect(result.current.state.error?.message).toBe('Summarize failed: 500 — summary failed');
+        expect(result.current.state.isTransitioning).toBe(false);
+        expect(result.current.state.error?.message).toBe('Phase transition failed: 500 — transition failed');
     });
 
     it('sends force_brief as a null-message nudge and enters forcing state', async () => {
@@ -853,13 +856,13 @@ describe('ChatProvider', () => {
                 payload: {
                     chatId: 'chat-initial',
                     status: 'failed',
-                    message: 'Summary failed',
+                    message: 'Phase transition failed',
                 },
             });
         });
 
         expect(result.current.state.hardStopModalState).toBe('idle');
-        expect(result.current.state.hardStopError).toBe('Summary failed');
+        expect(result.current.state.hardStopError).toBe('Phase transition failed');
     });
 
     it('seeds hasPendingChanges from cache and clears via context methods', () => {

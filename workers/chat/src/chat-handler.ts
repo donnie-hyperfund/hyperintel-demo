@@ -85,7 +85,7 @@ export interface ChatHandlerOptions {
 }
 
 export interface ChatActionResult {
-    /** Set when a user message was persisted. Absent for force-brief States A/C (summarize-only — no user input). */
+    /** Set when a user message was persisted. Absent for force-brief States A/C (transition-only — no user input). */
     userMessageId?: string;
     agentMessageId: string;
     /** Resolves when generation completes. Present when onEvent is provided. */
@@ -378,7 +378,7 @@ export async function chatActionHandler(
             ctx,
             options,
             chat,
-            deps: { dispatchBlurb: chatActionHandler, prepareChatGenerationInput, runGeneration },
+            deps: { prepareChatGenerationInput, runGeneration },
         });
     }
 
@@ -671,7 +671,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             allTools,
             {
                 toolGroups,
-                terminalToolNames: ['generate_summary'],
+                terminalToolNames: ['start_phase_transition'],
                 config: {
                     maxToolCalls: 100,
                     getSystemPrompt: async () =>

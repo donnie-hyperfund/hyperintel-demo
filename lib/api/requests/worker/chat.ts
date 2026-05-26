@@ -19,10 +19,11 @@ import {
 } from '@/lib/schema/artifact';
 import {
     AbortActionDto,
+    PhaseTransitionActionDto,
+    type PhaseTransitionActionResponseDto,
     SendChatActionDto,
     type SendChatActionResponseDto,
-    SummarizeActionDto,
-    type SummarizeActionResponseDto,
+    StartPendingPhaseActionDto,
 } from '@/lib/schema/chat';
 
 export const sendIntakeAction = (
@@ -94,12 +95,12 @@ export const abort = (data: AbortActionDto, accessToken: string): Promise<TypedR
     });
 };
 
-export const summarize = (
-    data: SummarizeActionDto,
+export const requestPhaseTransition = (
+    data: PhaseTransitionActionDto,
     accessToken: string,
-): Promise<TypedResponse<SummarizeActionResponseDto>> => {
+): Promise<TypedResponse<PhaseTransitionActionResponseDto>> => {
     if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
-        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.SummarizeAction);
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.PhaseTransitionAction);
         return typedFetch(workerUrl, {
             method: 'POST',
             headers: {
@@ -109,7 +110,31 @@ export const summarize = (
             body: JSON.stringify(data),
         });
     }
-    return typedFetch(WORKERS_LOCAL_ENDPOINTS.SummarizeAction, {
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.PhaseTransitionAction, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+    });
+};
+
+export const startPendingPhase = (
+    data: StartPendingPhaseActionDto,
+    accessToken: string,
+): Promise<TypedResponse<SendChatActionResponseDto>> => {
+    if (!frontendEnv.NEXT_PUBLIC_LOCAL_WORKERS && frontendEnv.NEXT_PUBLIC_CLOUDFLARE_BASE) {
+        const workerUrl = getWorkerUrl(WORKERS.Chat, CHAT_EP.StartPendingPhaseAction);
+        return typedFetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(data),
+        });
+    }
+    return typedFetch(WORKERS_LOCAL_ENDPOINTS.StartPendingPhaseAction, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
