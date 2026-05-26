@@ -10,6 +10,9 @@ secrets:
 # AI clients needed for embeddings
 # ai: true
 
+unstub:
+  - langfuse
+
 queues:
   consumers:
     - queue: hi-embedding-queue

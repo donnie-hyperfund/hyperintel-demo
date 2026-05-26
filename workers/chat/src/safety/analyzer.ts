@@ -14,10 +14,10 @@
  */
 
 import { AIParamsType, runInferenceNoStream } from '@common/ai/inference';
-import { getLangfusePromptRaw } from '@worker/vendor/langfuse-prompts';
 import { z } from 'zod';
 import { COMMON_MODELS } from '@/common/ai/types';
 import type { Ctx } from '../context';
+import { getPromptContent } from '../utils/prompt-loader';
 
 const DEFAULT_MODEL = COMMON_MODELS.GEMINI_FLASH_3;
 const FALLBACK_MODELS = [
@@ -62,7 +62,7 @@ async function getAnalyzerPrompt(ctx: Ctx): Promise<string | null> {
     if (cachedPrompt) return cachedPrompt;
 
     try {
-        const prompt = await getLangfusePromptRaw(ctx.langfuse!, ANALYZER_PROMPT_SLUG, ctx.env);
+        const prompt = await getPromptContent(ctx, ANALYZER_PROMPT_SLUG, null);
         if (prompt) cachedPrompt = prompt;
         return prompt;
     } catch {

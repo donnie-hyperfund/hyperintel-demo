@@ -1,8 +1,31 @@
 import { createClerkClient } from '@clerk/backend';
+import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { branchDoName, getPreviewAlias, PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
+import {
+    exportArtifactVersionDocx,
+    type ExportArtifactVersionDocxInput,
+    type ExportArtifactVersionDocxResult,
+} from './docx-exporter';
+import {
+    getLangfusePromptRawRpc,
+    type GetLangfusePromptRawInput,
+    type GetLangfusePromptRawResult,
+} from './langfuse-service';
 
 const app = new Hono<{ Bindings: ServicesEnv }>();
+
+export class DocxExportService extends WorkerEntrypoint<ServicesEnv> {
+    exportArtifactVersionDocx(input: ExportArtifactVersionDocxInput): Promise<ExportArtifactVersionDocxResult> {
+        return exportArtifactVersionDocx(input, this.env);
+    }
+}
+
+export class LangfusePromptService extends WorkerEntrypoint<ServicesEnv> {
+    getPromptRaw(input: GetLangfusePromptRawInput): Promise<GetLangfusePromptRawResult> {
+        return getLangfusePromptRawRpc(input, this.env);
+    }
+}
 
 app.get('/', (c) => {
     return c.json({ status: 'ok', worker: 'services' });

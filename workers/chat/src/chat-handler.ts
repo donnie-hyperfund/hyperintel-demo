@@ -537,7 +537,7 @@ export interface GenerationParams {
 export async function runGeneration(params: GenerationParams): Promise<void> {
     const { data, ctx, options, chat, agentMessageId, ugStub, preparedInput, safetyPromise } = params;
     const { chatId, message } = data;
-    const { anthropic, langfuse, em } = ctx;
+    const { anthropic, em } = ctx;
 
     const { streamDO, abortController, pusher } = setupStreamInfra(agentMessageId, ctx, 'chat-handler');
     const draftManager = new DraftManager();
@@ -560,9 +560,9 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         });
 
     try {
-        if (!anthropic || (!langfuse && !options.useLocalPrompts)) {
+        if (!anthropic || (!ctx.env.LANGFUSE_PROMPT_SERVICE && !options.useLocalPrompts)) {
             throw new Error(
-                'Anthropic and Langfuse clients are required (langfuse can be skipped with useLocalPrompts)',
+                'Anthropic and Langfuse prompt service are required (Langfuse can be skipped with useLocalPrompts)',
             );
         }
 
