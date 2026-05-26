@@ -5,8 +5,8 @@ export {
 } from '@/lib/constants/context-limits';
 
 export const CONTEXT_THRESHOLDS = {
-    caution: 60,
-    critical: 80,
+    caution: 40,
+    critical: 50,
 } as const;
 
 export const intakeConfigMap = {
