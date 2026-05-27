@@ -10,9 +10,7 @@ export function usePhasePosition() {
     const { data: chatPages } = useFetchChatsInfinite(projectId);
     const totalPhases = chatPages?.[0]?.pagination.total ?? 0;
 
-    const hasResolvedPhasePosition = typeof phaseIndex === 'number' && totalPhases > 0;
-    const isLatestPhase = hasResolvedPhasePosition && phaseIndex === totalPhases - 1;
-    const isResolvedNonLatestPhase = hasResolvedPhasePosition && !isLatestPhase;
+    const isLatestPhase = typeof phaseIndex === 'number' && totalPhases > 0 && phaseIndex === totalPhases - 1;
 
-    return { isLatestPhase, isResolvedNonLatestPhase };
+    return { isLatestPhase };
 }
