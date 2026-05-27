@@ -1,8 +1,9 @@
 /**
  * Lookup helper: find the chat that was created as the next phase from a given
- * source chat. The summarizer stamps `metadata.summarizedFrom = <sourceChatId>`
- * on the new phase chat (see `summarizer.ts` where the new chat is created),
- * which is the only signal of the parent → child phase relationship today.
+ * source chat. The transition flow stamps
+ * `metadata.transitionedFrom = <sourceChatId>` on the new phase chat (see
+ * `phase-transition/chat-lifecycle.ts` where the new chat is created), which is the only signal of
+ * the parent → child phase relationship.
  *
  * The query narrows by `project_id` first (FK index) so the JSON-expression
  * predicate runs against a small per-project subset rather than the whole
@@ -21,7 +22,7 @@ export async function findNextPhaseChat(
         ChatEntity,
         {
             project: opts.projectId,
-            [raw("metadata->>'summarizedFrom'")]: opts.sourceChatId,
+            [raw("metadata->>'transitionedFrom'")]: opts.sourceChatId,
         },
         { orderBy: { created_at: 'ASC' } },
     );

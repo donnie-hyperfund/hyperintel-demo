@@ -7,12 +7,11 @@
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
-import { raw } from '@mikro-orm/core';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { z } from 'zod';
 import { getCompletionBriefKey } from '@/lib/artifacts/utils';
-import { ArtifactVersionEntity } from '@/lib/orm/entities/artifacts/artifact-version.entity';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
+import { loadPhaseDocuments } from '../utils/phase-documents';
 
 // ============================================================================
 // TYPES
@@ -44,14 +43,6 @@ const CB_SLUG = 'pma/completion-brief';
 
 const CompletionBriefParams = z.object({});
 
-type PhaseDocumentRow = {
-    artifact_key: string | null;
-    title: string;
-    version: number;
-    status: string;
-    content_preview: string | null;
-};
-
 export function createCompletionBriefTools() {
     return [
         {
@@ -71,27 +62,7 @@ export function createCompletionBriefTools() {
                 const briefName = getCompletionBriefKey(phaseNumber);
                 const today = new Date().toISOString().split('T')[0];
 
-                const documents = (
-                    (await ctx.em
-                        .createQueryBuilder(ArtifactVersionEntity, 'v')
-                        .select([
-                            'a.key as artifact_key',
-                            'v.title as title',
-                            'v.version as version',
-                            'v.status as status',
-                            raw('left(v.content, 500)').as('content_preview'),
-                        ])
-                        .leftJoin('v.artifact', 'a')
-                        .where({ 'v.chat': ctx.chatId })
-                        .orderBy({ 'v.created_at': 'ASC' })
-                        .execute('all')) as PhaseDocumentRow[]
-                ).map((version) => ({
-                    name: version.artifact_key ?? version.title,
-                    title: version.title,
-                    version: version.version,
-                    status: version.status,
-                    contentPreview: version.content_preview ?? undefined,
-                }));
+                const documents = await loadPhaseDocuments(ctx.em, ctx.chatId);
 
                 // Build result parts
                 const parts: string[] = [

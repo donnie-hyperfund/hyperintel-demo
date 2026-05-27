@@ -14,11 +14,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { IconButton } from '@/components/ui/icon-button';
 
-type CancelSummaryButtonProps = {
+type CancelPhaseTransitionButtonProps = {
     onConfirm: () => void;
 };
 
-export function CancelSummaryButton({ onConfirm }: CancelSummaryButtonProps) {
+export function CancelPhaseTransitionButton({ onConfirm }: CancelPhaseTransitionButtonProps) {
     return (
         <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -28,9 +28,9 @@ export function CancelSummaryButton({ onConfirm }: CancelSummaryButtonProps) {
             </AlertDialogTrigger>
             <AlertDialogContent>
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Cancel summarization?</AlertDialogTitle>
+                    <AlertDialogTitle>Cancel phase transition?</AlertDialogTitle>
                     <AlertDialogDescription>
-                        All generated documents will be discarded. You can start again later.
+                        The next phase will not be prepared. You can start again later.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

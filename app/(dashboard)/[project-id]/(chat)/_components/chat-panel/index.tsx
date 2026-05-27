@@ -1,7 +1,9 @@
 'use client';
 
 import { AnimatePresence } from 'motion/react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useSyncHeightToCssVar } from '@/hooks/use-sync-height-to-css-var';
+import { CSS_VARS } from '@/lib/css-vars';
 import { DevSlot } from '@/lib/dev-slots';
 import { cn } from '@/lib/utils';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
@@ -64,6 +66,9 @@ function ChatPanelContent({
     });
     const showScrollToBottom = !scrollState.isAtBottom && messages.length > 0;
 
+    const floatingControlsRef = useRef<HTMLDivElement>(null);
+    useSyncHeightToCssVar(floatingControlsRef, CSS_VARS.CHAT_FLOATING_CONTROLS_HEIGHT);
+
     if (isEmpty) {
         const content = (
             <>
@@ -90,7 +95,10 @@ function ChatPanelContent({
             <div className="flex min-h-0 flex-1 flex-col">
                 <ChatConversation onScrollStateChange={setScrollState} />
                 <div className="relative z-10 -mt-6 shrink-0">
-                    <div className="pointer-events-none absolute inset-x-0 bottom-full z-20 flex flex-col items-center gap-3 pb-3">
+                    <div
+                        ref={floatingControlsRef}
+                        className="pointer-events-none absolute inset-x-0 bottom-full z-20 flex flex-col items-center gap-3 pb-3"
+                    >
                         <AnimatePresence>
                             {showScrollToBottom && (
                                 <ScrollToBottomButton

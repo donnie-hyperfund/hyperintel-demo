@@ -33,10 +33,16 @@ describe('ContextHardStopModal', () => {
 
     it('surfaces forced-transition errors in the modal', () => {
         render(
-            <ContextHardStopModal open state="idle" error="Summary failed" onConfirm={onConfirm} onCancel={onCancel} />,
+            <ContextHardStopModal
+                open
+                state="idle"
+                error="Phase transition failed"
+                onConfirm={onConfirm}
+                onCancel={onCancel}
+            />,
         );
 
-        expect(screen.getByText('Summary failed')).toBeTruthy();
+        expect(screen.getByText('Phase transition failed')).toBeTruthy();
     });
 
     it('navigates instead of forcing when the phase already transitioned', () => {

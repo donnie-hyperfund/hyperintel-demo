@@ -47,6 +47,8 @@ export function ArtifactFilePreview({ artifactId, onClose }: ArtifactFilePreview
         );
     }
 
+    const content = version?.content ?? version?.summaryInternal;
+
     return (
         <div className="flex flex-col h-full bg-neutral-975 overflow-hidden">
             <ArtifactFilePreviewHeader
@@ -57,13 +59,13 @@ export function ArtifactFilePreview({ artifactId, onClose }: ArtifactFilePreview
                 fileId={file?.id}
                 mimeType={file?.mimeType}
                 fileUrl={fileUrl}
-                content={version?.content}
+                content={content}
                 isUploaded={version?.isUploaded}
                 onClose={onClose}
             />
             <div className="relative flex-1 min-h-0">
                 <div className="absolute inset-0">
-                    <ArtifactFilePreviewContent file={file} content={version?.content} />
+                    <ArtifactFilePreviewContent file={file} content={content} />
                 </div>
             </div>
         </div>

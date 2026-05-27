@@ -59,7 +59,7 @@ type StreamingState = {
     currentTextBlockId: string | null;
     currentReasoningBlockId: string | null;
     streamingDocs: Map<string, StreamingDoc>;
-    /** Map keyed by versionId → summary stream state. */
+    /** Map keyed by versionId → phase-transition stream state. */
     streamingSummaries: Map<string, StreamingSummary>;
 };
 
@@ -74,7 +74,7 @@ type StreamSessionAnalytics = {
     agentMessageId: string;
     startedAt: number;
     eventCount: number;
-    streamType: 'chat' | 'summary' | null;
+    streamType: 'chat' | 'phase_transition' | null;
 };
 
 export type ToolDocumentDecision = {
@@ -117,9 +117,9 @@ export type UseStreamOptions = {
         agentMessageId: string,
         userMessageId: string,
         tempId?: string,
-        streamType?: 'chat' | 'summary',
+        streamType?: 'chat' | 'phase_transition',
     ) => void;
-    /** Called when a terminal tool completes (e.g. generate_summary) via done event */
+    /** Called when a terminal tool completes (e.g. start_phase_transition) via done event */
     onTerminalTool?: (toolName: string) => void;
     /** Called when a new chat message is created and broadcast */
     onMessageCreated?: (message: unknown, tempId?: string) => void;
@@ -150,8 +150,8 @@ export type UseStreamReturn = {
     status: StreamStatus | 'idle';
     displayStatus: string | null;
     agentMessageId: string | null;
-    /** Set when a summary stream is active (streamType: 'summary' on stream_started or subscribe_response snapshot) */
-    streamType: 'chat' | 'summary' | null;
+    /** Set when a phase-transition stream is active. */
+    streamType: 'chat' | 'phase_transition' | null;
     error: string | null;
     /** True when a safety_retract event was received — message content has been wiped */
     isRetracted: boolean;
@@ -239,7 +239,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const [status, setStatus] = useState<StreamStatus | 'idle'>('idle');
     const [displayStatus, setDisplayStatus] = useState<string | null>(null);
     const [agentMessageId, setAgentMessageId] = useState<string | null>(null);
-    const [streamType, setStreamType] = useState<'chat' | 'summary' | null>(null);
+    const [streamType, setStreamType] = useState<'chat' | 'phase_transition' | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [isRetracted, setIsRetracted] = useState(false);
     const ownedAgentMessageIdRef = useRef<string | null>(null);
@@ -302,7 +302,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     };
     const docDripRef = useRef(new TokenDrip<DocDripItem>(applyDocDrip, () => flushActiveDocuments()));
 
-    // Summary delta drip — same adaptive smoothing for the per-version PECP summary stream.
+    // Internal-summary delta drip — same adaptive smoothing used for artifact content.
     type SummaryDripItem = { versionId: string; content: string };
     const applySummaryDrip = (item: SummaryDripItem) => {
         const summary = stateRef.current.streamingSummaries.get(item.versionId);
@@ -409,7 +409,10 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
         stateRef.current.streamingSummaries.clear();
     };
 
-    const startStreamSessionAnalytics = (nextAgentMessageId: string, nextStreamType: 'chat' | 'summary' | null) => {
+    const startStreamSessionAnalytics = (
+        nextAgentMessageId: string,
+        nextStreamType: 'chat' | 'phase_transition' | null,
+    ) => {
         const current = streamSessionRef.current;
         if (current?.agentMessageId === nextAgentMessageId) return;
         streamSessionRef.current = {
@@ -423,7 +426,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
     const captureSubscribeCompleted = (
         responseStatus: SubscribeResponse['status'],
         responseAgentMessageId?: string,
-        responseStreamType?: 'chat' | 'summary' | null,
+        responseStreamType?: 'chat' | 'phase_transition' | null,
     ) => {
         const startedAt = subscribeStartedAtRef.current;
         if (startedAt === null) return;
@@ -699,7 +702,7 @@ export function useStream(domain: string, id: string | null, opts: UseStreamOpti
                 // For internal docs, the auto-generated summary is produced *inside*
                 // finalize_document BEFORE the tool returns — so the SSE order on the
                 // wire is: summary_start, summary_delta..., summary_complete, then this
-                // document_complete event. By now summary state has already been
+                // document_complete event. By now phase-transition state has already been
                 // settled by summary_complete (or never started for non-internal docs).
                 // Don't touch summaryStreaming / isSummaryStreaming here, and only
                 // clear isStreaming once everything has actually finished.

@@ -93,8 +93,8 @@ export type SubscribeResponseStreaming = {
     snapshot: StreamSnapshot;
     /** @same as event `_seq`; FE drops buffered/live events with `_seq <= seqHigh` after applying the snapshot. */
     seqHigh?: number;
-    /** Present when streaming a summary (not a normal chat response) */
-    streamType?: 'chat' | 'summary';
+    /** Present when streaming a phase transition (not a normal chat response) */
+    streamType?: 'chat' | 'phase_transition';
     selectedModel?: string | null;
     completionBriefStatus?: string | null;
 };
@@ -133,8 +133,8 @@ export type StreamStartedMessage = {
     agentMessageId: string;
     userMessageId?: string;
     tempId?: string;
-    /** Present when streaming a summary (not a normal chat response) */
-    streamType?: 'chat' | 'summary';
+    /** Present when streaming a phase transition (not a normal chat response) */
+    streamType?: 'chat' | 'phase_transition';
 };
 
 export type ChatMessageCreatedMessage = {

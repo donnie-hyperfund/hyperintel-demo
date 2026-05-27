@@ -46,16 +46,22 @@ export const AbortActionSchema = z.object({
 
 export type AbortActionDto = z.infer<typeof AbortActionSchema>;
 
-export const SummarizeActionSchema = z.object({
+export const PhaseTransitionActionSchema = z.object({
     chatId: z.string().uuid(),
 });
 
-export type SummarizeActionDto = z.infer<typeof SummarizeActionSchema>;
+export type PhaseTransitionActionDto = z.infer<typeof PhaseTransitionActionSchema>;
 
-export const SummarizeActionResponseSchema = z.object({
+export const PhaseTransitionActionResponseSchema = z.object({
     agentMessageId: z.string().uuid(),
 });
-export type SummarizeActionResponseDto = z.infer<typeof SummarizeActionResponseSchema>;
+export type PhaseTransitionActionResponseDto = z.infer<typeof PhaseTransitionActionResponseSchema>;
+
+export const StartPendingPhaseActionSchema = z.object({
+    chatId: z.string().uuid(),
+});
+
+export type StartPendingPhaseActionDto = z.infer<typeof StartPendingPhaseActionSchema>;
 
 export const UpdateChatModelSchema = z.object({
     chatId: z.string().uuid(),
