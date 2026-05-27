@@ -1,22 +1,16 @@
 import { useCallback } from 'react';
-import { useFetchChatsInfinite } from '@/lib/api/client/hooks/use-chats';
 import { useChatContext } from '@/modules/chat/providers/chat-provider';
+import { usePhasePosition } from './use-phase-position';
 
 export function usePhaseGate() {
     const {
         sendMessage,
-        projectId,
-        state: { phaseIndex, messages, isLoading, isGenerating },
+        state: { messages, isLoading, isGenerating },
     } = useChatContext();
 
-    const { data: chatPages } = useFetchChatsInfinite(projectId);
-
-    const totalPhases = chatPages?.[0]?.pagination.total ?? 0;
-
-    const isLatestPhase = typeof phaseIndex === 'number' && totalPhases > 0 && phaseIndex === totalPhases - 1;
+    const { isLatestPhase } = usePhasePosition();
 
     const hasAssistantMessage = messages.some((message) => message.role === 'assistant');
-
     const canTransition = isLatestPhase && hasAssistantMessage && !isLoading;
 
     const requestCbGeneration = useCallback(() => {
