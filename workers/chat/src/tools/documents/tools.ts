@@ -31,14 +31,17 @@ import { approveArtifactHandler, rejectArtifactHandler } from '../../artifact-ap
 import type { Ctx } from '../../context';
 import {
     applyEdits,
+    buildPatchTouchedRegions,
     cleanupOrphanArtifact,
     countLines,
     type DocumentListItem,
     type DocumentScope,
+    draftFitsBeginContentCap,
     type EditOperation,
     extractViewport,
     findDocumentByName,
     findVersionByStatus,
+    formatFullDraftContent,
     listDocuments as listDocumentsDb,
     reserveDraftVersion,
     upsertDocument,
@@ -72,7 +75,7 @@ export interface DocumentToolsContext {
     createdVersionIds: string[];
     /**
      * Push stream events to the active SSE / DO stream (frontend listens via useStream).
-     * Set by chat-handler / summarizer when wiring tool execution into a streaming session.
+     * Set by chat-handler / phase transition when wiring tool execution into a streaming session.
      * The Internal Summary generator pushes `summary_start` / `summary_delta` / `summary_complete` here.
      */
     pushStreamEvents?: (events: StreamEvent[]) => void;
@@ -110,17 +113,17 @@ export const DocumentToolGroup: AgentToolGroup = {
 3. \`finalize_document\` - Save (MUST call or content is lost)
 
 ## Editing Strategy
-- For existing-document patch edits, use this sequence: \`begin_document(mode="edit")\` → \`read_document\` if you need exact current lines → \`patch_document\` → \`finalize_document\`.
+- For existing-document edits, start with \`begin_document\`; \`patch_document\` and \`write_document\` require an active draft. For patch edits, use \`begin_document(mode="edit")\` → \`patch_document\` → \`finalize_document\`. If \`begin_document\` returns \`content\`, use it directly and do not call \`read_document\`. Call \`read_document\` only after \`begin_document\` when begin omitted \`content\` or you need a viewport not in \`content\` / prior \`touched\`.
 - For appending content to an existing document, use this sequence: \`begin_document(mode="edit")\` → \`write_document\` with the new content → \`finalize_document\`.
 - For existing-document full rewrites (≥50% of content changing), use this sequence: \`begin_document(mode="replace")\` → \`write_document\` with the full replacement content → \`finalize_document\`.
 - If you authored or patched this document earlier in the same conversation, skip \`read_document\` and patch directly — your own content is authoritative.
-- Never call \`patch_document\` before \`begin_document\`; patches edit only the active draft.
-- After \`begin_document(mode="create")\`, call \`write_document\` to add the content.
+- After \`begin_document(mode="create")\`, call \`write_document\` to add the new draft content you want to save.
 - \`patch_document\` edits are atomic and verified. Do not re-read only to confirm a successful patch.
 - For \`patch_document\`, multiline \`oldContent\` and \`newContent\` are allowed. Ensure tool arguments remain valid JSON strings; do not place raw unescaped newlines inside JSON string literals.
-- \`read_document\` output prefixes each line with \`N: \` (e.g. \`5: some text\`) for orientation. This prefix is DISPLAY ONLY — do NOT include it in \`oldContent\` when patching. Copy only the actual line text that comes after \`N: \`.
+- \`begin_document\` \`content\`, \`patch_document\` \`touched\`, and \`read_document\` prefix lines with \`N: \` (e.g. \`5: some text\`) for orientation. This prefix is DISPLAY ONLY — do NOT include it in \`oldContent\`. Copy only the line text after \`N: \`.
 ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '- For `patch_document` edits, provide `startLine`, `oldContent`, and `newContent`; `endLine` is optional and only narrows the search window.' : '- For `patch_document` edits, provide exactly `startLine`, `oldContent`, and `newContent`. The replacement span is inferred from `oldContent`.'}
-- Batch all known edits into a single \`patch_document\` call so original line numbers from your \`read_document\` stay valid for every edit — re-reading between successive \`patch_document\` calls in the same turn is wasted work; combine them instead.
+- Within one \`patch_document\` call, all edit line numbers are interpreted in the active draft's pre-edit frame. Prefer anchors from \`begin_document\` \`content\` or prior \`patch_document\` \`touched\`; use \`read_document\` only as a fallback viewport after \`begin_document\`. Batch all edits for that one snapshot into a single \`patch_document\` call when possible.
+- Between separate \`patch_document\` calls, use the post-edit line numbers from the prior call's \`touched\` output for the next anchors. Do not \`read_document\` between successive patches just to re-anchor. If \`touched\` is omitted, truncated, or does not include the region you need, call \`read_document\` for the needed viewport.
 - For long-document simplification or structural rewrites, use patches that cover whole stable contiguous sections rather than many tiny edits.
 - If you decide to abandon the active draft without saving, call \`finalize_document({ action: "abort" })\`.
 
@@ -184,7 +187,7 @@ Never skip straight to \`read_document\` with a guessed name — always discover
 When you finalize an internal working document (Genesis DNA, Legacy DNA, Team Specification, MID, PSEB, Action Plan, Completion Brief, Company Profile, Human Persona), the backend automatically generates the PE-facing summary for it. You do NOT call any tools to produce it — it is written to the parent version's \`summary_internal\` field by a separate summary agent during finalize_document. After finalize_document returns, STOP and wait for the user.
 
 **CRITICAL: Do NOT write any PECP-style content in your chat reply.** After finalizing an internal document, your text response must be a single brief confirmation — no structure, no headers, no bullet points. Do NOT:
-- Summarize the document contents in your message
+- Recap the document contents in your message
 - Write client-facing narrative, executive summaries, or "what we built / why this matters" style text
 - Echo or paraphrase the document in any form
 The PECP summary is written automatically by a separate agent and displayed in the UI — your chat response is only a confirmation that the document was saved.
@@ -198,7 +201,7 @@ The PECP summary is written automatically by a separate agent and displayed in t
 - Call any document tools (begin_document, write_document, finalize_document, etc.) unless the user explicitly asks
 - Mention "Phase 2", "next step", or suggest what comes next — let the user drive the workflow
 Only create, edit, or finalize documents when the user explicitly asks for them in their message.`,
-    behavioralGuidance: `Do not re-read only to confirm a successful patch. If you authored or patched this document earlier in the same conversation, skip read_document and patch directly — your own content is authoritative. Before patching an existing document, call begin_document(mode="edit") so there is an active draft. For rewriting most of an existing document, call begin_document(mode="replace") and then write_document with the full replacement content. After begin_document(mode="create") or begin_document(mode="replace"), call write_document with the document content. ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? 'Patch edits may include optional endLine only to narrow the search window.' : 'Patch edits have exactly three fields: startLine, oldContent, and newContent.'} When copying text from read_document into oldContent, strip the leading "N: " line-number prefix — it is display-only and must not appear in oldContent. Batch all known edits into a single patch_document call so original line numbers from read_document stay valid for every edit — re-reading between successive patch_document calls in the same turn is wasted work; combine them instead. For long-document simplification or structural rewrites, use patches that cover whole stable contiguous sections rather than many tiny edits. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: When you receive a <system> event indicating an artifact was RESTORED, the selected content has been saved as a new PROPOSED version awaiting the user's decision — it is NOT live and the action is NOT complete. The system event itself contains the exact ::document[…] directive and instructions inline — follow them verbatim, briefly acknowledge, and ask what the user wants to do. Do NOT manufacture ::document[…] directives on your own outside of this restore flow — they belong in finalize_document/list_documents tool output and in restore system events only. Do NOT preemptively call approve_document or reject_document — the restored proposed version follows the normal approval flow (UI button or explicit user signal in next chat message). CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request. The PE-facing summary for an internal document is generated automatically by the backend during finalize_document — you do not need to (and must not) create a separate "PECP" document yourself. CRITICAL: After finalize_document for an internal document, your chat reply must be a single brief confirmation — no structure, no headers, no bullet points. Do NOT write PECP-style summaries, client-facing narratives, document recaps, or "what we built / why this matters" content in your chat message — the PECP is generated by a separate agent and displayed in the UI. After approving, rejecting, or restoring a document, STOP and wait for the user's next instruction — UNLESS the same message had an explicit follow-up request (e.g. "approved, now do X"), in which case do exactly X and then stop. Never chain into "what's next" or generate proactive follow-up content. \`<system>\` approval/rejection/restore events are never compound — always stop. CRITICAL: When a document tool returns an error with multiple concrete recovery paths (name conflict, not found, mode mismatch, etc.), NEVER silently recover or decide on your own. Call request_user_decision with a clear question and the concrete named options, then act on the user's choice.`,
+    behavioralGuidance: `Always call begin_document(mode="edit") before the first patch_document for existing-document edits; patch_document applies only to the active draft. If begin_document returns content, use it directly and do not call read_document. read_document is only a fallback after begin_document when begin omitted content or you need a viewport not in begin content or prior touched. Do not re-read only to confirm a successful patch. If you authored or patched this document earlier in the same conversation, skip read_document and patch directly — your own content is authoritative. For rewriting most of an existing document, call begin_document(mode="replace") and then write_document with the new draft content you want to save. In replace mode, returned content is the prior version for reference only; the active draft starts empty. After begin_document(mode="create") or begin_document(mode="replace"), call write_document with the new draft content you want to save. ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? 'Patch edits may include optional endLine only to narrow the search window.' : 'Patch edits have exactly three fields: startLine, oldContent, and newContent.'} When copying text from begin_document content, patch_document touched, or read_document into oldContent, strip the leading "N: " line-number prefix — it is display-only and must not appear in oldContent. Within one patch_document call, all edit line numbers are interpreted in the active draft's pre-edit frame. Prefer anchors from begin_document content or prior patch_document touched; use read_document only as a fallback viewport after begin_document. Batch all known edits for that snapshot into a single patch_document call when possible. Between separate patch_document calls, use post-edit line numbers from the prior call's touched output for the next anchors; do not read_document between successive patches just to re-anchor. If touched is omitted, truncated, or does not include the region you need, call read_document for the needed viewport. For long-document simplification or structural rewrites, use patches that cover whole stable contiguous sections rather than many tiny edits. Do NOT include meta-labels like "AI Readable Specification" or "Machine Readable Format" in documents — write clean, professional content. When a REGULAR user message (not a <system> event) contains approval/rejection signals AND a proposed document is pending, ALWAYS call approve_document or reject_document FIRST before handling other requests in the same message. CRITICAL: When you receive a <system> event indicating an artifact was approved or rejected, the action is ALREADY DONE — do NOT call approve_document or reject_document again, do NOT call any document tools, and do NOT start generating next documents or phases. Just briefly acknowledge and wait for the user to tell you what to do next. CRITICAL: When you receive a <system> event indicating an artifact was RESTORED, the selected content has been saved as a new PROPOSED version awaiting the user's decision — it is NOT live and the action is NOT complete. The system event itself contains the exact ::document[…] directive and instructions inline — follow them verbatim, briefly acknowledge, and ask what the user wants to do. Do NOT manufacture ::document[…] directives on your own outside of this restore flow — they belong in finalize_document/list_documents tool output and in restore system events only. Do NOT preemptively call approve_document or reject_document — the restored proposed version follows the normal approval flow (UI button or explicit user signal in next chat message). CRITICAL: approve_document ONLY works on "proposed" documents. If a document is rejected/approved/superseded, do NOT attempt to approve it — revise it first (begin_document → edit → finalize_document) to create a new proposed version, then approve. If approve_document or reject_document returns an error, NEVER claim success and NEVER expose raw error details or internal statuses to the user — communicate naturally and take the recovery action. CRITICAL: NEVER proactively create, write, or finalize documents that the user did not explicitly request. The PE-facing summary for an internal document is generated automatically by the backend during finalize_document — you do not need to (and must not) create a separate "PECP" document yourself. CRITICAL: After finalize_document for an internal document, your chat reply must be a single brief confirmation — no structure, no headers, no bullet points. Do NOT write PECP-style summaries, client-facing narratives, document recaps, or "what we built / why this matters" content in your chat message — the PECP is generated by a separate agent and displayed in the UI. After approving, rejecting, or restoring a document, STOP and wait for the user's next instruction — UNLESS the same message had an explicit follow-up request (e.g. "approved, now do X"), in which case do exactly X and then stop. Never chain into "what's next" or generate proactive follow-up content. \`<system>\` approval/rejection/restore events are never compound — always stop. CRITICAL: When a document tool returns an error with multiple concrete recovery paths (name conflict, not found, mode mismatch, etc.), NEVER silently recover or decide on your own. Call request_user_decision with a clear question and the concrete named options, then act on the user's choice.`,
     tools: [
         'begin_document',
         'write_document',
@@ -360,15 +363,31 @@ function collapsePatchDocument(block: ToolCallStreamBlock): { toolInput?: unknow
 
     const output = parseToolOutputObject(block);
     if (output) {
-        output.recallHint = 'Use recall_tool_call to retrieve the original edits.';
+        output.recallHint = 'Use recall_tool_call to retrieve the original edits or touched-region content.';
+        delete output.touched;
         return { toolInput: collapsedInput, toolOutput: JSON.stringify(output) };
     }
     return { toolInput: collapsedInput };
 }
 
+function collapseBeginDocument(block: ToolCallStreamBlock): { toolOutput?: string } {
+    const output = parseToolOutputObject(block);
+    if (!output || !('content' in output)) return {};
+
+    const contentStats = textStats(output.content);
+    const collapsed = { ...output };
+    delete collapsed.content;
+    collapsed.contentCollapsed = true;
+    collapsed.contentLines = contentStats.lines;
+    collapsed.contentChars = contentStats.chars;
+    collapsed.recallHint = 'Use recall_tool_call to retrieve the loaded draft content.';
+
+    return { toolOutput: JSON.stringify(collapsed) };
+}
+
 function collapseReadDocument(block: ToolCallStreamBlock): { toolOutput?: string } {
     const output = parseToolOutputObject(block);
-    if (!output || !Object.hasOwn(output, 'content')) return {};
+    if (!output || !('content' in output)) return {};
 
     const contentStats = textStats(output.content);
     const collapsed = { ...output };
@@ -412,8 +431,11 @@ After calling this:
 - use write_document to add content in create or replace mode
 - use patch_document for precise edits in edit mode
 - use mode="replace" instead of edit+patch when rewriting most of an existing document from scratch
+When editing an existing small/medium document, the loaded draft content is returned in the result when it contains the lines you need — no separate read_document call is needed in that case.
+In replace mode, returned content is the prior version for reference only; the active draft starts empty and must be rewritten with write_document.
 You MUST call finalize_document when done or content will be lost.`,
             parameters: BeginDocumentParams,
+            collapseResult: collapseBeginDocument,
             executor: async (input: z.infer<typeof BeginDocumentParams>, ctx: DocumentToolsContext) => {
                 const { mode, name, title, document_type } = input;
                 const { em, draftManager, lockService } = ctx;
@@ -544,6 +566,16 @@ You MUST call finalize_document when done or content will be lost.`,
                     };
                     const replaceMessage = `Replacing ${loadedFrom} v${loadedVersion}. Write the full replacement content, then finalize_document.`;
 
+                    const loadedContentForCap = contentToLoad;
+                    const includeLoadedContent =
+                        (mode === 'edit' || mode === 'replace') && draftFitsBeginContentCap(loadedContentForCap);
+                    const editMessageWithContent = loadedFrom
+                        ? `Editing from ${loadedFrom} v${loadedVersion}. Full draft included — no separate read needed. Make changes, then finalize_document.`
+                        : messages[loadedFrom];
+                    const replaceMessageWithContent = loadedFrom
+                        ? `Replacing ${loadedFrom} v${loadedVersion}. Prior version included below (draft is empty) — no separate read needed. Write the full replacement, then finalize_document.`
+                        : replaceMessage;
+
                     return {
                         result: {
                             status: 'editing',
@@ -561,7 +593,17 @@ You MUST call finalize_document when done or content will be lost.`,
                             loadedVersion,
                             nextVersion: reservedVersion,
                             lines: countLines(draft.content),
-                            message: mode === 'replace' ? replaceMessage : messages[loadedFrom],
+                            message:
+                                mode === 'replace'
+                                    ? includeLoadedContent
+                                        ? replaceMessageWithContent
+                                        : replaceMessage
+                                    : includeLoadedContent
+                                      ? editMessageWithContent
+                                      : messages[loadedFrom],
+                            ...(includeLoadedContent && {
+                                content: formatFullDraftContent(loadedContentForCap),
+                            }),
                             ...(wasDeleted && { previouslyDeleted: true }),
                             ...(rejectionReason && { rejectionReason }),
                         },
@@ -642,12 +684,13 @@ Past write_document calls may show __collapsedContent="${COLLAPSED_FIELD_SENTINE
         // ----------------------------------------------------------------
         {
             name: 'patch_document' as const,
-            description: `Make precise edits to the current draft. Batch multiple edits into one call when possible.
+            description: `Make precise edits to the current active draft. Requires an active draft from begin_document(mode="edit"); read_document alone is not enough. Batch multiple edits into one call when possible.
 
 Each edit: startLine anchor + exact oldContent to find + newContent replacement.
 ${PATCH_DOCUMENT_ALLOW_EXPLICIT_END_LINE ? '`endLine` is optional; use it only to narrow the search window.' : 'Provide exactly `startLine`, `oldContent`, and `newContent`; the replacement span is inferred from `oldContent`.'}
-IMPORTANT: \`read_document\` shows lines prefixed with \`N: \` (e.g. \`5: some text\`) — that prefix is display-only. Do NOT include it in \`oldContent\`; copy only the line text after \`N: \`.
-Edits are atomic - all succeed or none apply. No need to read_document between patches.
+IMPORTANT: \`begin_document\` \`content\`, \`touched\`, and \`read_document\` use the same \`N: \` line prefix — display-only; strip it from \`oldContent\`.
+Within this one call, all edits use the same pre-edit line frame from the current draft snapshot; batch all edits for that snapshot when possible.
+Edits are atomic — all succeed or none apply. On success, returns post-edit line ranges in \`touched[]\` (numbered content per region) — use these post-edit numbers to anchor the next \`patch_document\` call without a separate \`read_document\` call when they include the lines you need. If \`touched\` is omitted, truncated, or does not include the region you need, call \`read_document\` for the needed viewport.
 "${COLLAPSED_FIELD_SENTINEL}" in historical edits is a system marker for omitted content, not text to use in oldContent or newContent.`,
             parameters: PatchDocumentParams,
             collapseResult: collapsePatchDocument,
@@ -716,11 +759,17 @@ Edits are atomic - all succeed or none apply. No need to read_document between p
                         draftManager.setAppliedEdits(toolCallId, result.appliedEdits);
                     }
 
+                    const { touched, truncated } = result.appliedEdits?.length
+                        ? buildPatchTouchedRegions(result.newContent!, result.appliedEdits)
+                        : { touched: [], truncated: false };
+
                     return {
                         result: {
                             status: 'edited',
                             editsApplied: edits.length,
                             linesNow: result.linesNow,
+                            ...(touched.length > 0 && { touched }),
+                            ...(truncated && { truncated: true }),
                         },
                         metadata: { internal: updatedDraft.is_internal },
                     };

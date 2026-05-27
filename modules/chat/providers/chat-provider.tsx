@@ -16,9 +16,10 @@ import {
     abort,
     associateUploads,
     clearDrafts,
+    requestPhaseTransition as requestPhaseTransitionAction,
     sendAction,
     sendIntakeAction,
-    summarize,
+    startPendingPhase,
 } from '@/lib/api/requests/worker/chat';
 import type { ChatDto, ChatMessageDto } from '@/lib/schema/message';
 import type { PendingDecision, StreamEvent, StreamStatus, TokenUsage } from '@/lib/schema/stream';
@@ -37,7 +38,7 @@ import { useChatStream } from '../hooks/use-chat-stream';
 import type { DecisionSubmission, ToolDocumentDecision } from '../hooks/use-stream';
 import { useStream } from '../hooks/use-stream';
 import { useUserEvents } from '../hooks/use-user-events';
-import type { ChatState, ChatType, Message, PaginationState, StreamBlock, SummaryStatus } from '../types';
+import type { ChatState, ChatType, Message, PaginationState, PhaseTransitionStatus, StreamBlock } from '../types';
 import { pickDisplaySafeMessageMetadata } from '../utils/message-metadata';
 
 function isContextLimitStreamError(metadata: Message['metadata'] | undefined): boolean {
@@ -90,10 +91,10 @@ export type BaseChatContextValue = {
     startNewChat: () => void;
     /** Seed metadata fields from a server-fetched chat — bridges the gap before openChat resolves. */
     seedChatState: (chatId: string, chat: SeedableChatData) => void;
-    /** Summarize the current chat and prepare the new phase */
-    summarizeChat: () => void;
-    /** Cancel an in-progress summarization */
-    cancelSummary: () => void;
+    /** Prepare the next phase from the approved Completion Brief */
+    startPhaseTransition: () => void;
+    /** Cancel an in-progress phase transition */
+    cancelPhaseTransition: () => void;
     /** Set hasPendingChanges to false (call after approve/reject) */
     clearPendingChanges: () => void;
     /** Clear the pending phase transition flag (called after dialog handles it) */
@@ -215,7 +216,7 @@ function createInitialChatState({
     return {
         messages: initialMessages,
         isGenerating: false,
-        isSummarizing: false,
+        isTransitioning: false,
         isLoading,
         error: null,
         streamingMessageId: null,
@@ -224,10 +225,10 @@ function createInitialChatState({
         hasPendingChanges: cached?.hasPendingChanges ?? false,
         phaseIndex: cached?.phaseIndex ?? null,
         phaseName: cached?.name ?? null,
-        summaryNewChatId: null,
+        transitionNewChatId: null,
         pendingPhaseTransition: false,
         activeResponseId: null,
-        summaryStatus: null,
+        transitionStatus: null,
         isProcessingArtifactAction: false,
         showInvalidModelAlert: false,
         completionBriefStatus: cached?.completionBriefStatus ?? null,
@@ -329,6 +330,13 @@ export function ChatProvider({
     const loadMessagesRef = useRef<() => void>(() => {});
     const loadedChatIdRef = useRef<string | null>(null);
     const streamSubscribeStatusRef = useRef<{ chatId: string; status: StreamSubscribeStatus } | null>(null);
+    const pendingPhaseStartRef = useRef(new Set<string>());
+    const phaseTransitionInFlightRef = useRef(false);
+    const phaseTransitionCancelledRef = useRef(false);
+    // Guards against onSubscribeResponse('idle') clobbering client-optimistic isGenerating
+    // during pre-chat→chat migration: ensureChatId triggers a fresh WS subscribe whose
+    // initial response arrives before the POST has started generation server-side.
+    const sendInFlightRef = useRef(false);
 
     // When ensureChatId creates a chat, the draft moves from the new-chat
     // session key to the created-chat key before route state changes.
@@ -364,7 +372,7 @@ export function ChatProvider({
                 setChatId(nextChatId);
                 setState((prev) => ({ ...prev, phaseIndex: newChat.phaseIndex, phaseName: newChat.name ?? null }));
 
-                insertChatToCache(cache, globalMutate, projectId, newChat);
+                insertChatToCache({ cache, mutate: globalMutate, projectId, newChat });
                 onChatCreated?.(nextChatId);
 
                 return nextChatId;
@@ -459,17 +467,17 @@ export function ChatProvider({
     }, []);
 
     const onTerminalTool = useCallback((toolName: string) => {
-        if (toolName === 'generate_summary') {
+        if (toolName === 'start_phase_transition') {
             setState((prev) => ({ ...prev, pendingPhaseTransition: true }));
         }
     }, []);
 
     const handleArtifactOpen = useCallback(
         ({ artifactId, artifactKey, version }: { artifactId: string; artifactKey: string; version: number }) => {
-            if (state.isSummarizing) return;
+            if (state.isTransitioning) return;
             pushPanel({ panel: 'artifact-preview', artifactId, artifactKey, version }, { reset: true });
         },
-        [pushPanel, state.isSummarizing],
+        [pushPanel, state.isTransitioning],
     );
 
     const fetchArtifact = useCallback(
@@ -570,7 +578,7 @@ export function ChatProvider({
     );
 
     const handleStreamStarted = useCallback(
-        (agentMessageId: string, userMessageId: string, tempId?: string, streamType?: 'chat' | 'summary') => {
+        (agentMessageId: string, userMessageId: string, tempId?: string, streamType?: 'chat' | 'phase_transition') => {
             captureChatAnalytics('chat_stream_started', {
                 agent_message_id: agentMessageId,
                 user_message_id: userMessageId || null,
@@ -578,13 +586,13 @@ export function ChatProvider({
                 stream_type: streamType ?? 'chat',
             });
 
-            if (streamType === 'summary') {
-                // Summary stream arrived on existing chat: subscription — enter summarize mode
+            if (streamType === 'phase_transition') {
+                // Phase-transition stream arrived on the source chat.
                 setState((prev) => ({
                     ...prev,
-                    isSummarizing: true,
-                    summaryNewChatId: null,
-                    summaryStatus: null,
+                    isTransitioning: true,
+                    transitionNewChatId: null,
+                    transitionStatus: null,
                 }));
             } else {
                 // Normal chat response — reconcile user message ID and set generating state
@@ -647,10 +655,10 @@ export function ChatProvider({
             terminalEvent?: StreamEvent & { type: 'done' | 'done_ext' },
             completedAgentMessageId?: string,
         ) => {
-            // Summary was cancelled — ignore any terminal events from the backend
-            if (summaryCancelledRef.current) {
-                summaryCancelledRef.current = false;
-                summarizeInFlightRef.current = false;
+            // Phase transition was cancelled — ignore any terminal events from the backend
+            if (phaseTransitionCancelledRef.current) {
+                phaseTransitionCancelledRef.current = false;
+                phaseTransitionInFlightRef.current = false;
                 return;
             }
 
@@ -658,34 +666,34 @@ export function ChatProvider({
             const newChatId = isNormalDone ? terminalEvent.newChatId : undefined;
 
             if (newChatId) {
-                // Summary stream completed — store the new chat ID and exit summarizing mode
-                summarizeInFlightRef.current = false;
+                // Phase-transition stream completed — store the new chat ID and exit transitioning mode
+                phaseTransitionInFlightRef.current = false;
                 setState((prev) => ({
                     ...prev,
-                    isSummarizing: false,
-                    summaryNewChatId: newChatId,
-                    summaryStatus: null,
+                    isTransitioning: false,
+                    transitionNewChatId: newChatId,
+                    transitionStatus: null,
                 }));
                 return;
             }
 
-            // Summary stream aborted/errored without producing a new chat — reset summary state.
+            // Phase-transition stream aborted/errored without producing a new chat — reset phase-transition state.
             // This handles cross-tab sync: Tab A cancels, Tab B receives the terminal status.
-            // Note: handleStreamDone has [] deps, so we read isSummarizing via prev in setState.
-            let wasSummary = false;
+            // Note: handleStreamDone has [] deps, so we read isTransitioning via prev in setState.
+            let wasPhaseTransition = false;
             setState((prev) => {
-                if (!prev.isSummarizing) return prev;
-                wasSummary = true;
-                summarizeInFlightRef.current = false;
+                if (!prev.isTransitioning) return prev;
+                wasPhaseTransition = true;
+                phaseTransitionInFlightRef.current = false;
                 return {
                     ...prev,
-                    isSummarizing: false,
-                    summaryStatus: null,
-                    summaryNewChatId: null,
+                    isTransitioning: false,
+                    transitionStatus: null,
+                    transitionNewChatId: null,
                     error: null,
                 };
             });
-            if (wasSummary) return;
+            if (wasPhaseTransition) return;
 
             // Extract safe message metadata from done event (display-safe only)
             const doneMeta = isNormalDone
@@ -758,7 +766,7 @@ export function ChatProvider({
         onTerminalTool,
         onMessageCreated: handleMessageCreated,
         onToolDocumentDecision: handleToolDocumentDecision,
-        // Clear stale isGenerating/isSummarizing set from DB's active_agent_message_id
+        // Clear stale isGenerating/isTransitioning set from DB's active_agent_message_id
         // when the initial WS subscribe_response confirms no active stream.
         // Also sync selectedModel from the subscribe response.
         onSubscribeResponse: (
@@ -778,11 +786,11 @@ export function ChatProvider({
                 if (
                     status === 'idle' &&
                     !sendInFlightRef.current &&
-                    (prev.isGenerating || prev.isSummarizing || prev.activeResponseId || hasStreamingMessages)
+                    (prev.isGenerating || prev.isTransitioning || prev.activeResponseId || hasStreamingMessages)
                 ) {
-                    summarizeInFlightRef.current = false;
+                    phaseTransitionInFlightRef.current = false;
                     next.isGenerating = false;
-                    next.isSummarizing = false;
+                    next.isTransitioning = false;
                     next.activeResponseId = null;
                     if (hasStreamingMessages) {
                         next.messages = prev.messages.map((message) =>
@@ -970,7 +978,7 @@ export function ChatProvider({
     // Terminal transitions (done/error/aborted) flush immediately for consistency.
     useEffect(() => {
         if (!stream.agentMessageId) return;
-        if (stream.streamType === 'summary') return;
+        if (stream.streamType === 'phase_transition') return;
 
         const isActive = stream.status === 'streaming';
         const isTerminal = stream.status === 'done' || stream.status === 'error' || stream.status === 'aborted';
@@ -1045,26 +1053,26 @@ export function ChatProvider({
         [],
     );
 
-    // Page-load recovery: if we subscribe mid-summary, stream.streamType is set from the
-    // subscribe_response snapshot — enter summarizing mode without waiting for stream_started.
+    // Page-load recovery: if we subscribe mid-transition, stream.streamType is set from the
+    // subscribe_response snapshot — enter transitioning mode without waiting for stream_started.
     // Also clears isGenerating which loadMessages may have set from active_agent_message_id
-    // (the DB doesn't distinguish summary streams from chat streams).
+    // (the DB doesn't distinguish phase-transition streams from chat streams).
     useEffect(() => {
-        if (stream.streamType === 'summary') {
+        if (stream.streamType === 'phase_transition') {
             setState((prev) =>
-                prev.isSummarizing && !prev.isGenerating
+                prev.isTransitioning && !prev.isGenerating
                     ? prev
-                    : { ...prev, isSummarizing: true, isGenerating: false, activeResponseId: null },
+                    : { ...prev, isTransitioning: true, isGenerating: false, activeResponseId: null },
             );
         }
     }, [stream.streamType]);
 
-    // Sync summary stream displayStatus to state (never clears — handleStreamDone resets).
+    // Sync phase-transition stream displayStatus to state (never clears — handleStreamDone resets).
     useEffect(() => {
-        if (stream.streamType !== 'summary') return;
-        const status = stream.displayStatus as SummaryStatus | null;
+        if (stream.streamType !== 'phase_transition') return;
+        const status = stream.displayStatus as PhaseTransitionStatus | null;
         if (status) {
-            setState((prev) => (prev.summaryStatus === status ? prev : { ...prev, summaryStatus: status }));
+            setState((prev) => (prev.transitionStatus === status ? prev : { ...prev, transitionStatus: status }));
         }
     }, [stream.streamType, stream.displayStatus]);
 
@@ -1073,6 +1081,31 @@ export function ChatProvider({
     // ========================================================================
 
     // (mapApiMessage was moved above handleStreamStarted)
+
+    const startPendingPhaseIfNeeded = useCallback(
+        async (targetChatId: string, metadata: Record<string, unknown> | null | undefined) => {
+            if (chatType !== 'phase') return;
+            if (typeof metadata?.pendingInitialMessageId !== 'string') return;
+            if (pendingPhaseStartRef.current.has(targetChatId)) return;
+
+            pendingPhaseStartRef.current.add(targetChatId);
+            try {
+                const accessToken = (await getToken()) ?? '';
+                const response = await startPendingPhase({ chatId: targetChatId }, accessToken);
+                if (!response.ok && response.status !== 400) {
+                    const errorText = await response.text().catch(() => 'Unknown error');
+                    throw new Error(`Phase start failed: ${response.status} — ${errorText}`);
+                }
+            } catch (error) {
+                pendingPhaseStartRef.current.delete(targetChatId);
+                setState((prev) => ({
+                    ...prev,
+                    error: error instanceof Error ? error : new Error('Phase start failed'),
+                }));
+            }
+        },
+        [chatType, getToken],
+    );
 
     /** Load messages from API for a chat (initial load - gets newest messages) */
     const loadMessagesForChat = useCallback(
@@ -1119,8 +1152,8 @@ export function ChatProvider({
                         apiMessagesReversed.push(streamingMsg);
                     }
 
-                    // Don't set isGenerating if we already know this is a summary stream
-                    // (active_agent_message_id is set for both chat and summary streams in DB)
+                    // Don't set isGenerating if we already know this is a phase-transition stream
+                    // (active_agent_message_id is set for both chat and phase-transition streams in DB)
                     const hasActiveStream = !!activeAgentMessageId;
 
                     const transitionMarker = chatData.metadata?.contextLimitTransition as
@@ -1142,8 +1175,8 @@ export function ChatProvider({
                         ...prev,
                         messages: apiMessagesReversed,
                         isLoading: false,
-                        isGenerating: prev.isSummarizing ? false : hasActiveStream,
-                        activeResponseId: prev.isSummarizing ? null : (activeAgentMessageId ?? null),
+                        isGenerating: prev.isTransitioning ? false : hasActiveStream,
+                        activeResponseId: prev.isTransitioning ? null : (activeAgentMessageId ?? null),
                         tokenUsage: chatData.tokenUsage ?? null,
                         totalCost: chatData.totalCost != null ? Number(chatData.totalCost) : null,
                         hasPendingChanges: chatData.hasPendingChanges ?? false,
@@ -1162,13 +1195,14 @@ export function ChatProvider({
                     hasMore: messagesData.pagination.page < messagesData.pagination.totalPages,
                 });
                 loadedChatIdRef.current = targetChatId;
+                void startPendingPhaseIfNeeded(targetChatId, chatData.metadata);
             } catch (error) {
                 if (chatIdRef.current !== targetChatId) return;
                 console.error('Error loading messages:', error);
                 setState((prev) => ({ ...prev, error: new Error('Failed to load messages'), isLoading: false }));
             }
         },
-        [api, mapApiMessage, setSelectedModel],
+        [api, mapApiMessage, setSelectedModel, startPendingPhaseIfNeeded],
     );
 
     /** Load messages from API for the current chat. */
@@ -1502,59 +1536,50 @@ export function ChatProvider({
     }, [chatId, state.isGenerating, hasPendingNudge, clearPendingNudge, sendNudge]);
 
     // ========================================================================
-    // SUMMARIZE
+    // PHASE TRANSITION
     // ========================================================================
 
-    // Ref guard: prevents duplicate POST if pill click and pendingPhaseTransition
-    // effect race on the same tick.
-    const summarizeInFlightRef = useRef(false);
-    const summaryCancelledRef = useRef(false);
-    // Guards against onSubscribeResponse('idle') clobbering client-optimistic isGenerating
-    // during pre-chat→chat migration: ensureChatId triggers a fresh WS subscribe whose
-    // initial response arrives before the POST has started generation server-side.
-    const sendInFlightRef = useRef(false);
+    /** Trigger phase transition — fires POST, then waits for stream_started(streamType:'phase_transition') via WS */
+    const startPhaseTransition = useCallback(async () => {
+        // Phase transition is only for phase chats
+        if (chatType !== 'phase' || !chatId || state.isTransitioning) return;
+        if (phaseTransitionInFlightRef.current) return;
+        phaseTransitionInFlightRef.current = true;
+        phaseTransitionCancelledRef.current = false;
 
-    /** Trigger summarization — fires POST, then waits for stream_started(streamType:'summary') via WS */
-    const summarizeChat = useCallback(async () => {
-        // Summarization is only for phase chats
-        if (chatType !== 'phase' || !chatId || state.isSummarizing) return;
-        if (summarizeInFlightRef.current) return;
-        summarizeInFlightRef.current = true;
-        summaryCancelledRef.current = false;
-
-        // Do NOT set isSummarizing here — stream_started(streamType:'summary') drives that state.
-        // This avoids showing the summarizing UI if the POST itself fails.
+        // Do NOT set isTransitioning here — stream_started(streamType:'phase_transition') drives that state.
+        // This avoids showing the transition UI if the POST itself fails.
         setState((prev) => ({ ...prev, error: null }));
 
         try {
             const accessToken = (await getToken()) ?? '';
-            const response = await summarize({ chatId }, accessToken);
+            const response = await requestPhaseTransitionAction({ chatId }, accessToken);
 
             if (!response.ok) {
                 const errorText = await response.text().catch(() => 'Unknown error');
-                throw new Error(`Summarize failed: ${response.status} — ${errorText}`);
+                throw new Error(`Phase transition failed: ${response.status} — ${errorText}`);
             }
 
             // Broker mode: POST returns { agentMessageId } synchronously.
-            // stream_started(streamType:'summary') arrives via existing chat: WS subscription.
+            // stream_started(streamType:'phase_transition') arrives via existing chat: WS subscription.
         } catch (err) {
-            summarizeInFlightRef.current = false;
+            phaseTransitionInFlightRef.current = false;
             setState((prev) => ({
                 ...prev,
-                isSummarizing: false,
-                summaryStatus: null,
-                error: err instanceof Error ? err : new Error('Summarization failed'),
+                isTransitioning: false,
+                transitionStatus: null,
+                error: err instanceof Error ? err : new Error('Phase transition failed'),
             }));
         }
-    }, [chatId, getToken, chatType, state.isSummarizing]);
+    }, [chatId, getToken, chatType, state.isTransitioning]);
 
-    /** Cancel an in-progress summarization — aborts the stream and rolls back created artifacts */
-    const cancelSummary = useCallback(async () => {
-        if (!state.isSummarizing || !chatId) return;
+    /** Cancel an in-progress phase transition — aborts the stream and rolls back created artifacts */
+    const cancelPhaseTransition = useCallback(async () => {
+        if (!state.isTransitioning || !chatId) return;
 
         // Mark as cancelled so subsequent stream events (done/error) are ignored
-        summaryCancelledRef.current = true;
-        summarizeInFlightRef.current = false;
+        phaseTransitionCancelledRef.current = true;
+        phaseTransitionInFlightRef.current = false;
 
         cleanupTransientArtifacts(stream.activeDocuments);
 
@@ -1565,19 +1590,19 @@ export function ChatProvider({
         // cross-tab sync effect from reopening the overlay
         setState((prev) => ({
             ...prev,
-            isSummarizing: false,
-            summaryStatus: null,
-            summaryNewChatId: null,
+            isTransitioning: false,
+            transitionStatus: null,
+            transitionNewChatId: null,
             error: null,
         }));
 
         // Abort via HTTP (fire-and-forget, uses stream's agentMessageId)
-        const summaryAgentMessageId = stream.agentMessageId;
-        if (summaryAgentMessageId) {
+        const phaseTransitionAgentMessageId = stream.agentMessageId;
+        if (phaseTransitionAgentMessageId) {
             const accessToken = (await getToken()) ?? '';
-            abort({ chatId, agentMessageId: summaryAgentMessageId }, accessToken).catch(() => {});
+            abort({ chatId, agentMessageId: phaseTransitionAgentMessageId }, accessToken).catch(() => {});
         }
-    }, [chatId, state.isSummarizing, stream, cleanupTransientArtifacts, getToken]);
+    }, [chatId, state.isTransitioning, stream, cleanupTransientArtifacts, getToken]);
 
     // ========================================================================
     // STOP GENERATION
@@ -1703,13 +1728,13 @@ export function ChatProvider({
         }
     }, [chatId, chatType, getToken, selectedModel]);
 
-    // Close the hard-stop modal when the summary stream completes with a new chat ID.
-    // The summarizer overlay's "Continue to next phase" button takes over from here.
+    // Close the hard-stop modal when the phase-transition stream completes with a new chat ID.
+    // The transition overlay's "Continue to next phase" button takes over from here.
     useEffect(() => {
-        if (state.hardStopModalState === 'forcing' && state.summaryNewChatId) {
+        if (state.hardStopModalState === 'forcing' && state.transitionNewChatId) {
             dismissHardStopModal();
         }
-    }, [state.hardStopModalState, state.summaryNewChatId, dismissHardStopModal]);
+    }, [state.hardStopModalState, state.transitionNewChatId, dismissHardStopModal]);
 
     return (
         <ChatContext.Provider
@@ -1727,8 +1752,8 @@ export function ChatProvider({
                 openChat,
                 startNewChat,
                 seedChatState,
-                summarizeChat,
-                cancelSummary,
+                startPhaseTransition,
+                cancelPhaseTransition,
                 clearPendingChanges,
                 clearPendingPhaseTransition,
                 requestPhaseTransition,

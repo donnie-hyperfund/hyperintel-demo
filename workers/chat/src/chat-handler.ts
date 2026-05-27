@@ -56,13 +56,20 @@ import {
     getPresetReasoningPromptMode,
     inferReasoningPromptMode,
 } from './utils/reasoning-visibility-guidance';
-import { createOnTurnComplete, finalizeStream, runStreamLoop, setupStreamInfra } from './utils/stream-runner';
+import {
+    createOnTurnComplete,
+    finalizeStream,
+    finalizeStreamWithoutDone,
+    runStreamLoop,
+    setupStreamInfra,
+} from './utils/stream-runner';
 import {
     cleanupStreamDO,
     createEnqueue,
     createSSEStream,
     loadCollapsedChatHistory,
     persistErrorMessage,
+    pushStreamEventsWithRetry,
     type RecallLocator,
 } from './utils/stream-utils';
 
@@ -80,7 +87,7 @@ export interface ChatHandlerOptions {
 }
 
 export interface ChatActionResult {
-    /** Set when a user message was persisted. Absent for force-brief States A/C (summarize-only — no user input). */
+    /** Set when a user message was persisted. Absent for force-brief States A/C (transition-only — no user input). */
     userMessageId?: string;
     agentMessageId: string;
     /** Resolves when generation completes. Present when onEvent is provided. */
@@ -381,7 +388,7 @@ export async function chatActionHandler(
             ctx,
             options,
             chat,
-            deps: { dispatchBlurb: chatActionHandler, prepareChatGenerationInput, runGeneration },
+            deps: { prepareChatGenerationInput, runGeneration },
         });
     }
 
@@ -683,7 +690,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
             allTools,
             {
                 toolGroups,
-                terminalToolNames: ['generate_summary'],
+                terminalToolNames: ['start_phase_transition'],
                 config: {
                     maxToolCalls: 100,
                     getSystemPrompt: buildRunSystemPrompt,
@@ -699,6 +706,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
         );
 
         let pendingDoneEvent: { outputType: 'text' | 'tool'; outputTool?: string; finalOutput?: unknown } | null = null;
+        let terminalDoneDelivered = false;
 
         const outputSafetyEnabled = isOutputSafetyEnabled(ctx.env);
 
@@ -1011,7 +1019,16 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                         };
                         // Drain all in-flight pushes before terminal event
                         await pusher.waitAll();
-                        await streamDO.push([doneEvent], pusher.seq);
+                        terminalDoneDelivered = await pushStreamEventsWithRetry({
+                            streamDO,
+                            events: [doneEvent],
+                            seq: pusher.seq,
+                            label: 'chat-handler',
+                        });
+                        if (!terminalDoneDelivered) {
+                            console.error('[chat-handler] terminal done delivery failed; skipping stream_status:done');
+                            break;
+                        }
                         options.onEvent?.(doneEvent);
                         break;
                     }
@@ -1026,7 +1043,16 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
 
         await finalizeSafetyMonitor(safetyMonitor, em!, agentMessageId);
 
-        await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
+        if (terminalDoneDelivered) {
+            await finalizeStream(streamDO, ugStub, `chat:${chatId}`);
+        } else {
+            await finalizeStreamWithoutDone({
+                streamDO,
+                ugStub,
+                topic: `chat:${chatId}`,
+                label: 'chat-handler',
+            });
+        }
     } catch (error: any) {
         await cleanupActiveDraft('catch');
         const classification = classifyWorkerError(error);

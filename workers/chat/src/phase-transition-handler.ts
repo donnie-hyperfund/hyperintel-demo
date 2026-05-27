@@ -1,37 +1,36 @@
 import { PublicError } from '@common/common/error.helpers';
 import { ChatEntity } from '@/lib/orm/entities/chats/chat.entity';
-import { SummarizeActionDto } from '@/lib/schema/chat';
+import type { PhaseTransitionActionDto } from '@/lib/schema/chat';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
-import { chatActionHandler } from './chat-handler';
 import { Ctx } from './context';
-import { runSummarizer, type SummarizerOptions } from './summarizer';
+import { PHASE_TRANSITION_STREAM_TYPE, type PhaseTransitionOptions, runPhaseTransition } from './phase-transition';
 import { buildContextGateError } from './utils/context-gate-error';
 import type { UserGatewayStub } from './utils/do-stubs';
 import { findNextPhaseChat } from './utils/next-phase';
 import { createEnqueue, createSSEStream } from './utils/stream-utils';
 
-export type { SummarizerOptions } from './summarizer';
+export type { PhaseTransitionOptions } from './phase-transition';
 
 // ============================================================================
-// SUMMARIZE ACTION HANDLER — SSE stream, generation runs inline (kept alive by GenerationProxyDO)
+// PHASE TRANSITION ACTION HANDLER
 // ============================================================================
 
-export interface SummarizeActionResult {
+export interface PhaseTransitionActionResult {
     agentMessageId: string;
     /** Resolves when generation completes. Present when onEvent is provided. */
     generation?: Promise<boolean>;
 }
 
 /**
- * Summarize action handler — registers stream under chat:{chatId} topic.
+ * Registers the source-chat stream and runs the approved-brief phase transition.
  * Returns SSE stream: first event = IDs, then generation runs inline.
- * In test mode (options.onEvent), returns SummarizeActionResult directly.
+ * In test mode (options.onEvent), returns PhaseTransitionActionResult directly.
  */
-export async function summarizeActionHandler(
-    data: SummarizeActionDto,
+export async function phaseTransitionActionHandler(
+    data: PhaseTransitionActionDto,
     ctx: Ctx,
-    options: SummarizerOptions = {},
-): Promise<SummarizeActionResult | ReadableStream | PublicError> {
+    options: PhaseTransitionOptions = {},
+): Promise<PhaseTransitionActionResult | ReadableStream | PublicError> {
     const { chatId } = data;
     const { em } = ctx;
 
@@ -43,9 +42,9 @@ export async function summarizeActionHandler(
         project: { user: { clerkId: ctx.user.userId } },
     });
 
-    // Gate: refuse if this chat already has a next-phase chat. Direct callers of
-    // /summarize would otherwise create a second next-phase chat for the same
-    // source. The forced-brief path (Task 2.3b) consults the same helper.
+    // Gate: refuse if this chat already has a next-phase chat. Direct endpoint
+    // callers would otherwise create a second next-phase chat for the same source.
+    // The forced-brief path (Task 2.3b) consults the same helper.
     const nextChat = await findNextPhaseChat(em!, {
         sourceChatId: chatId,
         projectId: chat.project!.id,
@@ -76,7 +75,6 @@ export async function summarizeActionHandler(
     chat.active_agent_message_id = agentMessageId;
     await em!.flush();
 
-    // Register stream under chat:{chatId} topic with streamType: 'summary'
     const alias = ctx.previewAlias;
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
@@ -86,18 +84,15 @@ export async function summarizeActionHandler(
         {
             agentMessageId,
             userId: ctx.user.userId,
-            streamType: 'summary',
-            // summarizer does not have an initiating user message
+            streamType: PHASE_TRANSITION_STREAM_TYPE,
+            // phase transition does not have an initiating user message
         },
         alias ?? undefined,
     );
 
     // --- Test mode: keep existing direct-call behavior ---
     if (options.onEvent) {
-        const generationPromise = runSummarizer(
-            { data, ctx, options, chat, agentMessageId, ugStub },
-            { dispatchBlurb: chatActionHandler },
-        );
+        const generationPromise = runPhaseTransition({ data, ctx, options, chat, agentMessageId, ugStub });
         return { agentMessageId, generation: generationPromise };
     }
 
@@ -112,10 +107,7 @@ export async function summarizeActionHandler(
         const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
 
         try {
-            await runSummarizer(
-                { data, ctx, options, chat, agentMessageId, ugStub },
-                { dispatchBlurb: chatActionHandler },
-            );
+            await runPhaseTransition({ data, ctx, options, chat, agentMessageId, ugStub });
         } finally {
             clearInterval(heartbeat);
         }

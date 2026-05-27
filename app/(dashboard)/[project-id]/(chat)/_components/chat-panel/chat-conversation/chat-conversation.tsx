@@ -178,7 +178,12 @@ function ChatConversation({ onScrollStateChange, emptyState }: ChatConversationP
                             </div>
                         )}
 
-                        {(messages.length > 0 || isGenerating) && <div aria-hidden className="h-12 shrink-0" />}
+                        {(messages.length > 0 || isGenerating) && (
+                            <div
+                                aria-hidden
+                                className="shrink-0 min-h-12 h-[calc(var(--chat-floating-controls-height,0px)+3rem)] transition-[height] duration-300 ease-out"
+                            />
+                        )}
                     </motion.div>
                 )}
             </div>

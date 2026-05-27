@@ -184,7 +184,7 @@ export async function restoreArtifactHandler(
             const now = new Date();
 
             // Resolve the target chat for the restored version + system event injection.
-            // Project: latest phase chat (prior phases are summarized & closed by design).
+            // Project: latest phase chat (prior phases are transitioned and closed by design).
             // Intake: the source version's own chat (intake has a single chat per artifact).
             const targetChat = projectId
                 ? await txEm.findOne(
@@ -206,7 +206,7 @@ export async function restoreArtifactHandler(
 
             const restored = new ArtifactVersionEntity();
             restored.artifact = artifact;
-            // Project: latest phase chat — prior phases are summarized & closed by design,
+            // Project: latest phase chat — prior phases are transitioned and closed by design,
             // so the active phase is where the restore intent lives. Accepted trade-off:
             // edge cases where the user triggers restore from a stale phase are not handled.
             // Intake: the source version's own chat (single chat per artifact lifecycle).

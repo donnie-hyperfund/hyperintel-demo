@@ -1,10 +1,10 @@
 /**
  * Phase Transition Tools
  *
- * Terminal tool for ending the current phase and triggering summarization.
+ * Terminal tool for ending the current phase and starting the transition flow.
  * Terminal tools have NO executor — the agent runner emits a `done` event
- * with `outputType: 'tool'` and `outputTool: 'generate_summary'`,
- * which the frontend uses to trigger the summarize endpoint.
+ * with `outputType: 'tool'` and `outputTool: 'start_phase_transition'`,
+ * which the frontend uses to trigger the phase-transition endpoint.
  */
 
 import type { AgentToolGroup } from '@common/ai/agent/tool-groups';
@@ -15,11 +15,11 @@ export const PhaseTransitionToolGroup: AgentToolGroup = {
     slug: 'phase_',
     description: 'Tool for completing the current phase and transitioning to the next.',
     guidance: `## When to Use
-\`generate_summary\` is a **terminal tool** — calling it ends the current conversation turn immediately.
+\`start_phase_transition\` is a **terminal tool** — calling it ends the current conversation turn immediately.
 
 Call it ONLY when the user clearly signals they want to **end the current phase** and move on.
 
-### Trigger signals (call generate_summary)
+### Trigger signals (call start_phase_transition)
 - "let's move to the next phase"
 - "this phase is done / complete"
 - "wrap up" / "wrap this up"
@@ -28,7 +28,7 @@ Call it ONLY when the user clearly signals they want to **end the current phase*
 - "we're done here, next phase"
 - Any clear intent to **transition** or **conclude** the current phase
 
-### NOT trigger signals (do NOT call generate_summary)
+### NOT trigger signals (do NOT call start_phase_transition)
 - Asking for a summary of the conversation so far (informational, not transitional)
 - Creating or editing documents (use document tools)
 - Asking questions about the work done
@@ -38,11 +38,11 @@ Call it ONLY when the user clearly signals they want to **end the current phase*
 ### When in doubt
 If the user's intent is ambiguous — e.g., "can you summarize this?" could mean "give me a recap" vs "create the completion brief and move on" — **ask for clarification** before calling this tool.`,
     behavioralGuidance:
-        'NEVER call generate_summary unless the user explicitly signals intent to end the current phase and move to the next. When ambiguous, ask for clarification instead of calling the tool.',
-    tools: ['generate_summary'],
+        'NEVER call start_phase_transition unless the user explicitly signals intent to end the current phase and move to the next. When ambiguous, ask for clarification instead of calling the tool.',
+    tools: ['start_phase_transition'],
 };
 
-const GenerateSummaryParams = z.object({
+const StartPhaseTransitionParams = z.object({
     reason: z
         .string()
         .min(1)
@@ -54,18 +54,18 @@ const GenerateSummaryParams = z.object({
 export function createPhaseTransitionTools() {
     return [
         {
-            name: 'generate_summary' as const,
+            name: 'start_phase_transition' as const,
             description: `End the current phase and transition to the next one.
 
 This is a TERMINAL tool — calling it immediately ends the conversation turn.
-The system will generate a summary of this phase's work and create the next phase chat.
+The system will create the next phase chat from the approved Completion Brief.
 
 IMPORTANT: A Completion Brief must be generated and approved BEFORE calling this tool.
 If no approved Completion Brief exists, do NOT call this tool — instead, ask the user if they want to generate one first (using the completion_brief tool).
 
 ONLY call this when the user explicitly wants to move to the next phase.
 Do NOT call this for general summaries or recaps — those should be written as regular text responses.`,
-            parameters: GenerateSummaryParams,
+            parameters: StartPhaseTransitionParams,
         },
     ] as const;
 }

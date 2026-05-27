@@ -20,12 +20,11 @@ import { approveArtifactProgrammatic } from './artifact-approver';
 import type {
     ChatActionResult,
     ChatHandlerOptions,
-    chatActionHandler,
     GenerationParams,
     PreparedChatGenerationInput,
 } from './chat-handler';
 import type { Ctx } from './context';
-import { runSummarizer } from './summarizer';
+import { PHASE_TRANSITION_STREAM_TYPE, runPhaseTransition } from './phase-transition';
 import { broadcastUserEvent } from './utils/broadcast';
 import { buildContextGateError } from './utils/context-gate-error';
 import type { UserGatewayStub } from './utils/do-stubs';
@@ -36,7 +35,13 @@ import { createEnqueue, createSSEStream } from './utils/stream-utils';
 // TYPES
 // ============================================================================
 
-export type ForcedBriefStatus = 'generating_brief' | 'approving_brief' | 'starting_summary' | 'summarizing' | 'failed';
+// Status names are a persisted/frontend contract; transition semantics live in this handler.
+export type ForcedBriefStatus =
+    | 'generating_brief'
+    | 'approving_brief'
+    | 'starting_transition'
+    | 'transitioning'
+    | 'failed';
 
 /**
  * Stable error codes for the `failed` marker. FE switches on these — do not
@@ -59,7 +64,6 @@ export interface ForcedBriefMarker {
 
 /** Runtime deps injected from chat-handler to avoid circular imports. */
 export interface ForceBriefDeps {
-    dispatchBlurb: typeof chatActionHandler;
     prepareChatGenerationInput: (opts: {
         data: SendChatActionDto;
         ctx: Ctx;
@@ -74,13 +78,19 @@ export interface ForceBriefDeps {
 // ============================================================================
 
 /** Persist the marker on chat.metadata + broadcast the user-event. */
-async function updateForcedBriefStatus(
-    ctx: Ctx,
-    chat: ChatEntity,
-    status: ForcedBriefStatus,
-    extras?: { errorCode?: ForcedBriefErrorCode; message?: string },
-): Promise<void> {
-    const marker: ForcedBriefMarker = { status, ...(extras ?? {}) };
+async function updateForcedBriefStatus(opts: {
+    ctx: Ctx;
+    chat: ChatEntity;
+    status: ForcedBriefStatus;
+    errorCode?: ForcedBriefErrorCode;
+    message?: string;
+}): Promise<void> {
+    const { ctx, chat, status, errorCode, message } = opts;
+    const marker: ForcedBriefMarker = {
+        status,
+        ...(errorCode ? { errorCode } : {}),
+        ...(message ? { message } : {}),
+    };
     chat.metadata = { ...(chat.metadata ?? {}), contextLimitTransition: marker };
     await ctx.em!.flush();
     await broadcastUserEvent(ctx, 'context_limit_transition_update', {
@@ -112,74 +122,76 @@ async function findProposedCBVersion(em: EntityManager, chat: ChatEntity): Promi
 }
 
 // ============================================================================
-// SUMMARIZATION PHASE (shared by States A, C, D)
+// APPROVED-BRIEF PHASE TRANSITION (shared by States A, C, D)
 // ============================================================================
 
 /**
- * Marks `starting_summary`, registers the summary stream on `chat:{chatId}`,
- * marks `summarizing`, runs `runSummarizer`, then clears the marker on success.
+ * Marks `starting_transition`, registers the phase-transition stream on `chat:{chatId}`,
+ * marks `transitioning`, runs `runPhaseTransition`, then clears the marker on success.
  * On failure: marks `failed` and leaves the marker persisted for reconnect.
  */
-async function runSummarizationPhase(opts: {
+async function runApprovedBriefTransition(opts: {
     ctx: Ctx;
     options: ChatHandlerOptions;
     chat: ChatEntity;
     ugStub: UserGatewayStub;
     alias: string | null | undefined;
-    summarizerAgentMessageId: string;
-    deps: ForceBriefDeps;
+    transitionAgentMessageId: string;
 }): Promise<void> {
-    const { ctx, options, chat, ugStub, alias, summarizerAgentMessageId, deps } = opts;
+    const { ctx, options, chat, ugStub, alias, transitionAgentMessageId } = opts;
     const { em } = ctx;
     const chatId = chat.id;
 
     try {
-        await updateForcedBriefStatus(ctx, chat, 'starting_summary');
-        chat.active_agent_message_id = summarizerAgentMessageId;
+        await updateForcedBriefStatus({ ctx, chat, status: 'starting_transition' });
+        chat.active_agent_message_id = transitionAgentMessageId;
         await em!.flush();
 
         await ugStub.systemAction(
             `chat:${chatId}`,
             'registerStream',
             {
-                agentMessageId: summarizerAgentMessageId,
+                agentMessageId: transitionAgentMessageId,
                 userId: ctx.user.userId,
-                streamType: 'summary',
+                streamType: PHASE_TRANSITION_STREAM_TYPE,
             },
             alias ?? undefined,
         );
 
-        await updateForcedBriefStatus(ctx, chat, 'summarizing');
+        await updateForcedBriefStatus({ ctx, chat, status: 'transitioning' });
 
-        const success = await runSummarizer(
-            {
-                data: { chatId },
-                ctx,
-                options: {
-                    overrideInference: options.overrideInference,
-                    onEvent: options.onEvent,
-                },
-                chat,
-                agentMessageId: summarizerAgentMessageId,
-                ugStub,
+        const success = await runPhaseTransition({
+            data: { chatId },
+            ctx,
+            options: {
+                overrideInference: options.overrideInference,
+                onEvent: options.onEvent,
             },
-            { dispatchBlurb: deps.dispatchBlurb },
-        );
+            chat,
+            agentMessageId: transitionAgentMessageId,
+            ugStub,
+        });
 
         if (success) {
             await clearForcedBriefStatus(ctx, chat);
         } else {
-            await updateForcedBriefStatus(ctx, chat, 'failed', {
+            await updateForcedBriefStatus({
+                ctx,
+                chat,
+                status: 'failed',
                 errorCode: 'SUMMARY_FAILED',
-                message: 'Summarizer failed internally.',
+                message: 'Phase transition failed internally.',
             });
         }
-    } catch (err) {
-        console.error('[runSummarizationPhase] failure:', err);
+    } catch (error) {
+        console.error('[runApprovedBriefTransition] failure:', error);
         chat.active_agent_message_id = null;
-        await updateForcedBriefStatus(ctx, chat, 'failed', {
+        await updateForcedBriefStatus({
+            ctx,
+            chat,
+            status: 'failed',
             errorCode: 'SUMMARY_FAILED',
-            message: err instanceof Error ? err.message : 'Summary phase failed.',
+            message: error instanceof Error ? error.message : 'Phase transition failed.',
         });
     }
 }
@@ -189,48 +201,45 @@ async function runSummarizationPhase(opts: {
 // ============================================================================
 
 /**
- * SSE/test-mode wrapper for the summarization phase. Used by States A and C.
- * Marker handling lives in `runSummarizationPhase`.
+ * SSE/test-mode wrapper for the approved-brief transition. Used by States A and C.
+ * Marker handling lives in `runApprovedBriefTransition`.
  */
-async function runForceBriefSummarize(opts: {
+async function runForceBriefTransition(opts: {
     ctx: Ctx;
     options: ChatHandlerOptions;
     chat: ChatEntity;
-    deps: ForceBriefDeps;
 }): Promise<ChatActionResult | ReadableStream> {
-    const { ctx, options, chat, deps } = opts;
+    const { ctx, options, chat } = opts;
 
-    const summarizerAgentMessageId = crypto.randomUUID();
+    const transitionAgentMessageId = crypto.randomUUID();
     const alias = ctx.previewAlias;
     const ugId = ctx.env.USER_GATEWAY.idFromName(branchDoName(ctx.user.userId, alias));
     const ugStub = ctx.env.USER_GATEWAY.get(ugId) as unknown as UserGatewayStub;
 
     if (options.onEvent) {
-        const generation = runSummarizationPhase({
+        const generation = runApprovedBriefTransition({
             ctx,
             options,
             chat,
             ugStub,
             alias,
-            summarizerAgentMessageId,
-            deps,
+            transitionAgentMessageId,
         });
-        return { agentMessageId: summarizerAgentMessageId, generation };
+        return { agentMessageId: transitionAgentMessageId, generation };
     }
 
     return createSSEStream(async (controller) => {
         const enqueue = createEnqueue(controller);
-        enqueue({ type: 'ids', agentMessageId: summarizerAgentMessageId });
+        enqueue({ type: 'ids', agentMessageId: transitionAgentMessageId });
         const heartbeat = setInterval(() => enqueue(':keepalive'), 10_000);
         try {
-            await runSummarizationPhase({
+            await runApprovedBriefTransition({
                 ctx,
                 options,
                 chat,
                 ugStub,
                 alias,
-                summarizerAgentMessageId,
-                deps,
+                transitionAgentMessageId,
             });
         } finally {
             clearInterval(heartbeat);
@@ -255,15 +264,15 @@ const STATE_D_SYNTHETIC_USER_MESSAGE =
  * State D — no CB exists yet. Persist a synthetic user message (so the agent has
  * something to act on), run the normal chat generation pipeline (force_brief makes
  * `pickInferenceParams` pick Sonnet 4.6), then sequentially approve the produced CB
- * and run the phase summary.
+ * and run the phase transition.
  *
  * Sequencing: forced chat stream must reach its terminal/finalized boundary BEFORE the
- * summary stream registers. `await runGeneration` enforces this — `runGeneration` calls
+ * phase-transition stream registers. `await runGeneration` enforces this — `runGeneration` calls
  * `finalizeStream` at the end of its own try block.
  *
  * Listeners follow the transition via `context_limit_transition_update`:
- * `generating_brief` → `approving_brief` → `starting_summary` → `summarizing` → cleared
- * (or `failed` on any gap/summary-phase error).
+ * `generating_brief` → `approving_brief` → `starting_transition` → `transitioning` → cleared
+ * (or `failed` on any gap/transition error).
  */
 async function runForcedBriefGeneration(opts: {
     data: SendChatActionDto;
@@ -279,7 +288,7 @@ async function runForcedBriefGeneration(opts: {
 
     const userMessageId = crypto.randomUUID();
     const agentMessageId = crypto.randomUUID();
-    const summarizerAgentMessageId = crypto.randomUUID();
+    const transitionAgentMessageId = crypto.randomUUID();
 
     // Internal DTO. The schema's force_brief↔message refine only runs at the HTTP boundary;
     // the type itself permits this combination, and downstream code (pickInferenceParams,
@@ -290,11 +299,14 @@ async function runForcedBriefGeneration(opts: {
         force_brief: true,
     };
 
-    await updateForcedBriefStatus(ctx, chat, 'generating_brief');
+    await updateForcedBriefStatus({ ctx, chat, status: 'generating_brief' });
 
     const preparedInput = await deps.prepareChatGenerationInput({ data: syntheticData, ctx, chat, options });
     if (preparedInput instanceof PublicError) {
-        await updateForcedBriefStatus(ctx, chat, 'failed', {
+        await updateForcedBriefStatus({
+            ctx,
+            chat,
+            status: 'failed',
             errorCode: 'PREFLIGHT_REJECTED',
             message: preparedInput.message,
         });
@@ -363,17 +375,23 @@ async function runForcedBriefGeneration(opts: {
         let cbVersion: ArtifactVersionEntity | null;
         try {
             cbVersion = await findProposedCBVersion(em!, chat);
-        } catch (err) {
-            console.error('[runForcedBriefGeneration] CB lookup failed:', err);
-            await updateForcedBriefStatus(ctx, chat, 'failed', {
+        } catch (error) {
+            console.error('[runForcedBriefGeneration] CB lookup failed:', error);
+            await updateForcedBriefStatus({
+                ctx,
+                chat,
+                status: 'failed',
                 errorCode: 'CB_LOOKUP_FAILED',
-                message: err instanceof Error ? err.message : 'CB lookup failed.',
+                message: error instanceof Error ? error.message : 'CB lookup failed.',
             });
             return;
         }
         if (!cbVersion) {
             const hadOverflow = (chat.metadata as Record<string, unknown> | undefined)?.contextOverflow != null;
-            await updateForcedBriefStatus(ctx, chat, 'failed', {
+            await updateForcedBriefStatus({
+                ctx,
+                chat,
+                status: 'failed',
                 errorCode: hadOverflow ? 'CONTEXT_OVERFLOW' : 'NO_CB_PRODUCED',
                 message: hadOverflow
                     ? 'Context window overflow during forced brief generation.'
@@ -382,27 +400,29 @@ async function runForcedBriefGeneration(opts: {
             return;
         }
 
-        await updateForcedBriefStatus(ctx, chat, 'approving_brief');
+        await updateForcedBriefStatus({ ctx, chat, status: 'approving_brief' });
         try {
             await approveArtifactProgrammatic(ctx, cbVersion.id, { reason: 'context_hard_gate' });
-        } catch (err) {
-            console.error('[runForcedBriefGeneration] approval failed:', err);
-            await updateForcedBriefStatus(ctx, chat, 'failed', {
+        } catch (error) {
+            console.error('[runForcedBriefGeneration] approval failed:', error);
+            await updateForcedBriefStatus({
+                ctx,
+                chat,
+                status: 'failed',
                 errorCode: 'CB_APPROVAL_FAILED',
-                message: err instanceof Error ? err.message : 'CB approval failed.',
+                message: error instanceof Error ? error.message : 'CB approval failed.',
             });
             return;
         }
 
-        // Phase 3: summary stream. runSummarizationPhase handles its own marker transitions.
-        await runSummarizationPhase({
+        // Phase 3: phase-transition stream. runApprovedBriefTransition owns its marker transitions.
+        await runApprovedBriefTransition({
             ctx,
             options,
             chat,
             ugStub,
             alias,
-            summarizerAgentMessageId,
-            deps,
+            transitionAgentMessageId,
         });
     };
 
@@ -436,8 +456,8 @@ async function runForcedBriefGeneration(opts: {
  * Route a `{ message: null, force_brief: true }` request by inspecting CB state.
  *
  * - **State B** — next-phase chat exists → refuse with already-transitioned details.
- * - **State A** — `proposed` CB → mark `approving_brief`, approve, summarize.
- * - **State C** — `approved` CB / no next chat → summarize (recovery).
+ * - **State A** — `proposed` CB → mark `approving_brief`, approve, transition.
+ * - **State C** — `approved` CB / no next chat → transition (recovery).
  * - **State D** — no CB / `rejected` → forced generation flow.
  */
 export async function handleForceBrief(opts: {
@@ -481,23 +501,29 @@ export async function handleForceBrief(opts: {
                 message: 'Chat marked completion_brief_status=proposed but no proposed CB version was found.',
             });
         }
-        await updateForcedBriefStatus(ctx, chat, 'approving_brief');
+        await updateForcedBriefStatus({ ctx, chat, status: 'approving_brief' });
         try {
             await approveArtifactProgrammatic(ctx, cbVersion.id, { reason: 'context_hard_gate' });
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'CB approval failed.';
-            await updateForcedBriefStatus(ctx, chat, 'failed', { errorCode: 'CB_APPROVAL_FAILED', message });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'CB approval failed.';
+            await updateForcedBriefStatus({
+                ctx,
+                chat,
+                status: 'failed',
+                errorCode: 'CB_APPROVAL_FAILED',
+                message,
+            });
             return new PublicError(ErrorStatus.ServerError, { code: 'CB_APPROVAL_FAILED', message });
         }
-        return runForceBriefSummarize({ ctx, options, chat, deps });
+        return runForceBriefTransition({ ctx, options, chat });
     }
 
     if (status === 'approved') {
-        // State C — recovery: CB already approved, just run the summarizer.
-        return runForceBriefSummarize({ ctx, options, chat, deps });
+        // State C — recovery: CB already approved, just run the phase transition.
+        return runForceBriefTransition({ ctx, options, chat });
     }
 
     // State D — null or 'rejected'. Forced generation: synthesize user msg, run agent,
-    // approve produced CB, run summarizer.
+    // approve produced CB, run phase transition.
     return runForcedBriefGeneration({ data, ctx, options, chat, deps });
 }

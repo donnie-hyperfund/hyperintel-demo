@@ -2,7 +2,7 @@
  * Stream Runner — shared stream loop and infrastructure for all agent handlers.
  *
  * Extracts the duplicated patterns from chat-handler, intake-handler, and
- * summarizer into reusable utilities. Each handler retains its own
+ * phase transition into reusable utilities. Each handler retains its own
  * done_ext handling and agent setup logic.
  */
 
@@ -19,6 +19,7 @@ import {
     createPusher,
     handleCommonStreamEvent,
     type Pusher,
+    runBestEffortStreamCall,
     wireAbort,
 } from './stream-utils';
 
@@ -126,8 +127,39 @@ export async function finalizeStream(
     topic: string,
 ): Promise<void> {
     try {
-        await streamDO.done();
-        await streamDO.finalize();
+        await runBestEffortStreamCall({ label: 'stream-runner', operation: 'done', action: () => streamDO.done() });
+        await runBestEffortStreamCall({
+            label: 'stream-runner',
+            operation: 'finalize',
+            action: () => streamDO.finalize(),
+        });
+    } finally {
+        await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
+    }
+}
+
+/**
+ * Clear stream state after a terminal event could not be confirmed delivered.
+ * Deliberately skips done(), because stream_status:done without the terminal
+ * payload can make the frontend complete with missing metadata.
+ */
+export async function finalizeStreamWithoutDone({
+    streamDO,
+    ugStub,
+    topic,
+    label,
+}: {
+    streamDO: ChatStreamDOStub;
+    ugStub: UserGatewayStub;
+    topic: string;
+    label: string;
+}): Promise<void> {
+    try {
+        await runBestEffortStreamCall({
+            label,
+            operation: 'finalize',
+            action: () => streamDO.finalize(),
+        });
     } finally {
         await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
     }
