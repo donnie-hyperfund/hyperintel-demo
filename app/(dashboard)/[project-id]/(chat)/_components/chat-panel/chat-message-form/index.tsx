@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { ApiClientError } from '@/lib/api/client/types';
 import { IS_DEV } from '@/lib/config';
+import { CONTEXT_GATE_WARNING_TOKENS } from '@/lib/constants/context-limits';
 import { getFileExtension } from '@/lib/files';
 import { isImageExtension } from '@/lib/schema/artifact';
 import { cn } from '@/lib/utils';
@@ -68,10 +69,11 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             hardStopModalState,
             hardStopExistingNextChatId,
             hardStopError,
+            tokenUsage,
         },
     } = useChatContext();
     const { selectedModel } = useModelSelection();
-    const { isResolvedNonLatestPhase } = usePhasePosition();
+    const { isLatestPhase } = usePhasePosition();
 
     const { files, addFiles, removeFile, submitFiles, waitForArtifactsReady, isSubmitting, getMessageAttachments } =
         useFileUploadContext();
@@ -190,10 +192,11 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
                 isDeferredSend?: boolean;
                 bypassContextWarning?: boolean;
             } = {};
+            const isAboveContextWarningLimit = (tokenUsage?.usedTokens ?? 0) >= CONTEXT_GATE_WARNING_TOKENS;
             const shouldBypass =
                 bypassContextWarningRef.current ||
                 (chatId ? getContextBypassForChat(chatId) : false) ||
-                isResolvedNonLatestPhase;
+                (!isLatestPhase && isAboveContextWarningLimit);
             bypassContextWarningRef.current = false;
             if (shouldBypass) opts.bypassContextWarning = true;
             if (hasStagedUploads && requiresAssociationIds.length > 0) opts.stagedArtifactIds = requiresAssociationIds;
@@ -474,7 +477,7 @@ const ChatMessageForm = ({ className, showGradientFade = true }: ChatMessageForm
             </AlertDialog>
 
             <ContextWarningModal
-                open={showContextWarningModal}
+                open={showContextWarningModal && isLatestPhase}
                 onContinue={handleWarningContinue}
                 onNextPhase={handleWarningNextPhase}
                 onCancel={dismissContextWarningModal}
