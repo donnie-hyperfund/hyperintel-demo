@@ -404,9 +404,14 @@ describe('ChatProvider', () => {
         expect(result.current.chatId).toBe('chat-1');
         expect(result.current.state.phaseIndex).toBe(3);
         expect(result.current.state.messages.at(-1)?.role).toBe('user');
-        expect(insertChatToCacheMock).toHaveBeenCalledWith(cacheMock, mutateMock, 'project-1', {
-            id: 'chat-1',
-            phaseIndex: 3,
+        expect(insertChatToCacheMock).toHaveBeenCalledWith({
+            cache: cacheMock,
+            mutate: mutateMock,
+            projectId: 'project-1',
+            newChat: {
+                id: 'chat-1',
+                phaseIndex: 3,
+            },
         });
     });
 
