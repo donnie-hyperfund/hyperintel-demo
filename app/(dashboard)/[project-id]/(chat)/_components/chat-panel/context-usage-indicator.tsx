@@ -4,7 +4,6 @@ import { motion } from 'motion/react';
 import { useMemo } from 'react';
 import { AnimatedCounter } from '@/components/ui/animated-counter';
 import { cn } from '@/lib/utils';
-import { MAX_CONTEXT_TOKENS } from '@/modules/chat/constants';
 import type { TokenUsage } from '@/modules/chat/types';
 import { getContextLevel, getContextPercent } from '@/modules/chat/utils';
 
@@ -13,10 +12,8 @@ type ContextUsageIndicatorProps = {
     className?: string;
 };
 
-function formatTokenCount(tokens: number): string {
-    if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-    if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
-    return String(tokens);
+function formatPercent(percentage: number): string {
+    return `${percentage}%`;
 }
 
 export function ContextUsageIndicator({ tokenUsage, className }: ContextUsageIndicatorProps) {
@@ -48,8 +45,7 @@ export function ContextUsageIndicator({ tokenUsage, className }: ContextUsageInd
                     />
                 </div>
                 <span className="whitespace-nowrap tabular-nums text-neutral-600">
-                    <AnimatedCounter value={tokenUsage.usedTokens} format={formatTokenCount} /> /{' '}
-                    {formatTokenCount(MAX_CONTEXT_TOKENS)}
+                    <AnimatedCounter value={percentage} format={formatPercent} />
                 </span>
             </div>
         </motion.div>

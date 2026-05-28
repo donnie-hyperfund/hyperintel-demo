@@ -29,11 +29,14 @@ export function ActiveInternalDocs() {
                     !artifact.isSummaryStreaming &&
                     !artifact.summaryStreaming
                 ) {
+                    if (!artifact.progress) break;
+                    const kind = artifact.isUpdating ? 'patching' : 'generating';
+
                     docs.push({
                         artifactId,
                         artifactKey: artifact.key,
                         progress: artifact.progress ?? 0,
-                        kind: artifact.isUpdating ? 'patching' : 'generating',
+                        kind,
                     });
                     break;
                 }
