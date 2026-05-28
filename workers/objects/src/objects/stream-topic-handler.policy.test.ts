@@ -99,7 +99,7 @@ describe('StreamTopicHandler services policy client', () => {
         const streamSubscribe = vi.fn(async () => ({
             snapshot: { status: 'streaming', events: [{ type: 'delta', text: 'hi' }] },
             seqHigh: 7,
-            streamType: 'summary',
+            streamType: 'phase_transition',
         }));
         const env = createEnv(getTopicSubscribeInfo, streamSubscribe);
         const handler = new ChatTopicHandler(createStorage());
@@ -112,7 +112,7 @@ describe('StreamTopicHandler services policy client', () => {
             agentMessageId: 'agent-1',
             snapshot: { status: 'streaming', events: [{ type: 'delta', text: 'hi' }] },
             seqHigh: 7,
-            streamType: 'summary',
+            streamType: 'phase_transition',
             selectedModel: 'gpt-5.4',
             completionBriefStatus: 'pending',
         });

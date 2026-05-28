@@ -36,8 +36,8 @@ export const RegisterStreamRequestSchema = z.object({
     ...baseFields,
     agentMessageId: z.string().min(1),
     userMessageId: z.string().optional(),
-    /** Distinguishes a summary stream from a normal chat response. Chat-only in practice. */
-    streamType: z.enum(['chat', 'summary']).optional(),
+    /** Distinguishes a phase-transition stream from a normal chat response. Chat-only in practice. */
+    streamType: z.enum(['chat', 'phase_transition']).optional(),
 });
 export type RegisterStreamRequest = z.infer<typeof RegisterStreamRequestSchema>;
 

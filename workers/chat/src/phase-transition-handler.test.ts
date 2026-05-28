@@ -9,6 +9,7 @@ vi.mock('./chat-handler', () => ({
 }));
 
 vi.mock('./phase-transition', () => ({
+    PHASE_TRANSITION_STREAM_TYPE: 'phase_transition',
     runPhaseTransition: vi.fn(),
 }));
 

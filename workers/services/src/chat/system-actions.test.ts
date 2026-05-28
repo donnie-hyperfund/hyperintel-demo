@@ -102,7 +102,7 @@ describe('handleSystemAction registerStream', () => {
         });
     });
 
-    it('includes streamType in the broadcast when it is summary', async () => {
+    it('includes streamType in the broadcast when it is phase_transition', async () => {
         const { env, ugStub } = makeEnv();
 
         await handleSystemAction(env, {
@@ -111,14 +111,14 @@ describe('handleSystemAction registerStream', () => {
             identifier: 'chat-1',
             userId: 'user-1',
             agentMessageId: 'agent-1',
-            streamType: 'summary',
+            streamType: 'phase_transition',
         });
 
         expect(ugStub.broadcastToTopic).toHaveBeenCalledWith('chat:chat-1', {
             topic: 'chat:chat-1',
             type: ServerMsg.StreamStarted,
             agentMessageId: 'agent-1',
-            streamType: 'summary',
+            streamType: 'phase_transition',
         });
     });
 
@@ -148,7 +148,7 @@ describe('handleSystemAction registerStream', () => {
             userId: 'user-1',
             agentMessageId: 'agent-1',
             userMessageId: 'umsg-1',
-            streamType: 'summary',
+            streamType: 'phase_transition',
         });
 
         expect(streamStub.init).toHaveBeenCalledWith(
@@ -157,7 +157,7 @@ describe('handleSystemAction registerStream', () => {
             'umsg-1',
             'chat',
             undefined, // previewAlias (5th)
-            'summary',
+            'phase_transition',
         );
     });
 

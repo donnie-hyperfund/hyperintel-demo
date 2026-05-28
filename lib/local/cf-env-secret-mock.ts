@@ -17,7 +17,6 @@ const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do')
 const { ChatStreamStateDO } = require('@/workers/stream-state/src/objects/chat-stream-state-do');
 const { GenerationProxyDO } = require('@/workers/objects/src/objects/generation-proxy-do');
 const { LocksService } = require('@/workers/objects/src/objects/locks-service');
-const { ChatServices } = require('@/workers/services/src/index');
 
 // --- Secrets & plain config ---
 const envSecrets = {
@@ -87,9 +86,30 @@ export const workerEnv: typeof envSecrets & Record<string, unknown> = {
             return getLangfusePromptRawRpc(input, workerEnv);
         },
     },
+    CHAT_SERVICES: {
+        async getTopicSubscribeInfo(req: import('@/lib/schema/subscribe-info').SubscribeInfoRequest) {
+            const { getTopicSubscribeInfo } = await import('@/workers/services/src/chat/chat-policy');
+            return getTopicSubscribeInfo(workerEnv as unknown as ServicesEnv, req);
+        },
+        async clearActiveStream(req: import('@/lib/schema/stream-cleanup').ClearActiveStreamRequest) {
+            const { clearActiveStream } = await import('@/workers/services/src/chat/stream-cleanup');
+            return clearActiveStream(workerEnv as unknown as ServicesEnv, req);
+        },
+        async deadManCleanup(req: import('@/lib/schema/stream-cleanup').DeadManCleanupRequest) {
+            const { deadManCleanup } = await import('@/workers/services/src/chat/stream-cleanup');
+            return deadManCleanup(workerEnv as unknown as ServicesEnv, req);
+        },
+        async recordStreamParityDebug(req: import('@/lib/schema/stream-cleanup').StreamParityDebugRequest) {
+            const { recordStreamParityDebug } = await import('@/workers/services/src/chat/stream-cleanup');
+            return recordStreamParityDebug(workerEnv as unknown as ServicesEnv, req);
+        },
+        async systemAction(req: import('@/lib/schema/system-actions').SystemActionRequest) {
+            const { handleSystemAction } = await import('@/workers/services/src/chat/system-actions');
+            return handleSystemAction(workerEnv as unknown as ServicesEnv, req);
+        },
+    },
     // DO bindings assigned in ensureDOMocks()
 };
-workerEnv.CHAT_SERVICES = new ChatServices({}, workerEnv);
 
 // Queue bindings — in-process mocks, call worker handlers directly.
 // Assigned after workerEnv exists so the MockQueue can hold a reference to it.

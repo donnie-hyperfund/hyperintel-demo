@@ -28,7 +28,7 @@ export type StreamSubscribeResult =
           snapshot: StreamSnapshot;
           /** High-water mark in the same coordinate as stream event `_seq`. */
           seqHigh: number;
-          streamType?: 'chat' | 'summary';
+          streamType?: 'chat' | 'phase_transition';
           /** Outbox tail replay status (flag-on path only). Absent on flag-off. */
           replayStatus?: 'ok' | 'failed';
           stale?: never;
@@ -89,7 +89,7 @@ const SK_REASONING_BLOCK_ID = 'currentReasoningBlockId';
 const SK_TOPIC_PREFIX = 'topicPrefix';
 const SK_PREVIEW_ALIAS = 'previewAlias';
 const SK_DISPLAY_STATUS = 'displayStatus';
-/** Sub-type of the stream (e.g. 'summary'). */
+/** Sub-type of the stream (e.g. 'phase_transition'). */
 const SK_STREAM_TYPE = 'streamType';
 
 /**
@@ -140,7 +140,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     /** Topic prefix for UG broadcasts (e.g. 'chat' or 'intake') */
     private topicPrefix: StreamTopicPrefix = 'chat';
     /** Sub-type of this stream — set when known at init time. */
-    private streamType: 'chat' | 'summary' | null = null;
+    private streamType: 'chat' | 'phase_transition' | null = null;
     /** Preview branch alias — used to resolve the correct DB on dev preview deploys */
     private previewAlias: string | null = null;
     private currentTextBlockId: string | null = null;
@@ -212,7 +212,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
             this.ctx.storage.get<string>(SK_TOPIC_PREFIX),
             this.ctx.storage.get<string | null>(SK_PREVIEW_ALIAS),
             this.ctx.storage.get<string | null>(SK_DISPLAY_STATUS),
-            this.ctx.storage.get<'chat' | 'summary' | null>(SK_STREAM_TYPE),
+            this.ctx.storage.get<'chat' | 'phase_transition' | null>(SK_STREAM_TYPE),
         ]);
 
         if (blocks) this.blocks = blocks;
@@ -231,7 +231,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         }
         if (previewAlias) this.previewAlias = previewAlias;
         if (displayStatus) this.displayStatus = displayStatus;
-        if (streamType === 'chat' || streamType === 'summary') this.streamType = streamType;
+        if (streamType === 'chat' || streamType === 'phase_transition') this.streamType = streamType;
         // Initialize SQL tables
         for (const ddl of OUTBOX_DDL.split('; ')) this.ctx.storage.sql.exec(ddl);
         // Derive lastAckedSeq from SQL metadata
@@ -1005,7 +1005,7 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
         userMessageId: string,
         topicPrefix: StreamTopicPrefix = 'chat',
         previewAlias?: string,
-        streamType?: 'chat' | 'summary',
+        streamType?: 'chat' | 'phase_transition',
     ) {
         await this.ensureLoaded();
         this.chatId = chatId;
@@ -1137,6 +1137,16 @@ export class ChatStreamDO extends DurableObject<ObjectsEnv> {
     private async subscribeFromStateDO(userId: string): Promise<StreamSubscribeResult> {
         // Capture before any awaits — broadcastSeq may advance during RPCs.
         const targetSeqHigh = this.broadcastSeq - 1;
+
+        // Terminal streams should still allow StreamTopicHandler to clear the SQL active-stream
+        // pointer even if the state DO snapshot path is impaired.
+        if (this.status === 'done' || this.status === 'aborted' || this.status === 'error') {
+            return {
+                snapshot: this.buildLocalSnapshot(),
+                seqHigh: targetSeqHigh,
+                ...(this.streamType ? { streamType: this.streamType } : {}),
+            };
+        }
 
         // Best-effort reconcile: reduces tail size, not required for correctness.
         try {
