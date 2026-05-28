@@ -399,7 +399,8 @@ export async function persistErrorMessage({
 }
 
 /**
- * Error epilogue: drain inflight pushes, push error event, done+finalize, clearStream.
+ * Error epilogue: drain inflight pushes, push error event, done+finalize.
+ * ChatStreamDO.finalize() owns stream mapping cleanup.
  * Shared by all three handlers' catch blocks.
  */
 export async function cleanupStreamDO({
@@ -413,8 +414,8 @@ export async function cleanupStreamDO({
     error: any;
     errorMetadata?: StoredErrorMetadata;
 }) {
-    // ChatStreamDO.finalize() now clears its own UG mapping (guarded), so the
-    // post-error cleanup no longer needs to fire a separate clearStream action.
+    // ChatStreamDO.finalize() now clears its own UG mapping (guarded), so this
+    // post-error cleanup does not fire a separate mapping-clear action.
     try {
         await pusher.waitAll();
         const safeMetadata = errorMetadata ?? buildStoredErrorMetadata({ classification: classifyWorkerError(error) });
