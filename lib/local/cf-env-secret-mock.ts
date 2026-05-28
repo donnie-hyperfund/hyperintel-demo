@@ -20,7 +20,7 @@ const { LocksService } = require('@/workers/objects/src/objects/locks-service');
 const { ChatServices } = require('@/workers/services/src/index');
 
 // --- Secrets & plain config ---
-const envSecrets: Record<string, unknown> = {
+const envSecrets = {
     // Secrets (SecretsStoreSecret interface)
     OPENROUTER_API_KEY: makeSecretMock(backendEnv.OPENROUTER_API_KEY!),
     CF_TOKEN: makeSecretMock('TODO'), // backendEnv.CF_GATEWAY_TOKEN!
@@ -51,7 +51,7 @@ const envSecrets: Record<string, unknown> = {
     // TODO IS_DEV?
     ENV: process.env.NODE_ENV === 'production' ? 'production' : 'dev',
     CORS_ALLOWED_ORIGIN: '*',
-};
+} satisfies Partial<ChatEnv> & Partial<ServicesEnv> & Record<string, unknown>;
 
 const noopAnalyticsEngineDataset: AnalyticsEngineDataset = {
     writeDataPoint() {},
@@ -62,7 +62,7 @@ const noopAnalyticsEngineDataset: AnalyticsEngineDataset = {
  * Bindings (DOs, queues, R2, Analytics Engine) are added below and via ensureDOMocks().
  * Handlers see everything on ctx.env.
  */
-export const workerEnv: Record<string, unknown> = {
+export const workerEnv: typeof envSecrets & Record<string, unknown> = {
     ...envSecrets,
     // R2 bindings — real dev buckets via AWS SDK behind CF R2Bucket interface
     ARTIFACTS_BUCKET: new MockR2Bucket('hi-artifacts-dev'),
@@ -72,15 +72,19 @@ export const workerEnv: Record<string, unknown> = {
     // Service bindings — in-process WASM
     EXTRACT_RUST: new MockRustWorkerFetcher(),
     DOCX_EXPORT_SERVICE: {
-        async exportArtifactVersionDocx(input: { artifactVersionId: string; userId: string; previewAlias?: string | null }) {
+        async exportArtifactVersionDocx(input: {
+            artifactVersionId: string;
+            userId: string;
+            previewAlias?: string | null;
+        }) {
             const { exportArtifactVersionDocx } = await import('@/workers/services/src/docx-exporter');
-            return exportArtifactVersionDocx(input, workerEnv as ServicesEnv);
+            return exportArtifactVersionDocx(input, workerEnv);
         },
     },
     LANGFUSE_PROMPT_SERVICE: {
         async getPromptRaw(input: { promptName: string }) {
             const { getLangfusePromptRawRpc } = await import('@/workers/services/src/langfuse-service');
-            return getLangfusePromptRawRpc(input, workerEnv as ServicesEnv);
+            return getLangfusePromptRawRpc(input, workerEnv);
         },
     },
     // DO bindings assigned in ensureDOMocks()

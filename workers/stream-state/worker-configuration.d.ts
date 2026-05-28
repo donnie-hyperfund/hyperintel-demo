@@ -16,6 +16,7 @@ declare namespace Cloudflare {
 		ENV: string;
 		CHAT_STREAM_STATE_DO: DurableObjectNamespace<import("./src/index").ChatStreamStateDO>;
 		STREAM_AE: AnalyticsEngineDataset;
+		PREVIEW_DB_MAP: KVNamespace;
 	}
 }
 interface StreamStateEnv extends Cloudflare.StreamStateEnv {}

@@ -41,6 +41,7 @@ declare namespace Cloudflare {
 		STREAM_AE: AnalyticsEngineDataset;
 		EMBEDDING_QUEUE: Queue;
 		EXTRACTION_QUEUE: Queue;
+		PREVIEW_DB_MAP: KVNamespace;
 	}
 }
 interface ChatEnv extends Cloudflare.ChatEnv {}

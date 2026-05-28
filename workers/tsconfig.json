@@ -39,6 +39,7 @@
         "services/src/**/*.ts",
         "stream-state/worker-configuration.d.ts",
         "stream-state/src/**/*.ts",
+        "local-gateway/src/**/*.ts",
         "runtime-config.ts",
         "_common/**/*.ts",
         "**/vitest.config.ts"

@@ -74,7 +74,7 @@ async function getDOClasses() {
 }
 
 async function buildMockEnv(): Promise<Record<string, unknown>> {
-	const env: Record<string, unknown> = {
+	const baseEnv = {
 		// Secrets (SecretsStoreSecret interface)
 		ANTHROPIC_API_KEY: makeSecretMock(process.env.ANTHROPIC_API_KEY ?? ''),
 		OPENROUTER_API_KEY: makeSecretMock(process.env.OPENROUTER_API_KEY ?? ''),
@@ -93,19 +93,27 @@ async function buildMockEnv(): Promise<Record<string, unknown>> {
 		ENV: 'test',
 		CORS_ALLOWED_ORIGIN: '*',
 		// Queue mocks
-		EMBEDDING_QUEUE: { send: () => Promise.resolve() },
-		EXTRACTION_QUEUE: { send: () => Promise.resolve() },
+		EMBEDDING_QUEUE: {
+			send: () => Promise.resolve(),
+			sendBatch: () => Promise.resolve(),
+		},
+		EXTRACTION_QUEUE: {
+			send: () => Promise.resolve(),
+			sendBatch: () => Promise.resolve(),
+		},
 		// Analytics Engine — no-op in tests
 		STREAM_AE: { writeDataPoint: () => {} },
 		WORKER_NAME: 'hi-chat-test',
 		WORKER_NAME_FULL: 'hi-chat-test',
-	};
+	} satisfies Partial<ChatEnv> & Partial<ServicesEnv> & Record<string, unknown>;
+
+	const env: typeof baseEnv & Record<string, unknown> = baseEnv;
 
 	if (hasLangfuseVars()) {
 		env.LANGFUSE_PROMPT_SERVICE = {
 			async getPromptRaw(input: { promptName: string }) {
 				const { getLangfusePromptRawRpc } = await import('@/workers/services/src/langfuse-service');
-				return getLangfusePromptRawRpc(input, env as ServicesEnv);
+				return getLangfusePromptRawRpc(input, env);
 			},
 		};
 	}

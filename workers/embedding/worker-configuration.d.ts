@@ -18,6 +18,7 @@ declare namespace Cloudflare {
 		OPENROUTER_API_KEY: SecretsStoreSecret;
 		LANGFUSE_SECRET_KEY: SecretsStoreSecret;
 		AUTH_SECRET: SecretsStoreSecret;
+		PREVIEW_DB_MAP: KVNamespace;
 	}
 }
 interface EmbeddingEnv extends Cloudflare.EmbeddingEnv {}

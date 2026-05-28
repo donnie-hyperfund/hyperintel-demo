@@ -1,5 +1,5 @@
-import { createClerkClient } from '@clerk/backend';
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { createClerkClient } from '@clerk/backend';
 import { Hono } from 'hono';
 import type {
     ClearActiveStreamRequest,
@@ -9,18 +9,18 @@ import type {
 import type { SubscribeInfoRequest, SubscribeInfoResponse } from '@/lib/schema/subscribe-info';
 import type { SystemActionRequest } from '@/lib/schema/system-actions';
 import { branchDoName, getPreviewAlias, PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
-import {
-    exportArtifactVersionDocx,
-    type ExportArtifactVersionDocxInput,
-    type ExportArtifactVersionDocxResult,
-} from './docx-exporter';
 import { getTopicSubscribeInfo } from './chat/chat-policy';
 import { clearActiveStream, deadManCleanup, recordStreamParityDebug } from './chat/stream-cleanup';
 import { handleSystemAction } from './chat/system-actions';
 import {
-    getLangfusePromptRawRpc,
+    type ExportArtifactVersionDocxInput,
+    type ExportArtifactVersionDocxResult,
+    exportArtifactVersionDocx,
+} from './docx-exporter';
+import {
     type GetLangfusePromptRawInput,
     type GetLangfusePromptRawResult,
+    getLangfusePromptRawRpc,
 } from './langfuse-service';
 
 const app = new Hono<{ Bindings: ServicesEnv }>();

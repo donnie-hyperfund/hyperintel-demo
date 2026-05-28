@@ -1,4 +1,8 @@
-import { createLangfuseClient, getLangfusePromptRaw } from '@/workers/_common/vendor/langfuse-prompts';
+import {
+    createLangfuseClient,
+    getLangfusePromptRaw,
+    type LangfuseEnvFull,
+} from '@/workers/_common/vendor/langfuse-prompts';
 
 export interface GetLangfusePromptRawInput {
     promptName: string;
@@ -17,14 +21,14 @@ export type GetLangfusePromptRawResult =
 
 let langfuseClientPromise: ReturnType<typeof createLangfuseClient> | null = null;
 
-function getLangfuseClient(env: ServicesEnv) {
+function getLangfuseClient(env: LangfuseEnvFull) {
     langfuseClientPromise ??= createLangfuseClient(env);
     return langfuseClientPromise;
 }
 
 export async function getLangfusePromptRawRpc(
     input: GetLangfusePromptRawInput,
-    env: ServicesEnv,
+    env: LangfuseEnvFull,
 ): Promise<GetLangfusePromptRawResult> {
     try {
         const prompt = await getLangfusePromptRaw(await getLangfuseClient(env), input.promptName, env);

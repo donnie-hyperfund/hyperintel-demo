@@ -23,6 +23,7 @@ declare namespace Cloudflare {
 		CLERK_SECRET_KEY: SecretsStoreSecret;
 		CHAT_SERVICES: Service<import('../services/src/index').ChatServices>;
 		STREAM_AE: AnalyticsEngineDataset;
+		PREVIEW_DB_MAP: KVNamespace;
 	}
 }
 interface ObjectsEnv extends Cloudflare.ObjectsEnv {}
