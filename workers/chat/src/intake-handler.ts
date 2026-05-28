@@ -51,8 +51,8 @@ import {
     extractRawErrorMessage,
     logWorkerError,
 } from './utils/error-metadata';
-import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import { preprocessContext } from './utils/preprocess-context';
+import { DEFAULT_LOCAL_PROMPTS_PATH, getPromptContent, parseLocalPromptEnv } from './utils/prompt-loader';
 import {
     buildReasoningVisibilityGuidance,
     getEffectiveReasoningPromptMode,
@@ -519,7 +519,7 @@ async function runIntakeGeneration(params: IntakeGenerationParams): Promise<void
                 instructions: systemPrompt,
                 context: allMessages,
                 countReasoningAsContent: true,
-                contentThreshold: 5,
+                contentThreshold: 2, // 5,
                 promptCache: {
                     anthropic: {
                         systemPrompt: { enabled: true, ttl: '1h' },

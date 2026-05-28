@@ -682,7 +682,7 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                 instructions: '',
                 context: allMessages,
                 countReasoningAsContent: true,
-                contentThreshold: 5,
+                contentThreshold: 2, // 5,
                 promptCache: {
                     anthropic: {
                         systemPrompt: { enabled: true, ttl: '1h' },

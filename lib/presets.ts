@@ -21,7 +21,7 @@ export type ReasoningPromptMode = 'native' | 'thinking-tags' | 'internal-only';
 // Anthropic prompt-cache rate factors (applied as multipliers of inputPer1M):
 //   read        = 0.10× base input
 //   write 5m    = 1.25× base input
-//   write 1h    = 2.00× base input
+//   write 1h    = 2.00× base input  (schema-only — see pricing.ts TODO)
 const ANTHROPIC_CACHE: Pick<ModelPricing, 'cacheRead' | 'cacheWrite' | 'cacheWrite1h'> = {
     cacheRead: { multiplier: 0.1 },
     cacheWrite: { multiplier: 1.25 },

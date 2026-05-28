@@ -736,6 +736,10 @@ export type ReserveDraftVersionResult =
           wasDeleted: boolean;
       };
 
+function artifactHasNoVersions(artifact: ArtifactEntity): boolean {
+    return artifact.versions.getItems().length === 0;
+}
+
 export interface ReserveDraftVersionOptions {
     em: EntityManager;
     lockService: ILockService;
@@ -777,6 +781,29 @@ export async function reserveDraftVersion(opts: ReserveDraftVersionOptions): Pro
                     if (mode === 'edit' || mode === 'replace') {
                         return { kind: 'not-found' };
                     }
+                    const created = new ArtifactEntity();
+                    created.key = normalizedName;
+                    created.version = 1;
+                    setArtifactOwner({ artifact: created, scope, em: txEm });
+                    txEm.persist(created);
+                    await txEm.flush();
+                    return {
+                        kind: 'reserved',
+                        artifactId: created.id,
+                        existing: null,
+                        reservedVersion: 1,
+                        wasDeleted: false,
+                    };
+                }
+
+                if (artifactHasNoVersions(artifact)) {
+                    txEm.remove(artifact);
+                    await txEm.flush();
+
+                    if (mode === 'edit' || mode === 'replace') {
+                        return { kind: 'not-found' };
+                    }
+
                     const created = new ArtifactEntity();
                     created.key = normalizedName;
                     created.version = 1;
