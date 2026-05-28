@@ -107,7 +107,7 @@ async function buildMockEnv(): Promise<Record<string, unknown>> {
 		WORKER_NAME_FULL: 'hi-chat-test',
 	} satisfies Partial<ChatEnv> & Partial<ServicesEnv> & Record<string, unknown>;
 
-	const env: typeof baseEnv & Record<string, unknown> = baseEnv;
+    const env: typeof baseEnv & Record<string, unknown> = baseEnv;
 
 	if (hasLangfuseVars()) {
 		env.LANGFUSE_PROMPT_SERVICE = {
