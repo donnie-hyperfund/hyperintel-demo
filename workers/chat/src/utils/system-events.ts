@@ -13,7 +13,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { ChatMessageEntity } from '@/lib/orm/entities/chats/chat-message.entity';
 import type { Ctx } from '../context';
-import { getUserGatewayStub } from './broadcast';
+import { callChatServicesSystemAction } from './chat-services';
 
 /**
  * Known system-event names. Persistence and history reconstruction may switch
@@ -72,11 +72,15 @@ export async function injectSystemEvent(
     await em.flush();
 
     // Broadcast to WS subscribers so frontend can display / filter the event
-    const ugStub = getUserGatewayStub(ctx);
-    const topic = chatType === 'intake' ? `intake:${chatId}` : `chat:${chatId}`;
-    await ugStub
-        .systemAction(topic, 'messageCreated', { message: msg.toJSON() }, ctx.previewAlias ?? undefined)
-        .catch(console.error);
+    const prefix = chatType === 'intake' ? 'intake' : 'chat';
+    await callChatServicesSystemAction(ctx, {
+        action: 'messageCreated',
+        prefix,
+        identifier: chatId,
+        userId: ctx.user.userId,
+        previewAlias: ctx.previewAlias,
+        message: msg.toJSON(),
+    }).catch(console.error);
 
     return msg;
 }

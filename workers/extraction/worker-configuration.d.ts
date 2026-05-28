@@ -23,8 +23,9 @@ declare namespace Cloudflare {
 		R2_SECRET_ACCESS_KEY: SecretsStoreSecret;
 		CF_ACCOUNT_ID: SecretsStoreSecret;
 		REDUCTO_API_KEY: SecretsStoreSecret;
-		EXTRACT_RUST: Fetcher /* hi-extract-rust */;
+		EXTRACT_RUST: Fetcher /* hi-extract-rust-dev */ | Fetcher /* hi-extract-rust-exp */ | Fetcher /* hi-extract-rust-dexp */ | Fetcher /* hi-extract-rust */;
 		EMBEDDING_QUEUE: Queue;
+		PREVIEW_DB_MAP: KVNamespace;
 	}
 }
 interface ExtractionEnv extends Cloudflare.ExtractionEnv {}

@@ -16,7 +16,6 @@ import type { TopicHandler } from './topic-handler';
 type SocketAttachment = {
     userId: string;
     subscribedTopics: string[];
-    pendingSubscribeTopics?: string[];
     sessionExpiry: number | undefined;
 };
 
@@ -116,7 +115,6 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
         const attachment: SocketAttachment = {
             userId,
             subscribedTopics: [],
-            pendingSubscribeTopics: [],
             sessionExpiry: expiry,
         };
         server.serializeAttachment(attachment);
@@ -191,26 +189,11 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
     // RPC methods — called by Workers / DOs via DO stub
     // -----------------------------------------------------------------------
 
-    /** Forward an event to all WebSockets subscribed to a topic */
-    async pushEvent(topic: string, event: unknown) {
-        this.broadcastToTopic(topic, { topic, type: ServerMsg.StreamEvent, event });
-    }
-
-    /** Forward a snapshot to all WebSockets subscribed to a topic */
-    async pushSnapshot(topic: string, snapshot: unknown) {
-        this.broadcastToTopic(topic, { topic, type: ServerMsg.SubscribeResponse, status: 'streaming', snapshot });
-    }
-
     /** Forward a raw message to all WebSockets subscribed to a topic */
     async pushMessage(topic: string, message: unknown) {
         const sockets = this.ctx.getWebSockets();
-        let matched = 0;
-        for (const ws of sockets) {
-            const att = ws.deserializeAttachment() as SocketAttachment | null;
-            if (att?.subscribedTopics.includes(topic)) matched++;
-        }
+        const matched = await this.broadcastToTopicInternal(topic, message);
         console.log(`[UG] pushMessage: topic=${topic}, sockets=${sockets.length}, matched=${matched}`);
-        this.broadcastToTopic(topic, message);
     }
 
     /**
@@ -219,14 +202,13 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
      * guaranteeing ordered delivery without interleaving from concurrent callers.
      */
     async pushMessages(topic: string, messages: unknown[]) {
+        // Intentionally does not delegate to broadcastToTopic: this keeps all
+        // messages for a socket in one uninterrupted send loop.
         const sockets = this.ctx.getWebSockets();
         for (const ws of sockets) {
             const att = ws.deserializeAttachment() as SocketAttachment | null;
             if (!att) continue;
-            if (!att.subscribedTopics.includes(topic)) {
-                this.trackSubscribeGapDrop(att, topic);
-                continue;
-            }
+            if (!att.subscribedTopics.includes(topic)) continue;
             if (this.closeIfExpired(ws, att)) continue;
             for (const msg of messages) {
                 try {
@@ -236,26 +218,50 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
         }
     }
 
-    /** Generic RPC for server→server actions routed to a handler */
-    async systemAction(topic: string, action: string, payload: unknown, previewAlias?: string): Promise<unknown> {
-        await this.ensureAliasLoaded();
-        if (previewAlias) this.applyPreviewAlias(previewAlias);
-
-        const { prefix, identifier } = this.parseTopic(topic);
-        const handler = this.handlers.get(prefix);
-        if (!handler) throw new Error(`No handler for prefix: ${prefix}`);
-        const result = await handler.handleAction(
-            '__system__',
-            action,
-            { identifier, ...(payload as object) },
-            this.env,
-        );
-        if (result?.broadcast) {
-            const sockets = this.ctx.getWebSockets();
-            console.log(`[UG] systemAction broadcast: topic=${topic}, action=${action}, sockets=${sockets.length}`);
-            this.broadcastToTopic(topic, result.broadcast);
+    /** Broadcast a raw message to all sockets subscribed to a topic. */
+    async broadcastToTopic(topic: string, message: unknown): Promise<void> {
+        const t0 = performance.now();
+        try {
+            const matched = await this.broadcastToTopicInternal(topic, message, { requireRegisteredPrefix: true });
+            this.trackBroadcastToTopic(topic, performance.now() - t0, matched, true);
+        } catch (err) {
+            this.trackBroadcastToTopic(topic, performance.now() - t0, 0, false);
+            throw err;
         }
-        return result?.data;
+    }
+
+    private trackBroadcastToTopic(topic: string, durationMs: number, recipientCount: number, success: boolean) {
+        writeStreamMetric(this.env, {
+            metric: 'ug_broadcast_to_topic_duration',
+            indexes: [topic],
+            blobs: ['ug_broadcast', topic],
+            doubles: [durationMs, recipientCount, success ? 1 : 0],
+        });
+    }
+
+    private async broadcastToTopicInternal(
+        topic: string,
+        message: unknown,
+        options: { requireRegisteredPrefix?: boolean } = {},
+    ): Promise<number> {
+        const { prefix } = this.parseTopic(topic);
+        if (options.requireRegisteredPrefix) {
+            this.assertRegisteredPrefix(prefix);
+        }
+
+        const serialized = typeof message === 'string' ? message : JSON.stringify(message);
+        let matched = 0;
+        for (const ws of this.ctx.getWebSockets()) {
+            const attachment = ws.deserializeAttachment() as SocketAttachment | null;
+            if (!attachment) continue;
+            if (!attachment.subscribedTopics.includes(topic)) continue;
+            matched += 1;
+            if (this.closeIfExpired(ws, attachment)) continue;
+            try {
+                ws.send(serialized);
+            } catch {}
+        }
+        return matched;
     }
 
     /** Broadcast to ALL connected sockets regardless of subscriptions */
@@ -292,17 +298,23 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
                     return;
                 }
                 try {
-                    const allowed = await handler.canSubscribe(userId, identifier, this.env);
-                    if (!allowed) {
+                    const decision = await handler.canSubscribe(userId, identifier, this.env);
+                    if (!decision.allowed) {
                         ws.send(JSON.stringify({ type: ServerMsg.Error, error: 'Forbidden', action: msg.action }));
                         return;
                     }
-                    this.addPendingSubscribeTopic(ws, attachment, msg.topic);
-                    const response = await handler.subscribe(userId, identifier, this.env);
                     this.addTopicToSocket(ws, attachment, msg.topic);
+                    const response = await handler.subscribe(userId, identifier, this.env, decision);
+                    const subscribeError = this.subscribeFailureMessage(response);
+                    if (subscribeError) {
+                        this.removeTopicFromSocket(ws, attachment, msg.topic);
+                        ws.send(JSON.stringify({ type: ServerMsg.Error, error: subscribeError, action: msg.action }));
+                        return;
+                    }
                     ws.send(JSON.stringify({ topic: msg.topic, type: ServerMsg.SubscribeResponse, ...response }));
+                    this.trackSubscribeDiagnostics(msg.topic, response, attachment);
                 } catch (err) {
-                    this.removePendingSubscribeTopic(ws, attachment, msg.topic);
+                    this.removeTopicFromSocket(ws, attachment, msg.topic);
                     throw err;
                 }
                 return;
@@ -329,15 +341,15 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
                     );
                     return;
                 }
-                const result = await handler.handleAction(
+                // TODO: add an explicit client-action ack/error protocol.
+                // These commands currently succeed silently; failures are not
+                // returned as structured per-action websocket responses.
+                await handler.handleAction(
                     userId,
                     msg.type,
                     { identifier, ...((msg.payload as object) ?? {}) },
                     this.env,
                 );
-                if (result?.broadcast) {
-                    this.broadcastToTopic(msg.topic, result.broadcast);
-                }
                 return;
             }
 
@@ -354,11 +366,32 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
     // Topic management — via socket attachment (not ctx.storage)
     // -----------------------------------------------------------------------
 
-    private addTopicToSocket(ws: WebSocket, attachment: SocketAttachment, topic: string) {
-        const pendingIdx = attachment.pendingSubscribeTopics?.indexOf(topic) ?? -1;
-        if (pendingIdx !== -1) {
-            attachment.pendingSubscribeTopics!.splice(pendingIdx, 1);
+    private subscribeFailureMessage(response: Awaited<ReturnType<TopicHandler['subscribe']>>): string | null {
+        const maybeFailure = response as { ok?: unknown; status?: unknown; error?: unknown };
+        if (maybeFailure.ok !== false && maybeFailure.status !== 'error') return null;
+        return typeof maybeFailure.error === 'string' ? maybeFailure.error : 'Subscribe failed';
+    }
+
+    private trackSubscribeDiagnostics(
+        topic: string,
+        response: Awaited<ReturnType<TopicHandler['subscribe']>>,
+        attachment: SocketAttachment,
+    ) {
+        const { prefix } = this.parseTopic(topic);
+        let matchingSockets = 0;
+        for (const socket of this.ctx.getWebSockets()) {
+            const socketAttachment = socket.deserializeAttachment() as SocketAttachment | null;
+            if (socketAttachment?.subscribedTopics.includes(topic)) matchingSockets += 1;
         }
+        writeStreamMetric(this.env, {
+            metric: 'ug_subscribe',
+            indexes: [attachment.userId],
+            blobs: [prefix, response.status, this.previewAlias],
+            doubles: [attachment.subscribedTopics.length, matchingSockets],
+        });
+    }
+
+    private addTopicToSocket(ws: WebSocket, attachment: SocketAttachment, topic: string) {
         if (!attachment.subscribedTopics.includes(topic)) {
             attachment.subscribedTopics.push(topic);
         }
@@ -367,58 +400,10 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
 
     private removeTopicFromSocket(ws: WebSocket, attachment: SocketAttachment, topic: string) {
         const idx = attachment.subscribedTopics.indexOf(topic);
-        const pendingIdx = attachment.pendingSubscribeTopics?.indexOf(topic) ?? -1;
         if (idx !== -1) {
             attachment.subscribedTopics.splice(idx, 1);
-        }
-        if (pendingIdx !== -1) {
-            attachment.pendingSubscribeTopics!.splice(pendingIdx, 1);
-        }
-        if (idx !== -1 || pendingIdx !== -1) {
             ws.serializeAttachment(attachment);
         }
-    }
-
-    private broadcastToTopic(topic: string, message: unknown) {
-        const serialized = typeof message === 'string' ? message : JSON.stringify(message);
-        for (const ws of this.ctx.getWebSockets()) {
-            const attachment = ws.deserializeAttachment() as SocketAttachment | null;
-            if (!attachment) continue;
-            if (!attachment.subscribedTopics.includes(topic)) {
-                this.trackSubscribeGapDrop(attachment, topic);
-                continue;
-            }
-            if (this.closeIfExpired(ws, attachment)) continue;
-            try {
-                ws.send(serialized);
-            } catch {}
-        }
-    }
-
-    private addPendingSubscribeTopic(ws: WebSocket, attachment: SocketAttachment, topic: string) {
-        attachment.pendingSubscribeTopics ??= [];
-        if (!attachment.pendingSubscribeTopics.includes(topic) && !attachment.subscribedTopics.includes(topic)) {
-            attachment.pendingSubscribeTopics.push(topic);
-            ws.serializeAttachment(attachment);
-        }
-    }
-
-    private removePendingSubscribeTopic(ws: WebSocket, attachment: SocketAttachment, topic: string) {
-        const idx = attachment.pendingSubscribeTopics?.indexOf(topic) ?? -1;
-        if (idx !== -1) {
-            attachment.pendingSubscribeTopics!.splice(idx, 1);
-            ws.serializeAttachment(attachment);
-        }
-    }
-
-    private trackSubscribeGapDrop(attachment: SocketAttachment, topic: string) {
-        if (!attachment.pendingSubscribeTopics?.includes(topic)) return;
-        writeStreamMetric(this.env, {
-            metric: 'subscribe_gap_drop',
-            indexes: [attachment.userId],
-            blobs: [topic, this.previewAlias],
-            doubles: [1],
-        });
     }
 
     // -----------------------------------------------------------------------
@@ -499,7 +484,10 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
 
     /** Close socket if its session has expired (with grace period). Returns true if closed. */
     private closeIfExpired(ws: WebSocket, attachment: SocketAttachment | null): boolean {
-        if (attachment?.sessionExpiry && Date.now() / 1000 > attachment.sessionExpiry + UserGateway.SESSION_GRACE_SECONDS) {
+        if (
+            attachment?.sessionExpiry &&
+            Date.now() / 1000 > attachment.sessionExpiry + UserGateway.SESSION_GRACE_SECONDS
+        ) {
             try {
                 ws.send(JSON.stringify({ type: ServerMsg.Error, error: 'Session expired' }));
                 ws.close(4401, 'Session expired');
@@ -514,5 +502,9 @@ export class UserGateway extends DurableObject<ObjectsEnv> {
         const colonIdx = topic.indexOf(':');
         if (colonIdx === -1) return { prefix: topic, identifier: '' };
         return { prefix: topic.slice(0, colonIdx), identifier: topic.slice(colonIdx + 1) };
+    }
+
+    private assertRegisteredPrefix(prefix: string) {
+        if (!this.handlers.has(prefix)) throw new Error(`No handler for prefix: ${prefix}`);
     }
 }

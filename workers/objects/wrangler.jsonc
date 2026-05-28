@@ -46,6 +46,13 @@
 			"secret_name": "CLERK_SECRET_KEY"
 		}
 	],
+	"services": [
+		{
+			"binding": "CHAT_SERVICES",
+			"service": "hi-services",
+			"entrypoint": "ChatServices"
+		}
+	],
 	"durable_objects": {
 		"bindings": [
 			{
@@ -63,6 +70,11 @@
 			{
 				"name": "LOCKS_SERVICE",
 				"class_name": "LocksService"
+			},
+			{
+				"name": "CHAT_STREAM_STATE_DO",
+				"class_name": "ChatStreamStateDO",
+				"script_name": "hi-stream-state"
 			}
 		]
 	},
@@ -117,6 +129,13 @@
 					"secret_name": "DEV_CLERK_SECRET_KEY"
 				}
 			],
+			"services": [
+				{
+					"binding": "CHAT_SERVICES",
+					"service": "hi-services-dev",
+					"entrypoint": "ChatServices"
+				}
+			],
 			"durable_objects": {
 				"bindings": [
 					{
@@ -134,6 +153,11 @@
 					{
 						"name": "LOCKS_SERVICE",
 						"class_name": "LocksService"
+					},
+					{
+						"name": "CHAT_STREAM_STATE_DO",
+						"class_name": "ChatStreamStateDO",
+						"script_name": "hi-stream-state-dev"
 					}
 				]
 			},
@@ -173,6 +197,13 @@
 					"secret_name": "DEV_CLERK_SECRET_KEY"
 				}
 			],
+			"services": [
+				{
+					"binding": "CHAT_SERVICES",
+					"service": "hi-services-exp",
+					"entrypoint": "ChatServices"
+				}
+			],
 			"durable_objects": {
 				"bindings": [
 					{
@@ -190,6 +221,11 @@
 					{
 						"name": "LOCKS_SERVICE",
 						"class_name": "LocksService"
+					},
+					{
+						"name": "CHAT_STREAM_STATE_DO",
+						"class_name": "ChatStreamStateDO",
+						"script_name": "hi-stream-state-exp"
 					}
 				]
 			},
@@ -229,6 +265,13 @@
 					"secret_name": "DEV_CLERK_SECRET_KEY"
 				}
 			],
+			"services": [
+				{
+					"binding": "CHAT_SERVICES",
+					"service": "hi-services-dexp",
+					"entrypoint": "ChatServices"
+				}
+			],
 			"durable_objects": {
 				"bindings": [
 					{
@@ -246,6 +289,11 @@
 					{
 						"name": "LOCKS_SERVICE",
 						"class_name": "LocksService"
+					},
+					{
+						"name": "CHAT_STREAM_STATE_DO",
+						"class_name": "ChatStreamStateDO",
+						"script_name": "hi-stream-state-dexp"
 					}
 				]
 			},

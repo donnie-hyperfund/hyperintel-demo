@@ -45,6 +45,9 @@ function buildCtx(version: any, cbChat = version.chat) {
         systemAction: vi.fn(async () => undefined),
         broadcastToAll: vi.fn(async () => undefined),
     };
+    const chatServices = {
+        systemAction: vi.fn(async () => undefined),
+    };
     const qb = {
         select: vi.fn(() => qb),
         leftJoinAndSelect: vi.fn(() => qb),
@@ -69,11 +72,15 @@ function buildCtx(version: any, cbChat = version.chat) {
                 idFromName: vi.fn(() => 'ug-id'),
                 get: vi.fn(() => ugStub),
             },
+            CHAT_SERVICES: chatServices,
+            STREAM_AE: { writeDataPoint: vi.fn() },
+            WORKER_NAME: 'hi-chat-test',
+            WORKER_NAME_FULL: 'hi-chat-test',
         },
         user: { userId: 'user-1' },
         previewAlias: null,
     } as any;
-    return { ctx, em, qb, persisted, ugStub };
+    return { ctx, em, qb, persisted, ugStub, chatServices };
 }
 
 describe('artifact approval system events', () => {
@@ -83,7 +90,7 @@ describe('artifact approval system events', () => {
 
     it('programmatic approval injects artifact_auto_approved and preserves summary_internal', async () => {
         const { version, artifact, chat } = buildVersion('Completion Brief');
-        const { ctx, persisted, ugStub } = buildCtx(version, chat);
+        const { ctx, persisted, chatServices } = buildCtx(version, chat);
 
         const result = await approveArtifactProgrammatic(ctx, 'version-1', { reason: 'context_hard_gate' });
 
@@ -101,21 +108,23 @@ describe('artifact approval system events', () => {
                 versionId: 'version-1',
             }),
         });
-        expect(ugStub.systemAction).toHaveBeenCalledWith(
-            'chat:chat-1',
-            'cbStatusChanged',
-            { status: 'approved' },
-            undefined,
-        );
-        expect(ugStub.systemAction).toHaveBeenCalledWith(
-            'chat:chat-1',
-            'messageCreated',
+        expect(chatServices.systemAction).toHaveBeenCalledWith(
             expect.objectContaining({
+                action: 'cbStatusChanged',
+                prefix: 'chat',
+                identifier: 'chat-1',
+                status: 'approved',
+            }),
+        );
+        expect(chatServices.systemAction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                action: 'messageCreated',
+                prefix: 'chat',
+                identifier: 'chat-1',
                 message: expect.objectContaining({
                     metadata: expect.objectContaining({ systemEvent: 'artifact_auto_approved' }),
                 }),
             }),
-            undefined,
         );
     });
 

@@ -6,7 +6,8 @@ import type { ApproveArtifactActionDto, RejectArtifactActionDto } from '@/lib/sc
 import { PUBLISHABLE_DOCUMENT_TYPES } from '@/lib/schema/artifact';
 import type { ArtifactProcessingStage } from '@/lib/schema/user-events';
 import { Ctx } from './context';
-import { broadcastUserEvent, getUserGatewayStub } from './utils/broadcast';
+import { broadcastUserEvent } from './utils/broadcast';
+import { callChatServicesSystemAction } from './utils/chat-services';
 import { injectSystemEvent, type SystemEventName } from './utils/system-events';
 
 async function broadcastArtifactProgress({
@@ -179,10 +180,14 @@ async function commitApproval(
     });
 
     if (version.document_type === 'Completion Brief') {
-        const ugStub = getUserGatewayStub(ctx);
-        ugStub
-            .systemAction(`chat:${chatId}`, 'cbStatusChanged', { status: 'approved' }, ctx.previewAlias ?? undefined)
-            .catch((err) => console.error(`[${opts.label}] CB status broadcast failed:`, err));
+        callChatServicesSystemAction(ctx, {
+            action: 'cbStatusChanged',
+            prefix: 'chat',
+            identifier: chatId,
+            userId: ctx.user.userId,
+            previewAlias: ctx.previewAlias,
+            status: 'approved',
+        }).catch((err) => console.error(`[${opts.label}] CB status broadcast failed:`, err));
     }
 
     await injectSystemEvent(ctx, em!, {
@@ -443,13 +448,17 @@ export async function rejectArtifactHandler(
         chatId: chat.id,
     });
 
-    // Broadcast CB status change via chat-scoped UG topic
+    // Broadcast CB status change via chat-scoped topic
     if (version.document_type === 'Completion Brief') {
         const chatId = version.chat.id;
-        const ugStub = getUserGatewayStub(ctx);
-        ugStub
-            .systemAction(`chat:${chatId}`, 'cbStatusChanged', { status: 'rejected' }, ctx.previewAlias ?? undefined)
-            .catch((err) => console.error('[rejectArtifact] CB status broadcast failed:', err));
+        callChatServicesSystemAction(ctx, {
+            action: 'cbStatusChanged',
+            prefix: 'chat',
+            identifier: chatId,
+            userId: ctx.user.userId,
+            previewAlias: ctx.previewAlias,
+            status: 'rejected',
+        }).catch((err) => console.error('[rejectArtifact] CB status broadcast failed:', err));
     }
 
     // Inject system event so the agent knows the user rejected via UI

@@ -55,21 +55,26 @@ function hasLangfuseVars(): boolean {
 // ============================================================================
 
 // Lazy-load DO classes to avoid pulling in CF worker runtime at import time
-let _doClasses: { UserGateway: any; ChatStreamDO: any } | null = null;
+let _doClasses: { UserGateway: any; ChatStreamDO: any; ChatServices: any } | null = null;
 
 async function getDOClasses() {
 	if (!_doClasses) {
-		const [ugModule, csModule] = await Promise.all([
+		const [ugModule, csModule, servicesModule] = await Promise.all([
 			import('@/workers/objects/src/objects/user-gateway'),
 			import('@/workers/objects/src/objects/chat-stream-do'),
+			import('@/workers/services/src/index'),
 		]);
-		_doClasses = { UserGateway: ugModule.UserGateway, ChatStreamDO: csModule.ChatStreamDO };
+		_doClasses = {
+			UserGateway: ugModule.UserGateway,
+			ChatStreamDO: csModule.ChatStreamDO,
+			ChatServices: servicesModule.ChatServices,
+		};
 	}
 	return _doClasses;
 }
 
 async function buildMockEnv(): Promise<Record<string, unknown>> {
-	const env: Record<string, unknown> = {
+	const baseEnv = {
 		// Secrets (SecretsStoreSecret interface)
 		ANTHROPIC_API_KEY: makeSecretMock(process.env.ANTHROPIC_API_KEY ?? ''),
 		OPENROUTER_API_KEY: makeSecretMock(process.env.OPENROUTER_API_KEY ?? ''),
@@ -88,23 +93,38 @@ async function buildMockEnv(): Promise<Record<string, unknown>> {
 		ENV: 'test',
 		CORS_ALLOWED_ORIGIN: '*',
 		// Queue mocks
-		EMBEDDING_QUEUE: { send: () => Promise.resolve() },
-		EXTRACTION_QUEUE: { send: () => Promise.resolve() },
-	};
+		EMBEDDING_QUEUE: {
+			send: () => Promise.resolve(),
+			sendBatch: () => Promise.resolve(),
+		},
+		EXTRACTION_QUEUE: {
+			send: () => Promise.resolve(),
+			sendBatch: () => Promise.resolve(),
+		},
+		// Analytics Engine — no-op in tests
+		STREAM_AE: { writeDataPoint: () => {} },
+		WORKER_NAME: 'hi-chat-test',
+		WORKER_NAME_FULL: 'hi-chat-test',
+	} satisfies Partial<ChatEnv> & Partial<ServicesEnv> & Record<string, unknown>;
+
+    const env: typeof baseEnv & Record<string, unknown> = baseEnv;
 
 	if (hasLangfuseVars()) {
 		env.LANGFUSE_PROMPT_SERVICE = {
 			async getPromptRaw(input: { promptName: string }) {
 				const { getLangfusePromptRawRpc } = await import('@/workers/services/src/langfuse-service');
-				return getLangfusePromptRawRpc(input, env as ServicesEnv);
+				return getLangfusePromptRawRpc(input, env);
 			},
 		};
 	}
 
 	// DO namespace mocks
-	const { UserGateway, ChatStreamDO } = await getDOClasses();
+	const { UserGateway, ChatStreamDO, ChatServices } = await getDOClasses();
 	env.USER_GATEWAY = new MockDurableObjectNamespace(UserGateway, env);
 	env.CHAT_STREAM_DO = new MockDurableObjectNamespace(ChatStreamDO, env);
+	// ChatServices runs in-process for tests, sharing the same env (and thus
+	// the same mocked UG / ChatStreamDO namespaces).
+	env.CHAT_SERVICES = new ChatServices({}, env);
 
 	return env;
 }

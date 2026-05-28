@@ -9,6 +9,7 @@ vi.mock('./chat-handler', () => ({
 }));
 
 vi.mock('./phase-transition', () => ({
+    PHASE_TRANSITION_STREAM_TYPE: 'phase_transition',
     runPhaseTransition: vi.fn(),
 }));
 
@@ -16,6 +17,9 @@ describe('phaseTransitionActionHandler', () => {
     const ugStub = {
         systemAction: vi.fn(async () => undefined),
         broadcastToAll: vi.fn(async () => undefined),
+    };
+    const chatServices = {
+        systemAction: vi.fn(async () => undefined),
     };
 
     function buildCtx({
@@ -46,6 +50,10 @@ describe('phaseTransitionActionHandler', () => {
                     idFromName: vi.fn(() => 'ug-id'),
                     get: vi.fn(() => ugStub),
                 },
+                CHAT_SERVICES: chatServices,
+                STREAM_AE: { writeDataPoint: vi.fn() },
+                WORKER_NAME: 'hi-chat-test',
+                WORKER_NAME_FULL: 'hi-chat-test',
             },
             user: { userId: 'user-1' },
             previewAlias: null,
@@ -72,7 +80,7 @@ describe('phaseTransitionActionHandler', () => {
         });
         expect(chat.active_agent_message_id).toBeNull();
         expect(em.flush).not.toHaveBeenCalled();
-        expect(ugStub.systemAction).not.toHaveBeenCalled();
+        expect(chatServices.systemAction).not.toHaveBeenCalled();
         expect(runPhaseTransition).not.toHaveBeenCalled();
     });
 
@@ -85,15 +93,15 @@ describe('phaseTransitionActionHandler', () => {
         expect(result).not.toBeInstanceOf(PublicError);
         expect(chat.active_agent_message_id).toBe((result as { agentMessageId: string }).agentMessageId);
         expect(em.flush).toHaveBeenCalledOnce();
-        expect(ugStub.systemAction).toHaveBeenCalledWith(
-            'chat:chat-1',
-            'registerStream',
+        expect(chatServices.systemAction).toHaveBeenCalledWith(
             expect.objectContaining({
+                action: 'registerStream',
+                prefix: 'chat',
+                identifier: 'chat-1',
                 agentMessageId: (result as { agentMessageId: string }).agentMessageId,
                 userId: 'user-1',
                 streamType: 'phase_transition',
             }),
-            undefined,
         );
         expect(runPhaseTransition).toHaveBeenCalledOnce();
     });

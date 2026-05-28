@@ -25,14 +25,14 @@ export type ExportArtifactVersionDocxResult =
 
 export async function exportArtifactVersionDocx(
     input: ExportArtifactVersionDocxInput,
-    env: ServicesEnv,
+    env: PostgresEnv,
 ): Promise<ExportArtifactVersionDocxResult> {
-    if (!process.versions || !process.versions.node) {
+    if (!process.versions?.node) {
         // @ts-ignore Worker/node compatibility shim matches context.helpers.ts.
         process.versions = { ...process.versions, node: '20.17.0' };
     }
 
-    const clientUrl = await getConnectionString(env as PostgresEnv, input.previewAlias ?? undefined);
+    const clientUrl = await getConnectionString(env, input.previewAlias ?? undefined);
     const useNoSSL = isHyperdriveEnv(env) || clientUrl.endsWith('sslmode=disable');
     const orm = await initMikroOrmWorker({
         clientUrl,

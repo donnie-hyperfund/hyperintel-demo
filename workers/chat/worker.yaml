@@ -23,6 +23,10 @@ r2_buckets:
       production: hi-user-images
       dev: hi-user-images-dev
 
+analytics_engine_datasets:
+  - binding: STREAM_AE
+    dataset: hyperintel_stream_metrics
+
 queues:
   producers:
     - binding: EMBEDDING_QUEUE
@@ -43,9 +47,6 @@ vars:
 # ai: true
 # browser: true
 
-# services:
-#   - binding: SOME_SERVICE
-#     entrypoint: SomeEntrypoint
 services:
   - binding: DOCX_EXPORT_SERVICE
     service: hi-services
@@ -53,6 +54,9 @@ services:
   - binding: LANGFUSE_PROMPT_SERVICE
     service: hi-services
     entrypoint: LangfusePromptService
+  - binding: CHAT_SERVICES
+    service: hi-services
+    entrypoint: ChatServices
 
 durable_objects:
   - name: USER_GATEWAY

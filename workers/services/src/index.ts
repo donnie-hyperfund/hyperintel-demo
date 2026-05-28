@@ -1,16 +1,26 @@
-import { createClerkClient } from '@clerk/backend';
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { createClerkClient } from '@clerk/backend';
 import { Hono } from 'hono';
+import type {
+    ClearActiveStreamRequest,
+    DeadManCleanupRequest,
+    StreamParityDebugRequest,
+} from '@/lib/schema/stream-cleanup';
+import type { SubscribeInfoRequest, SubscribeInfoResponse } from '@/lib/schema/subscribe-info';
+import type { SystemActionRequest } from '@/lib/schema/system-actions';
 import { branchDoName, getPreviewAlias, PREVIEW_ALIAS_HEADER } from '@/workers/_common/util/preview-alias';
+import { getTopicSubscribeInfo } from './chat/chat-policy';
+import { clearActiveStream, deadManCleanup, recordStreamParityDebug } from './chat/stream-cleanup';
+import { handleSystemAction } from './chat/system-actions';
 import {
-    exportArtifactVersionDocx,
     type ExportArtifactVersionDocxInput,
     type ExportArtifactVersionDocxResult,
+    exportArtifactVersionDocx,
 } from './docx-exporter';
 import {
-    getLangfusePromptRawRpc,
     type GetLangfusePromptRawInput,
     type GetLangfusePromptRawResult,
+    getLangfusePromptRawRpc,
 } from './langfuse-service';
 
 const app = new Hono<{ Bindings: ServicesEnv }>();
@@ -34,6 +44,13 @@ app.get('/', (c) => {
 app.get('/health', (c) => {
     return c.json({ status: 'healthy' });
 });
+
+// Internal RPC surface lives on WorkerEntrypoint classes (e.g. ChatServices below).
+// HTTP /internal/* is intentionally not exposed — service bindings target the
+// named entrypoint directly. This 404 is a guardrail against re-introducing
+// HTTP-style internal routes by accident. Do not remove without removing the
+// entrypoint class too.
+app.all('/internal/*', (c) => c.notFound());
 
 // WebSocket upgrade — authenticates via Clerk, then forwards to UserGateway DO
 app.get('/ws', async (c) => {
@@ -77,3 +94,32 @@ app.get('/ws', async (c) => {
 });
 
 export default app;
+
+export class ChatServices extends WorkerEntrypoint<ServicesEnv> {
+    async getTopicSubscribeInfo(req: SubscribeInfoRequest): Promise<SubscribeInfoResponse> {
+        return getTopicSubscribeInfo(this.env, req);
+    }
+
+    async clearActiveStream(req: ClearActiveStreamRequest): Promise<void> {
+        return clearActiveStream(this.env, req);
+    }
+
+    async deadManCleanup(req: DeadManCleanupRequest): Promise<void> {
+        return deadManCleanup(this.env, req);
+    }
+
+    async recordStreamParityDebug(req: StreamParityDebugRequest): Promise<void> {
+        return recordStreamParityDebug(this.env, req);
+    }
+
+    /**
+     * Generic system-action entrypoint — discriminated-union request, internal
+     * dispatch. See `lib/schema/system-actions.ts` for the request shape and
+     * `workers/services/src/chat/system-actions.ts` for the dispatcher.
+     *
+     * Adding a new action does NOT require redeploying hi-objects.
+     */
+    async systemAction(req: SystemActionRequest): Promise<void> {
+        return handleSystemAction(this.env, req);
+    }
+}

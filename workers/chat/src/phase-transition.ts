@@ -31,7 +31,7 @@ export async function runPhaseTransition(context: PhaseTransitionContext): Promi
         const extraction = await extractNextPhaseBlurb({ input: promptInput, ctx, chat, options, infra });
 
         if (extraction.wasAborted || infra.abortController.signal.aborted) {
-            return cancelPhaseTransition({ ctx, chat, chatId, ugStub, infra });
+            return cancelPhaseTransition({ ctx, chat, chatId, infra });
         }
 
         infra.pusher.push([{ type: 'status_update', status: 'finalizing' } as StreamEvent]);
@@ -63,15 +63,13 @@ export async function runPhaseTransition(context: PhaseTransitionContext): Promi
         broadcastNextPhaseCreated({ ugStub, newChat, projectId: chat.project!.id });
 
         const doneDelivered = await deliverSourceTransitionDone({
-            chatId,
             newChatId: newChat.id,
-            ugStub,
             infra,
         });
         if (!doneDelivered) return false;
 
         return true;
     } catch (error) {
-        return handlePhaseTransitionFailure({ ctx, chat, chatId, agentMessageId, ugStub, infra, error });
+        return handlePhaseTransitionFailure({ ctx, chat, chatId, agentMessageId, infra, error });
     }
 }

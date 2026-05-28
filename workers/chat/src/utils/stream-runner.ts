@@ -11,7 +11,7 @@ import type { StreamEvent } from '@/lib/schema/stream';
 import { branchDoName } from '@/workers/_common/util/preview-alias';
 import type { Ctx } from '../context';
 import type { DraftManager } from '../tools/documents';
-import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
+import type { ChatStreamDOStub } from './do-stubs';
 import { createDocumentEventHandler, type DocumentContext, type DocumentEvent } from './document-events';
 import {
     type CommonStreamEventOpts,
@@ -118,24 +118,17 @@ export async function runStreamLoop(config: StreamLoopConfig): Promise<void> {
 // ============================================================================
 
 /**
- * Post-stream cleanup: done -> finalize -> clearStream.
- * Call after historyPromise and optional safety monitor finalization.
+ * Post-stream cleanup: done -> finalize. ChatStreamDO.finalize() now clears the
+ * UG topic mapping itself (guarded against stale-finalize races), so callers
+ * no longer need to follow up with an explicit clearStream system action.
  */
-export async function finalizeStream(
-    streamDO: ChatStreamDOStub,
-    ugStub: UserGatewayStub,
-    topic: string,
-): Promise<void> {
-    try {
-        await runBestEffortStreamCall({ label: 'stream-runner', operation: 'done', action: () => streamDO.done() });
-        await runBestEffortStreamCall({
-            label: 'stream-runner',
-            operation: 'finalize',
-            action: () => streamDO.finalize(),
-        });
-    } finally {
-        await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
-    }
+export async function finalizeStream(streamDO: ChatStreamDOStub): Promise<void> {
+    await runBestEffortStreamCall({ label: 'stream-runner', operation: 'done', action: () => streamDO.done() });
+    await runBestEffortStreamCall({
+        label: 'stream-runner',
+        operation: 'finalize',
+        action: () => streamDO.finalize(),
+    });
 }
 
 /**
@@ -145,24 +138,16 @@ export async function finalizeStream(
  */
 export async function finalizeStreamWithoutDone({
     streamDO,
-    ugStub,
-    topic,
     label,
 }: {
     streamDO: ChatStreamDOStub;
-    ugStub: UserGatewayStub;
-    topic: string;
     label: string;
 }): Promise<void> {
-    try {
-        await runBestEffortStreamCall({
-            label,
-            operation: 'finalize',
-            action: () => streamDO.finalize(),
-        });
-    } finally {
-        await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
-    }
+    await runBestEffortStreamCall({
+        label,
+        operation: 'finalize',
+        action: () => streamDO.finalize(),
+    });
 }
 
 // ============================================================================

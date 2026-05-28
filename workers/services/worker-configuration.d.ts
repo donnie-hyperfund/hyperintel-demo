@@ -18,6 +18,7 @@ declare namespace Cloudflare {
 		DATABASE_URL: SecretsStoreSecret;
 		CLERK_SECRET_KEY: SecretsStoreSecret;
 		LANGFUSE_SECRET_KEY: SecretsStoreSecret;
+		PREVIEW_DB_MAP: KVNamespace;
 	}
 }
 interface ServicesEnv extends Cloudflare.ServicesEnv {}

@@ -14,11 +14,12 @@ import { MockRustWorkerFetcher } from '@/workers/extract-rust/tester/local-mock'
 // eslint-disable-next-line -- require() to avoid pulling worker files into root tsc
 const { UserGateway } = require('@/workers/objects/src/objects/user-gateway');
 const { ChatStreamDO } = require('@/workers/objects/src/objects/chat-stream-do');
+const { ChatStreamStateDO } = require('@/workers/stream-state/src/objects/chat-stream-state-do');
 const { GenerationProxyDO } = require('@/workers/objects/src/objects/generation-proxy-do');
 const { LocksService } = require('@/workers/objects/src/objects/locks-service');
 
 // --- Secrets & plain config ---
-const envSecrets: Record<string, unknown> = {
+const envSecrets = {
     // Secrets (SecretsStoreSecret interface)
     OPENROUTER_API_KEY: makeSecretMock(backendEnv.OPENROUTER_API_KEY!),
     CF_TOKEN: makeSecretMock('TODO'), // backendEnv.CF_GATEWAY_TOKEN!
@@ -49,30 +50,62 @@ const envSecrets: Record<string, unknown> = {
     // TODO IS_DEV?
     ENV: process.env.NODE_ENV === 'production' ? 'production' : 'dev',
     CORS_ALLOWED_ORIGIN: '*',
+} satisfies Partial<ChatEnv> & Partial<ServicesEnv> & Record<string, unknown>;
+
+const noopAnalyticsEngineDataset: AnalyticsEngineDataset = {
+    writeDataPoint() {},
 };
 
 /**
  * Full worker env mock — secrets + bindings in one object.
- * Bindings (DOs, queues, R2) are added below and via ensureDOMocks().
+ * Bindings (DOs, queues, R2, Analytics Engine) are added below and via ensureDOMocks().
  * Handlers see everything on ctx.env.
  */
-export const workerEnv: Record<string, unknown> = {
+export const workerEnv: typeof envSecrets & Record<string, unknown> = {
     ...envSecrets,
     // R2 bindings — real dev buckets via AWS SDK behind CF R2Bucket interface
     ARTIFACTS_BUCKET: new MockR2Bucket('hi-artifacts-dev'),
     USER_IMAGES_BUCKET: new MockR2Bucket('hi-user-images-dev'),
+    // Analytics Engine binding — no-op locally, but present so local DOs see the same binding shape as Cloudflare.
+    STREAM_AE: noopAnalyticsEngineDataset,
     // Service bindings — in-process WASM
     EXTRACT_RUST: new MockRustWorkerFetcher(),
     DOCX_EXPORT_SERVICE: {
-        async exportArtifactVersionDocx(input: { artifactVersionId: string; userId: string; previewAlias?: string | null }) {
+        async exportArtifactVersionDocx(input: {
+            artifactVersionId: string;
+            userId: string;
+            previewAlias?: string | null;
+        }) {
             const { exportArtifactVersionDocx } = await import('@/workers/services/src/docx-exporter');
-            return exportArtifactVersionDocx(input, workerEnv as ServicesEnv);
+            return exportArtifactVersionDocx(input, workerEnv);
         },
     },
     LANGFUSE_PROMPT_SERVICE: {
         async getPromptRaw(input: { promptName: string }) {
             const { getLangfusePromptRawRpc } = await import('@/workers/services/src/langfuse-service');
-            return getLangfusePromptRawRpc(input, workerEnv as ServicesEnv);
+            return getLangfusePromptRawRpc(input, workerEnv);
+        },
+    },
+    CHAT_SERVICES: {
+        async getTopicSubscribeInfo(req: import('@/lib/schema/subscribe-info').SubscribeInfoRequest) {
+            const { getTopicSubscribeInfo } = await import('@/workers/services/src/chat/chat-policy');
+            return getTopicSubscribeInfo(workerEnv as unknown as ServicesEnv, req);
+        },
+        async clearActiveStream(req: import('@/lib/schema/stream-cleanup').ClearActiveStreamRequest) {
+            const { clearActiveStream } = await import('@/workers/services/src/chat/stream-cleanup');
+            return clearActiveStream(workerEnv as unknown as ServicesEnv, req);
+        },
+        async deadManCleanup(req: import('@/lib/schema/stream-cleanup').DeadManCleanupRequest) {
+            const { deadManCleanup } = await import('@/workers/services/src/chat/stream-cleanup');
+            return deadManCleanup(workerEnv as unknown as ServicesEnv, req);
+        },
+        async recordStreamParityDebug(req: import('@/lib/schema/stream-cleanup').StreamParityDebugRequest) {
+            const { recordStreamParityDebug } = await import('@/workers/services/src/chat/stream-cleanup');
+            return recordStreamParityDebug(workerEnv as unknown as ServicesEnv, req);
+        },
+        async systemAction(req: import('@/lib/schema/system-actions').SystemActionRequest) {
+            const { handleSystemAction } = await import('@/workers/services/src/chat/system-actions');
+            return handleSystemAction(workerEnv as unknown as ServicesEnv, req);
         },
     },
     // DO bindings assigned in ensureDOMocks()
@@ -105,21 +138,30 @@ workerEnv.EXTRACTION_QUEUE = new MockQueue<ExtractionQueueMessage>(
 const DO_KEY = Symbol.for('__hyperintel_dev_do_mocks');
 export function ensureDOMocks() {
     let cached = (globalThis as any)[DO_KEY] as
-        | { USER_GATEWAY: any; CHAT_STREAM_DO: any; GENERATION_PROXY: any; LOCKS_SERVICE: any }
+        | {
+              USER_GATEWAY: any;
+              CHAT_STREAM_DO: any;
+              CHAT_STREAM_STATE_DO: any;
+              GENERATION_PROXY: any;
+              LOCKS_SERVICE: any;
+          }
         | undefined;
     if (!cached) {
         cached = {
             USER_GATEWAY: new MockDurableObjectNamespace(UserGateway, workerEnv),
             CHAT_STREAM_DO: new MockDurableObjectNamespace(ChatStreamDO, workerEnv),
+            CHAT_STREAM_STATE_DO: new MockDurableObjectNamespace(ChatStreamStateDO, workerEnv),
             GENERATION_PROXY: new MockDurableObjectNamespace(GenerationProxyDO, workerEnv),
             LOCKS_SERVICE: new MockDurableObjectNamespace(LocksService, workerEnv),
         };
         (globalThis as any)[DO_KEY] = cached;
     }
     cached.LOCKS_SERVICE ??= new MockDurableObjectNamespace(LocksService, workerEnv);
+    cached.CHAT_STREAM_STATE_DO ??= new MockDurableObjectNamespace(ChatStreamStateDO, workerEnv);
     // Always re-assign — workerEnv is a fresh object after hot reload
     workerEnv.USER_GATEWAY = cached.USER_GATEWAY;
     workerEnv.CHAT_STREAM_DO = cached.CHAT_STREAM_DO;
+    workerEnv.CHAT_STREAM_STATE_DO = cached.CHAT_STREAM_STATE_DO;
     workerEnv.GENERATION_PROXY = cached.GENERATION_PROXY;
     workerEnv.LOCKS_SERVICE = cached.LOCKS_SERVICE;
 }

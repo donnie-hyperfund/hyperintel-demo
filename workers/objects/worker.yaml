@@ -9,6 +9,11 @@ analytics_engine_datasets:
   - binding: STREAM_AE
     dataset: hyperintel_stream_metrics
 
+services:
+  - binding: CHAT_SERVICES
+    service: hi-services
+    entrypoint: ChatServices
+
 durable_objects:
   - name: USER_GATEWAY
     class_name: UserGateway
@@ -22,6 +27,9 @@ durable_objects:
   - name: LOCKS_SERVICE
     class_name: LocksService
     local: true
+  - name: CHAT_STREAM_STATE_DO
+    class_name: ChatStreamStateDO
+    script_name: hi-stream-state
 
 migrations:
   - tag: v1_initial

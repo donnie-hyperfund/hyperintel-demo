@@ -12,6 +12,7 @@ vi.mock('./artifact-approver', () => ({
 }));
 
 vi.mock('./phase-transition', () => ({
+    PHASE_TRANSITION_STREAM_TYPE: 'phase_transition',
     runPhaseTransition: vi.fn(),
 }));
 
@@ -60,6 +61,9 @@ function buildHarness({
         systemAction: vi.fn(async () => undefined),
         broadcastToAll: vi.fn(async () => undefined),
     };
+    const chatServices = {
+        systemAction: vi.fn(async () => undefined),
+    };
 
     const ctx = {
         em,
@@ -68,6 +72,10 @@ function buildHarness({
                 idFromName: vi.fn(() => 'ug-id'),
                 get: vi.fn(() => ugStub),
             },
+            CHAT_SERVICES: chatServices,
+            STREAM_AE: { writeDataPoint: vi.fn() },
+            WORKER_NAME: 'hi-chat-test',
+            WORKER_NAME_FULL: 'hi-chat-test',
         },
         user: { userId: 'user-1' },
         previewAlias: null,

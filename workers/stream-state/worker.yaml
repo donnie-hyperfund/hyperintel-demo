@@ -1,0 +1,16 @@
+# stream-state worker — hosts ChatStreamStateDO (reducer/snapshot persistence)
+name: hi-stream-state
+
+analytics_engine_datasets:
+  - binding: STREAM_AE
+    dataset: hyperintel_stream_metrics
+
+durable_objects:
+  - name: CHAT_STREAM_STATE_DO
+    class_name: ChatStreamStateDO
+    local: true
+
+migrations:
+  - tag: v1_initial
+    new_sqlite_classes:
+      - ChatStreamStateDO

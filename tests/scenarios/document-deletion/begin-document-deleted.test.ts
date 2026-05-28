@@ -12,7 +12,16 @@ import type { EntityManager } from '@mikro-orm/core';
 import type { DocumentInfo } from '@/workers/chat/src/tools/documents/document-service';
 import { DraftManager } from '@/workers/chat/src/tools/documents/draft-manager';
 import { createDocumentTools, type DocumentToolsContext } from '@/workers/chat/src/tools/documents/tools';
+import type { ILockService } from '@/workers/_common/util/locks';
 import { getToolResult } from '@/tests/helpers/tool-result';
+
+const testLockService: ILockService = {
+    acquire: (lockId, ttl) => {
+        const now = Date.now();
+        return { lockId, lease: 1, deadline: now + ttl * 1000, lastUsed: now };
+    },
+    release: () => true,
+};
 
 // -- mocks --------------------------------------------------------------------
 
@@ -68,6 +77,7 @@ function deletedDocInfo(overrides: Partial<DocumentInfo> = {}): DocumentInfo {
 function makeCtx(draftManager?: DraftManager): DocumentToolsContext {
     return {
         em: {} as EntityManager,
+        lockService: testLockService,
         projectId: 'proj-1',
         chatId: 'chat-1',
         draftManager: draftManager ?? new DraftManager(),
@@ -91,10 +101,9 @@ describe('begin_document create mode on deleted artifact', () => {
         mockFindDocumentByName.mockResolvedValue(deletedDocInfo());
         const ctx = makeCtx();
 
-        const result = getToolResult(await beginDocument.executor(
-            { mode: 'create', name: 'test-doc.md', document_type: 'Other' },
-            ctx,
-        ));
+        const result = getToolResult(
+            await beginDocument.executor({ mode: 'create', name: 'test-doc.md', document_type: 'Other' }, ctx),
+        );
 
         expect(result).not.toHaveProperty('error');
         expect(result).toHaveProperty('status', 'editing');
@@ -108,10 +117,9 @@ describe('begin_document create mode on deleted artifact', () => {
         mockFindDocumentByName.mockResolvedValue(makeDocInfo());
         const ctx = makeCtx();
 
-        const result = getToolResult(await beginDocument.executor(
-            { mode: 'create', name: 'test-doc.md', document_type: 'Other' },
-            ctx,
-        ));
+        const result = getToolResult(
+            await beginDocument.executor({ mode: 'create', name: 'test-doc.md', document_type: 'Other' }, ctx),
+        );
 
         expect(result).toHaveProperty('error');
         expect((result as any).error).toContain('already exists');
@@ -123,10 +131,9 @@ describe('begin_document create mode on new document', () => {
         mockFindDocumentByName.mockResolvedValue(null);
         const ctx = makeCtx();
 
-        const result = getToolResult(await beginDocument.executor(
-            { mode: 'create', name: 'new-doc.md', document_type: 'Other' },
-            ctx,
-        ));
+        const result = getToolResult(
+            await beginDocument.executor({ mode: 'create', name: 'new-doc.md', document_type: 'Other' }, ctx),
+        );
 
         expect(result).not.toHaveProperty('previouslyDeleted');
         expect(result).toHaveProperty('status', 'editing');
@@ -148,10 +155,9 @@ describe('begin_document edit mode on deleted artifact', () => {
         );
         const ctx = makeCtx();
 
-        const result = getToolResult(await beginDocument.executor(
-            { mode: 'edit', name: 'test-doc.md', document_type: 'Other' },
-            ctx,
-        ));
+        const result = getToolResult(
+            await beginDocument.executor({ mode: 'edit', name: 'test-doc.md', document_type: 'Other' }, ctx),
+        );
 
         expect(ctx.draftManager.getCurrent()?.content).toBe(content);
         expect(result).toHaveProperty('loadedFrom', 'deleted');
@@ -169,10 +175,9 @@ describe('begin_document edit mode on deleted artifact', () => {
         );
         const ctx = makeCtx();
 
-        const result = getToolResult(await beginDocument.executor(
-            { mode: 'edit', name: 'test-doc.md', document_type: 'Other' },
-            ctx,
-        ));
+        const result = getToolResult(
+            await beginDocument.executor({ mode: 'edit', name: 'test-doc.md', document_type: 'Other' }, ctx),
+        );
 
         expect(result).toHaveProperty('loadedFrom', 'proposed');
         expect(ctx.draftManager.getCurrent()?.content).toBe('# Proposed content');
@@ -188,10 +193,9 @@ describe('begin_document edit mode on deleted artifact', () => {
         );
         const ctx = makeCtx();
 
-        const result = getToolResult(await beginDocument.executor(
-            { mode: 'edit', name: 'test-doc.md', document_type: 'Other' },
-            ctx,
-        ));
+        const result = getToolResult(
+            await beginDocument.executor({ mode: 'edit', name: 'test-doc.md', document_type: 'Other' }, ctx),
+        );
 
         expect(result).toHaveProperty('loadedFrom', 'rejected');
         expect(ctx.draftManager.getCurrent()?.content).toBe('# Rejected content');
@@ -205,10 +209,9 @@ describe('begin_document edit mode on approved artifact', () => {
         mockFindDocumentByName.mockResolvedValue(makeDocInfo());
         const ctx = makeCtx();
 
-        const result = getToolResult(await beginDocument.executor(
-            { mode: 'edit', name: 'test-doc.md', document_type: 'Other' },
-            ctx,
-        ));
+        const result = getToolResult(
+            await beginDocument.executor({ mode: 'edit', name: 'test-doc.md', document_type: 'Other' }, ctx),
+        );
 
         expect(result).not.toHaveProperty('previouslyDeleted');
         expect(result).toHaveProperty('loadedFrom', 'approved');

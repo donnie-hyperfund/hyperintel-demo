@@ -21,7 +21,7 @@ import { ChatMessageFileEntity } from '@/lib/orm/entities/chats/chat-message-fil
 import type { StreamEvent } from '@/lib/schema/stream';
 import type { Ctx } from '../context';
 import { generateSignedImageUrls } from '../uploads/image-uploader';
-import type { ChatStreamDOStub, UserGatewayStub } from './do-stubs';
+import type { ChatStreamDOStub } from './do-stubs';
 import {
     buildStoredErrorMetadata,
     buildWorkerErrorLogContext,
@@ -399,24 +399,23 @@ export async function persistErrorMessage({
 }
 
 /**
- * Error epilogue: drain inflight pushes, push error event, done+finalize, clearStream.
+ * Error epilogue: drain inflight pushes, push error event, done+finalize.
+ * ChatStreamDO.finalize() owns stream mapping cleanup.
  * Shared by all three handlers' catch blocks.
  */
 export async function cleanupStreamDO({
     pusher,
     streamDO,
-    ugStub,
-    topic,
     error,
     errorMetadata,
 }: {
     pusher: Pusher;
     streamDO: ChatStreamDOStub;
-    ugStub: UserGatewayStub;
-    topic: string;
     error: any;
     errorMetadata?: StoredErrorMetadata;
 }) {
+    // ChatStreamDO.finalize() now clears its own UG mapping (guarded), so this
+    // post-error cleanup does not fire a separate mapping-clear action.
     try {
         await pusher.waitAll();
         const safeMetadata = errorMetadata ?? buildStoredErrorMetadata({ classification: classifyWorkerError(error) });
@@ -450,8 +449,6 @@ export async function cleanupStreamDO({
         });
     } catch {
         /* DO might already be gone */
-    } finally {
-        await ugStub.systemAction(topic, 'clearStream', {}).catch(() => {});
     }
 }
 

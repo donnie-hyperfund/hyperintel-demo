@@ -24,16 +24,26 @@ export class AsyncEventQueue<T> {
     /**
      * Process events from the queue sequentially.
      * Only one instance of this runs at a time.
+     *
+     * A throwing handler must never brick the queue: a single bad event is
+     * logged and skipped, and `isProcessing` is always reset so later pushes
+     * keep draining.
      */
     private async process(): Promise<void> {
         if (this.isProcessing) return;
         this.isProcessing = true;
 
-        while (this.queue.length > 0) {
-            const event = this.queue.shift()!;
-            await this.handler(event);
+        try {
+            while (this.queue.length > 0) {
+                const event = this.queue.shift()!;
+                try {
+                    await this.handler(event);
+                } catch (err) {
+                    console.error('[AsyncEventQueue] handler threw, skipping event', err);
+                }
+            }
+        } finally {
+            this.isProcessing = false;
         }
-
-        this.isProcessing = false;
     }
 }

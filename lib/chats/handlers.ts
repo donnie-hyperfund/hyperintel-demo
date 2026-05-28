@@ -298,8 +298,11 @@ export async function handleUpdateChatModel(req: NextRequest, chatId: string, us
 
     await em.flush();
 
-    workerSystemAction(user.clerkId!, `chat:${chatId}`, 'modelChanged', {
+    workerSystemAction({
+        action: 'modelChanged',
+        prefix: 'chat',
         identifier: chatId,
+        userId: user.clerkId!,
         model: parsed.model,
     });
 
