@@ -58,6 +58,11 @@ import {
     inferReasoningPromptMode,
 } from './utils/reasoning-visibility-guidance';
 import {
+    buildRemediationRunConfig,
+    REMEDIATION_PER_TOOL_LIMITS,
+    remediationPerToolLimitMessage,
+} from './utils/remediation-orchestration';
+import {
     createOnTurnComplete,
     finalizeStream,
     finalizeStreamWithoutDone,
@@ -672,6 +677,16 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                 buildServerToolsGuidance(effectiveReasoningPromptMode),
             );
 
+        const remediationRun = buildRemediationRunConfig(message);
+        const perToolCallLimitMessages = remediationRun
+            ? Object.fromEntries(
+                  Object.keys(REMEDIATION_PER_TOOL_LIMITS).map((tool) => [
+                      tool,
+                      remediationPerToolLimitMessage(tool, REMEDIATION_PER_TOOL_LIMITS[tool]!),
+                  ]),
+              )
+            : undefined;
+
         // Run the agent with streaming
         const { stream, historyPromise } = runAgentStream(
             agentCtx,
@@ -695,9 +710,13 @@ export async function runGeneration(params: GenerationParams): Promise<void> {
                 toolGroups,
                 terminalToolNames: ['start_phase_transition'],
                 config: {
-                    maxToolCalls: 100,
+                    maxToolCalls: remediationRun?.agentConfigOverrides.maxToolCalls ?? 100,
+                    toolLimitBehavior: remediationRun?.agentConfigOverrides.toolLimitBehavior,
+                    toolLimitWarningThreshold: remediationRun?.agentConfigOverrides.toolLimitWarningThreshold,
+                    perToolCallLimits: remediationRun?.agentConfigOverrides.perToolCallLimits,
+                    perToolCallLimitMessages,
                     getSystemPrompt: buildRunSystemPrompt,
-                    behavioralGuidance: [...CORE_BEHAVIORAL_GUIDANCE],
+                    behavioralGuidance: [...CORE_BEHAVIORAL_GUIDANCE, ...(remediationRun?.behavioralGuidance ?? [])],
                     statusUpdates: { enabled: true },
                     autoContinue: { enabled: true, maxContinuations: 3, nudgeOnEmpty: true },
                     preprocessContext,
